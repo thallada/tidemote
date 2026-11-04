@@ -577,7 +577,16 @@ body.dragging-card #bench-open, body.dragging-card .bench-pip, body.dragging-car
   position: absolute; left: 50%; bottom: calc(var(--bot) + 22px); transform: translate(-50%, 6px);
   max-width: min(620px, calc(100% - 2 * var(--gut))); text-align: center; pointer-events: none;
   opacity: 0; transition: opacity .8s ease, transform .8s ease;
-  padding: 10px 18px 11px; background: radial-gradient(ellipse at center, rgba(6, 9, 10, 0.78), rgba(6, 9, 10, 0.4) 70%, transparent);
+  padding: 10px 18px 11px;
+  /* the annotations' plate (src/noteview.js, PLATE): dark enough that a bright scene never fights the words, its
+     corners ticked */
+  --tick: rgba(150, 222, 230, 0.4);
+  background:
+    linear-gradient(var(--tick), var(--tick)) left top / 5px 1px no-repeat, linear-gradient(var(--tick), var(--tick)) left top / 1px 5px no-repeat,
+    linear-gradient(var(--tick), var(--tick)) right top / 5px 1px no-repeat, linear-gradient(var(--tick), var(--tick)) right top / 1px 5px no-repeat,
+    linear-gradient(var(--tick), var(--tick)) left bottom / 5px 1px no-repeat, linear-gradient(var(--tick), var(--tick)) left bottom / 1px 5px no-repeat,
+    linear-gradient(var(--tick), var(--tick)) right bottom / 5px 1px no-repeat, linear-gradient(var(--tick), var(--tick)) right bottom / 1px 5px no-repeat,
+    rgba(4, 7, 8, 0.8);
 }
 .caption.on { opacity: 1; transform: translate(-50%, 0); }
 .caption .cap-eye { color: var(--hot); font-size: 11px; letter-spacing: .24em; text-transform: uppercase; font-weight: 500; font-stretch: 115%; }
@@ -29901,6 +29910,7 @@ ${e.message}` : String(e?.message || e));
   };
 
   // src/notes.js
+  var HUSK2 = 2;
   var NONE2 = 4294967295;
   var EV = Object.fromEntries(NOTE_EV.map((n, i) => [n, i]).filter(([n]) => n));
   var TUNE = {
@@ -29928,8 +29938,27 @@ ${e.message}` : String(e?.message || e));
     // before the same story again
     fast: 4,
     // past this speed, single moments are too quick to follow: only what holds for a while
-    window: 30
+    window: 30,
     // sim seconds counted for "in the last 30 s"
+    settle: 0.8,
+    // a new note waits until the camera has held still this long (and leaves when it flies on)
+    hold: 0.7,
+    // and until its story has held this long (a single moment: is still in view, well inside it)
+    grace: 0.6,
+    // a note whose cell has left the view (or whose label has no room) goes after this long
+    minLife: 2.5,
+    // otherwise a note, once shown, stays at least this long
+    ahead: 5,
+    // a new note waits for a shot with this long still to run (a single moment: aheadOne)
+    aheadOne: 3,
+    variety: 120,
+    // a kind of story shown in the last this many seconds counts against another of its kind
+    body: 6,
+    // cells bonded into one organism worth telling
+    swim: 0.5,
+    // body lengths a second from which a body is told swimming
+    current: 0.05
+    // world units a second from which the water's current is told
   };
   function half(h) {
     const s = h & 32768 ? -1 : 1, e = h >> 10 & 31, m = h & 1023;
@@ -30033,7 +30062,7 @@ ${e.message}` : String(e?.message || e));
     return { count, events };
   }
   var isLiving = (k) => k >= FIRST_LIFE;
-  var WATER_TYPES = /* @__PURE__ */ new Set(["heat", "cold", "drying"]);
+  var WATER_TYPES = /* @__PURE__ */ new Set(["heat", "cold", "drying", "current"]);
   var Notes = class {
     /**
      * species(slot) -> { name, guild ('producer' | 'grazer' | 'predator' | 'scavenger'), topt, tol, serial, col } | null
@@ -30056,6 +30085,9 @@ ${e.message}` : String(e?.message || e));
       this.typeAt = /* @__PURE__ */ new Map();
       this.keyAt = /* @__PURE__ */ new Map();
       this.watched = /* @__PURE__ */ new Map();
+      this.firstSeen = /* @__PURE__ */ new Map();
+      this.shownAt = [];
+      this.history = [];
       this.spCache = /* @__PURE__ */ new Map();
       this.cands = [];
       this.stats = null;
@@ -30121,7 +30153,7 @@ ${e.message}` : String(e?.message || e));
     wantWatch(max = 12) {
       const out = [];
       for (const n of this.notes) {
-        for (const id of n.track || []) {
+        for (const id of [...n.track || [], ...n.pins || []]) {
           if (out.length >= max || out.some((c2) => c2.id === id)) continue;
           const c = this.cell(id);
           if (c && (c.kind === -1 || isLiving(c.kind))) out.push({ id, x: c.x, y: c.y, vx: c.vx, vy: c.vy, t: c.t });
@@ -30144,8 +30176,10 @@ ${e.message}` : String(e?.message || e));
     _stats() {
       const v = this.view, by = /* @__PURE__ */ new Map();
       let living = 0, torpid = 0;
+      const husks = [];
       for (let i = 0; i < v.n; i++) {
         const k = v.kind[i];
+        if (k === HUSK2) husks.push(i);
         if (!isLiving(k)) continue;
         living++;
         let s = by.get(k);
@@ -30167,7 +30201,7 @@ ${e.message}` : String(e?.message || e));
         }
       }
       const scale = v.keep > 0 ? 1 / v.keep : 1;
-      return { by, living, torpid, scale };
+      return { by, living, torpid, scale, husks };
     }
     // the water across the view: mean, warmest and coldest of its squares, the share iced
     _water() {
@@ -30189,10 +30223,15 @@ ${e.message}` : String(e?.message || e));
     }
     /**
      * Each frame. ctx: { now (real seconds), speed (sim seconds a real second), ppu (CSS px a world unit), phone,
-     * visible(x, y) whether a world point shows clear of the panels }. Returns the notes to draw.
+     * visible(x, y) whether a world point shows clear of the panels, inner(x, y) whether it lies well inside them,
+     * still (seconds the camera has held still), leaving (the camera is setting off elsewhere), flow(x, y) the water's
+     * current there (world units a second) }. Returns the notes to draw.
      */
     update(ctx) {
       this._now = ctx.now;
+      ctx.inner ||= ctx.visible;
+      ctx.still ??= 1e9;
+      ctx.ahead ??= Infinity;
       if (this.fresh && this.view) {
         this.fresh = false;
         this.stats = this._stats();
@@ -30201,6 +30240,9 @@ ${e.message}` : String(e?.message || e));
           const t0 = performance.now();
           this.detectAt = ctx.now;
           this.cands = this.detect(ctx);
+          const keys = new Set(this.cands.map((c) => c.key));
+          for (const k of keys) if (!this.firstSeen.has(k)) this.firstSeen.set(k, ctx.now);
+          for (const k of this.firstSeen.keys()) if (!keys.has(k)) this.firstSeen.delete(k);
           this.ms.detect += performance.now() - t0;
         }
       }
@@ -30228,6 +30270,7 @@ ${e.message}` : String(e?.message || e));
         tally(`${e.ev}:${e.kind}`);
         if (e.t >= t2 - 20) tally(`${e.ev}20:${e.kind}`);
         if (e.ev === "kill" || e.ev === "scavenge") tally(`${e.ev}by:${e.akind}`);
+        if (e.ev === "kill" && e.akind !== e.kind && isLiving(e.akind)) tally(`kp:${e.akind}>${e.kind}`);
         tally(e.ev);
         if (e.t >= t2 - 8) recent.push(e);
         if ((e.ev === "bite" || e.ev === "grazed") && band !== "wide") {
@@ -30336,7 +30379,7 @@ ${e.message}` : String(e?.message || e));
       }
       for (const s of S.by.values()) {
         const scalds = count(`scalded:${s.kind}`);
-        if (scalds < 3 && !(s.hot >= 5 && s.hot >= 0.25 * s.n) || !name(s.kind)) continue;
+        if (!(scalds >= 3 && s.hot >= 0.2 * s.n || s.hot >= 8 && s.hot >= 0.4 * s.n) || !name(s.kind)) continue;
         const hot = this._hotCells(this.sp(s.kind));
         let fine = null;
         if (band !== "wide") for (const o of S.by.values()) {
@@ -30348,7 +30391,7 @@ ${e.message}` : String(e?.message || e));
         out.push({
           type: "heat",
           key: `heat:${s.kind}`,
-          prio: 0.85,
+          prio: 0.6,
           strength: s.hot / s.n * 10 + 2 * scalds,
           kind: s.kind,
           hot: Math.round(s.hot * S.scale),
@@ -30370,7 +30413,7 @@ ${e.message}` : String(e?.message || e));
         out.push({
           type: "cold",
           key: "cold",
-          prio: 0.78,
+          prio: 0.66,
           strength: S.torpid + froze,
           torpid: S.torpid,
           living: S.living,
@@ -30392,8 +30435,245 @@ ${e.message}` : String(e?.message || e));
         }
         out.push({ type: "drying", key: "drying", prio: 0.7, strength: dried, count: dried, kind: most });
       }
+      if (band !== "wide") {
+        let big = null, fastest = null;
+        for (const b of this._bodies()) {
+          if (!name(b.kind) || !ctx.inner(b.ax, b.ay)) continue;
+          if (b.n >= this.T.body && (!big || b.n > big.n)) big = b;
+          if (b.n >= 3 && b.lengths >= this.T.swim && (!fastest || b.lengths > fastest.lengths)) fastest = b;
+        }
+        const bodyOf2 = (b, type, prio) => ({
+          type,
+          key: `${type}:${b.key}`,
+          prio,
+          strength: type === "swim" ? b.lengths * 4 : b.n,
+          kind: b.kind,
+          members: b.ids,
+          cells: b.n,
+          size: b.size,
+          form: b.form,
+          speed: b.speed,
+          lengths: b.lengths,
+          heading: b.heading,
+          anchor: b.anchor,
+          track: [b.anchor]
+        });
+        if (fastest) out.push(bodyOf2(fastest, "swim", 0.58));
+        if (big && big !== fastest) out.push(bodyOf2(big, "body", 0.5));
+        if (close && !fast) {
+          const st = this._stalk(ctx);
+          if (st) out.push({ type: "stalk", key: `stalk:${st.actor}`, prio: 0.7, strength: 1 / Math.max(st.dist, 0.05), ...st, track: [st.actor, st.target] });
+        }
+        const edges = /* @__PURE__ */ new Map();
+        for (const p of pairs.values()) if (p.n >= 2 && name(p.akind) && name(p.kind)) edges.set(`${p.akind}>${p.kind}`, { from: p.kind, to: p.akind, bites: p.n, kills: 0 });
+        for (const [k, c] of n) {
+          if (!k.startsWith("kp:")) continue;
+          const [a, b] = k.slice(3).split(">").map(Number);
+          if (!name(a) || !name(b)) continue;
+          const e = edges.get(`${a}>${b}`) || { from: b, to: a, bites: 0, kills: 0 };
+          e.kills = c;
+          edges.set(`${a}>${b}`, e);
+        }
+        const nodes = /* @__PURE__ */ new Set();
+        for (const e of edges.values()) {
+          nodes.add(e.from);
+          nodes.add(e.to);
+        }
+        if (edges.size >= 3 && nodes.size >= 3 && !ctx.phone) {
+          const list = [...edges.values()].sort((a, b) => b.bites + 4 * b.kills - a.bites - 4 * a.kills).slice(0, 8);
+          const ks = new Set(list.flatMap((e) => [e.from, e.to]));
+          out.push({
+            type: "web",
+            key: "web",
+            prio: 0.52,
+            strength: list.length,
+            edges: list,
+            nodes: [...ks].map((k) => ({ kind: k, n: Math.round((S.by.get(k)?.n || 0) * S.scale) }))
+          });
+        }
+        const CAUSES = ["kill", "grazed", "starved", "old", "scalded", "froze", "dried"];
+        let bal = null;
+        for (const s of S.by.values()) {
+          if (s.n < 6 || !name(s.kind)) continue;
+          const born = count(`birth:${s.kind}`), died = Object.fromEntries(CAUSES.map((c) => [c, count(`${c}:${s.kind}`)]));
+          const dead = CAUSES.reduce((a, c) => a + died[c], 0);
+          if (born + dead >= 12 && (!bal || born + dead > bal.born + bal.dead)) bal = { kind: s.kind, born, dead, died };
+        }
+        if (bal) out.push({ type: "balance", key: `bal:${bal.kind}`, prio: 0.44, strength: bal.born + bal.dead, ...bal, census: bal.kind });
+        const genera = /* @__PURE__ */ new Map();
+        for (const s of S.by.values()) {
+          const g = this.sp(s.kind);
+          if (!g || g.genus == null || s.n < 2) continue;
+          let a = genera.get(g.genus);
+          if (!a) genera.set(g.genus, a = []);
+          a.push(s.kind);
+        }
+        let gen = null;
+        for (const [g, ks] of genera) if (ks.length >= 3 && (!gen || ks.length > gen.kinds.length)) gen = { genus: g, kinds: ks };
+        if (gen) {
+          gen.kinds.sort((a, b) => S.by.get(b).n - S.by.get(a).n);
+          out.push({
+            type: "genus",
+            key: `genus:${gen.genus}`,
+            prio: 0.4,
+            strength: gen.kinds.length,
+            genus: gen.genus,
+            kinds: gen.kinds.slice(0, 4),
+            species: gen.kinds.length,
+            genusName: this.sp(gen.kinds[0]).genusName
+          });
+        }
+        for (const s of S.by.values()) {
+          const o = count(`old20:${s.kind}`);
+          if (o >= 3 && name(s.kind)) out.push({ type: "old", key: `old:${s.kind}`, prio: 0.38, strength: o, kind: s.kind, count: o });
+        }
+      }
+      const rot = count("rot");
+      if (rot >= 12 && S.husks.length >= 10) out.push({ type: "rot", key: "rot", prio: 0.32, strength: rot, count: rot, husks: Math.round(S.husks.length * S.scale), sparks: count("spark") });
+      if (ctx.flow) {
+        const r = v.rect;
+        let fx = 0, fy = 0;
+        for (let a = 0; a < 4; a++) for (let b = 0; b < 4; b++) {
+          const f2 = ctx.flow(r[0] + (a + 0.5) * r[2] / 4, r[1] + (b + 0.5) * r[3] / 4);
+          fx += f2[0] / 16;
+          fy += f2[1] / 16;
+        }
+        const sp = Math.hypot(fx, fy);
+        if (sp >= this.T.current) out.push({ type: "current", key: "current", prio: 0.3, strength: sp * 20, speed: sp, heading: Math.atan2(fy, fx) });
+      }
       for (const c of out) c.band = band;
       return out;
+    }
+    // The view's organisms: cells joined by their bonds (each cell's two bonded partners, of its own kind, as the view
+    // read them), as { kind, ids, n, anchor (the member nearest its middle), its place (ax, ay), size (world units across),
+    // form, speed (world units a second), lengths (body lengths a second), heading, key }, kept by key from look to look
+    // (a body keeps its key while it keeps any of its cells). Once a look.
+    _bodies() {
+      const v = this.view;
+      if (this._bodyView === v) return this._bodyList;
+      const [W, H2] = this.world(), parent = new Int32Array(v.n).fill(-1);
+      const find = (i) => {
+        while (parent[i] >= 0 && parent[parent[i]] >= 0) i = parent[i] = parent[parent[i]];
+        return parent[i] >= 0 ? parent[i] : i;
+      };
+      for (let i = 0; i < v.n; i++) {
+        if (!isLiving(v.kind[i])) continue;
+        for (const pid of [v.p1[i], v.p2[i]]) {
+          if (pid === NONE2) continue;
+          const j = v.at.get(pid);
+          if (j === void 0 || v.kind[j] !== v.kind[i]) continue;
+          const a = find(i), b = find(j);
+          if (a !== b) parent[Math.max(a, b)] = Math.min(a, b);
+        }
+      }
+      const groups = /* @__PURE__ */ new Map();
+      for (let i = 0; i < v.n; i++) {
+        if (!isLiving(v.kind[i]) || parent[i] < 0 && v.p1[i] === NONE2 && v.p2[i] === NONE2) continue;
+        const r = find(i);
+        let gr = groups.get(r);
+        if (!gr) groups.set(r, gr = []);
+        gr.push(i);
+      }
+      const prev = this._bodyKeys || /* @__PURE__ */ new Map(), keys = /* @__PURE__ */ new Map(), list = [];
+      for (const rows of groups.values()) {
+        if (rows.length < 3) continue;
+        const x0 = v.x[rows[0]], y0 = v.y[rows[0]];
+        let mx = 0, my = 0, vx = 0, vy = 0;
+        const dx = rows.map((i) => {
+          const d = v.x[i] - x0;
+          return d - W * Math.round(d / W);
+        }), dy = rows.map((i) => {
+          const d = v.y[i] - y0;
+          return d - H2 * Math.round(d / H2);
+        });
+        for (let k = 0; k < rows.length; k++) {
+          mx += dx[k];
+          my += dy[k];
+          vx += v.vx[rows[k]];
+          vy += v.vy[rows[k]];
+        }
+        const n = rows.length;
+        mx /= n;
+        my /= n;
+        vx /= n;
+        vy /= n;
+        let sxx = 0, syy = 0, sxy = 0, far = 0, anchor = rows[0], near = Infinity;
+        for (let k = 0; k < n; k++) {
+          const ex = dx[k] - mx, ey = dy[k] - my, d = ex * ex + ey * ey;
+          sxx += ex * ex;
+          syy += ey * ey;
+          sxy += ex * ey;
+          far = Math.max(far, d);
+          if (d < near) {
+            near = d;
+            anchor = rows[k];
+          }
+        }
+        const tr = (sxx + syy) / n, det = (sxx * syy - sxy * sxy) / (n * n), disc2 = Math.sqrt(Math.max(0, tr * tr / 4 - det));
+        const l1 = tr / 2 + disc2, l2 = Math.max(tr / 2 - disc2, 1e-9), elong = Math.sqrt(l1 / l2);
+        const size = 2 * Math.sqrt(far), speed = Math.hypot(vx, vy);
+        const ids = rows.map((i) => v.id[i]);
+        let key = null, best = 0;
+        for (const [k, set] of prev) {
+          let c = 0;
+          for (const id of ids) if (set.has(id)) c++;
+          if (c > best) {
+            best = c;
+            key = k;
+          }
+        }
+        if (key == null || keys.has(key)) key = `${v.kind[rows[0]]}.${Math.min(...ids)}`;
+        keys.set(key, new Set(ids));
+        list.push({
+          kind: v.kind[rows[0]],
+          ids,
+          n,
+          anchor: v.id[anchor],
+          ax: v.x[anchor],
+          ay: v.y[anchor],
+          size,
+          speed,
+          lengths: speed / Math.max(size, 0.05),
+          heading: Math.atan2(vy, vx),
+          key,
+          form: elong >= 3.5 ? "filament" : n >= 20 && elong < 1.8 ? "mat" : n >= 8 ? "colony" : "cluster"
+        });
+      }
+      this._bodyKeys = keys;
+      this._bodyView = v;
+      this._bodyList = list;
+      return list;
+    }
+    // the nearest hunter closing on a cell of the species it last ate: within reach, moving toward it
+    _stalk(ctx) {
+      const v = this.view, [W, H2] = this.world(), grid2 = /* @__PURE__ */ new Map(), R2 = 1.5;
+      for (let i = 0; i < v.n; i++) {
+        if (!isLiving(v.kind[i]) || v.cause[i] === CYST) continue;
+        const k = Math.floor(v.x[i] / R2) * 65536 + Math.floor(v.y[i] / R2);
+        let a = grid2.get(k);
+        if (!a) grid2.set(k, a = []);
+        a.push(i);
+      }
+      let best = null;
+      for (let i = 0; i < v.n; i++) {
+        const k = v.kind[i], img = v.img[i], sp = Math.hypot(v.vx[i], v.vy[i]);
+        if (!isLiving(k) || !isLiving(img) || img === k || sp < 0.02 || this.sp(k)?.guild !== "predator" || !this.sp(img)) continue;
+        if (!ctx.inner(v.x[i], v.y[i])) continue;
+        const cx = Math.floor(v.x[i] / R2), cy = Math.floor(v.y[i] / R2);
+        for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+          const gx = ((cx + a) % Math.ceil(W / R2) + Math.ceil(W / R2)) % Math.ceil(W / R2), gy = ((cy + b) % Math.ceil(H2 / R2) + Math.ceil(H2 / R2)) % Math.ceil(H2 / R2);
+          for (const j of grid2.get(gx * 65536 + gy) || []) {
+            if (v.kind[j] !== img) continue;
+            let dx = v.x[j] - v.x[i], dy = v.y[j] - v.y[i];
+            dx -= W * Math.round(dx / W);
+            dy -= H2 * Math.round(dy / H2);
+            const d = Math.hypot(dx, dy);
+            if (d > R2 || d < 1e-4 || (v.vx[i] * dx + v.vy[i] * dy) / (sp * d) < 0.7) continue;
+            if (!best || d < best.dist) best = { actor: v.id[i], target: v.id[j], akind: k, kind: img, dist: d, speed: sp };
+          }
+        }
+      }
+      return best;
     }
     // the squares of the view whose water lies past 0.8 of species g's tolerance above its optimum
     _hotCells(g) {
@@ -30441,12 +30721,17 @@ ${e.message}` : String(e?.message || e));
     schedule(ctx) {
       const T = this.T, now = ctx.now, wide = ctx.ppu < T.wide;
       const maxOn = wide ? 1 : ctx.phone ? T.maxOnPhone : T.maxOn;
+      const tooWide = ctx.ppu < T.wide * 0.75;
       const byKey = new Map(this.cands.map((c) => [c.key, c]));
       let live = 0;
       for (const n of [...this.notes].reverse()) {
         if (n.exitAt != null) continue;
-        if (wide && !WATER_TYPES.has(n.type) || ++live > maxOn) {
-          this._exit(n, now);
+        if (ctx.leaving) {
+          this._exit(n, now, "camera");
+          continue;
+        }
+        if (tooWide && !WATER_TYPES.has(n.type) || ++live > (tooWide ? 1 : maxOn)) {
+          this._exit(n, now, "zoom");
           continue;
         }
         const c = byKey.get(n.key);
@@ -30457,29 +30742,45 @@ ${e.message}` : String(e?.message || e));
           n.lastHeld = now;
         }
         const held = c || now - n.lastHeld < 1.5;
-        const marked = this._marked(n, ctx);
-        if (!marked || !held && age > T.dwell || age > (n.data.one ? T.lifeOne : T.life)) this._exit(n, now);
+        if (this._marked(n, ctx)) n.lostAt = null;
+        else n.lostAt ??= now;
+        const lost = n.lostAt != null && now - n.lostAt > T.grace;
+        const hidden = n.hiddenAt != null && now - n.hiddenAt > T.grace;
+        if (lost || hidden || !held && age > Math.max(T.dwell, T.minLife) || age > (n.data.one ? T.lifeOne : T.life)) this._exit(n, now, lost ? "lost" : hidden ? "hidden" : "done");
       }
       this.notes = this.notes.filter((n) => n.exitAt == null || now - n.exitAt < T.exit);
       const on = this.notes.filter((n) => n.exitAt == null);
-      if (now - this.lastArrive < T.gap) return;
+      if (now - this.lastArrive < T.gap || ctx.leaving || ctx.still < T.settle) return;
       const fast = ctx.speed > T.fast;
-      const score = (c) => c.prio * (1 + 0.12 * Math.log1p(c.strength || 0));
-      const pick3 = this.cands.filter((c) => !(fast && c.one) && !on.some((n) => n.key === c.key || this._clash(n.data, c)) && now - (this.keyAt.get(c.key) ?? -1e9) > T.keyCool && now - (this.typeAt.get(c.type) ?? -1e9) > T.typeCool && this._marked({ data: c }, ctx)).sort((a, b) => score(b) - score(a))[0];
+      while (this.shownAt.length && now - this.shownAt[0][1] > T.variety) this.shownAt.shift();
+      const score = (c) => c.prio * (1 + 0.12 * Math.log1p(c.strength || 0)) / (1 + 0.5 * this.shownAt.filter(([t2]) => t2 === c.type).length);
+      const inner = (c) => {
+        if (!this._marked({ data: c, pins: c.anchor != null ? [c.anchor] : [] }, { ...ctx, visible: ctx.inner })) return false;
+        const ahead = 2 * Math.max(ctx.speed, 0.25);
+        for (const id of [c.actor, c.target, c.anchor]) {
+          const p = id != null && id !== NONE2 ? this.cell(id) : null;
+          if (p && !ctx.visible(p.x + p.vx * ahead, p.y + p.vy * ahead)) return false;
+        }
+        return true;
+      };
+      const pick3 = this.cands.filter((c) => !(fast && c.one) && !on.some((n) => n.key === c.key || this._clash(n.data, c)) && now - (this.keyAt.get(c.key) ?? -1e9) > T.keyCool && now - (this.typeAt.get(c.type) ?? -1e9) > T.typeCool && (c.one || now - (this.firstSeen.get(c.key) ?? now) >= T.hold) && ctx.ahead >= (c.one ? T.aheadOne : T.ahead) && inner(c)).sort((a, b) => score(b) - score(a))[0];
       if (!pick3) return;
       if (on.length >= maxOn) {
         const weak = on.filter((n) => now - n.born > T.dwell).sort((a, b) => score(a.data) - score(b.data))[0];
         if (!weak || score(pick3) < score(weak.data) + 0.3) return;
-        this._exit(weak, now);
+        this._exit(weak, now, "replaced");
       }
-      this.notes.push({ id: ++this.seq, type: pick3.type, key: pick3.key, born: now, lastHeld: now, exitAt: null, data: { ...pick3 }, track: pick3.track || [] });
+      this.notes.push({ id: ++this.seq, type: pick3.type, key: pick3.key, born: now, lastHeld: now, exitAt: null, data: { ...pick3 }, track: pick3.track || [], pins: [] });
       this.lastArrive = now;
       this.keyAt.set(pick3.key, now);
       this.typeAt.set(pick3.type, now);
+      this.shownAt.push([pick3.type, now]);
     }
-    _exit(n, now) {
+    _exit(n, now, why = "") {
       n.exitAt = now;
       this.keyAt.set(n.key, now);
+      this.history.push([n.type, now - n.born, why]);
+      if (this.history.length > 500) this.history.shift();
     }
     // two notes that would mark the same cells or the same species' census
     _clash(a, b) {
@@ -30487,15 +30788,17 @@ ${e.message}` : String(e?.message || e));
       for (const id of b.track || []) if ((a.track || []).includes(id)) return true;
       return (a.type === "heat" || a.type === "cold") && (b.type === "heat" || b.type === "cold");
     }
-    // whether what a note points at still shows: its cells in view and clear of the panels
+    // whether what a note points at still shows: its cells (and the cells its labels hang on) in view and clear of the
+    // panels, its species still in view
     _marked(n, ctx) {
       const d = n.data;
-      for (const id of [d.actor, d.target]) {
+      for (const id of [d.actor, d.target, ...n.track || d.track || [], ...n.pins || []]) {
         if (id == null || id === NONE2) continue;
         const c = this.cell(id);
         if (!c || !ctx.visible(c.x, c.y)) return false;
       }
       if (d.census != null) return !!this.stats?.by.get(d.census);
+      if (d.kind != null && d.kind >= 0 && (d.type === "heat" || d.type === "bloom" || d.type === "dormant" || d.type === "waking" || d.type === "body" || d.type === "swim")) return !!this.stats?.by.get(d.kind);
       return true;
     }
     /** The rows of species k's cells in the view (all, or only those dormant, torpid or too warm). */
@@ -30514,7 +30817,17 @@ ${e.message}` : String(e?.message || e));
     debug() {
       const drawn = this.ms.drawn;
       this.ms.drawn = {};
-      return { drawn, lost: this.lost, biteKeep: this.biteKeep, ms: Object.fromEntries(Object.entries(this.ms).filter(([k]) => k !== "drawn").map(([k, v]) => [k, typeof v === "number" ? Math.round(v) : Object.fromEntries(Object.entries(v).map(([a, b]) => [a, Math.round(b)]))])), cells: this.view?.n ?? 0, inView: this.view?.inView ?? 0, events: this.events.length, cands: this.cands.map((c) => c.key), notes: this.notes.map((n) => `${n.key}${n.exitAt != null ? "(out)" : ""}`) };
+      const by = {};
+      for (const [t2, life, why] of this.history) {
+        const b = by[t2] ||= { n: 0, brief: 0, secs: 0 };
+        b.n++;
+        b.secs = Math.round(b.secs + life);
+        if (life < 2.5) {
+          b.brief++;
+          b[why] = (b[why] || 0) + 1;
+        }
+      }
+      return { shown: by, drawn, lost: this.lost, biteKeep: this.biteKeep, ms: Object.fromEntries(Object.entries(this.ms).filter(([k]) => k !== "drawn").map(([k, v]) => [k, typeof v === "number" ? Math.round(v) : Object.fromEntries(Object.entries(v).map(([a, b]) => [a, Math.round(b)]))])), cells: this.view?.n ?? 0, inView: this.view?.inView ?? 0, events: this.events.length, cands: this.cands.map((c) => c.key), notes: this.notes.map((n) => `${n.key}${n.exitAt != null ? "(out)" : ""}`) };
     }
   };
 
@@ -30597,7 +30910,7 @@ ${e.message}` : String(e?.message || e));
   var CYAN = "127,214,223";
   var SHADE = "rgba(4,7,8,0.85)";
   var HALO = "rgba(0,0,0,0.55)";
-  var PLATE = "rgba(4,7,8,0.42)";
+  var PLATE = "rgba(4,7,8,0.8)";
   var rgba2 = (c, a) => `rgba(${c},${a})`;
   var SCRAMBLE = "0123456789ABCDEFHKLMNPRSTVXZ/·-";
   var TAU3 = Math.PI * 2;
@@ -30649,8 +30962,9 @@ ${e.message}` : String(e?.message || e));
     const notesAt = /* @__PURE__ */ new Map();
     const lay = /* @__PURE__ */ new Map();
     const marks = /* @__PURE__ */ new Map();
-    const rosterSt = { at: -1e9, rows: [] };
+    const rosterSt = { at: -1e9, rows: [] }, modeSt = {};
     let A = null, owner = "", ref = null, stats = null;
+    let lastLabels = [], nextLabels = [];
     if (typeof document !== "undefined") document.fonts?.addEventListener?.("loadingdone", () => widths.clear());
     let cur = null;
     function setType(k) {
@@ -31031,18 +31345,19 @@ ${e.message}` : String(e?.message || e));
       g.stroke();
     }
     const norm = (L) => L.normed ? L : { ...L, eye: L.eye && L.eye.toUpperCase(), tag: L.tag && L.tag.toUpperCase(), normed: true };
-    const RANGE_W = 120;
+    const RANGE_W = 120, SPLIT_W = 170;
     function labelSize(L) {
       L = norm(L);
       const head = (L.eye ? width("eye", L.eye) : 0) + (L.tag ? width("tag", L.tag) + 10 + (L.eye ? 8 : 0) : 0);
       const row = (L.num ? width("num", L.num) + 8 : 0) + (L.main ? width("main", L.main) : 0);
       const data = Math.max(0, ...(L.data || []).map((d) => width("data", d)));
-      const w = Math.max(head, row, data, L.range ? RANGE_W + 8 : 0);
+      const w = Math.max(head, row, data, L.range ? RANGE_W + 8 : 0, L.split ? SPLIT_W : 0);
       let h = 0;
       if (L.eye || L.tag) h += 13;
       if (L.num || L.main) h += (L.num ? 24 : 15) + 4;
       h += (L.data || []).length * 14;
       if (L.range) h += 42;
+      if (L.split) h += 24;
       return { w, h: h + 4 };
     }
     function label3(L, x, y, dir, t2) {
@@ -31050,8 +31365,23 @@ ${e.message}` : String(e?.message || e));
       const { w, h } = labelSize(L), tone = L.tone || INK4;
       const X = (dx) => dir > 0 ? x + dx : x - dx;
       const al = dir > 0 ? "left" : "right";
+      const pl = dir > 0 ? x - 6 : x - w - 6, pr = pl + w + 12, pt = y - 14, pb = y + h, a0 = g.globalAlpha;
+      if (!reduced && t2 < 0.2) {
+        if (t2 <= -0.1) return { w, h };
+        g.globalAlpha = a0 * clamp9((t2 + 0.1) / 0.3, 0, 1);
+      }
       g.fillStyle = PLATE;
-      g.fillRect(dir > 0 ? x - 6 : x - w - 6, y - 14, w + 12, h + 14);
+      g.fillRect(pl, pt, pr - pl, pb - pt);
+      g.lineWidth = 1;
+      g.strokeStyle = rgba2(LINE, 0.4);
+      g.beginPath();
+      for (const [cx, cy, dx, dy] of [[pl, pt, 1, 1], [pr, pt, -1, 1], [pl, pb, 1, -1], [pr, pb, -1, -1]]) {
+        g.moveTo(cx + 0.5 * dx, cy + 5 * dy);
+        g.lineTo(cx + 0.5 * dx, cy + 0.5 * dy);
+        g.lineTo(cx + 5 * dx, cy + 0.5 * dy);
+      }
+      g.stroke();
+      g.globalAlpha = a0;
       let yy = y;
       if (L.eye || L.tag) {
         let ox = 0;
@@ -31085,6 +31415,11 @@ ${e.message}` : String(e?.message || e));
         yy += 22;
         range(L.range, dir > 0 ? x : x - RANGE_W, yy, t2 - 0.25);
         yy += 20;
+      }
+      if (L.split) {
+        yy += 12;
+        split(L.split, dir > 0 ? x : x - SPLIT_W, yy, t2 - 0.25);
+        yy += 12;
       }
       return { w, h: yy - y };
     }
@@ -31127,6 +31462,26 @@ ${e.message}` : String(e?.message || e));
       text2("micro", sh, xh, y + 18, rgba2(INK32, 1), "center");
       const sv = `${R2.v.toFixed(1)}°`, wv = width("micro", sv);
       text2("micro", sv, clamp9(f2(R2.v), x0 - 4 + wv / 2, x0 + bw + 4 - wv / 2), y - 7, rgba2(out ? HOT : INK4, 1), "center");
+      g.globalAlpha = a;
+    }
+    function split(B, x0, y, t2) {
+      if (t2 < 0 && !reduced) return;
+      const a = g.globalAlpha, u = reduced ? 1 : ease3(t2 / 0.5), mid = x0 + SPLIT_W / 2, half2 = SPLIT_W / 2 - 34;
+      const dead = B.deaths.reduce((s2, d) => s2 + d[1], 0), k = half2 / Math.max(1, B.born, dead) * u;
+      g.globalAlpha = a * (reduced ? 1 : clamp9(t2 / 0.3, 0, 1));
+      g.fillStyle = rgba2(CYAN, 0.75);
+      g.fillRect(mid + 1, y - 3, B.born * k, 6);
+      let xx = mid - 1;
+      B.deaths.forEach(([, c, tone], i) => {
+        const w = c * k;
+        g.fillStyle = rgba2(tone, i % 2 ? 0.7 : 0.95);
+        g.fillRect(xx - w, y - 3, Math.max(0, w - 1), 6);
+        xx -= w;
+      });
+      g.fillStyle = rgba2(INK4, 0.9);
+      g.fillRect(mid - 0.5, y - 6, 1, 12);
+      text2("micro", `−${dead}`, mid - half2 - 4, y + 4, rgba2(HOT, 1), "right");
+      text2("micro", `+${B.born}`, mid + half2 + 4, y + 4, rgba2(CYAN, 1), "left");
       g.globalAlpha = a;
     }
     function gauge(x, y, G, t2) {
@@ -31515,6 +31870,156 @@ ${e.message}` : String(e?.message || e));
       if (A && top) A.point("zone", owner, top[0], top[1]);
     }
     const up = (s) => (s || "").toUpperCase();
+    const compass2 = (an) => ["E", "SE", "S", "SW", "W", "NW", "N", "NE"][(Math.round(an / (Math.PI / 4)) % 8 + 8) % 8];
+    const short = (name) => {
+      const w = up(name).split(" ");
+      return w.length > 1 ? `${w[0][0]}. ${w.slice(1).join(" ")}` : w[0];
+    };
+    function targetBox(pts, tone, t2, measure2) {
+      let l = Infinity, tp = Infinity, r = -Infinity, b = -Infinity;
+      for (const p of pts) if (p[3] > 0.5) {
+        l = Math.min(l, p[0]);
+        r = Math.max(r, p[0]);
+        tp = Math.min(tp, p[1]);
+        b = Math.max(b, p[1]);
+      }
+      if (!(r > l)) return null;
+      const pad3 = 12;
+      l -= pad3;
+      r += pad3;
+      tp -= pad3;
+      b += pad3;
+      brackets2(l, tp, r, b, rgba2(tone, 0.9), t2);
+      if (measure2 && t2 > 0.35) {
+        const y = tp - 8, u = reduced ? 1 : ease3((t2 - 0.35) / 0.4), m = (l + r) / 2, hw = (r - l) / 2 * u;
+        stroke(() => {
+          g.beginPath();
+          g.moveTo(m - hw, y);
+          g.lineTo(m + hw, y);
+          g.moveTo(m - hw, y - 3);
+          g.lineTo(m - hw, y + 3);
+          g.moveTo(m + hw, y - 3);
+          g.lineTo(m + hw, y + 3);
+        }, rgba2(LINE, 0.7), 1);
+        if (u >= 1) text2("micro", measure2, m, y - 5, rgba2(INK4, 0.95), "center");
+      }
+      return { l, t: tp - (measure2 ? 22 : 0), r, b };
+    }
+    function arrow(x, y, an, len2, tone, t2) {
+      const u = reduced ? 1 : ease3(t2 / 0.5), ex = x + Math.cos(an) * len2 * u, ey = y + Math.sin(an) * len2 * u;
+      stroke(() => {
+        g.beginPath();
+        g.moveTo(x, y);
+        g.lineTo(ex, ey);
+        for (const s2 of [-1, 1]) {
+          g.moveTo(ex, ey);
+          g.lineTo(ex - Math.cos(an + s2 * 0.5) * 8, ey - Math.sin(an + s2 * 0.5) * 8);
+        }
+      }, rgba2(tone, 0.95), 1.4);
+    }
+    function trail(ws, tone, F) {
+      if (ws.length < 2) return;
+      const a = g.globalAlpha;
+      for (let i = 1; i < ws.length; i++) {
+        const p = F.toScreen(ws[i - 1]), q = F.toScreen(ws[i]);
+        g.globalAlpha = a * (0.15 + 0.7 * (i / ws.length));
+        g.setLineDash([2, 4]);
+        g.lineWidth = 1.2;
+        g.strokeStyle = rgba2(tone, 0.9);
+        g.beginPath();
+        g.moveTo(p[0], p[1]);
+        g.lineTo(q[0], q[1]);
+        g.stroke();
+      }
+      g.setLineDash([]);
+      g.globalAlpha = a;
+    }
+    const WEB_W = 370, WEB_H = 200;
+    function web(W2, x, y, t2, F) {
+      const a = g.globalAlpha;
+      g.globalAlpha = a * (reduced ? 1 : clamp9(t2 / 0.4, 0, 1));
+      g.fillStyle = PLATE;
+      g.fillRect(x, y, WEB_W, WEB_H);
+      g.strokeStyle = rgba2(LINE, 0.28);
+      g.lineWidth = 1;
+      g.strokeRect(x + 0.5, y + 0.5, WEB_W - 1, WEB_H - 1);
+      const bites = Math.round(W2.edges.reduce((s2, e) => s2 + e.bites, 0)), kills = W2.edges.reduce((s2, e) => s2 + e.kills, 0);
+      const head = "FOOD WEB IN VIEW", hw = width("head", head) + 14;
+      g.fillStyle = "rgba(6,9,10,0.9)";
+      g.fillRect(x + 8, y - 7, hw, 15);
+      g.strokeStyle = rgba2(LINE, 0.55);
+      g.strokeRect(x + 8.5, y - 6.5, hw - 1, 14);
+      setType("head");
+      g.textAlign = "left";
+      g.fillStyle = rgba2(INK4, 0.95);
+      g.fillText(head, x + 15, y + 4);
+      if (A) A.box(owner, head, x + 8, y - 7, x + 8 + hw, y + 8);
+      const tail = ` · ${kills} KILLS · 30 S`;
+      text2("micro", `${bites} BITES`, x + WEB_W - 10 - width("micro", tail), y + 22, rgba2(INK22, 1), "right");
+      text2("micro", tail, x + WEB_W - 10, y + 22, rgba2(kills ? HOT : INK22, 1), "right");
+      const level = (k) => {
+        const gd = F.species(k)?.guild;
+        return gd === "predator" ? 0 : gd === "producer" ? 2 : 1;
+      };
+      const rows = [[], [], []];
+      for (const nd of W2.nodes) rows[level(nd.kind)].push(nd);
+      const box = /* @__PURE__ */ new Map(), x0 = x + 82, w0 = WEB_W - 90, tw = w0 / 3 - 8;
+      const present = [0, 1, 2].filter((r) => rows[r].length), gap = Math.min(60, 112 / Math.max(1, present.length - 1));
+      present.forEach((r, ri) => {
+        const row = rows[r];
+        row.sort((p, q) => q.n - p.n).splice(3);
+        const ry = y + 52 + ri * gap + (present.length === 1 ? 56 : present.length === 2 ? 24 : 0);
+        text2("micro", ["HUNTERS", "GRAZERS", "PRODUCERS"][r], x + 10, ry + 4, rgba2(INK32, 1));
+        row.forEach((nd, i) => {
+          const cx = x0 + w0 * (i + 0.5) / row.length;
+          box.set(nd.kind, { l: cx - tw / 2, r: cx + tw / 2, t: ry - 9, b: ry + 9, cx });
+        });
+      });
+      const u = reduced ? 1 : ease3((t2 - 0.2) / 0.6), ends = /* @__PURE__ */ new Map();
+      const spread = (k, side) => {
+        const key2 = `${k}${side}`, n2 = ends.get(key2) || 0;
+        ends.set(key2, n2 + 1);
+        return (n2 % 3 - 1) * 9;
+      };
+      const sum = W2.edges.reduce((s2, e) => s2 + e.bites + 4 * e.kills, 0) || 1;
+      for (const e of W2.edges) {
+        const p = box.get(e.from), q = box.get(e.to);
+        if (!p || !q || p === q) continue;
+        const tone = e.kills ? HOT : INK4, w = clamp9(0.8 + 6 * ((e.bites + 4 * e.kills) / sum), 0.8, 3.5);
+        const upward = q.b <= p.t;
+        const s0 = upward ? [p.cx + spread(e.from, "t"), p.t] : [p.cx + spread(e.from, "b"), p.b];
+        const s1 = upward ? [q.cx + spread(e.to, "b"), q.b] : [q.cx + spread(e.to, "t"), q.t];
+        const m = [s0[0] + (s1[0] - s0[0]) * u, s0[1] + (s1[1] - s0[1]) * u];
+        stroke(() => {
+          g.beginPath();
+          g.moveTo(...s0);
+          g.lineTo(...m);
+        }, rgba2(tone, 0.85), w);
+        if (u >= 1) {
+          const an2 = Math.atan2(s1[1] - s0[1], s1[0] - s0[0]);
+          stroke(() => {
+            g.beginPath();
+            for (const sg of [-1, 1]) {
+              g.moveTo(...s1);
+              g.lineTo(s1[0] - Math.cos(an2 + sg * 0.5) * 6, s1[1] - Math.sin(an2 + sg * 0.5) * 6);
+            }
+          }, rgba2(tone, 0.95), 1.3);
+        }
+      }
+      for (const [k, b2] of box) {
+        const sp = F.species(k), hot = isActive(k);
+        g.fillStyle = "rgba(6,9,10,0.95)";
+        g.fillRect(b2.l, b2.t, b2.r - b2.l, b2.b - b2.t);
+        g.strokeStyle = rgba2(hot ? HOT : LINE, hot ? 0.9 : 0.5);
+        g.lineWidth = 1;
+        g.strokeRect(b2.l + 0.5, b2.t + 0.5, b2.r - b2.l - 1, b2.b - b2.t - 1);
+        glyph(sp?.guild, b2.l + 8, b2.t + 9, hot ? HOT : INK4);
+        text2("data", fit3("data", short(sp?.name), b2.r - b2.l - 18), b2.l + 14, b2.t + 13, rgba2(INK4, 0.95));
+      }
+      text2("micro", "ARROW: FROM THE EATEN TO THE EATER", x + 10, y + WEB_H - 9, rgba2(INK32, 1));
+      g.globalAlpha = a;
+    }
+    let isActive = () => false;
     function noteState(id) {
       let S = notesAt.get(id);
       if (!S) notesAt.set(id, S = { c: {}, an: [{}, {}], z: {} });
@@ -31528,7 +32033,17 @@ ${e.message}` : String(e?.message || e));
       };
       const shows = (p, m = 0) => p[0] > F.open.l + m && p[0] < F.open.r - m && p[1] > F.open.t + m && p[1] < F.open.b - m && !F.block.some((b) => p[0] > b.l - m && p[0] < b.r + m && p[1] > b.t - m && p[1] < b.b + m);
       const group = (key2, rows) => steady(S.c[key2] ||= {}, rows, F);
-      const hang = (k, pts) => anchorOf(S.an[k], pts, (p) => shows(p, 16));
+      const hang = (k, pts, kind, prefer = null) => {
+        const st = S.an[k];
+        st.pin = kind !== -1;
+        if (st.anchor == null && prefer != null) st.anchor = prefer;
+        if (st.anchor != null) {
+          const c = M.cell(st.anchor);
+          const p = c && markAt(st.anchor, c, c.kind === -1 ? kind : c.kind, F.project, F.dt);
+          if (p) return [p[0], p[1], st.anchor, 1];
+        }
+        return anchorOf(st, pts, (p) => shows(p, 24));
+      };
       const P = { tone: INK4, draws: [], label: null, anchor: null, keys: [], gauge: null, extra: null, pts: [], boxes: [] };
       const recent = (evs, kind, secs) => M.since(M.view.simTime - secs, evs, (e) => kind == null || e.kind === kind);
       const wide = d.band === "wide";
@@ -31544,7 +32059,7 @@ ${e.message}` : String(e?.message || e));
       };
       const verbBox = (a, b, verb, bend) => {
         const C3 = linkCurve(a, b, bend, 9), box = C3 && linkTag(C3, verb, bend).box;
-        const clear = box && ![...F.avoid, ...F.block, ...F.verbs].some((r) => area(box, r) > 0);
+        const clear = box && ![...F.avoid, ...F.block, ...F.verbs, ...lastLabels].some((r) => area(box, r) > 0);
         S.verbA = clamp9((S.verbA ?? 0) + (clear ? 1 : -1) * F.dt / 0.08, 0, 1);
         if (box && S.verbA > 0) {
           P.boxes.push({ ...box, hard: true });
@@ -31606,7 +32121,7 @@ ${e.message}` : String(e?.message || e));
       } else if (d.type === "graze") {
         const pts = group("g", M.rows(d.census));
         const a = d.actor !== NONE3 ? pos(d.actor) : null, b = d.target !== NONE3 ? pos(d.target) : null;
-        const c = a || hang(0, pts);
+        const c = a || hang(0, pts, d.akind);
         if (!c) return null;
         P.draws.push((t2) => census(pts, "plus", INK4, t2, c, glyphOf(d.akind)));
         if (a && b) {
@@ -31649,7 +32164,7 @@ ${e.message}` : String(e?.message || e));
         P.label = d.type === "spark" ? { tone: HOT, tag: "Life from silt", main: nm(d.kind), data: [`A NEW LINEAGE · ${up(g2?.guild || "")}`, comfort].filter(Boolean) } : { tone: HOT, tag: "New species", main: nm(d.kind), data: [`A MUTANT OF ${nm(d.akind)}`, `${up(g2?.guild || "")}${comfort ? " · " + comfort : ""}`] };
       } else if (d.type === "bloom" || d.type === "waking" || d.type === "dormant") {
         const pts = group("c", M.rows(d.kind, d.type === "dormant" ? "cyst" : "all"));
-        const an = hang(0, pts);
+        const an = hang(0, pts, d.kind);
         if (!an) return null;
         const glyph2 = d.type === "dormant" ? "ring" : "plus";
         P.draws.push((t2) => census(pts, glyph2, INK4, t2, an, glyphOf(d.kind)));
@@ -31664,7 +32179,7 @@ ${e.message}` : String(e?.message || e));
         const g2 = sp(d.kind);
         if (!g2) return null;
         const rows = M.rows(d.kind, "hot"), pts = group("h", rows);
-        const an = hang(0, pts);
+        const an = hang(0, pts, d.kind);
         if (!an) return null;
         P.tone = HOT;
         if (wide) {
@@ -31689,7 +32204,7 @@ ${e.message}` : String(e?.message || e));
         if (deaths.length) P.keys.push({ glyph: "cross", text: "SCALDED, LAST 10 S", tone: HOT });
         if (d.fine) {
           const f2 = sp(d.fine.kind), fpts = group("f", M.rows(d.fine.kind));
-          const fa = f2 && hang(1, fpts);
+          const fa = f2 && hang(1, fpts, d.fine.kind);
           if (fa) {
             const flo = f2.topt - f2.tol, fhi = f2.topt + f2.tol;
             P.extra = { anchor: fa, pts: fpts, label: {
@@ -31708,7 +32223,7 @@ ${e.message}` : String(e?.message || e));
         const St = M.stats, rows = [];
         for (const s of St.by.values()) for (const i of s.torpidRows) rows.push(i);
         const pts = group("t", rows);
-        const an = hang(0, pts);
+        const an = hang(0, pts, d.kind);
         if (!an) return null;
         P.tone = CYAN;
         if (wide) {
@@ -31740,13 +32255,188 @@ ${e.message}` : String(e?.message || e));
         }
         if (d.warm >= 0) {
           const w2 = sp(d.warm), wpts = group("w", M.rows(d.warm));
-          const wa = w2 && hang(1, wpts);
+          const wa = w2 && hang(1, wpts, d.warm);
           if (wa) {
             P.extra = { anchor: wa, pts: wpts, label: { tone: INK4, tag: "Still active", num: String(Math.round((St.by.get(d.warm)?.n ?? 0) * St.scale)), main: nm(d.warm), data: [`COMFORT ${Math.round(w2.topt - w2.tol)}–${Math.round(w2.topt + w2.tol)}°C`] } };
             P.draws.push((t2) => census(wpts, "plus", INK4, t2 - 0.6, wa, glyphOf(d.warm)));
             P.keys.push({ glyph: "plus", text: `${nm(d.warm)}: STILL ACTIVE`, tone: INK4 });
           }
         }
+      } else if (d.type === "body" || d.type === "swim") {
+        const v = M.view, rows = [];
+        for (const id of d.members) {
+          const i = v.at.get(id);
+          if (i !== void 0) rows.push(i);
+        }
+        const pts = group("b", rows), an = hang(0, pts, d.kind, d.anchor);
+        if (!an) return null;
+        const swim = d.type === "swim", g2 = sp(d.kind), tone = swim ? HOT : INK4;
+        P.tone = tone;
+        const live = pts.filter((p) => p[3] > 0.5);
+        const mid = live.length ? [live.reduce((a, p) => a + p[0], 0) / live.length, live.reduce((a, p) => a + p[1], 0) / live.length] : an;
+        if (swim) {
+          const tr = S.trail ||= [], w = F.toWorld(mid);
+          if (!tr.length || F.now - tr.at > 0.25) {
+            tr.push(w);
+            tr.at = F.now;
+            if (tr.length > 16) tr.shift();
+          }
+          P.draws.push(() => trail(tr, HOT, F));
+          P.draws.push((t2) => arrow(mid[0], mid[1], d.heading, clamp9(d.lengths * 30, 36, 90), HOT, t2 - 0.3));
+        }
+        P.draws.push((t2) => census(pts, "plus", tone, t2, an, clamp9(F.radius(d.kind) * 0.18, 3, 6)));
+        P.draws.push((t2) => {
+          const b = targetBox(pts, tone, t2, fmtLen(d.size));
+          if (b) S.box = b;
+        });
+        if (S.box) P.boxes.push({ ...S.box, t: S.box.t, b: S.box.t + 24, hard: true }, { ...S.box });
+        P.anchor = an;
+        P.pts = pts;
+        const form = up(d.form);
+        P.label = swim ? { tone: HOT, eye: "Swimming", num: d.lengths.toFixed(1), main: "BODY LENGTHS / S", data: [`${nm(d.kind)} · ${d.cells}-CELL ${form}`, `${fmtLen(d.speed, "/s")} · HEADING ${compass2(d.heading)}`] } : { tone: INK4, eye: "Organism", num: String(d.cells), main: `CELLS · ${nm(d.kind)}`, data: [`ONE BODY: A ${form} ${fmtLen(d.size)} ACROSS`, `${up(g2?.guild || "")} · BONDED CELLS SHARE WHAT THEY GATHER`] };
+        P.keys.push({ glyph: "plus", text: `${nm(d.kind)}: ONE BODY`, tone });
+      } else if (d.type === "stalk") {
+        const a = pos(d.actor), b = pos(d.target);
+        if (!a || !b) return null;
+        const r = F.radius(d.akind), wa = F.toWorld(a), wb = F.toWorld(b), dist = Math.hypot(wb[0] - wa[0], wb[1] - wa[1]) - 0;
+        P.tone = HOT;
+        const va = verbBox(a, b, fmtLen(dist), 0.12);
+        P.draws.push((t2) => link(a, b, fmtLen(dist), HOT, t2 - 0.3, F.now, 0.12, 9, true, va));
+        P.draws.push((t2) => lock(a[0], a[1], r, HOT, t2));
+        P.draws.push((t2) => brackets2(b[0] - F.radius(d.kind) - 4, b[1] - F.radius(d.kind) - 4, b[0] + F.radius(d.kind) + 4, b[1] + F.radius(d.kind) + 4, rgba2(INK4, 0.8), t2 - 0.5));
+        lockBox(a, r);
+        P.anchor = [a[0], a[1] - r];
+        P.pts = [a, b];
+        P.label = { tone: HOT, eye: "Hunting", main: nm(d.akind), data: [`CLOSING ON ${nm(d.kind)}`, `ITS LAST MEAL WAS ONE OF THEM · ${fmtLen(d.speed, "/s")}`] };
+        P.keys.push({ glyph: "cross", text: "QUARRY", tone: INK4 });
+      } else if (d.type === "web") {
+        if (F.phone) return null;
+        P.panel = { w: WEB_W, h: WEB_H, draw: (x, y, t2) => web(d, x, y, t2, F) };
+        P.anchor = null;
+      } else if (d.type === "balance") {
+        const pts = group("c", M.rows(d.kind));
+        const an = hang(0, pts, d.kind);
+        if (!an) return null;
+        P.draws.push((t2) => census(pts, "plus", INK4, t2, an, glyphOf(d.kind)));
+        const died = recent(/* @__PURE__ */ new Set(["kill", "grazed", "starved", "old", "scalded", "froze", "dried"]), d.kind, 10);
+        pips(died, HOT, 0.3);
+        P.anchor = an;
+        P.pts = pts;
+        const net = d.born - d.dead, CAUSE2 = { kill: ["KILLED", HOT], grazed: ["GRAZED", HOT], starved: ["STARVED", INK22], old: ["OLD AGE", INK32], scalded: ["SCALDED", HOT], froze: ["FROZE", CYAN], dried: ["DRIED", INK32] };
+        const deaths = Object.entries(d.died).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).map(([c, k]) => [CAUSE2[c][0], k, CAUSE2[c][1]]);
+        P.label = {
+          tone: net >= 0 ? CYAN : HOT,
+          tag: net > d.dead * 0.2 ? "Thriving" : -net > d.born * 0.2 ? "Declining" : "Turnover",
+          num: `${net > 0 ? "+" : ""}${net}`,
+          main: nm(d.kind),
+          data: [`BORN ${d.born} · DIED ${d.dead} · LAST 30 S`, deaths.slice(0, 3).map(([c, k]) => `${c} ${k}`).join(" · ") || "NONE DIED"],
+          split: { born: d.born, deaths }
+        };
+        P.keys.push({ glyph: "plus", text: `${nm(d.kind)} CELL`, tone: INK4 });
+        if (died.length) P.keys.push({ glyph: "cross", text: "DIED, LAST 10 S", tone: HOT });
+      } else if (d.type === "genus") {
+        const GL = ["plus", "square", "ring", "cross"];
+        const F2 = { ...F, cap: Math.round(F.cap / 3) };
+        const groups = d.kinds.map((k, i) => ({ k, glyph: GL[i], pts: steady(S.c[`s${i}`] ||= {}, M.rows(k), F2) }));
+        const an = hang(0, groups[0].pts, d.kinds[0]);
+        if (!an) return null;
+        for (const G of groups) P.draws.push((t2) => census(G.pts, G.glyph, INK4, t2, an, glyphOf(G.k)));
+        P.anchor = an;
+        P.pts = groups.flatMap((G) => G.pts);
+        P.label = {
+          tone: INK4,
+          eye: "Sister species",
+          num: String(d.species),
+          main: `SPECIES OF ${up(d.genusName)}`,
+          data: [d.kinds.map((k) => short(sp(k)?.name)).join(" · "), "DESCENDED FROM ONE ANCESTOR, SIDE BY SIDE"]
+        };
+        for (const G of groups) P.keys.push({ glyph: G.glyph, text: nm(G.k), tone: INK4 });
+      } else if (d.type === "old") {
+        const evs = recent("old", d.kind, 20), pts = [];
+        for (const e of evs.slice(0, 40)) {
+          const p = F.project({ x: e.x, y: e.y, vx: 0, vy: 0, t: e.t }, -1);
+          if (p && shows(p)) pts.push([p[0], p[1], e.id, 1, clamp9((20 - (M.view.simTime - e.t)) / 2, 0, 1)]);
+        }
+        const an = hang(0, pts, -1);
+        if (!an) return null;
+        for (const p of pts) P.draws.push((t2) => pip(p[0], p[1], INK4, t2, p[4]));
+        P.anchor = an;
+        P.pts = pts;
+        P.label = { tone: INK4, eye: "Old age", num: String(d.count), main: nm(d.kind), data: ["DIED OF AGE IN 20 S", "A COHORT REACHING ITS END"] };
+        P.keys.push({ glyph: "cross", text: "DIED OF AGE", tone: INK4 });
+      } else if (d.type === "rot") {
+        const pts = group("r", M.stats.husks);
+        const an = hang(0, pts, -1);
+        if (!an) return null;
+        P.draws.push((t2) => census(pts, "ring", INK22, t2, an, 3));
+        P.anchor = an;
+        P.pts = pts;
+        P.label = {
+          tone: INK4,
+          eye: "Decay",
+          num: String(d.husks),
+          main: "HUSKS ROTTING TO SILT",
+          data: [`${d.count} RETURNED TO SILT IN 30 S`, d.sparks ? `${d.sparks} NEW LIVES SPARKED FROM SILT` : "THE SILT FEEDS WHAT GROWS NEXT"]
+        };
+        P.keys.push({ glyph: "ring", text: "HUSK: THE REMAINS OF A CELL", tone: INK22 });
+      } else if (d.type === "current") {
+        if (!F.flow) return null;
+        const r = M.view.rect, step = 2 ** Math.round(Math.log2(Math.max(r[2], r[3]) / 6));
+        const i0 = Math.floor(r[0] / step), j0 = Math.floor(r[1] / step), lines = [];
+        for (let i = i0; i <= i0 + Math.ceil(r[2] / step); i++) for (let j = j0; j <= j0 + Math.ceil(r[3] / step); j++) {
+          const h = hashU2(i * 7919 + j * 104729), x0 = (i + 0.2 + 0.6 * h) * step, y0 = (j + 0.2 + 0.6 * hashU2(h * 1e9 + 17)) * step;
+          const L2 = [[x0, y0]];
+          let x = x0, y = y0;
+          for (let k = 0; k < 10; k++) {
+            const f2 = F.flow(x, y), m = Math.hypot(f2[0], f2[1]) || 1;
+            x += f2[0] / m * step * 0.06;
+            y += f2[1] / m * step * 0.06;
+            L2.push([x, y]);
+          }
+          lines.push(L2);
+        }
+        P.draws.push((t2) => {
+          const a = g.globalAlpha, u = reduced ? 1 : clamp9(t2 / 0.8, 0, 1);
+          g.globalAlpha = a * u;
+          g.lineWidth = 1;
+          g.strokeStyle = rgba2(LINE, 0.5);
+          g.beginPath();
+          for (const L2 of lines) {
+            const p0 = F.toScreen(L2[0]);
+            g.moveTo(...p0);
+            for (const w of L2.slice(1)) g.lineTo(...F.toScreen(w));
+          }
+          g.stroke();
+          g.fillStyle = rgba2(LINE, 0.9);
+          for (const L2 of lines) {
+            const s2 = (F.now * 0.35 + hashU2(L2.length + L2[0][0] * 13)) % 1, k = Math.min(L2.length - 2, Math.floor(s2 * (L2.length - 1)));
+            const p = F.toScreen(L2[k]), q = F.toScreen(L2[k + 1]), an2 = Math.atan2(q[1] - p[1], q[0] - p[0]);
+            g.save();
+            g.translate(p[0], p[1]);
+            g.rotate(an2);
+            g.beginPath();
+            g.moveTo(3, 0);
+            g.lineTo(-2.5, -3);
+            g.lineTo(-1, 0);
+            g.lineTo(-2.5, 3);
+            g.closePath();
+            g.fill();
+            g.restore();
+          }
+          g.globalAlpha = a;
+        });
+        const c = [r[0] + r[2] / 2, r[1] + r[3] / 2];
+        if (S.seed && !shows(F.toScreen(S.seed), 40)) S.seed = null;
+        S.seed ||= lines.map((L2) => L2[0]).sort((p, q) => Math.hypot(p[0] - c[0], p[1] - c[1]) - Math.hypot(q[0] - c[0], q[1] - c[1]))[0];
+        P.anchor = F.toScreen(S.seed);
+        const um = d.speed * UM_PER_UNIT;
+        P.label = {
+          tone: INK4,
+          eye: "Current",
+          num: um >= 10 ? String(Math.round(um)) : um.toFixed(1),
+          main: `µm/s TOWARD ${compass2(d.heading)}`,
+          data: ["THE WATER CARRIES WHAT DOES NOT SWIM", "DRIFTERS RIDE IT · SWIMMERS CROSS IT"]
+        };
       } else if (d.type === "starving" || d.type === "drying") {
         const evs = recent(d.type === "starving" ? "starved" : "dried", d.type === "starving" ? d.kind : null, 20);
         const pts = [];
@@ -31754,7 +32444,7 @@ ${e.message}` : String(e?.message || e));
           const p = F.project({ x: e.x, y: e.y, vx: 0, vy: 0, t: e.t }, -1);
           if (p && shows(p)) pts.push([p[0], p[1], e.id, 1, clamp9((20 - (M.view.simTime - e.t)) / 2, 0, 1)]);
         }
-        const an = hang(0, pts);
+        const an = hang(0, pts, -1);
         if (!an) return null;
         P.tone = HOT;
         for (const p of pts) P.draws.push((t2) => pip(p[0], p[1], HOT, t2, p[4]));
@@ -31763,7 +32453,8 @@ ${e.message}` : String(e?.message || e));
         P.label = d.type === "starving" ? { tone: HOT, eye: "Starving", num: String(d.count), main: nm(d.kind), data: ["STARVED IN 20 S", "NOTHING TO EAT IN REACH"] } : { tone: HOT, tag: "Stranded", num: String(d.count), main: "DRYING ON THE MUD", data: [`MOSTLY ${nm(d.kind)}`, "THE WATER WITHDREW FROM THEM"] };
         P.keys.push({ glyph: "cross", text: d.type === "starving" ? "STARVED, LAST 20 S" : "DRIED OUT, LAST 20 S", tone: HOT });
       }
-      return P.anchor ? P : null;
+      n.pins = S.an.filter((a) => a.anchor != null && a.pin).map((a) => a.anchor);
+      return P.anchor || P.panel ? P : null;
     }
     function steadyRoster(rows, now, dt) {
       const R2 = rosterSt, by = new Map(rows.map((r) => [r.kind, r]));
@@ -31818,6 +32509,7 @@ ${e.message}` : String(e?.message || e));
       g.save();
       const active = /* @__PURE__ */ new Set();
       for (const n of F.notes) for (const k of [n.data.kind, n.data.akind, n.data.census, n.data.fine?.kind]) if (k != null && k >= 0) active.add(k);
+      isActive = (k) => active.has(k);
       const rosterRows = F.roster && !F.phone && M.stats ? steadyRoster(M.roster().map((r2) => ({ ...r2, name: F.species(r2.kind)?.name || "", guild: F.species(r2.kind)?.guild, hot: active.has(r2.kind) })).filter((r2) => r2.name), F.now, F.dt) : [];
       let rosterBox = rosterRows.length ? { l: F.open.r - 12 - ROSTER_W, t: F.open.t + 26, r: F.open.r - 12, b: F.open.t + 34 + 28 + rosterRows.length * 19 } : null;
       const under = rosterBox && F.avoid.some((r2) => area(rosterBox, r2) > 0);
@@ -31825,19 +32517,23 @@ ${e.message}` : String(e?.message || e));
       if (rosterSt.vis <= 0) rosterBox = null;
       const modeAt = F.mode ? [(F.open.l + F.open.r) / 2, F.open.t + 14] : null;
       const gaugeArea = { l: F.open.r - 130, t: F.open.b - 154, r: F.open.r, b: F.open.b };
-      F.block = F.phone ? [] : [rosterBox, gaugeArea, { l: F.open.l, t: F.open.b - 120, r: F.open.l + KEY_W, b: F.open.b }].filter(Boolean);
+      const panelArea = { l: F.open.l + 14, t: F.open.t + 34, r: F.open.l + 14 + WEB_W, b: F.open.t + 34 + WEB_H };
+      const panelOn = !F.phone && F.notes.some((n) => n.type === "web");
+      F.block = F.phone ? [] : [rosterBox, gaugeArea, { l: F.open.l, t: F.open.b - 120, r: F.open.l + KEY_W, b: F.open.b }, panelOn ? panelArea : null].filter(Boolean);
       F.verbs = [];
       const T0 = performance.now();
       for (const n of F.notes) {
         const P = plan(n, M, F);
         if (P) plans.push({ n, P });
+        else n.hiddenAt ??= F.now;
       }
       const T1 = performance.now();
       const gaugeP = !F.phone && plans.find(({ P }) => P.gauge);
       const keys = [];
       for (const { P } of plans) for (const k of P.keys) if (!keys.some((x) => x.text === k.text)) keys.push(k);
       const keyBox = keys.length && !F.phone ? { l: F.open.l, t: F.open.b - 12 - 17 * Math.min(6, keys.length) - 6, r: F.open.l + KEY_W, b: F.open.b } : null;
-      const panels = [rosterBox, gaugeP ? gaugeArea : null, keyBox, ...F.avoid].filter(Boolean);
+      const panelP = plans.find(({ P }) => P.panel);
+      const panels = [rosterBox, gaugeP ? gaugeArea : null, keyBox, panelP ? panelArea : null, ...F.avoid].filter(Boolean);
       for (let i = 0; i < panels.length; i++) for (let j = i + 1; j < panels.length; j++) {
         const a = panels[i], b = panels[j];
         if (a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b) {
@@ -31860,10 +32556,11 @@ ${e.message}` : String(e?.message || e));
       const allPts = [];
       for (const { n, P } of plans) {
         const t2 = F.now - n.born, out = n.exitAt != null ? clamp9(1 - (F.now - n.exitAt) / 0.6, 0, 1) : 1;
-        g.globalAlpha = out;
+        const shown = P.panel ? 1 : lay.get(n.id * 2)?.shown ?? 0;
+        g.globalAlpha = out * shown;
         owner = `n${n.id}`;
-        if (A) A.point("anchor", n.id, P.anchor[0], P.anchor[1]);
-        for (const d of P.draws) d(t2);
+        if (A && P.anchor) A.point("anchor", n.id, P.anchor[0], P.anchor[1]);
+        if (shown > 0.01) for (const d of P.draws) d(t2);
         g.globalAlpha = 1;
         for (const p of P.pts.slice(0, 120)) allPts.push(p);
         for (const b of P.boxes) taken.push(b);
@@ -31872,7 +32569,19 @@ ${e.message}` : String(e?.message || e));
       const T2 = performance.now();
       owner = "frame";
       corners2(F.open);
-      if (modeAt) taken.push(modeTag(F.mode, ...modeAt));
+      if (modeAt) {
+        const w = width("head", F.mode) + 14, mb = { l: modeAt[0] - w / 2, t: modeAt[1] - 11, r: modeAt[0] + w / 2, b: modeAt[1] + 5 };
+        const under2 = F.avoid.some((r2) => area(mb, r2) > 0);
+        modeSt.vis = clamp9((modeSt.vis ?? 1) + (under2 ? -1 : 1) * F.dt / 0.2, 0, 1);
+        if (modeSt.vis > 0) {
+          const a0 = A;
+          if (modeSt.vis < 0.5) A = null;
+          g.globalAlpha = modeSt.vis;
+          taken.push(modeTag(F.mode, ...modeAt));
+          g.globalAlpha = 1;
+          A = a0;
+        }
+      }
       if (rosterBox) {
         g.globalAlpha = rosterSt.vis;
         const a0 = A;
@@ -31891,6 +32600,14 @@ ${e.message}` : String(e?.message || e));
       }
       owner = "key";
       if (keyBox) taken.push(key(keys.slice(0, 6), F.open.l + 14, F.open.b - 12));
+      if (panelP) {
+        const n = panelP.n;
+        g.globalAlpha = n.exitAt != null ? clamp9(1 - (F.now - n.exitAt) / 0.6, 0, 1) : 1;
+        owner = "panel";
+        panelP.P.panel.draw(panelArea.l, panelArea.t + 8, F.now - n.born);
+        g.globalAlpha = 1;
+        taken.push({ ...panelArea, hard: true });
+      }
       const T3 = performance.now();
       for (const { n, P } of plans) {
         const t2 = F.now - n.born, out = n.exitAt != null ? clamp9(1 - (F.now - n.exitAt) / 0.6, 0, 1) : 1;
@@ -31917,7 +32634,8 @@ ${e.message}` : String(e?.message || e));
             st.off = want;
             st.dir = at.dir;
             st.a = st.ghost ? 0 : 1;
-            st.vis ??= 1;
+            st.vis ??= at.hard ? 0 : 1;
+            st.hide ??= at.hard;
           } else if (st.dir !== at.dir || Math.hypot(want[0] - st.off[0], want[1] - st.off[1]) > STEADY.far) {
             if (A) A.count("flips");
             st.ghost = { w: st.w, off: st.off, dir: st.dir, a: st.a * st.vis };
@@ -31937,8 +32655,20 @@ ${e.message}` : String(e?.message || e));
           st.a = Math.min(1, st.a + F.dt / STEADY.swap);
           const lx = base[0] + st.off[0], ly = base[1] + st.off[1], box = boxAt(lx, ly, st.dir, size);
           const blocked = taken.some((r2) => r2.hard && area(box, r2) > 4);
-          st.vis = clamp9(st.vis + (blocked ? -1 : 1) * F.dt / 0.15, 0, 1);
+          if (blocked) {
+            st.hide = true;
+            st.clearAt = null;
+          } else {
+            st.clearAt ??= F.now;
+            if (F.now - st.clearAt > 0.3) st.hide = false;
+          }
+          st.vis = clamp9(st.vis + (st.hide ? -1 : 1) * F.dt / 0.15, 0, 1);
           if (blocked && A) A.count("hidden");
+          if (k === 0) {
+            st.shown = st.a * st.vis;
+            if (st.vis < 0.05) n.hiddenAt ??= F.now;
+            else n.hiddenAt = null;
+          }
           if (st.ghost) {
             st.ghost.a -= F.dt / (STEADY.swap * 0.8);
             if (st.ghost.a <= 0) st.ghost = null;
@@ -31946,7 +32676,6 @@ ${e.message}` : String(e?.message || e));
               const gb = F.toScreen(st.ghost.w), gx = gb[0] + st.ghost.off[0], gy = gb[1] + st.ghost.off[1], a0 = A;
               g.globalAlpha = out * st.ghost.a;
               A = null;
-              leader(an[0], an[1], gx - st.ghost.dir * 4, gy + 7, L.tone || INK4, 9);
               label3(L, gx, gy, st.ghost.dir, 9);
               A = a0;
             }
@@ -31965,11 +32694,14 @@ ${e.message}` : String(e?.message || e));
           g.globalAlpha = 1;
           if (blocked) continue;
           taken.push({ ...box, hard: true });
+          nextLabels.push(box);
           const ey = ly + 7, { mx } = leaderPath(an[0], an[1], lx, ey);
           taken.push({ seg: [an[0], an[1], mx, ey] }, { seg: [mx, ey, lx, ey] });
         }
       }
       g.restore();
+      lastLabels = nextLabels;
+      nextLabels = [];
       g.letterSpacing = "0px";
       g.fontStretch = "normal";
       g.textAlign = "left";
@@ -40628,7 +41360,7 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
     const noteSp = (slot) => {
       const g = genomeFor(slot);
       const sp = g && life.reg.get(g.serial);
-      return sp ? { name: sp.name, guild: dietGuild(g), topt: g.topt ?? 19, tol: Math.max(g.tol ?? 7, 0.5), serial: g.serial } : null;
+      return sp ? { name: sp.name, guild: dietGuild(g), topt: g.topt ?? 19, tol: Math.max(g.tol ?? 7, 0.5), serial: g.serial, genus: sp.genus, genusName: sp.name.split(" ")[0] } : null;
     };
     const notes = new Notes({ species: noteSp, world: () => eng.grid });
     const noteView = createNoteView(octx);
@@ -40679,16 +41411,38 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
       const g = kind >= FIRST_LIFE ? genomeFor(kind) : null;
       return Math.max(6, cellRadius({ role: 0 }, g, cssPPU()) * 1.25 + 2);
     };
-    function noteVisible(x, y) {
+    function noteVisible(x, y, m = 12) {
       const [sx, sy] = toScreen(x, y), o = noteOpen;
-      return sx > o.l + 12 && sx < o.r - 12 && sy > o.t + 12 && sy < o.b - 12;
+      return sx > o.l + m && sx < o.r - m && sy > o.t + m && sy < o.b - m;
     }
+    const noteInner = (x, y) => noteVisible(x, y, Math.min(90, 0.12 * Math.min(noteOpen.r - noteOpen.l, noteOpen.b - noteOpen.t)));
+    const noteFlow = (x, y) => flowAt(x, y, eng.simTime, eng.waves);
+    const noteCam = { x: 0, y: 0, zoom: 1, stillAt: 0 };
     const NOTE_MODE = { follow: "FOLLOW", linger: "LINGER", scene: "SURVEY", wide: "WIDE", event: "EVENT" };
     function drawNotes(dtMs) {
       const now = performance.now() / 1e3, t0 = performance.now();
       noteOpen = openArea();
       const speed = state.paused ? 0 : state.speed === Infinity ? perf.rate || 16 : state.speed;
-      const list = notes.update({ now, speed, ppu: cssPPU(), phone: phone(), pool: eng.tbg, visible: noteVisible });
+      const shot = director.active ? director.shot : null, flying = !!(shot && shot.t < shot.flight);
+      const dts = Math.max(dtMs / 1e3, 1e-3), [W, H2] = eng.grid, C3 = noteCam;
+      const pan = Math.hypot(wrapD2(cam.x - C3.x, W), wrapD2(cam.y - C3.y, H2)) * cssPPU() / dts, zoomRate = Math.abs(Math.log(cam.zoom / C3.zoom)) / dts;
+      C3.x = cam.x;
+      C3.y = cam.y;
+      C3.zoom = cam.zoom;
+      if (flying || pan > 220 || zoomRate > 0.15) C3.stillAt = now;
+      const list = notes.update({
+        now,
+        speed,
+        ppu: cssPPU(),
+        phone: phone(),
+        pool: eng.tbg,
+        visible: noteVisible,
+        inner: noteInner,
+        still: now - C3.stillAt,
+        leaving: flying,
+        flow: noteFlow,
+        ahead: shot ? shot.dur - shot.t : Infinity
+      });
       const avoid = [];
       const cr = capEl.classList.contains("on") ? capEl.getBoundingClientRect() : null;
       if (cr && cr.width) avoid.push({ l: cr.left - 8, t: cr.top - 8, r: cr.right + 8, b: cr.bottom + 8 });
@@ -40700,6 +41454,7 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
         dt: dtMs / 1e3,
         ppu: cssPPU(),
         world: eng.grid,
+        flow: noteFlow,
         notes: list,
         model: notes,
         species: noteSp,
