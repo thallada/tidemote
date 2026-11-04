@@ -7634,7 +7634,7 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32) -> vec3f {
 }
 
 // What the eyepiece does to each pixel of the main view, which only the frame's size, the optics (post.optics) and the
-// look's iris change, so it is worked out only when they do (Engine._optics), not every frame at every pixel (the dust's
+// look's iris change, so it is worked out only when they do (Engine opticsKey), not every frame at every pixel (the dust's
 // nine cells and the iris's angle cost an M1 0.4 ms of the composite): x the iris's faint blue rim, y how much light the
 // round field stop passes (clipping the camera frame's corners), z the dust on the optics.
 @group(0) @binding(25) var opticsW: texture_storage_2d<rgba32float, write>;
@@ -9454,11 +9454,11 @@ fn loupeScene(r: vec2f) -> vec3f {
   return vec4f(lookGrade(pow(max(c, vec3f(0.0)), vec3f(1.0 / 2.2)), i.pos.xy), 1.0);
 }
 
-// Which composite draws this frame (the draws' arguments, full then lean): the lean one where the engine allows
-// it (compArgs[8], from the uniforms) and no water is frozen.
+// Which composite draws this frame (the draws' arguments, full then lean), run only where the engine's uniforms allow
+// the lean one: it, unless water is frozen (which only the GPU knows).
 @group(0) @binding(20) var<storage, read_write> compArgs: array<u32>;
 @compute @workgroup_size(1) fn compPick() {
-  let lean = compArgs[8] != 0u && !iceAny();
+  let lean = !iceAny();
   compArgs[0] = select(3u, 0u, lean); compArgs[1] = 1u; compArgs[2] = 0u; compArgs[3] = 0u;
   compArgs[4] = select(0u, 3u, lean); compArgs[5] = 1u; compArgs[6] = 0u; compArgs[7] = 0u;
 }

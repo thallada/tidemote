@@ -154,6 +154,101 @@ under plain node), on a 78k world (`slow-mac-world.tidemote`, 32k living) in a 1
   in five minutes). On the M1 Auto now sizes a world at 106k, which holds 10–11 ms a frame at full scale through its
   bloom; on the RTX 4070 Ti a living cell costs about 3 ns of `lifeMain`, so the projection adds about 1.5 ms there.
 
+## Where to look next (left off 2026-11-04, branch mac-perf merged)
+
+Where an M1's frame stood when this work paused, at 1×, the GPU about 96% busy (Instruments' encoder table; the
+step's share from `bench.mjs` step scenarios with `dispatch: true`):
+
+| | slow-mac-world, 71 px a unit (78k, 34k living) | m139, fit (139k, 21k living) |
+|---|---|---|
+| step | ~3.9 ms (`lifeMain` 2.7, `contactMain` 0.4, scatter/matter/resolve ~0.7) | ~3.4 ms (`lifeMain` 1.9) |
+| `contactGather` (animation records, detail views only) | 0.66 | – |
+| scene: `listMain` / vertex / fragment | 0.07 / 1.1 / 3.1 (cells' shading) | 0.25 / 0.7 / 0.5 |
+| stone lit into the scene, bloom, murk, small passes | ~1.5 | ~1.5 |
+| composite | 3.0 | ~3.5 |
+| Chrome's own compositing (glass included) | 0.2 | 0.2 |
+| macOS WindowServer, on the same GPU | ~2 | ~2 |
+
+The save holds 58-60 fps and m139 60; both sit near the 16.7 ms budget, and at 1× a frame over it makes the next one
+take two steps to keep time (main.js's clock), so a world just past the budget sinks to about 54 fps rather than 58.
+
+### How to measure (what worked)
+
+- **Instruments, per encoder.** Run a build long enough (`bench.mjs` with a long `seconds`, `--chrome` the system
+  Chrome), find Chrome's GPU process (`ps ax -o pid,command | grep "Google Chrome Helper (GPU)"`, the newest), then
+  `xcrun xctrace record --template 'Metal System Trace' --attach PID --time-limit 2s --output t.trace` (add
+  `--instrument 'Metal GPU Counters'` for limiters and occupancy) and `xcrun xctrace export --input t.trace --xpath
+  '/trace-toc/run[@number="1"]/data/table[@schema="metal-gpu-intervals"]'` (also `metal-shader-profiler-shader-list`,
+  `gpu-shader-profiler-sample`, `gpu-counter-info`, `gpu-counter-value`). Each row: start, duration, channel (Vertex,
+  Fragment, Compute), process. Keep Chrome's rows only (WindowServer and any terminal share the GPU). WebGPU's labels
+  do not reach Metal (`use_user_defined_labels_in_backend` did not help), so tell passes apart by their order in a
+  frame (step; `listMain`; scene vertex then fragment; `fsStoneLit`; bloom; murk; the composite last; Chrome's
+  compositing after it) and by removing one in a variant build. Shaders in the sample table are unnamed; their type,
+  code size and share identify them (cells' shading, the composite and `lifeMain` are the three largest).
+- **Variant builds.** Copy `src/` edits into `runs/perf/pages/NAME.html` builds (string replacements, rebuild, put
+  `dist/` back) and give a plan's world `page: NAME`. Keep `dist/` the last commit's: the page people open is `dist/`.
+- **Hold the GPU's clock.** At 60 fps the GPU idles between frames and its clock varies run to run (one build's
+  composite read 3.8 and 4.9 ms): compare builds at `speed: "max"`. The first scenario of a bench run reads slow (a
+  warm-up): put a throwaway one first.
+- **Per-dispatch timestamps lie while frames run** (a tiled GPU overlaps passes: `scatterMain` read 1.4 ms live, 0.26
+  in a step scenario). Use step scenarios for the step, Instruments for drawing.
+- **Exactness.** A change meant to keep the image is checked on one page against itself: freeze the frame
+  (`eng.frame` wrapped with a fixed `time`, the world paused, `T.setScale(1)`), screenshot, flip the change in place
+  (an engine flag, or `eng.hotComposite(code)` for the composite), screenshot again, and compare with a control (a
+  deliberate small change) to show the test can see a difference. Builds compared across runs differ by the world's
+  own motion. `lifeMain` changes: an ensemble against the last (`ensemble.mjs --runs 16 --minutes 10 --n 32768`, then
+  `--from DIR --baseline OTHER/report.json`); ecology changes: the gate.
+- **Counters** read per pass (average of `gpu-counter-value` samples within each encoder's interval): the step ran at
+  9.5% compute occupancy (ALU 37%, buffer reads 7%); the composite at ALU limiter 82%; the cells' fragments at ALU 43%,
+  occupancy 15%; the cells' vertex stage at 4% occupancy.
+
+### Avenues, most promising first
+
+1. **`lifeMain`'s registers** (1.9-2.7 ms; 3-4 ms in a 6-tick coarse step). It is latency-bound at 9.5% occupancy:
+   too many values live per thread to keep enough threads in flight. The neighbor scan is three quarters of it, and its
+   loop carries some forty sums plus the cell's invariants. Exact restructurings that did not help: pointer reads of
+   neighbors, a separate scan kernel, gather-then-weigh, prefetching, a workgroup per grid cell (see Apple GPUs). What
+   is left needs a look at the compiled shader: an Xcode GPU capture of Chrome (`MTL_CAPTURE_ENABLED=1` in Chrome's
+   environment, then Debug → Capture GPU Workload on the GPU process) shows each pipeline's register count and
+   occupancy limit and per-line costs; untried. Then: fewer loop-carried values (pack the flags and counts kept as
+   f32s into fewer registers where exact; carry indices instead of vectors, e.g. `dn1`/`dn2` recomputed from `n1`/`n2`
+   after the scan; drop sums only DIAG reads from the non-DIAG build if any survive), or splitting the scan's sums
+   between two passes that each walk the neighbors (only if each runs much faster than the whole: probe first with a
+   kernel that keeps half the sums). Any of these touches `lifeMain`: ensemble before and after, the gate if
+   arithmetic changes, and 6-tick runs (CLAUDE.md).
+2. **Cells' shading close up** (3.1 ms at 71 px a unit). Most of it is the cell's own outline (`cellOutline`, six
+   sines, `atan2`, `bodySD`'s twelve plans) at every pixel of its quad; quads reach 1.35+ radii for hairs, tails and
+   necks. Drawing tighter quads for cells that show none of those (fine LOD 0, no buds) would cut pixels: an earlier
+   probe that skipped pixels past 1.2 radii saved 0.45 ms of 4.9. It needs a sure bound on each body plan's reach
+   (`bodySD` with `bodyAspect`, pace, bend, squash, swell) before it is exact. The contact planes' seams cost ~0.44 ms
+   (their wandering seam's `cellGrain` noise). `vsPoint` still works out each large sprite at all four corners (1.1 ms
+   at that zoom; the partner/contact gathering about half of it): a per-sprite record pass would save ~0.35 ms but
+   needs a record buffer per large sprite (judged not worth it).
+3. **The composite** (3.0 ms close up; ALU-bound). Stage costs at 71 px a unit (early returns, GPU busy): the water's
+   surface, heat and pass base 1.0; scene reads and lens 0.4; `lookScene` 0.5 (four more scene taps, relief, rims,
+   fringes, rainbow); shadows, tone and grade 0.5 (with the look's film above 0, `lookTone` runs both `tonemap` and
+   `agx`); murk, pool and extremes 0.3; display grade, sensor noise and dither 0.3. Untried: splitting the composite
+   into two passes (an earlier split measured nothing, before the lean build); `lookScene`'s taps shared with the
+   lens's; `ripples` only when a drop is live (0.2 ms in rain).
+4. **The catch-up at 1×.** When the GPU is the limit, keeping simulated time real costs the frames it is short of:
+   an over-budget frame steps twice next. Letting the simulation run slightly slow when the GPU is busy (as Max and
+   the adaptive frame rate already do) instead of catching up would hold the frame rate; a design choice, not an
+   optimization.
+5. **macOS's compositing** (~2 ms of GPU a frame for a windowed Retina Chrome). Untested: true fullscreen, where
+   macOS can skip composing the window.
+6. **`contactGather`** (0.66 ms close up, 1.1 at 40 px a unit): its workgroup arrays (NEAR_N 1024, ~16 KB) limit
+   how many run at once; a quarter of them read 0.55 ms but changes contacts in crowded cells. Skipping cells too
+   small for contacts (vsPoint gathers none under 6 px) is untried.
+7. **The stone cache's relighting** (1.2 ms in its first frame every half second): `fsStone`'s grain shading, most
+   of it in the top bands. Smaller than it was; shading grains cheaper or relighting only the part of the cache whose
+   grains changed would remove the rest.
+8. **Auto on other GPUs.** `calibrate` now adds the living cells' projected cost (`livingCost`, `MATURE_LIVING`
+   0.5). On the RTX 4070 Ti, where it sized well before, this adds about 1.5 ms and may size worlds 10-15% smaller:
+   check there, and correct its fresh-world drawing (heavier than a mature world's) if so.
+9. **The page's overlay canvas.** With the live annotations drawing, Chrome ran a ~4 ms compute pass alongside the
+   scene each frame on the M1 (Skia drawing the 2D overlay); it overlapped there without costing frames, but may not
+   elsewhere.
+
 ## Starting up (compiling the shaders)
 
 "Starting the GPU" is the shaders' compile: 49 pipelines, from which `lifeMain` and `mindMain` (each

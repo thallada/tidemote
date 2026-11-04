@@ -587,15 +587,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
   let measuredN = null;
   // A new world starts K.foundLife of its particles alive and blooms within minutes to about half (a 143k world on an
   // M1: 50% living at five minutes; saves 15-45%, the gate's 32k worlds 33% at thirty): what the measure of a new
-  // world leaves out is the living cells'
-  // passes for the rest. Their cost per living cell differs most between GPUs (lifeMain, register-bound: about 3 ns
-  // a cell on an RTX 4070 Ti, 85 on an M1), so it is measured: the step dispatch by dispatch, with no frame drawn
-  // beside it (frames overlap a tiled GPU's timestamps), over the new world's founders. ms a living cell, or 0
-  // without timestamps.
+  // world leaves out is the living cells' passes for the rest. Their cost per living cell differs most between GPUs
+  // (lifeMain, register-bound: about 3 ns a cell on an RTX 4070 Ti, 85 on an M1), so it is measured: the step dispatch
+  // by dispatch, with no frame drawn beside it (frames overlap a tiled GPU's timestamps), over the new world's
+  // founders. ms a living cell, or 0 without timestamps.
   const MATURE_LIVING = 0.5;
   const LIVING_PASSES = new Set(['lifeMain', 'contactMain', 'bondBackMain', 'bodyTick']);
   async function livingCost(n) {
-    if (!hasTS || !eng.profileStep) return 0;
+    if (!hasTS) return 0;
     state.busy = true;
     try {
       await device.queue.onSubmittedWorkDone();

@@ -9549,7 +9549,7 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32) -> vec3f {
 }
 
 // What the eyepiece does to each pixel of the main view, which only the frame's size, the optics (post.optics) and the
-// look's iris change, so it is worked out only when they do (Engine._optics), not every frame at every pixel (the dust's
+// look's iris change, so it is worked out only when they do (Engine opticsKey), not every frame at every pixel (the dust's
 // nine cells and the iris's angle cost an M1 0.4 ms of the composite): x the iris's faint blue rim, y how much light the
 // round field stop passes (clipping the camera frame's corners), z the dust on the optics.
 @group(0) @binding(25) var opticsW: texture_storage_2d<rgba32float, write>;
@@ -11369,11 +11369,11 @@ fn loupeScene(r: vec2f) -> vec3f {
   return vec4f(lookGrade(pow(max(c, vec3f(0.0)), vec3f(1.0 / 2.2)), i.pos.xy), 1.0);
 }
 
-// Which composite draws this frame (the draws' arguments, full then lean): the lean one where the engine allows
-// it (compArgs[8], from the uniforms) and no water is frozen.
+// Which composite draws this frame (the draws' arguments, full then lean), run only where the engine's uniforms allow
+// the lean one: it, unless water is frozen (which only the GPU knows).
 @group(0) @binding(20) var<storage, read_write> compArgs: array<u32>;
 @compute @workgroup_size(1) fn compPick() {
-  let lean = compArgs[8] != 0u && !iceAny();
+  let lean = !iceAny();
   compArgs[0] = select(3u, 0u, lean); compArgs[1] = 1u; compArgs[2] = 0u; compArgs[3] = 0u;
   compArgs[4] = select(0u, 3u, lean); compArgs[5] = 1u; compArgs[6] = 0u; compArgs[7] = 0u;
 }
@@ -21922,7 +21922,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       }).catch(() => {
       });
       this.cpCompPick = cPipe({ layout: "auto", compute: { module: this.postModule, entryPoint: "compPick" }, label: "compPick" });
-      b.compArgs = d.createBuffer({ size: 48, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
+      b.compArgs = d.createBuffer({ size: 32, usage: U.STORAGE | U.INDIRECT });
       this.pLoupe = rp(this.postModule, "vsLoupe", "fsLoupe", "triangle-list", over, format);
       this.pPlain = rp(this.postModule, "vsFull", "fsPlain", "triangle-list", void 0, format);
       this.sampler = d.createSampler({ magFilter: "linear", minFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
@@ -22966,7 +22966,7 @@ ${e.message}` : String(e?.message || e));
       pd[95] = t2.caustic * a;
       const kc = 2 * Math.PI / this.seaSpec.lmin;
       seaLayout(this.grid, this.seaSpec).forEach((c, i) => pd.set([c.L[0], c.L[1], t2.chop * r * t2.height, c.k0 < 2.5 * kc ? 1 : 0], 96 + i * 4));
-      this._seaField = this.seaFieldOk !== false && this.seaSpec.lmin * pd[7] >= 128;
+      this._seaField = this.seaSpec.lmin * pd[7] >= 128;
       pd.set([t2.lightSoft, t2.lightCap, t2.view, this._seaField ? 1 : 0], 96 + 4 * SEA_CASCADES);
     }
     _writeSim(extra = {}) {
@@ -24427,7 +24427,7 @@ ${e.message}` : String(e?.message || e));
       const lod = this.settings.lod, loupeLod = !!loupe && lod, specLod = !!specimen && (lod || !specimen.live);
       const ps = Math.max(1.1 * dpr, 0.085 * cam.ppu);
       const splat = !culled[0] && this.settings.nodes && ps <= SPLAT_PX && this.count >= W * H2 / 4 ? SPLAT_PX : 0;
-      const listed = !splat && this.settings.nodes && !!this.cpList;
+      const listed = !splat && this.settings.nodes;
       this._writeView(this.b.view, this.viewData, cam, W, H2, dpr, time, selId, lod, culled[0], listed ? -1 : splat, true);
       if (listed) {
         d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0, 4, 0, 0, 0]));
@@ -24687,7 +24687,6 @@ ${e.message}` : String(e?.message || e));
       }
       const lean = this.pCompLean && pd[56] >= 1 && !(this.duck[3] > 0) && !(this.tool[4] > 0) && !(pd[6] > 0.5) && !(pd[55] > 0.5) && !(pd[15] > 1.5) && !(this.lens[3] > 0);
       if (lean) {
-        d.queue.writeBuffer(this.b.compArgs, 32, new Uint32Array([1]));
         const cp = enc.beginComputePass();
         cp.setPipeline(this.cpCompPick);
         cp.setBindGroup(0, this.compPickBG);
@@ -38585,9 +38584,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "f521ca04c4a1179c") return;
+      if (localStorage.getItem(key) === "24af3ddfc134e7c8") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "f521ca04c4a1179c");
+      if (res) localStorage.setItem(key, "24af3ddfc134e7c8");
     } catch {
     }
   }
@@ -39133,7 +39132,7 @@ ${e.message}` : String(e?.message || e));
     const MATURE_LIVING = 0.5;
     const LIVING_PASSES = /* @__PURE__ */ new Set(["lifeMain", "contactMain", "bondBackMain", "bodyTick"]);
     async function livingCost(n) {
-      if (!hasTS || !eng.profileStep) return 0;
+      if (!hasTS) return 0;
       state.busy = true;
       try {
         await device.queue.onSubmittedWorkDone();

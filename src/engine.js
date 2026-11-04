@@ -432,7 +432,7 @@ class Engine {
     this.pComp = rp(this.postModule, 'vsComp', 'fsComposite', 'triangle-list', undefined, format);
     this.pCompClear = rp(this.postModule, 'vsComp', 'fsComposite', 'triangle-list', undefined, format, { MICRO_SUSPENSION: 0 });
     // the lean composite (LEAN in POST_WGSL), compiled on after the engine starts (the full one draws until it is
-    // ready), and compPick, which writes both composites' draws each frame (b.compArgs: full, lean, then the allow word)
+    // ready), and compPick, which writes both composites' draws each frame (b.compArgs: full, then lean)
     this.pCompLean = null; this.pCompClearLean = null;
     const leanP = (constants) => d.createRenderPipelineAsync({ layout: 'auto', label: 'fsComposite', primitive: { topology: 'triangle-list' },
       vertex: { module: this.postModule, entryPoint: 'vsComp' }, fragment: { module: this.postModule, entryPoint: 'fsComposite', targets: [{ format }], constants: { LEAN: 1, ...constants } } });
@@ -443,7 +443,7 @@ class Engine {
       this.pCompLean = a; this.pCompClearLean = c;
     }).catch(() => {});
     this.cpCompPick = cPipe({ layout: 'auto', compute: { module: this.postModule, entryPoint: 'compPick' }, label: 'compPick' });
-    b.compArgs = d.createBuffer({ size: 48, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
+    b.compArgs = d.createBuffer({ size: 32, usage: U.STORAGE | U.INDIRECT });
     this.pLoupe = rp(this.postModule, 'vsLoupe', 'fsLoupe', 'triangle-list', over, format);
     this.pPlain = rp(this.postModule, 'vsFull', 'fsPlain', 'triangle-list', undefined, format);
     this.sampler = d.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
@@ -489,7 +489,7 @@ class Engine {
     // Max and coarse speeds: the last drawn world, carried with the camera onto the display frames between draws
     b.holdU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
     this.pHold = rp(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined, format);
-    // the panels' frosted glass (setGlass): blurred across into glassTmp, then down into the view, faded as its panel
+    // the panels' frosted glass (setGlass): blurred across into glassTex[1], then down into the view, faded as its panel
     const glassMod = d.createShaderModule({ code: GLASS_WGSL, label: 'glass' });
     const glassP = (blend) => rPipe({ layout: 'auto', label: 'fsGlass', primitive: { topology: 'triangle-list' },
       vertex: { module: glassMod, entryPoint: 'vsGlass' }, fragment: { module: glassMod, entryPoint: 'fsGlass', targets: [{ format, blend }] } });
@@ -795,7 +795,7 @@ class Engine {
     this.bloom = [];
     for (let i = 0; i < BLOOM_LEVELS; i++) this.bloom.push(tex(w >> (i + 1), h >> (i + 1)));
     this.murkTex = tex(w >> 2, h >> 2);
-    // the eyepiece's field stop and dust for each pixel of the view (opticsMain, worked out again when they change: _optics)
+    // the eyepiece's field stop and dust for each pixel of the view (opticsMain, worked out again when they change: opticsKey)
     this.opticsTex?.destroy();
     this.opticsTex = d.createTexture({ size: [w, h], format: 'rgba32float', usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING });
     this.opticsBG = d.createBindGroup({ layout: this.cpOptics.getBindGroupLayout(0), entries: [
@@ -1339,7 +1339,7 @@ class Engine {
     // sea from its field (seaFieldMain, a point every 4 pixels) where the shortest waves left (lmin, damped past it:
     // the light's focus, from the surface's curvature, holds them to about half of it) span 128 pixels or more,
     // which a field that fine follows within half a percent
-    this._seaField = this.seaFieldOk !== false && this.seaSpec.lmin * pd[7] >= 128;
+    this._seaField = this.seaSpec.lmin * pd[7] >= 128;
     pd.set([t.lightSoft, t.lightCap, t.view, this._seaField ? 1 : 0], 96 + 4 * SEA_CASCADES);
   }
 
@@ -2602,7 +2602,7 @@ class Engine {
     const ps = Math.max(1.1 * dpr, 0.085 * cam.ppu);
     const splat = !culled[0] && this.settings.nodes && ps <= SPLAT_PX && this.count >= W * H / 4 ? SPLAT_PX : 0;
     // otherwise each sprite in view is sized once and those drawn small take a slim pipeline (listMain)
-    const listed = !splat && this.settings.nodes && !!this.cpList;
+    const listed = !splat && this.settings.nodes;
     this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId, lod, culled[0], listed ? -1 : splat, true);
     if (listed) {
       d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0, 4, 0, 0, 0]));
@@ -2834,7 +2834,6 @@ class Engine {
     const lean = this.pCompLean && pd[56] >= 1 && !(this.duck[3] > 0) && !(this.tool[4] > 0)
       && !(pd[6] > 0.5) && !(pd[55] > 0.5) && !(pd[15] > 1.5) && !(this.lens[3] > 0);
     if (lean) {
-      d.queue.writeBuffer(this.b.compArgs, 32, new Uint32Array([1]));
       const cp = enc.beginComputePass();
       cp.setPipeline(this.cpCompPick); cp.setBindGroup(0, this.compPickBG); cp.dispatchWorkgroups(1); cp.end();
     }
