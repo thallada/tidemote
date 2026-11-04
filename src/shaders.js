@@ -8809,8 +8809,11 @@ fn surfaceAt(wp: vec2f, ppu: f32, center: vec2f) -> Surface {
 // air over a hot road, faintly, wherever warmth changes (around colonies and framboids, at fronts), the
 // ripples carried by the current. water: waterAt(wp).
 fn shimmer(wp: vec2f, water: vec3f) -> vec2f {
-  // (water near boiling roils, whatever the heat map shows)
-  let boil = boilAt(water.x) * flowNoise(wp, 2.5) * 5.0;
+  // (water near boiling roils, whatever the heat map shows; its noise only where it does: everywhere else it cost an
+  // M1 most of a millisecond of the composite to multiply by 0)
+  let roil = boilAt(water.x);
+  var boil = vec2f(0.0);
+  if (roil > 0.0) { boil = roil * flowNoise(wp, 2.5) * 5.0; }
   if (post.heatVis <= 0.5 || post.heatVis >= 1.5) { return boil; }
   let shift = water.yz * flowNoise(wp, 7.0) * 2.0;
   return shift * min(1.0, 3.0 / max(length(shift), 1e-4)) + boil;
