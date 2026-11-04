@@ -4767,8 +4767,15 @@ fn cullIndex(ii: u32) -> u32 {
   return segs[lo].x + ii - segs[lo].y;
 }
 // the particle a point's instance draws, and the cell a bond's instance draws (living, unless culled)
+// false: the point pipeline for cells drawn too small for their insides (under interiorLOD's 12 pixels) and not
+// sparkling as a new species, which listMain lists from the quad list's end: without the code for either, its
+// registers leave more pixels in flight (an M1, cells about 10 pixels across: 0.5 ms of the scene's 4.9)
+override INTERIOR: bool = true;
+// (the quad list: the full pipeline's draw arguments, the lean one's, then the full one's particles from the start
+// and the lean one's from the end)
 fn pointAt(ii: u32) -> u32 {
-  if (view.splat != 0.0) { return quadR[4u + ii]; }
+  if (!INTERIOR) { return quadR[arrayLength(&quadR) - 1u - ii]; }
+  if (view.splat != 0.0) { return quadR[8u + ii]; }
   if (view.culled == 1u) { return cullIndex(ii); }
   return ii;
 }
@@ -5304,7 +5311,7 @@ fn splatMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocatio
   workgroupBarrier();
   if (l == 0u) { quadBase = atomicAdd(&quadW[1], atomicLoad(&quadN)); }
   let base = workgroupUniformLoad(&quadBase);
-  if (slot != NONE) { atomicStore(&quadW[4u + base + slot], i); }
+  if (slot != NONE) { atomicStore(&quadW[8u + base + slot], i); }
 }
 // one particle: splatted, or a slot in this workgroup's share of the quad list (NONE: neither)
 fn splatOne(i: u32) -> u32 {
@@ -5349,14 +5356,17 @@ fn splatOne(i: u32) -> u32 {
 @group(0) @binding(20) var<storage, read> smallR: array<vec4u>;
 var<workgroup> smallN: atomic<u32>;
 var<workgroup> smallBase: u32;
+var<workgroup> leanN: atomic<u32>;
+var<workgroup> leanBase: u32;
 @compute @workgroup_size(256)
 fn listMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) l: u32) {
-  if (l == 0u) { atomicStore(&quadN, 0u); atomicStore(&smallN, 0u); }
+  if (l == 0u) { atomicStore(&quadN, 0u); atomicStore(&smallN, 0u); atomicStore(&leanN, 0u); }
   workgroupBarrier();
   // (every particle, or a culled view's: those of the grid rows in view)
   let culled = view.culled == 1u;
   var i = gid.x;
   var big = NONE;
+  var lean = NONE;
   var small = NONE;
   var ra = vec4f(0.0);
   var rb = vec4u(0u);
@@ -5373,6 +5383,9 @@ fn listMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
           ra = vec4f(d, sp.px * footprint, footprint);
           rb = vec4u(bitcast<vec3u>(sp.col), (sp.shape & 255u) | select(0u, 256u, p.kind >= FIRST_LIFE));
           small = atomicAdd(&smallN, 1u);
+        } else if (sp.px < 12.0 && sp.anim.novel <= 0.0) {
+          // (as cellColor's interiorLOD and pointColor's sparkle find it: the lean pipeline, INTERIOR false)
+          lean = atomicAdd(&leanN, 1u);
         } else {
           big = atomicAdd(&quadN, 1u);
         }
@@ -5382,11 +5395,14 @@ fn listMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
   workgroupBarrier();
   if (l == 0u) {
     quadBase = atomicAdd(&quadW[1], atomicLoad(&quadN));
+    leanBase = atomicAdd(&quadW[5], atomicLoad(&leanN));
     smallBase = atomicAdd(&smallArgs[1], atomicLoad(&smallN));
   }
   let qb = workgroupUniformLoad(&quadBase);
+  let lb = workgroupUniformLoad(&leanBase);
   let sb = workgroupUniformLoad(&smallBase);
-  if (big != NONE) { atomicStore(&quadW[4u + qb + big], i); }
+  if (big != NONE) { atomicStore(&quadW[8u + qb + big], i); }
+  if (lean != NONE) { atomicStore(&quadW[arrayLength(&quadW) - 1u - (lb + lean)], i); }
   if (small != NONE) { smallW[2u * (sb + small)] = bitcast<vec4u>(ra); smallW[2u * (sb + small) + 1u] = rb; }
 }
 struct SmallPO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) col: vec3f, @location(2) @interpolate(flat) shape: u32 };
@@ -5794,7 +5810,7 @@ fn pointColor(i: PO) -> vec4f {
   if (i.fx.y <= 0.0) {
     var c = cellColor(i, p, kind, far);
     // a new species: a few fine sparks twinkle about its rim, one after another, drifting out as they fade
-    if (i.fx.x < 0.0) {
+    if (INTERIOR && i.fx.x < 0.0) {
       let t = 1.0 + i.fx.x;
       let lod = detailLOD(min(i.geom.x, view.pointSize));
       let w = max(0.065, 1.4 / i.geom.x);
@@ -6042,7 +6058,7 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
     // that same normalized light, so there is no bright jump when the nucleus appears.
     var tissue = 1.0;
     var hue = vec3f(1.0);
-    if (inside > 0.0 && body > 0.0) {
+    if (INTERIOR && inside > 0.0 && body > 0.0) {
       let a = atan2(q.y, q.x);
       let r = length(q);
       let age = clamp(p.age / max(g.lifespan, 1.0), 0.0, 1.0);

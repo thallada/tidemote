@@ -466,10 +466,10 @@ class Engine {
     b.reprojU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
     // The main view's scene pass also gathers the living alone in a second target (fsPointLive), which
     // the composite lays over matter and stone; its other draws leave that target be.
-    const rpLive = (mod, vs, fs, topology, blend, live) => rPipe({
+    const rpLive = (mod, vs, fs, topology, blend, live, constants = {}) => rPipe({
       layout: 'auto',
-      vertex: { module: mod, entryPoint: vs },
-      fragment: { module: mod, entryPoint: fs, targets: [{ format: HDR, blend }, { format: HDR, blend: additive, writeMask: live ? GPUColorWrite.ALL : 0 }] },
+      vertex: { module: mod, entryPoint: vs, constants },
+      fragment: { module: mod, entryPoint: fs, constants, targets: [{ format: HDR, blend }, { format: HDR, blend: additive, writeMask: live ? GPUColorWrite.ALL : 0 }] },
       primitive: { topology },
       label: fs + '+live',
     });
@@ -477,6 +477,8 @@ class Engine {
       point: rpLive(this.drawModule, 'vsPoint', 'fsPointLive', 'triangle-strip', trail, true),
       splat: rpLive(this.drawModule, 'vsFade', 'fsSplat', 'triangle-list', trail, true),
       small: rpLive(this.drawModule, 'vsPointSmall', 'fsPointSmall', 'triangle-strip', trail, true),
+      // cells too small for their insides, not sparkling (listMain lists them; INTERIOR in DRAW_WGSL)
+      pointLean: rpLive(this.drawModule, 'vsPoint', 'fsPointLive', 'triangle-strip', trail, true, { INTERIOR: 0 }),
       line: rpLive(this.drawModule, 'vsLine', 'fsLine', 'line-list', trail, false),
       bridge: rpLive(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', trail, false),
       reproj: rpLive(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined, false),
@@ -599,7 +601,7 @@ class Engine {
     b.ledger = d.createBuffer({ size: (META_CLAIM + n + SPL_WORDS + HAND_WORDS + NOTE_WORDS + 2 * MAX_CELLS + 4) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
     // the particles too large to splat (splatMain): the points' draw arguments, then their indices
-    b.quads = d.createBuffer({ size: (4 + n) * 4, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
+    b.quads = d.createBuffer({ size: (8 + n) * 4, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
     // the sprites drawn small without splatting (listMain): their draw arguments, and their records (8 words each)
     b.smallArgs = d.createBuffer({ size: 16, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
     b.small = d.createBuffer({ size: n * 32, usage: U.STORAGE });
@@ -671,7 +673,7 @@ class Engine {
     this.bgPoint = pointBG(b.view, 0);
     this.bgLine = lineBG(this.pLine, b.view, 0);
     // the main view's scene pass (two targets: its pipelines' own layouts)
-    this.mainBG = { point: pointBG(b.view, 0, this.main.point), line: lineBG(this.main.line, b.view, 0), bridge: lineBG(this.main.bridge, b.view, 0, true) };
+    this.mainBG = { point: pointBG(b.view, 0, this.main.point), pointLean: pointBG(b.view, 0, this.main.pointLean), line: lineBG(this.main.line, b.view, 0), bridge: lineBG(this.main.bridge, b.view, 0, true) };
     const bufs = (pipe, list) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: list.map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
     this.tubeBG = bufs(this.main.tube, [[0, b.view], [1, b.tubeParts], [2, b.tubeGenomes], [10, b.tubeOrgans]]);
     this.tubeOrgansBG = bufs(this.cpOrgans, [[7, b.tubeGenomes], [9, b.tubeOrgans]]);
@@ -2447,6 +2449,7 @@ class Engine {
       pass.setPipeline(pl.point);
       pass.setBindGroup(0, bgPoint);
       if (quads) pass.drawIndirect(quads, 0); else if (culled) pass.drawIndirect(culled, 0); else pass.draw(4, this.count);
+      if (quads && pl.pointLean) { pass.setPipeline(pl.pointLean); pass.setBindGroup(0, this.mainBG.pointLean); pass.drawIndirect(quads, 16); }
     }
   }
 
@@ -2575,7 +2578,7 @@ class Engine {
     const listed = !splat && this.settings.nodes && !!this.cpList;
     this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId, lod, culled[0], listed ? -1 : splat, true);
     if (listed) {
-      d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0]));
+      d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0, 4, 0, 0, 0]));
       d.queue.writeBuffer(this.b.smallArgs, 0, new Uint32Array([4, 0, 0, 0]));
       const pass = enc.beginComputePass({ timestampWrites: tsBegin() });
       pass.setPipeline(this.cpList); pass.setBindGroup(0, this.listBG);
@@ -2583,7 +2586,7 @@ class Engine {
       pass.end();
     }
     if (splat) {
-      d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0]));
+      d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0, 4, 0, 0, 0]));
       enc.clearBuffer(this.b.splat, 0, W * H * 20);
       const pass = enc.beginComputePass({ timestampWrites: tsBegin() });
       pass.setPipeline(this.cpSplat); pass.setBindGroup(0, this.splatBG); pass.dispatchWorkgroups(Math.ceil(this.count / 256));
