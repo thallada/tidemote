@@ -33784,7 +33784,7 @@ ${e.message}` : String(e?.message || e));
       for (const { P } of plans) for (const k of P.keys) if (!keys.some((x) => x.text === k.text)) keys.push(k);
       const keyBox = keys.length && !F.phone ? { l: F.open.l, t: F.open.b - 12 - 17 * Math.min(6, keys.length) - 6, r: F.open.l + KEY_W, b: F.open.b } : null;
       const panelP = plans.find(({ P }) => P.panel);
-      const panels = [rosterBox, gaugeP ? gaugeArea : null, keyBox, panelP ? panelArea : null, ...F.avoid].filter(Boolean);
+      const panels = [rosterBox, panelP ? panelArea : null, ...F.avoid].filter(Boolean);
       for (let i = 0; i < panels.length; i++) for (let j = i + 1; j < panels.length; j++) {
         const a = panels[i], b = panels[j];
         if (a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b) {
