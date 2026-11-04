@@ -4696,7 +4696,8 @@ struct View {
   detail: u32,
   // 1: the draw covers only the grid rows in view (segs, CULL_WGSL); instances map through cullIndex
   culled: u32,
-  // sprites no larger than this radius in pixels are splatted (splatMain), not drawn as quads; 0: none
+  // sprites no larger than this radius in pixels are splatted (splatMain), not drawn as quads; 0: none; below 0:
+  // none, the sprites sized once and listed (listMain)
   splat: f32,
   // the adhesion where bodies start to close into tissue (K.tightFrom)
   tightFrom: f32,
@@ -4767,7 +4768,7 @@ fn cullIndex(ii: u32) -> u32 {
 // the particle a point's instance draws, and the cell a bond's instance draws (living, unless culled)
 fn pointAt(ii: u32) -> u32 {
   if (view.culled == 1u) { return cullIndex(ii); }
-  if (view.splat > 0.0) { return quadR[4u + ii]; }
+  if (view.splat != 0.0) { return quadR[4u + ii]; }
   return ii;
 }
 fn livingAt(ii: u32) -> u32 { if (view.culled == 1u) { return cullIndex(ii); } return livingList[ii]; }
@@ -5335,6 +5336,72 @@ fn splatOne(i: u32) -> u32 {
     atomicAdd(&splatW[q + 4u], u32(living * w + 0.5));
   }
   return NONE;
+}
+// Without splatting (the main view, unculled), each sprite is sized and colored once (spriteOf) rather than at each
+// of its quad's four corners: those vsPoint would draw unresolved (a few pixels across, or no detail) are written as
+// records (smallW: where, how large, its color and profile) for vsPointSmall, a slim pipeline that only places them,
+// and the rest are listed for vsPoint (quadW, as splatMain lists them). On an M1 a mature 139k world at fit spent
+// 2.1 ms in vsPoint, nearly all on sprites a pixel or two across, each corner reading its cell's genome, motion
+// and water. The record holds what vsPoint's unresolved path gives fsPointLive's, so they are drawn the same.
+@group(0) @binding(18) var<storage, read_write> smallArgs: array<atomic<u32>>;
+@group(0) @binding(19) var<storage, read_write> smallW: array<vec4u>;
+@group(0) @binding(20) var<storage, read> smallR: array<vec4u>;
+var<workgroup> smallN: atomic<u32>;
+var<workgroup> smallBase: u32;
+@compute @workgroup_size(256)
+fn listMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) l: u32) {
+  if (l == 0u) { atomicStore(&quadN, 0u); atomicStore(&smallN, 0u); }
+  workgroupBarrier();
+  let i = gid.x;
+  var big = NONE;
+  var small = NONE;
+  var ra = vec4f(0.0);
+  var rb = vec4u(0u);
+  if (i < arrayLength(&parts)) {
+    let p = parts[i];
+    if (p.kind != STONE && p.kind != FRAMBOID) {
+      let d = wrapd(drawnPos(p) - view.cam) * view.ppu;
+      // (as vsPoint culls an unresolved sprite)
+      if (view.pointSize > 6.0 || all(abs(d) <= view.res * 0.5 + vec2f(60.0))) {
+        let sp = spriteOf(p, i);
+        if (sp.px <= 2.8 || view.detail == 0u) {
+          let footprint = select(1.0, 0.85, sp.kind >= FIRST_LIFE);
+          ra = vec4f(d, sp.px * footprint, footprint);
+          rb = vec4u(bitcast<vec3u>(sp.col), (sp.shape & 255u) | select(0u, 256u, p.kind >= FIRST_LIFE));
+          small = atomicAdd(&smallN, 1u);
+        } else {
+          big = atomicAdd(&quadN, 1u);
+        }
+      }
+    }
+  }
+  workgroupBarrier();
+  if (l == 0u) {
+    quadBase = atomicAdd(&quadW[1], atomicLoad(&quadN));
+    smallBase = atomicAdd(&smallArgs[1], atomicLoad(&smallN));
+  }
+  let qb = workgroupUniformLoad(&quadBase);
+  let sb = workgroupUniformLoad(&smallBase);
+  if (big != NONE) { atomicStore(&quadW[4u + qb + big], i); }
+  if (small != NONE) { smallW[2u * (sb + small)] = bitcast<vec4u>(ra); smallW[2u * (sb + small) + 1u] = rb; }
+}
+struct SmallPO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) col: vec3f, @location(2) @interpolate(flat) shape: u32 };
+@vertex fn vsPointSmall(@builtin(vertex_index) vi: u32, @builtin(instance_index) inst: u32) -> SmallPO {
+  let a = bitcast<vec4f>(smallR[2u * inst]);
+  let b = smallR[2u * inst + 1u];
+  let corner = vec2f(f32(vi & 1u), f32(vi >> 1u)) * 2.0 - 1.0;
+  var o: SmallPO;
+  o.pos = toClip(a.xy + corner * a.z);
+  o.uv = corner * a.w;
+  o.col = bitcast<vec3f>(b.xyz);
+  o.shape = b.w;
+  return o;
+}
+// (pointColor and liveShare for a sprite drawn unresolved)
+@fragment fn fsPointSmall(i: SmallPO) -> PointOut {
+  let far = spriteFalloff(i.uv, i.shape & 255u);
+  let c = vec4f(i.col * far, far * SPRITE_COVER);
+  return PointOut(c, c * select(0.0, 1.0, (i.shape & 256u) != 0u));
 }
 // (the living's share of their light goes to the living's layer too, uncovered: the composite still lays the scene's
 // sprites as they were, and the scene's light (sceneLit) tells the living from the matter)

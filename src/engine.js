@@ -395,6 +395,7 @@ class Engine {
     this.pPoint = rp(this.drawModule, 'vsPoint', 'fsPoint', 'triangle-strip', additive);
     // sprites of a pixel or so, splatted into a buffer and added into the scene (splatMain, fsSplat)
     this.cpSplat = cPipe({ layout: 'auto', compute: { module: this.drawModule, entryPoint: 'splatMain' }, label: 'splatMain' });
+    this.cpList = cPipe({ layout: 'auto', compute: { module: this.drawModule, entryPoint: 'listMain' }, label: 'listMain' });
     this.pLine = rp(this.drawModule, 'vsLine', 'fsLine', 'line-list', additive);
     // stone: the highest cobble at each pixel wins the depth test and writes its color and surface (vsStone)
     // (only where a grain covers the pixel whole; its antialiased edge follows, blended over the grain or water
@@ -474,6 +475,7 @@ class Engine {
     this.main = {
       point: rpLive(this.drawModule, 'vsPoint', 'fsPointLive', 'triangle-strip', trail, true),
       splat: rpLive(this.drawModule, 'vsFade', 'fsSplat', 'triangle-list', trail, true),
+      small: rpLive(this.drawModule, 'vsPointSmall', 'fsPointSmall', 'triangle-strip', trail, true),
       line: rpLive(this.drawModule, 'vsLine', 'fsLine', 'line-list', trail, false),
       bridge: rpLive(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', trail, false),
       reproj: rpLive(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined, false),
@@ -590,6 +592,9 @@ class Engine {
     b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
     // the particles too large to splat (splatMain): the points' draw arguments, then their indices
     b.quads = d.createBuffer({ size: (4 + n) * 4, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
+    // the sprites drawn small without splatting (listMain): their draw arguments, and their records (8 words each)
+    b.smallArgs = d.createBuffer({ size: 16, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
+    b.small = d.createBuffer({ size: n * 32, usage: U.STORAGE });
     const res = {
       0: { buffer: b.sim }, 1: { buffer: b.parts }, 2: { buffer: b.sortedFull }, 3: { buffer: b.sortedLite },
       4: { buffer: b.counts }, 5: { buffer: b.counts }, 6: { buffer: b.cellStart }, 7: { buffer: b.blockSums },
@@ -789,6 +794,9 @@ class Engine {
     this.splatBG = d.createBindGroup({ layout: this.cpSplat.getBindGroupLayout(0), entries: [[0, b.view], [1, b.parts], [2, b.genomes], [3, b.intent], [5, b.focus], [9, b.sway], [11, b.thermal], [13, b.splat], [15, b.quads]]
       .map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
     this.splatDrawBG = d.createBindGroup({ layout: this.main.splat.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: b.view } }, { binding: 14, resource: { buffer: b.splat } }] });
+    this.listBG = d.createBindGroup({ layout: this.cpList.getBindGroupLayout(0), entries: [[0, b.view], [1, b.parts], [2, b.genomes], [3, b.intent], [5, b.focus], [9, b.sway], [11, b.thermal], [15, b.quads], [18, b.smallArgs], [19, b.small]]
+      .map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
+    this.smallBG = d.createBindGroup({ layout: this.main.small.getBindGroupLayout(0), entries: [[0, b.view], [20, b.small]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
   }
 
   _ensureLoupeTex(L) {
@@ -2366,7 +2374,7 @@ class Engine {
     // culled: only the particles of the grid rows in view (cullRows wrote the draws' arguments)
     const culled = new Uint32Array(data)[21] === 1 ? this.cull[k].args : null;
     // splatting: points only for the particles too large to splat (splatMain listed them)
-    const quads = v[22] > 0 ? this.b.quads : null;
+    const quads = v[22] !== 0 ? this.b.quads : null;
     if (this.settings.links) {
       // Crossfade native lines and soft strips in this same pass. The strip has zero
       // contribution at its topology switch, so subpixel line coverage cannot pop.
@@ -2382,6 +2390,7 @@ class Engine {
       }
     }
     if (this.settings.nodes) {
+      if (v[22] < 0) { pass.setPipeline(pl.small); pass.setBindGroup(0, this.smallBG); pass.drawIndirect(this.b.smallArgs, 0); }
       pass.setPipeline(pl.point);
       pass.setBindGroup(0, bgPoint);
       if (culled) pass.drawIndirect(culled, 0); else if (quads) pass.drawIndirect(quads, 0); else pass.draw(4, this.count);
@@ -2509,7 +2518,16 @@ class Engine {
     // there are enough of them to pay for the buffer it clears and adds in (a quarter as many as pixels)
     const ps = Math.max(1.1 * dpr, 0.085 * cam.ppu);
     const splat = !culled[0] && this.settings.nodes && ps <= SPLAT_PX && this.count >= W * H / 4 ? SPLAT_PX : 0;
-    this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId, lod, culled[0], splat, true);
+    // otherwise, unculled, each sprite is sized once and those drawn small take a slim pipeline (listMain)
+    const listed = !splat && !culled[0] && this.settings.nodes && !!this.cpList;
+    this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId, lod, culled[0], listed ? -1 : splat, true);
+    if (listed) {
+      d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0]));
+      d.queue.writeBuffer(this.b.smallArgs, 0, new Uint32Array([4, 0, 0, 0]));
+      const pass = enc.beginComputePass({ timestampWrites: tsBegin() });
+      pass.setPipeline(this.cpList); pass.setBindGroup(0, this.listBG); pass.dispatchWorkgroups(Math.ceil(this.count / 256));
+      pass.end();
+    }
     if (splat) {
       d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0]));
       enc.clearBuffer(this.b.splat, 0, W * H * 20);
