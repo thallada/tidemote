@@ -109,7 +109,18 @@ under plain node), on a 78k world (`slow-mac-world.tidemote`, 32k living) in a 1
   pixels a unit (0.3 ms).
 - **The page's own layers.** Chrome composites the page onto the screen after Tidemote's frame: 0.16 ms bare, 1.7 ms
   with the docked panel open, nearly all of it the panels' `backdrop-filter: blur(6px)` (`.panel`), which re-blurs
-  the live view under the panel every frame.
+  the live view under the panel every frame at the screen's resolution. The engine now draws that glass itself
+  (`src/glass.js` follows the translucent panels; `Engine.setGlass`, `GLASS_WGSL`: each panel's strip of the view
+  copied out after the frame, blurred across and down, drawn back under it), within Chrome's remaining 0.17 ms.
+- **Cells too small for their insides** (under `interiorLOD`'s 12 pixels) and not sparkling as a new species take a
+  lean point pipeline (`INTERIOR` false, listed by `listMain` from the quad list's end): the interior detail's
+  registers cost every resolved cell's pixels (`slow-mac-world` at 71 pixels a unit: the scene's fragments 4.9 → 4.3
+  ms). There the cost is the outlines: the fused partners' (`cellOutline` again for each, 1.2 ms) and the contact
+  planes' seams (1.0 ms).
+- **`lifeMain` reads its genome through a pointer** (`let g = &genomes[p.kind]`): `genomes` is read_write in the
+  sim, so a copy had every field the kernel uses loaded at its start and held; read where used, 5% faster (2.86 →
+  2.72 ms, coarse 4.23 → 3.99). The neighbor scan is three quarters of the kernel (2.4 of 3 ms skipped at run time);
+  the mutation path and the hand's and stranding's paths are not where its registers peak.
 - **After all this,** the 139k world at fit draws its frame in 10.6 ms (from 16.5), at 40 pixels a unit in 12.8. Still
   heavy: `lifeMain` (1.9 ms of a 3.3 ms step at fit; its rare paths, the hand and stranding, cost nothing measurable
   when left out: its core is the neighbor scan), the composite (3.6 ms: the water's surface about 0.8, the scene's
