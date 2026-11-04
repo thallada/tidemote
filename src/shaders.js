@@ -5017,7 +5017,10 @@ fn cellOutline(uv: vec2f, dir: vec2f, radius: f32, seed: f32,
   q.y += pc * 0.075 * sin(q.x * 4.0 + seed * 40.0 + view.time * 4.5) * (0.3 + 0.7 * smoothstep(0.5, -0.8, q.x));
   let a = atan2(q.y, q.x);
   let ripple = 0.018 * sin(a * 5.0 + seed * 23.0) * smoothstep(0.1, 0.4, length(q));
-  let teeth = traits.w * fineLOD(radius) * 0.02 * pow(max(0.0, cos(a * 17.0 + seed * 11.0)), 6.0);
+  // (teeth only where fine detail shows: elsewhere their pow was taken to be multiplied by 0)
+  let fl = fineLOD(radius);
+  var teeth = 0.0;
+  if (fl > 0.0) { teeth = traits.w * fl * 0.02 * pow(max(0.0, cos(a * 17.0 + seed * 11.0)), 6.0); }
   var sd = bodySD(q, shape, s);
   if (rest.y > 0.0) { sd = mix(sd, length(q) - sqrt(bodyArea(shape, s)), 0.9 * smoothstep(0.0, 1.0, rest.y)); }
   return CellOutline(sd - ripple - teeth * (1.0 - rest.y), q);
@@ -5941,6 +5944,25 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
         fill = max(fill, smoothstep(0.15, 0.75, facing) * smoothstep(1.15, 0.8, t));
       }
     }
+    // Without the interior (INTERIOR false) a pixel's light is its coverage alone, and a pixel deep enough inside its
+    // own outline is covered whatever its partners and contact planes make of it: the partners only widen the outline
+    // (a smooth union) and the planes (each cut, a max, then a soft bump of at most a quarter of its softness, 0.04)
+    // only as far as they reach. Bounding the planes' reach from their feet (the seam's wander at most 0.09), such a
+    // pixel skips its partners' outlines and the seam's noise.
+    var reach = -1e9;
+    var cuts = 0.0;
+    if (!INTERIOR) {
+      for (var c = 0u; c < 6u; c++) {
+        let foot = unpack2x16float(select(i.contact2[c % 3u], i.contact[c % 3u], c < 3u));
+        var t = length(foot);
+        if (t <= 0.0) { break; }
+        let kin = t < 4.0;
+        t -= select(4.0, 0.0, kin);
+        reach = max(reach, dot(i.uv, foot / length(foot)) - t + 0.09);
+        cuts += 1.0;
+      }
+    }
+    var whole = false;
     for (var j = 0u; j < 4u; j++) {
       var uv = own;
       var dir = i.geom.zw;
@@ -5950,6 +5972,8 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
       var ratio = 1.0;
       var flags = 0u;
       if (j > 0u) {
+        if (!INTERIOR && j == 1u) { whole = max(membraneSD, reach) + 0.04 * cuts < -aa; }
+        if (whole) { break; }
         // a tile of tissue meets its partners at a shared wall, not a neck
         if (i.tile.x > 0.5) { break; }
         // The partner draws itself beyond our narrow union band. Owned pixels
@@ -6017,7 +6041,7 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
     var pressed = -1.0;
     var wander = 0.0;
     var wandered = false;
-    for (var c = 0u; c < 6u; c++) {
+    for (var c = 0u; c < select(6u, 0u, whole); c++) {
       let foot = unpack2x16float(select(i.contact2[c % 3u], i.contact[c % 3u], c < 3u));
       var t = length(foot);
       if (t <= 0.0) { break; }
