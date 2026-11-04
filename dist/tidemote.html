@@ -125,8 +125,6 @@ body.cursor-off, body.cursor-off * { cursor: none !important; }
 }
 h1, h2, h3 { margin: 0; font-weight: 400; }
 .sec-h h2 span, .lab-head h2 span { color: var(--ink-3); }
-/* a panel's shortcut key, boxed like the light table's index letters */
-kbd.key { display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 3px; margin-right: 8px; background: var(--cyan-deep); border: 1px solid var(--line-2); color: var(--cyan); font-size: 11px; letter-spacing: 0; vertical-align: 1px; }
 b { font-weight: 500; }
 .num { font-variant-numeric: tabular-nums; }
 .term { text-decoration: underline dotted rgba(163, 189, 190, 0.55); text-underline-offset: 3px; cursor: help; }
@@ -1009,7 +1007,6 @@ body.lab-wide.spec-open .lab { width: min(620px, calc(100% - var(--spec-pw))); }
 .lab.closed .lab-head { border-bottom: 0; }
 .lab.closed .lab-title { flex-direction: column; gap: var(--s3); min-height: 0; padding: var(--s1) 0 var(--s3); cursor: pointer; }
 .lab.closed .lab-title h2, .lab.closed .world-sum { writing-mode: vertical-rl; transform: rotate(180deg); }
-.lab.closed .lab-title h2 kbd.key { margin: 8px 0 0; }
 .lab.closed .lab-fold { order: -1; margin: 0; }
 .lab.closed:hover { border-color: var(--line-2); }
 /* the fold points the way the column goes: left to fold it away, right to bring it back */
@@ -1579,7 +1576,7 @@ svg.niche .n-dot { fill: var(--cyan); }
 
   <!-- settings: what is shown, and what it costs -->
   <div class="settings panel float" id="settings" hidden role="dialog" aria-label="Settings">
-    <div class="sec-h"><h2><kbd class="key">V</kbd>Settings</h2>
+    <div class="sec-h"><h2>Settings</h2>
       <div class="tabs" role="tablist" id="set-tabs" aria-label="Settings sections">
         <button type="button" role="tab" data-tab="display" aria-selected="true">Display</button>
         <button type="button" role="tab" data-tab="audio" aria-selected="false" tabindex="-1">Audio</button>
@@ -1661,8 +1658,8 @@ svg.niche .n-dot { fill: var(--cyan); }
 <!-- lab: what the world is made of, what has happened, and the records; collapses to its header -->
 <aside class="lab panel" id="lab" aria-label="Field Lab">
   <div class="lab-head">
-    <div class="lab-title">
-      <h2><kbd class="key">K</kbd><span>Field</span> Lab</h2>
+    <div class="lab-title" data-hint="Collapse · K">
+      <h2><span>Field</span> Lab</h2>
       <span class="world-sum" id="world-sum" aria-hidden="true"></span>
       <button type="button" class="ghost lab-fold" id="lab-close" aria-expanded="true" aria-controls="lab-body" aria-label="Collapse the Lab" data-hint="Collapse · K"><svg><use href="#i-chev"/></svg></button>
     </div>
@@ -1705,7 +1702,7 @@ svg.niche .n-dot { fill: var(--cyan); }
 </aside>
 
 <div class="help panel float" id="help" hidden role="dialog" aria-label="Keyboard shortcuts">
-  <div class="sec-h"><h2><kbd class="key">?</kbd><span>Keyboard</span> Shortcuts</h2><button type="button" class="ghost" id="help-close" aria-label="Close"><svg><use href="#i-close"/></svg></button></div>
+  <div class="sec-h"><h2><span>Keyboard</span> Shortcuts</h2><button type="button" class="ghost" id="help-close" aria-label="Close"><svg><use href="#i-close"/></svg></button></div>
   <dl class="keys">
     <dt>Click</dt><dd>Examine a cell or grain</dd>
     <dt>Drag · Wheel</dt><dd>Pan · zoom</dd>
@@ -27016,7 +27013,7 @@ ${e.message}` : String(e?.message || e));
   // src/lab.js
   function createLab(api) {
     const $3 = (id) => document.getElementById(id);
-    const root = $3("lab"), bodyEl = $3("lab-body"), tabs = [...root.querySelectorAll("[data-tab]")], fold = $3("lab-close");
+    const root = $3("lab"), bodyEl = $3("lab-body"), tabs = [...root.querySelectorAll("[data-tab]")], fold = $3("lab-close"), titleBar = root.querySelector(".lab-title");
     const st = {
       open: api.startOpen,
       tab: "census",
@@ -27049,7 +27046,7 @@ ${e.message}` : String(e?.message || e));
       document.body.classList.toggle("lab-wide", st.open && st.tab !== "census");
       fold.setAttribute("aria-expanded", String(st.open));
       fold.setAttribute("aria-label", st.open ? "Collapse the Lab" : "Open the Lab");
-      fold.dataset.hint = st.open ? "Collapse · K" : "Open the Lab · K";
+      fold.dataset.hint = titleBar.dataset.hint = st.open ? "Collapse · K" : "Open the Lab · K";
       $3("lab-open").setAttribute("aria-expanded", String(st.open));
     }
     function open(tab) {
@@ -27074,7 +27071,7 @@ ${e.message}` : String(e?.message || e));
       e.stopPropagation();
       toggle();
     });
-    root.querySelector(".lab-title").addEventListener("click", (e) => {
+    titleBar.addEventListener("click", (e) => {
       if (!e.target.closest("button")) toggle();
     });
     tabs.forEach((b) => b.addEventListener("click", () => {
