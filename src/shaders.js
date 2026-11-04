@@ -6455,6 +6455,12 @@ fn cobbleZ(seed: vec2f) -> f32 { return (0.45 + 0.55 * seed.x) * (0.62 + 0.18 * 
   let r = max(STONE_R * view.ppu * select(0.8 + 0.4 * renderHash(p.id + 77u), 0.5, framboid), 1.5);
   if (any(abs(d) > view.res * 0.5 + vec2f(r * STONE_QUAD))) { return o; }
   o.seed = vec2f(f32(pcgR(p.id) & 0xffffu), f32(pcgR(p.id) >> 16u)) / 65536.0;
+  // the cobble's peak height orders it: the higher lies over its neighbors, and depth is per cobble,
+  // not per pixel, so the GPU can reject hidden cobbles before shading them; a grain of another band is left before
+  // its look is worked out (each of _drawStone's five draws meets every grain: it cost an M1 2-5 ms of vertex work
+  // each time the cache was lit)
+  let z = select(select(cobbleZ(o.seed), 0.97, framboid), 0.99, p.id == view.selId); // a selected grain sits on top
+  if (z < stoneBand.x || z >= stoneBand.y) { return o; }
   // sediment seen under a microscope: each grain is one of a few kinds (its own outline, detail and
   // material, mineralSurf and boulder), colored as that kind is. Bedrock is mostly mineral grains;
   // reef stone, laid down by calcifiers, mostly the skeletons of small organisms, and keeps a little
@@ -6484,10 +6490,6 @@ ${STONE_COL_WGSL}
   let ax = vec2f(cos(o.seed.x * TAU), sin(o.seed.x * TAU));
   let e = (grainReach(ty, o.seed, framboid) + 2.5 / r) * corner;
   o.uv = ax * e.x + vec2f(-ax.y, ax.x) * e.y;
-  // the cobble's peak height orders it: the higher lies over its neighbors, and depth is per cobble,
-  // not per pixel, so the GPU can reject hidden cobbles before shading them
-  let z = select(select(cobbleZ(o.seed), 0.97, framboid), 0.99, p.id == view.selId); // a selected grain sits on top
-  if (z < stoneBand.x || z >= stoneBand.y) { return o; }
   o.pos = toClip(d + o.uv * r);
   o.pos.z = z;
   o.col = col;
