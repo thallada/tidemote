@@ -101,8 +101,9 @@ weakest that has been read. The design study measured 4.3–8.6 new notes a minu
 A kind of story told in the last two minutes counts against another of its kind (its score divided by 1 + 0.5 for
 each), so the view's other stories get their turn.
 
-So that nothing shows only to vanish: no note begins while the view is moved by hand (panned faster than 220 px or
-zoomed faster than 15% a second) nor until it has held still 0.8 s; while the auto camera flies to its next shot, only
+So that nothing shows only to vanish: while the view is panned or zoomed, a note may begin if what it points at will
+still show two seconds on, with the cells' own motion and the camera's (its eased velocity; zooming in, only cells in
+the view's middle half); while the auto camera flies to its next shot, only
 a note about cells that show now and will show well inside where it goes (`ctx.dest`, the shot's target), and those
 already up about such cells stay with it, the rest fading as it leaves; nor with
 less than 5 s of the shot left (a single moment, 3 s); a story must have held 0.7 s (a single moment is told at

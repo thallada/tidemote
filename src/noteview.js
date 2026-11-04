@@ -725,8 +725,12 @@ export function createNoteView(g) {
   // A stretch of the world as smooth closed loops where a field crosses a level (src/contour.js), in world units: drawn
   // each frame where the view shows them, as a shape that follows what it marks rather than a grid's squares.
   // From the view's squares of water (a value at each square's middle; the squares fixed in the world):
-  // (squares out of view count as outside, a finite way below the level: an edge between them and one inside falls
-  // halfway, as any other, never along a row of square middles)
+  // (valid: the squares to draw from. The water's own fields (its warmth, ice, light, stone, shade) are known across
+  // the whole grid, past the view's edge, so they are drawn from all of it but the wrap's repeats (sqOnce): a shape is
+  // whole beyond the edge before the view is panned to it, rather than cut along where the view was at the last look.
+  // What is read from the view's cells (a range, the barren, the dead) only from the squares in view (sqIn). Squares
+  // left out count as outside, a finite way below the level: an edge between them and one inside falls halfway, as
+  // any other, never along a row of square middles.)
   function gridLoops(field, grid, level, valid = null) {
     const f = new Float32Array(NOTE_TG * NOTE_TG);
     let span = 0;
@@ -1092,7 +1096,7 @@ export function createNoteView(g) {
         for (const b of M.view.sqIn) inView += b;
         if (S.heatView !== M.view) {
           S.heatView = M.view;
-          S.loops = d.squares.length <= 0.7 * inView ? gridLoops(M.view.temps, M.view.grid, g2.topt + 0.8 * g2.tol) : [];
+          S.loops = d.squares.length <= 0.7 * inView ? gridLoops(M.view.temps, M.view.grid, g2.topt + 0.8 * g2.tol, M.view.sqOnce) : [];
         }
         const loops = S.loops;
         P.draws.push((t) => blob(loops, HOT, t, F, { hatch: true, ppu0: S.ppu0 }));
@@ -1134,7 +1138,7 @@ export function createNoteView(g) {
       if (wide) {
         // the ice, where it lies
         S.ppu0 ||= F.ppu;
-        if (S.iceView !== M.view) { S.iceView = M.view; S.loops = gridLoops(M.view.ice, M.view.grid, 0.3); }
+        if (S.iceView !== M.view) { S.iceView = M.view; S.loops = gridLoops(M.view.ice, M.view.grid, 0.3, M.view.sqOnce); }
         const loops = S.loops;
         P.draws.push((t) => blob(loops, CYAN, t, F, { hatch: true, ppu0: S.ppu0 }));
       } else P.draws.push((t) => census(pts, 'ring', CYAN, t, an));
@@ -1318,7 +1322,7 @@ export function createNoteView(g) {
       // the light: where it falls brightest in view (a shape where it crosses halfway from the view's mean to its
       // brightest), hatched in sunlight's color; the producers there
       S.ppu0 ||= F.ppu;
-      if (S.lightOf !== d.light) { S.lightOf = d.light; S.loops = gridLoops(d.light, d.grid, d.level, M.view.sqIn); }
+      if (S.lightOf !== d.light) { S.lightOf = d.light; S.loops = gridLoops(d.light, d.grid, d.level, M.view.sqOnce); }
       const loops = S.loops;
       P.tone = SUN;
       P.draws.push((t) => blob(loops, SUN, t, F, { hatch: true, ppu0: S.ppu0, hatchA: 0.5 }));
@@ -1332,7 +1336,7 @@ export function createNoteView(g) {
       P.keys.push({ glyph: 'square', text: 'THE BRIGHTEST WATER IN VIEW', tone: SUN });
     } else if (d.type === 'shelter') {
       // shelter among stone: the stone's patches, the cells among them
-      if (S.stoneOf !== d.stone) { S.stoneOf = d.stone; S.loops = gridLoops(d.stone, d.grid, 6, M.view.sqIn); }
+      if (S.stoneOf !== d.stone) { S.stoneOf = d.stone; S.loops = gridLoops(d.stone, d.grid, 6, M.view.sqOnce); }
       const loops = S.loops, v = M.view, W2 = F.world, rows = [];
       for (let i = 0; i < v.n; i++) {
         if (!(v.kind[i] >= 5) || F.species(v.kind[i])?.guild === 'predator') continue;
@@ -1428,7 +1432,7 @@ export function createNoteView(g) {
       const pts = group('i', rows), an = hang(0, pts, -2);
       if (!an) return null;
       S.ppu0 ||= F.ppu;
-      if (S.iceView !== v) { S.iceView = v; S.loops = gridLoops(v.ice, v.grid, 0.5, v.sqIn); }
+      if (S.iceView !== v) { S.iceView = v; S.loops = gridLoops(v.ice, v.grid, 0.5, v.sqOnce); }
       const loops = S.loops;
       P.tone = CYAN;
       P.draws.push((t) => blob(loops, CYAN, t, F, { hatch: true, ppu0: S.ppu0 }));
@@ -1450,7 +1454,7 @@ export function createNoteView(g) {
         S.shadeView = v;
         const f = new Float32Array(NOTE_TG * NOTE_TG), [ox, oy, gs] = v.grid;
         for (let k = 0; k < f.length; k++) f[k] = F.shade(ox + ((k % NOTE_TG) + 0.5) * gs, oy + (Math.floor(k / NOTE_TG) + 0.5) * gs);
-        S.loops = gridLoops(f, v.grid, 0.4, v.sqIn);
+        S.loops = gridLoops(f, v.grid, 0.4, v.sqOnce);
       }
       const loops = S.loops;
       S.ppu0 ||= F.ppu;

@@ -298,12 +298,15 @@ test('sister species: three of one genus in view', () => {
   assert.equal(g.genusName, 'Hardy');
 });
 
-test('nothing new while the camera moves or has just stopped; its setting off takes the notes with it', () => {
+test('a note may begin while the view pans, if what it points at will still show; the camera setting off takes the notes with it', () => {
   const N = notes();
   N.ingest(scan(chain(8, Wd, 20, 20)));
   N.ingest(scan(chain(8, Wd, 20, 20), { simTime: 10.2 }));
-  assert.equal(told(N, 100, { still: TUNE.settle / 2 }).length, 0);
-  const on = told(N, 101, { still: TUNE.settle + 0.1 });
+  // the view shows x from 0 to 50: a pan of 20 units a second takes the body (at x 20) out of it within two seconds
+  const view = { visible: (x) => x > 0 && x < 50 };
+  assert.equal(told(N, 100, { ...view, camVel: [20, 0] }).length, 0);
+  // a gentle pan keeps it in view: told
+  const on = told(N, 101, { ...view, camVel: [2, 0] });
   assert.equal(on.length, 1);
   N.update(ctx(102, { leaving: true }));
   assert.ok(N.notes.every((n) => n.exitAt != null));
