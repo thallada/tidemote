@@ -5,6 +5,7 @@
 // --frames: the time between frames as the page draws them (requestAnimationFrame), its spread and its long ones, with
 // the annotations' own share of each frame (the browser's long tasks too), in frames.json
 // --notes 0: the annotations off (state.notes = 0), to compare
+// --mouse X,Y: the pointer held there (nudged now and then, so a loupe that follows it shows), to check the loupe
 // --when TYPE: also a screenshot (w-*.png) whenever a note of that type shows, 4 s apart at most
 // --profile S: a CPU profile of the page's main thread over S seconds, from --profileAt seconds in (default 30): the
 // functions that took the most time themselves, in profile.txt
@@ -59,6 +60,10 @@ if (v.frames) await page.evaluate(() => {
   requestAnimationFrame(tick);
   try { new PerformanceObserver((l) => { for (const e of l.getEntries()) F.long.push([Math.round(e.startTime), Math.round(e.duration)]); }).observe({ type: 'longtask', buffered: false }); } catch {}
 });
+if (v.mouse) {
+  const [mx, my] = v.mouse.split(',').map(Number);
+  (async () => { for (let q = 0; q < 1e6; q++) { await page.mouse.move(mx + (q % 2) * 3, my).catch(() => {}); await page.waitForTimeout(400); } })();
+}
 const t0 = Date.now();
 let k = 0;
 if (v.when) (async () => {

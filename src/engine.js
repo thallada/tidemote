@@ -2160,7 +2160,7 @@ class Engine {
     else if (!(this._noteKeep * this._noteLast <= cap) || this._noteKeep < fits * 0.6) this._noteKeep = 2 ** (Math.floor(Math.log2(fits) * 4) / 4);
     const keep = this._noteKeep;
     const u = new ArrayBuffer(64), f = new Float32Array(u), w = new Uint32Array(u);
-    f.set(R, 0); f[4] = this.grid[0]; f[5] = this.grid[1]; w[6] = N; w[7] = cap; f[8] = keep; f.set(this.noteGrid, 12);
+    f.set(R, 0); f[4] = this.grid[0]; f[5] = this.grid[1]; w[6] = N; w[7] = cap; f[8] = keep; f[10] = this.level; f.set(this.noteGrid, 12);
     this.device.queue.writeBuffer(b.noteU, 0, u);
     enc.clearBuffer(b.noteOut, 0, NOTE_HEAD * 4);
     const pass = enc.beginComputePass();

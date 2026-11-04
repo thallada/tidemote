@@ -4001,7 +4001,7 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
 // 2 how many written; from NOTE_TEMPS the water's temperature at the middle of NOTE_TG × NOTE_TG squares of the world
 // (from the grid's corner, each its side: fixed in the world, so they hold still as the view moves), then how much
 // is ice there; from NOTE_HEAD records of NOTE_REC words: id; x, y; kind | cause << 10 | role << 14 | the search
-// image << 16 | litter << 26 | torpid << 27; velocity (half floats); fullness (energy over its division mark) and
+// image << 16 | litter << 26 | torpid << 27 | stranded on dry ground << 28; velocity (half floats); fullness (energy over its division mark) and
 // how many tolerances its water lies from its optimum (half floats; a husk: its energy, 0); its two bonded partners'
 // ids (NONE: none).
 export const NOTE_TG = 16;
@@ -4011,7 +4011,7 @@ export const NOTE_STONE = NOTE_TEMPS + 2 * NOTE_TG * NOTE_TG;
 export const NOTE_HEAD = NOTE_TEMPS + 3 * NOTE_TG * NOTE_TG;
 export const NOTE_REC = 8;
 export const NOTE_WGSL = COMMON + /* wgsl */ `
-struct NoteU { corner: vec2f, size: vec2f, world: vec2f, count: u32, cap: u32, keep: f32, p0: u32, p1: u32, p2: u32, grid: vec4f };
+struct NoteU { corner: vec2f, size: vec2f, world: vec2f, count: u32, cap: u32, keep: f32, p0: u32, level: f32, p2: u32, grid: vec4f };
 @group(0) @binding(0) var<uniform> nu: NoteU;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
 @group(0) @binding(2) var<storage, read> genomes: array<Genome>;
@@ -4073,8 +4073,10 @@ fn noteMain(@builtin(global_invocation_id) gid: vec3u) {
   atomicStore(&nout[o], p.id);
   atomicStore(&nout[o + 1u], bitcast<u32>(p.pos.x));
   atomicStore(&nout[o + 2u], bitcast<u32>(p.pos.y));
+  // stranded: on dry ground, the water's level below the floor there (pondWith's depth, without its edge's sway)
+  let dry = nu.level < 1.0 && nu.level - blockAt(${MAX_CELLS}u, p.pos) < 0.0;
   atomicStore(&nout[o + 3u], (p.kind & 1023u) | ((p.info & 15u) << 10u) | (((p.info >> 4u) & 3u) << 14u) | (((p.info >> 6u) & 1023u) << 16u)
-    | select(0u, 1u << 26u, (p.info & LITTER) != 0u) | select(0u, 1u << 27u, torpid));
+    | select(0u, 1u << 26u, (p.info & LITTER) != 0u) | select(0u, 1u << 27u, torpid) | select(0u, 1u << 28u, dry));
   atomicStore(&nout[o + 4u], pack2x16float(p.vel));
   atomicStore(&nout[o + 5u], pack2x16float(vec2f(min(fed, 60000.0), clamp(x, -60000.0, 60000.0))));
   atomicStore(&nout[o + 6u], partners.x);
