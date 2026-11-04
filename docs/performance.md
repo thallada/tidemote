@@ -90,6 +90,31 @@ under plain node), on a 78k world (`slow-mac-world.tidemote`, 32k living) in a 1
   without them, compiled after start; `compPick` writes both composites' draws each frame, the lean one where the
   engine's uniforms allow it and no water is frozen (ICE_N, which only the GPU knows). The same pixels (a frozen frame
   compared lean against full, with and without ice), 16.8 → 14.0 ms a frame.
+- **Timing a pass exactly.** Run a build in `bench.mjs` for a while and attach Instruments for two seconds; the
+  `metal-gpu-intervals` table holds every encoder's duration and process (Chrome's GPU process, WindowServer, any
+  terminal redrawing, all on one GPU: keep only Chrome's). WebGPU's labels do not reach Metal, so passes are told
+  apart by their order in the frame (step, `listMain`, the scene's vertex and fragment stages, `fsStoneLit`, the bloom,
+  the murk, the composite last) and by removing one in a variant build. At 60 fps the GPU idles between frames and
+  its clock drops run to run (one build's composite read 3.8 and 4.9 ms on successive runs): compare builds at
+  `speed: "max"`, which keeps it busy.
+- **Sprites drawn small** (a pixel or two across, most of a world seen whole) went through all of `vsPoint`, its
+  `spriteOf` (the cell's genome, motion record and water) at each of the quad's four corners: 2.1 ms at fit, the scene's
+  vertex stage on the critical path. `listMain` sizes each sprite once and writes those drawn small as 8-word records
+  for a slim pipeline (`vsPointSmall`, `fsPointSmall`), listing the rest for `vsPoint`: vertex 2.1 → 0.7 ms, the scene's
+  fragments 1.2 → 0.5, `listMain` 0.25; zoomed in (culled), vertex 1.5 → 0.8.
+- **Work multiplied by 0.** `shimmer` drew boiling water's roil noise (`flowNoise`: the currents twice, four value
+  noises) at every pixel and multiplied it by `boilAt`, 0 away from a boil: 1.2 ms of the composite. The sea at the
+  view's center (`seaAt(post.cam)`), a frame constant, was taken at every pixel: now once in `vsComp` (0.35 ms).
+  `fsStoneLit` wrote and stored a view-sized target (the pile's order) that the composite reads only zoomed past 80
+  pixels a unit (0.3 ms).
+- **The page's own layers.** Chrome composites the page onto the screen after Tidemote's frame: 0.16 ms bare, 1.7 ms
+  with the docked panel open, nearly all of it the panels' `backdrop-filter: blur(6px)` (`.panel`), which re-blurs
+  the live view under the panel every frame.
+- **After all this,** the 139k world at fit draws its frame in 10.6 ms (from 16.5), at 40 pixels a unit in 12.8. Still
+  heavy: `lifeMain` (1.9 ms of a 3.3 ms step at fit; its rare paths, the hand and stranding, cost nothing measurable
+  when left out: its core is the neighbor scan), the composite (3.6 ms: the water's surface about 0.8, the scene's
+  reads and the lens 0.6), and up close `cellColor` (at 71 pixels a unit, `slow-mac-world`: 3.9 of the scene's 4.9 ms,
+  nearly all inside the cells, not the quads' margins).
 - **Sizing.** Auto's measure is a frame of a world with nothing living yet (the step without `lifeMain`'s cost)
   and a fresh world's heavier drawing: 262k measured 3.3 ms of step and 16–22 ms of drawing, which sized the world
   at 139k, where a mature world (21k living) takes 3.7 and 13 ms at 1×. On the RTX 4070 Ti the two errors about cancel;

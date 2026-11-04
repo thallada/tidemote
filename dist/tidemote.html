@@ -6063,8 +6063,9 @@ struct Cull { first: vec2u, count: vec2u, grid: vec2u, pad: vec2u };
 @group(0) @binding(1) var<storage, read> cellStart: array<u32>;
 // [0]: (segments, particles), then (first index, particles before) per segment
 @group(0) @binding(2) var<storage, read_write> segs: array<vec2u>;
-// points (4 vertices), lines (4), bridges (30), as drawIndirect arguments
-@group(0) @binding(3) var<storage, read_write> args: array<u32, 12>;
+// points (4 vertices), lines (4), bridges (30), as drawIndirect arguments; then listMain's workgroups over the
+// points, as dispatchWorkgroupsIndirect's
+@group(0) @binding(3) var<storage, read_write> args: array<u32, 15>;
 var<workgroup> sums: array<u32, 256>;
 
 @compute @workgroup_size(256)
@@ -6104,7 +6105,7 @@ fn cullRows(@builtin(local_invocation_index) l: u32) {
   if (l == 255u) {
     let total = sums[255];
     segs[0] = vec2u(n, total);
-    args = array<u32, 12>(4u, total, 0u, 0u, 4u, total, 0u, 0u, 30u, total, 0u, 0u);
+    args = array<u32, 15>(4u, total, 0u, 0u, 4u, total, 0u, 0u, 30u, total, 0u, 0u, (total + 255u) / 256u, 1u, 1u);
   }
 }
 `
@@ -6681,8 +6682,8 @@ fn cullIndex(ii: u32) -> u32 {
 }
 // the particle a point's instance draws, and the cell a bond's instance draws (living, unless culled)
 fn pointAt(ii: u32) -> u32 {
-  if (view.culled == 1u) { return cullIndex(ii); }
   if (view.splat != 0.0) { return quadR[4u + ii]; }
+  if (view.culled == 1u) { return cullIndex(ii); }
   return ii;
 }
 fn livingAt(ii: u32) -> u32 { if (view.culled == 1u) { return cullIndex(ii); } return livingList[ii]; }
@@ -7251,7 +7252,7 @@ fn splatOne(i: u32) -> u32 {
   }
   return NONE;
 }
-// Without splatting (the main view, unculled), each sprite is sized and colored once (spriteOf) rather than at each
+// Without splatting (the main view), each sprite is sized and colored once (spriteOf) rather than at each
 // of its quad's four corners: those vsPoint would draw unresolved (a few pixels across, or no detail) are written as
 // records (smallW: where, how large, its color and profile) for vsPointSmall, a slim pipeline that only places them,
 // and the rest are listed for vsPoint (quadW, as splatMain lists them). On an M1 a mature 139k world at fit spent
@@ -7266,12 +7267,15 @@ var<workgroup> smallBase: u32;
 fn listMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) l: u32) {
   if (l == 0u) { atomicStore(&quadN, 0u); atomicStore(&smallN, 0u); }
   workgroupBarrier();
-  let i = gid.x;
+  // (every particle, or a culled view's: those of the grid rows in view)
+  let culled = view.culled == 1u;
+  var i = gid.x;
   var big = NONE;
   var small = NONE;
   var ra = vec4f(0.0);
   var rb = vec4u(0u);
-  if (i < arrayLength(&parts)) {
+  if (i < select(arrayLength(&parts), segs[0].y, culled)) {
+    if (culled) { i = cullIndex(i); }
     let p = parts[i];
     if (p.kind != STONE && p.kind != FRAMBOID) {
       let d = wrapd(drawnPos(p) - view.cam) * view.ppu;
@@ -21642,7 +21646,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.cull = [0, 1, 2].map(() => {
         const u = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
         const segs = d.createBuffer({ size: CULL_SEGS * 8, usage: U.STORAGE });
-        const args = d.createBuffer({ size: 48, usage: U.STORAGE | U.INDIRECT });
+        const args = d.createBuffer({ size: 64, usage: U.STORAGE | U.INDIRECT });
         return { u, segs, args, bg: null };
       });
       this.sorted = false;
@@ -22242,7 +22246,7 @@ ${e.message}` : String(e?.message || e));
       if (!b.splat || !b.parts) return;
       this.splatBG = d.createBindGroup({ layout: this.cpSplat.getBindGroupLayout(0), entries: [[0, b.view], [1, b.parts], [2, b.genomes], [3, b.intent], [5, b.focus], [9, b.sway], [11, b.thermal], [13, b.splat], [15, b.quads]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
       this.splatDrawBG = d.createBindGroup({ layout: this.main.splat.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: b.view } }, { binding: 14, resource: { buffer: b.splat } }] });
-      this.listBG = d.createBindGroup({ layout: this.cpList.getBindGroupLayout(0), entries: [[0, b.view], [1, b.parts], [2, b.genomes], [3, b.intent], [5, b.focus], [9, b.sway], [11, b.thermal], [15, b.quads], [18, b.smallArgs], [19, b.small]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
+      this.listBG = d.createBindGroup({ layout: this.cpList.getBindGroupLayout(0), entries: [[0, b.view], [1, b.parts], [2, b.genomes], [3, b.intent], [5, b.focus], [9, b.sway], [11, b.thermal], [12, this.cull[0].segs], [15, b.quads], [18, b.smallArgs], [19, b.small]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
       this.smallBG = d.createBindGroup({ layout: this.main.small.getBindGroupLayout(0), entries: [[0, b.view], [20, b.small]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
     }
     _ensureLoupeTex(L) {
@@ -24047,8 +24051,8 @@ ${e.message}` : String(e?.message || e));
         }
         pass.setPipeline(pl.point);
         pass.setBindGroup(0, bgPoint);
-        if (culled) pass.drawIndirect(culled, 0);
-        else if (quads) pass.drawIndirect(quads, 0);
+        if (quads) pass.drawIndirect(quads, 0);
+        else if (culled) pass.drawIndirect(culled, 0);
         else pass.draw(4, this.count);
       }
     }
@@ -24181,7 +24185,7 @@ ${e.message}` : String(e?.message || e));
       const lod = this.settings.lod, loupeLod = !!loupe && lod, specLod = !!specimen && (lod || !specimen.live);
       const ps = Math.max(1.1 * dpr, 0.085 * cam.ppu);
       const splat = !culled[0] && this.settings.nodes && ps <= SPLAT_PX && this.count >= W * H2 / 4 ? SPLAT_PX : 0;
-      const listed = !splat && !culled[0] && this.settings.nodes && !!this.cpList;
+      const listed = !splat && this.settings.nodes && !!this.cpList;
       this._writeView(this.b.view, this.viewData, cam, W, H2, dpr, time, selId, lod, culled[0], listed ? -1 : splat, true);
       if (listed) {
         d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0]));
@@ -24189,7 +24193,8 @@ ${e.message}` : String(e?.message || e));
         const pass2 = enc.beginComputePass({ timestampWrites: tsBegin() });
         pass2.setPipeline(this.cpList);
         pass2.setBindGroup(0, this.listBG);
-        pass2.dispatchWorkgroups(Math.ceil(this.count / 256));
+        if (culled[0]) pass2.dispatchWorkgroupsIndirect(this.cull[0].args, 48);
+        else pass2.dispatchWorkgroups(Math.ceil(this.count / 256));
         pass2.end();
       }
       if (splat) {
@@ -38266,9 +38271,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "a0cc43c52e50b418") return;
+      if (localStorage.getItem(key) === "06045457cd0731f4") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "a0cc43c52e50b418");
+      if (res) localStorage.setItem(key, "06045457cd0731f4");
     } catch {
     }
   }
