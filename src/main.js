@@ -4503,7 +4503,6 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const noteRadius = (kind) => { const g = kind >= FIRST_LIFE ? genomeFor(kind) : null; return Math.max(6, cellRadius({ role: 0 }, g, cssPPU()) * 1.25 + 2); };
   function noteVisible(x, y, m = 12) {
     const [sx, sy] = toScreen(x, y), o = noteOpen;
-    if (noteLens && Math.hypot(sx - noteLens.x, sy - noteLens.y) < noteLens.r + m) return false;
     return sx > o.l + m && sx < o.r - m && sy > o.t + m && sy < o.b - m;
   }
   // well inside the view: what a new note points at, so it stays in view long enough to read
@@ -4530,10 +4529,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
   };
   let noteCap = null;
   const NOTE_MODE = { follow: 'FOLLOW', linger: 'LINGER', scene: 'SURVEY', wide: 'WIDE', event: 'EVENT' };
-  // the loupe on the screen while it shows (the annotations keep out from under it: its view is its own)
+  // the loupe on the screen while it shows (the annotations' marks under it are drawn magnified within it)
   let noteLens = null;
   function drawNotes(dtMs, L) {
-    noteLens = L ? { x: L.sx, y: L.sy, r: L.R } : null;
+    // (its middle, its radius, the main view's point under its middle, its magnification over the main view's)
+    noteLens = L ? { x: L.sx, y: L.sy, r: L.R, c: toShown(L.cx, L.cy), k: L.cssPPU / cssPPU() } : null;
     const now = performance.now() / 1000, t0 = performance.now();
     noteOpen = openArea();
     const speed = state.paused ? 0 : state.speed === Infinity ? perf.rate || 16 : state.speed;

@@ -181,8 +181,11 @@ The marks ride the scene as what they mark does, however the auto camera pans an
   too), so it never shows only to vanish; once shown it stays at least 3 s even if something comes to cover it; after
   that, covered, it hides for good and its note ends: nothing blinks on and off. The audit counts any label readable
   for under 1.5 s (`blinks`, with what it said): there should be none.
-- The loupe shows its own view: nothing of the annotations is drawn over it (a hole in their clip), no label is set
-  on it, and nothing under it is pointed at or begun.
+- The loupe magnifies the marks with the world: the marks under it are drawn again within its circle, their places
+  mapped as it maps the view (about its middle, by its magnification: `mp` in `src/noteview.js`) and cell-sized marks
+  (locks, glyphs, a raindrop's rings) grown with it, while the unmagnified ones under it are left out; a leader to a
+  cell under it reaches the cell where the loupe shows it. Labels are never hidden by it (a new one is set clear of it
+  if it can be). The second pass draws only the marks, only while the loupe shows.
 - Once a label can be read it stays readable at least 1.6 s whatever becomes of its note (the notes keep a note so
   read until then), so nothing blinks.
 - No two pieces of text overlap: anything that is text (labels, the frame's panels, the links' verbs, the page's

@@ -131,9 +131,18 @@ export function createNoteView(g) {
     return p;
   }
 
+  // Into the loupe: while LM is set (its middle on the screen x, y; the main view's point under that middle c; its
+  // magnification k), the marks' places are mapped into its magnified view and cell-sized marks grow with it, so the
+  // same marks drawn again, clipped to its circle, show there on what it magnifies.
+  let LM = null;
+  const mp = (p) => (LM ? [LM.x + (p[0] - LM.c[0]) * LM.k, LM.y + (p[1] - LM.c[1]) * LM.k] : p);
+  // (a mark that draws another (a lock's brackets) maps once: the inner one draws with LM unset)
+  const unmapped = (fn) => { const lm = LM; LM = null; try { fn(); } finally { LM = lm; } };
+
   // ------------------------------------------------------------------ primitives (screen px, t: seconds since start)
   // corner brackets closing in on a box
   function brackets(l, t0, r, b, col, t) {
+    if (LM) { [l, t0] = mp([l, t0]); [r, b] = mp([r, b]); }
     const k = reduced ? 1 : 1 + 1.2 * (1 - ease(t / 0.35));
     const cx = (l + r) / 2, cy = (t0 + b) / 2, hw = ((r - l) / 2) * k, hh = ((b - t0) / 2) * k;
     const L = cx - hw, R = cx + hw, T = cy - hh, B = cy + hh, m = Math.min(R - L, B - T), c = clamp(m * 0.22, 4, 22);
@@ -146,6 +155,7 @@ export function createNoteView(g) {
   const lockR = (r) => Math.max(r, 7) * 1.45 + 6;
   // LOCK: brackets close in on one cell; a faint ring ticked at 90° spins in; a centre point
   function lock(x, y, r, tone, t) {
+    if (LM) { [x, y] = mp([x, y]); r *= LM.k; return unmapped(() => lock(x, y, r, tone, t)); }
     r = Math.max(r, 7);
     const a = g.globalAlpha, R = lockR(r), u = reduced ? 1 : ease(t / 1.1);
     g.globalAlpha = a * (reduced ? 0.35 : 0.9 - 0.55 * u);
@@ -193,6 +203,7 @@ export function createNoteView(g) {
     return { qx, qy, ox, oy, x: ox, y: oy + 7, box: { l: ox - w / 2 - 3, t: oy - 6, r: ox + w / 2 + 3, b: oy + 14 } };
   }
   function link(a, b, verb, tone, t, now, bend = 0.18, gap = 9, hollow = false, verbA = 1) {
+    a = mp(a); b = mp(b);
     const C = linkCurve(a, b, bend, gap);
     if (!C) return;
     const { at, p1, L } = C;
@@ -227,6 +238,7 @@ export function createNoteView(g) {
   // cross: dead
   function census(pts, glyph, tone, t, from, size = 4) {
     if (!pts.length) return;
+    if (LM) { pts = pts.map((p) => { const q = mp(p); return [q[0], q[1], p[2], p[3]]; }); from = mp(from); size *= Math.min(LM.k, 2); }
     let far = 1;
     for (const p of pts) far = Math.max(far, Math.hypot(p[0] - from[0], p[1] - from[1]));
     // the settled ones in one path, stroked twice (its dark halo, then the glyph); those fading, each at its own alpha
@@ -264,6 +276,7 @@ export function createNoteView(g) {
   }
   // PIP: a moment at a point: a cross that blinks, then rests half-lit, fading as it grows old (fade 1..0)
   function pip(x, y, tone, t, fade = 1) {
+    [x, y] = mp([x, y]);
     const on = reduced || t > 0.9 || Math.floor(t / 0.15) % 2 === 0;
     const a = g.globalAlpha;
     g.globalAlpha = a * (on ? (t > 0.9 ? 0.75 : 1) : 0.2) * fade;
@@ -807,14 +820,14 @@ export function createNoteView(g) {
   // size readout above it from the first)
   function boxOf(pts) {
     let l = Infinity, tp = Infinity, r = -Infinity, b = -Infinity;
-    for (const p of pts) if (p[3] > 0.5) { l = Math.min(l, p[0]); r = Math.max(r, p[0]); tp = Math.min(tp, p[1]); b = Math.max(b, p[1]); }
+    for (const p0 of pts) { if (!(p0[3] > 0.5)) continue; const p = mp(p0); l = Math.min(l, p[0]); r = Math.max(r, p[0]); tp = Math.min(tp, p[1]); b = Math.max(b, p[1]); }
     return r > l ? { l: l - 12, t: tp - 12, r: r + 12, b: b + 12 } : null;
   }
   function targetBox(pts, tone, t, measure) {
     const B = boxOf(pts);
     if (!B) return null;
     const { l, r, b } = B, tp = B.t;
-    brackets(l, tp, r, b, rgba(tone, 0.9), t);
+    unmapped(() => brackets(l, tp, r, b, rgba(tone, 0.9), t));
     if (measure && t > 0.35) {
       const y = tp - 8, u = reduced ? 1 : ease((t - 0.35) / 0.4), m = (l + r) / 2, hw = ((r - l) / 2) * u;
       stroke(() => { g.beginPath(); g.moveTo(m - hw, y); g.lineTo(m + hw, y); g.moveTo(m - hw, y - 3); g.lineTo(m - hw, y + 3); g.moveTo(m + hw, y - 3); g.lineTo(m + hw, y + 3); }, rgba(LINE, 0.7), 1);
@@ -824,6 +837,7 @@ export function createNoteView(g) {
   }
   // ARROW: a heading, from a point, with a chevron head
   function arrow(x, y, an, len, tone, t) {
+    [x, y] = mp([x, y]);
     const u = reduced ? 1 : ease(t / 0.5), ex = x + Math.cos(an) * len * u, ey = y + Math.sin(an) * len * u;
     stroke(() => {
       g.beginPath(); g.moveTo(x, y); g.lineTo(ex, ey);
@@ -1440,12 +1454,12 @@ export function createNoteView(g) {
       P.keys.push({ glyph: 'plus', text: 'A PRODUCER IN THE SHADE', tone: MOSS });
     } else if (d.type === 'rain') {
       // a raindrop: where it fell, its ring wave spreading out from there
-      const c = F.project({ x: d.x, y: d.y, vx: 0, vy: 0, t: 0 }, -1);
+      const c = F.project({ x: d.x, y: d.y, vx: 0, vy: 0, t: 0 }, -1), c0 = c;
       if (!c) return null;
       P.tone = CYAN;
-      const R = d.size * F.ppu;
+      const R0 = d.size * F.ppu;
       P.draws.push((t) => {
-        const a = g.globalAlpha;
+        const a = g.globalAlpha, c = mp(c0), R = R0 * (LM ? LM.k : 1);
         for (let q = 0; q < 3; q++) {
           const u = ((t * 0.6 + q / 3) % 1);
           g.globalAlpha = a * (1 - u) * 0.9;
@@ -1454,7 +1468,7 @@ export function createNoteView(g) {
         g.globalAlpha = a;
         stroke(() => { g.beginPath(); g.moveTo(c[0] - 7, c[1]); g.lineTo(c[0] + 7, c[1]); g.moveTo(c[0], c[1] - 7); g.lineTo(c[0], c[1] + 7); }, rgba(INK, 0.95), 1.2);
       });
-      P.boxes.push({ l: c[0] - R, t: c[1] - R, r: c[0] + R, b: c[1] + R });
+      P.boxes.push({ l: c[0] - R0, t: c[1] - R0, r: c[0] + R0, b: c[1] + R0 });
       P.anchor = [c[0], c[1] - 8];
       P.label = { tone: CYAN, tag: 'Raindrop', main: 'A RING WAVE SPREADS', data: [`${fmtLen(d.size)} ACROSS · IT PUSHES THE CELLS OUTWARD`, `${d.drops} DROPS IN VIEW AND ABOUT IN 30 S`] };
     } else if (d.type === 'old') {
@@ -1602,13 +1616,10 @@ export function createNoteView(g) {
     }
     const taken = F.avoid.map((r) => ({ ...r, hard: true }));
     g.save();
-    // the loupe shows its own view: nothing of the annotations is drawn over it, no label is set on it, nothing under
-    // it is pointed at (F.lens: its middle and radius on the screen)
-    if (F.lens) {
-      const { x, y, r } = F.lens;
-      g.beginPath(); g.rect(-1e4, -1e4, 2e4, 2e4); g.moveTo(x + r + 2, y); g.arc(x, y, r + 2, 0, TAU); g.clip('evenodd');
-      taken.push({ l: x - r - 6, t: y - r - 6, r: x + r + 6, b: y + r + 6, hard: true });
-    }
+    // the loupe (F.lens: its middle and radius on the screen, the main view's point under it, its magnification): the
+    // marks under it are drawn magnified within it, as it shows what they mark; a new label is set clear of it if it
+    // can be, and none is hidden by it
+    if (F.lens) { const { x, y, r } = F.lens; taken.push({ l: x - r - 6, t: y - r - 6, r: x + r + 6, b: y + r + 6 }); }
     const active = new Set();
     for (const n of F.notes) for (const k of [n.data.kind, n.data.akind, n.data.census, n.data.fine?.kind]) if (k != null && k >= 0) active.add(k);
     isActive = (k) => active.has(k);
@@ -1628,7 +1639,6 @@ export function createNoteView(g) {
     const panelArea = { l: F.open.l + 14, t: F.open.t + 34, r: F.open.l + 14 + WEB_W, b: F.open.t + 42 + (webNote ? webH(webNote.data, F) : 200) };
     const panelOn = !!webNote;
     F.block = [...(F.phone ? [] : [rosterBox, gaugeArea, { l: F.open.l, t: F.open.b - 120, r: F.open.l + KEY_W, b: F.open.b }, panelOn ? panelArea : null]),
-      F.lens ? { l: F.lens.x - F.lens.r, t: F.lens.y - F.lens.r, r: F.lens.x + F.lens.r, b: F.lens.y + F.lens.r } : null,
       // (the mode's tag at the top: a link's verb keeps off it too)
       modeAt ? { l: modeAt[0] - width('head', F.mode) / 2 - 12, t: modeAt[1] - 13, r: modeAt[0] + width('head', F.mode) / 2 + 12, b: modeAt[1] + 7 } : null].filter(Boolean);
     F.verbs = [];
@@ -1659,7 +1669,10 @@ export function createNoteView(g) {
         panels.splice(j, 1); j = i;
       }
     }
-    // marks, clipped to the open world less the panels; labels and their leaders lie over them
+    // marks, clipped to the open world less the panels (and the loupe, which shows them magnified); labels and their
+    // leaders lie over them
+    g.save();
+    if (F.lens) { const { x, y, r } = F.lens; g.beginPath(); g.rect(-1e4, -1e4, 2e4, 2e4); g.moveTo(x + r, y); g.arc(x, y, r, 0, TAU); g.clip('evenodd'); }
     g.save();
     g.beginPath();
     g.rect(F.open.l, F.open.t, F.open.r - F.open.l, F.open.b - F.open.t);
@@ -1680,6 +1693,24 @@ export function createNoteView(g) {
       for (const b of P.boxes) taken.push(b);
     }
     g.restore();
+    g.restore();
+    // the same marks again within the loupe, magnified as it magnifies the world (the audit counts them once)
+    if (F.lens && plans.length) {
+      const { x, y, r } = F.lens, toScreen = F.toScreen, a0 = A;
+      g.save();
+      g.beginPath(); g.arc(x, y, r - 1, 0, TAU); g.clip();
+      LM = F.lens; A = null;
+      F.toScreen = (w) => mp(toScreen(w));
+      try {
+        for (const { n, P, frozen } of plans) {
+          if (frozen) continue;
+          const shown = P.panel ? 1 : lay.get(n.id * 2)?.shown ?? 0, out = n.exitAt != null ? clamp(1 - (F.now - n.exitAt) / (n.fade || 0.6), 0, 1) : 1;
+          if (shown <= 0.01) continue;
+          g.globalAlpha = out * shown;
+          for (const d of P.draws) d(F.now - n.born);
+        }
+      } finally { LM = null; A = a0; F.toScreen = toScreen; g.globalAlpha = 1; g.restore(); }
+    }
     const T2 = performance.now();
     // the frame's devices: its corners, its mode, the species in view, the water's gauge, the key
     owner = 'frame';
@@ -1733,7 +1764,8 @@ export function createNoteView(g) {
       const t = F.now - n.born, out = keep * (n.exitAt != null ? clamp(1 - (F.now - n.exitAt) / (n.fade || 0.6), 0, 1) : 1);
       for (const [k, part] of [[0, P], [1, P.extra]]) {
         if (!part || !part.label) continue;
-        const L = norm(part.label), size = labelSize(L), id = n.id * 2 + k, an = part.anchor;
+        const L = norm(part.label), size = labelSize(L), id = n.id * 2 + k;
+        let an = part.anchor;
         let st = lay.get(id);
         if (!st) lay.set(id, (st = { pick: null, lookAt: -1e9 }));
         // what the label hangs from: its anchor's place in the world, the anchor's own small motions (a swimmer's
@@ -1759,6 +1791,11 @@ export function createNoteView(g) {
         }
         const lx = st.fix[0], ly = st.fix[1], box = boxAt(lx, ly, st.dir, size);
         // its leader meets it at whichever end faces its cell (the cell may have gone round to its far side)
+        // (a cell under the loupe is reached where the loupe shows it)
+        if (F.lens && Math.hypot(an[0] - F.lens.x, an[1] - F.lens.y) < F.lens.r) {
+          LM = F.lens; const m = mp(an); LM = null;
+          if (Math.hypot(m[0] - F.lens.x, m[1] - F.lens.y) < F.lens.r - 4) an = m;
+        }
         const near = st.dir > 0 ? an[0] <= lx + size.w / 2 : an[0] >= lx - size.w / 2;
         const ex = near ? lx - st.dir * 4 : lx + st.dir * (size.w + 4);
         // never over other text: one with no room from the first waits hidden (its marks with it), so it never shows
