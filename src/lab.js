@@ -20,7 +20,7 @@ import { wireCardDrag, setStatus } from './minicard.js';
  */
 export function createLab(api) {
   const $ = (id) => document.getElementById(id);
-  const root = $('lab'), bodyEl = $('lab-body'), tabs = [...root.querySelectorAll('[data-tab]')], fold = $('lab-close');
+  const root = $('lab'), bodyEl = $('lab-body'), tabs = [...root.querySelectorAll('[data-tab]')], fold = $('lab-close'), titleBar = root.querySelector('.lab-title');
   const st = {
     open: api.startOpen, tab: 'census',
     q: '', status: 'thriving', diet: 'all', mobility: 'all', body: 'all', temp: 'all', sort: 'pop',
@@ -38,7 +38,8 @@ export function createLab(api) {
     document.body.classList.toggle('lab-wide', st.open && st.tab !== 'census');
     fold.setAttribute('aria-expanded', String(st.open));
     fold.setAttribute('aria-label', st.open ? 'Collapse the Lab' : 'Open the Lab');
-    fold.dataset.hint = st.open ? 'Collapse · K' : 'Open the Lab · K';
+    // the title bar folds and opens it too, so it hints as the chevron does
+    fold.dataset.hint = titleBar.dataset.hint = st.open ? 'Collapse · K' : 'Open the Lab · K';
     $('lab-open').setAttribute('aria-expanded', String(st.open));
   }
   function open(tab) {
@@ -59,7 +60,7 @@ export function createLab(api) {
   function toggle(tab) { if (st.open && (!tab || tab === st.tab)) close(); else open(tab); }
   fold.addEventListener('click', (e) => { e.stopPropagation(); toggle(); });
   // the whole title bar folds and opens it, not only its chevron (which handles its own click)
-  root.querySelector('.lab-title').addEventListener('click', (e) => { if (!e.target.closest('button')) toggle(); });
+  titleBar.addEventListener('click', (e) => { if (!e.target.closest('button')) toggle(); });
   tabs.forEach((b) => b.addEventListener('click', () => { st.tab = b.dataset.tab; apply(); show(); }));
   $('lab-tabs').addEventListener('keydown', (e) => {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
