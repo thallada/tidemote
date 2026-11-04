@@ -104,7 +104,7 @@ while (Date.now() - t0 < v.secs * 1000) {
 if (v.audit) {
   const a = await page.evaluate(() => globalThis.__tidemote.noteView.audit());
   fs.writeFileSync(path.join(v.out, 'audit.json'), JSON.stringify(a, null, 1));
-  console.log(JSON.stringify({ frames: a.frames, overlapFrames: a.overlapFrames, jerk: a.jerk, moves: a.moves, flips: a.flips, swaps: a.swaps, hidden: a.hidden, blinks: a.blinks, blinked: a.blinked }, null, 1));
+  console.log(JSON.stringify({ frames: a.frames, overlapFrames: a.overlapFrames, jerk: a.jerk, swaps: a.swaps, hidden: a.hidden, blinks: a.blinks, blinked: a.blinked }, null, 1));
   console.log(a.examples.slice(0, 12).join('\n'));
 }
 if (v.frames) {

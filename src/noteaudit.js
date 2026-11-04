@@ -10,7 +10,7 @@
 export function createAudit() {
   let S, tracks, boxes, frame, T = { ox: 0, oy: 0, rx: 0, ry: 0, k: 1 };
   function reset() {
-    S = { frames: 0, jerk: {}, overlapFrames: 0, overlaps: 0, examples: [], moves: 0, flips: 0, swaps: 0, hidden: 0, blinks: 0, blinked: [] };
+    S = { frames: 0, jerk: {}, overlapFrames: 0, overlaps: 0, examples: [], swaps: 0, hidden: 0, blinks: 0, blinked: [] };
     tracks = new Map();
     boxes = [];
     frame = 0;

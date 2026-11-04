@@ -46,12 +46,7 @@ const TYPE = {
 const STEADY = {
   settle: 0.12,    // a cell's mark eases out a new sample's correction
   fade: 0.25,      // a cell's mark fades in or out
-  relook: 0.7,     // a label's place is weighed again this often (at once when it covers text)
-  better: 120,     // and changes only for one this much better (in the placement's score)
   follow: 0.3,     // a label follows its cell's own motion (a swimmer's beat) this smoothly, the camera's exactly
-  slide: 0.22,     // a label's offset eases this fast; a jump past `far` px crossfades instead
-  far: 90,
-  swap: 0.25,
   roster: 0.6,     // the roster's numbers change this often; a species passes another only with 15% more
   minShow: 3,      // a label once shown stays at least this long (as its note does: notes.js TUNE.minLife)
   glide: 1.5,      // a label held on the screen glides after a cell gone far from it this slowly
@@ -62,7 +57,7 @@ export function createNoteView(g) {
   const widths = new Map();
   const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   const hatch = {};
-  // per note (by id): its marks' state (cells by id, its lattice, its anchors); per label: its place; per cell id: its mark
+  // per note (by id): its marks' state (cells by id, its shapes, its anchors); per label: its place; per cell id: its mark
   const notesAt = new Map();
   const lay = new Map();
   const marks = new Map();
@@ -559,16 +554,6 @@ export function createNoteView(g) {
     else if (guild === 'predator') { g.moveTo(x, y - r); g.lineTo(x + r, y + r * 0.85); g.lineTo(x - r, y + r * 0.85); g.closePath(); }
     else if (guild === 'scavenger') g.rect(x - r * 0.85, y - r * 0.85, r * 1.7, r * 1.7);
     else g.arc(x, y, r * 0.75, 0, TAU);
-  }
-  // a guild's glyph in a tone: producer a diamond, grazer a dot, hunter a triangle, scavenger a square
-  function glyph(guild, x, y, col) {
-    g.fillStyle = rgba(col, 0.95);
-    g.beginPath();
-    if (guild === 'producer') { g.moveTo(x, y - 3.5); g.lineTo(x + 3.5, y); g.lineTo(x, y + 3.5); g.lineTo(x - 3.5, y); }
-    else if (guild === 'predator') { g.moveTo(x, y - 3.5); g.lineTo(x + 3.5, y + 3); g.lineTo(x - 3.5, y + 3); }
-    else if (guild === 'scavenger') g.rect(x - 3, y - 3, 6, 6);
-    else g.arc(x, y, 2.6, 0, TAU);
-    g.fill();
   }
   function fit(k, s, w) {
     if (width(k, s) <= w) return s;
@@ -1893,5 +1878,5 @@ export function createNoteView(g) {
   const textOut = (...a) => { cur = null; owner = 'plate'; text(...a); cur = null; };
   // the audit (src/noteaudit.js): on, off ('reset' afresh), or with no argument its summary
   const audit = (on) => { if (on === undefined) return A ? A.summary() : null; A = on ? A || createAudit() : null; if (A && on === 'reset') A.reset(); return !!A; };
-  return { draw, audit, text: textOut, label, labelSize, width: (k, s) => { const w = width(k, s); cur = null; return w; } };
+  return { draw, audit, text: textOut, width: (k, s) => { const w = width(k, s); cur = null; return w; } };
 }

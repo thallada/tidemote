@@ -58,14 +58,14 @@ Each story is found from the events and the view, every 0.35 s at most, as a can
 | bloom | 5+ births of one species in 20 s | census of the species |
 | dormant / waking | 4+ of one species encysted or woke in 20 s | census of its cysts / its cells |
 | starving | 3+ of one species starved in 20 s | crosses where they died |
-| heat | 3+ of a species scalded in 30 s with a fifth of its cells too warm, or 8+ and two fifths of them past 0.8 tolerances above its optimum | a hatched zone and squares on its too-warm cells, crosses on the scalded, its comfort band against the water's warmth, the gauge; beside it the most numerous species in the same water that bears it |
+| heat | 3+ of a species scalded in 30 s with a fifth of its cells too warm, or 8+ and two fifths of them past 0.8 tolerances above its optimum (from afar, one story: the species it scalds most) | a hatched shape about its too-warm cells (from afar, the isotherm of what it bears) and squares on them, crosses on the scalded, its comfort band against the water's warmth, the gauge; beside it the most numerous species in the same water that bears it |
 | cold | 30% of the living in view torpid, or 3+ froze | rings on the torpid, the share stilled, the water and its ice; the species still active |
 | drying | 3+ dried on the mud in 20 s | crosses |
 | body | an organism of 6+ cells bonded together (each cell's bonded partners, from the view; union–find once a look) | its cells, brackets about it with its size measured above them; its form (filament, mat, colony, cluster) |
 | swim | a body of 3+ cells moving half a body length a second or more | as a body, and its heading as an arrow and where it has been as a dotted trail |
 | stalk | a hunter heading (within 45°) for the nearest cell of the species it last ate, within 1.5 units (up close) | lock on the hunter, a dashed line to its quarry with the distance between them, brackets on the quarry |
 | web | 3+ eaten–eater pairs among 3+ species in 30 s (not on a phone; when no label holds its corner) | a panel: the species by trophic level (three a level at most, ordered under their eaters so the arrows cross least), each a tag with its glyph in the species' own color, its genus over its epithet, and how much it ate and was eaten; a curved arrow from each eaten to its eater, as thick as its share (kills in hot) |
-| clump | the biggest dense clump in view (its squares on a world lattice, about 24 across the view, 2.2× denser than the view's mean) of 3+ species each a twentieth of it (2.5+ in effect), under half the view | its outline, solid; how many species, cells and how far across; its make-up by share as a bar in the species' own colors; why it may hold together: its cells bonded into mats, grazers biting its producers there, hunters among them, births there (a nursery), the current flowing in toward it, its cells holding still while the rest drift |
+| clump | the biggest dense clump in view (its squares on a world lattice, about 24 across the view, each 3× the view's mean, every square counted; compact, filling 55% of the box about it; a fifth of the view at most; 2.5× as dense as a ring of squares about it) of 3+ species each a twentieth of it (2.5+ in effect) | its outline, drawn once as found and riding with its cells; how many species, cells and how far across; a table of its species (glyph, name, share) and a bar in their colors; why it may hold together: its cells bonded into mats, grazers biting its producers there, hunters among them, births there (a nursery), the current flowing in toward it, its cells holding still while the rest drift. Told as found, held 12 s |
 | balance | the species in view with the most births and deaths in 30 s (12+) | census; born against died by cause as a split bar; THRIVING, DECLINING or TURNOVER |
 | genus | 3+ species of one genus in view | each sister its own glyph; their names |
 | old | 3+ of one species died of age in 20 s | crosses where they died |
@@ -84,7 +84,6 @@ Each story is found from the events and the view, every 0.35 s at most, as a can
 | frozen | 5+ torpid cells where the water has frozen (its squares' ice past half), two squares or more iced | the ice hatched, rings on the cells in it; how many froze |
 | shade | 8+ producers in duckweed's shade (the page's `duckShade` past 0.4) | the shade's shape, hatched in moss green; how much light the fronds take; how much less fed the shaded are |
 | rain | a raindrop fallen in view in the last moment and a half (`eng.drops`) | its ring wave as rings spreading from where it fell; how many fell in 30 s |
-| clump | | (stricter: three times the view's mean a square, every square counted; compact, filling 55% of the box about it; no more than a fifth of the view; 2.5× as dense as a ring of squares about it) |
 
 
 By zoom: from 50 CSS px a world unit, cells are pointed at one by one; below 18 the view is wide and tells only the
@@ -139,8 +138,8 @@ itself on. State is told by form: a filled tag, hatching, a hollow or dashed mar
 - **link**: a bowed line from the doer, chevrons running toward the other, a cross tick, its verb in a filled tag.
 - **census**: a glyph on each cell of a species in view, ticked on in a sweep (plus a member, dashed ring dormant or
   torpid, square too warm, cross dead).
-- **zone** and **squares**: a group as cells of a coarse screen grid, or the view's water as its 8 × 8 squares;
-  hatched for a danger.
+- **shape**: a stretch of the world (a crowd, the water too warm, ice, light, stone, shade, a range) as smooth loops
+  where its field crosses a level (`src/contour.js`); hatched for a danger, its hatching fixed to the world.
 - **label**: a tag or eyebrow, a rule, a hero numeral and the name it counts, data lines, a comfort band with the
   reading.
 - **gauge**: the water on an arc against a species' comfort band.
@@ -235,4 +234,4 @@ Measured 2026-11-03 on an RTX 4070 Ti (Windows Chrome): the step's passes with t
 build before (`tools/perf/plans/step.json`, two runs each): `lifeMain` 1.70–1.96 ms before and 1.92–1.98 after on a
 1M world, 5.75 and 5.71–5.75 on 4M; `resolveCount` 0.19 both: within the runs' own spread. Nothing is written while
 the annotations are off (`sim.watch` empty). With them on, a 131k world under the auto camera at 1× kept its 73 fps;
-the page spends about 0.2 ms a frame reading the readbacks and finding stories, and 0.6–0.8 ms drawing with three notes up (`__tidemote.notes.debug().ms`, by part). Ring overflow (`lost`) stayed at 0 through 1×, 4× and 16× once the bite share settled.
+the page spends about 0.2 ms a frame reading the readbacks and finding stories, and 0.6–0.8 ms drawing with notes up (`__tidemote.notes.debug().ms`, by part). Ring overflow (`lost`) stayed at 0 through 1×, 4× and 16× once the bite share settled.

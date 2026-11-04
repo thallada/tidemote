@@ -4514,10 +4514,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const noteFlow = (x, y) => flowAt(x, y, eng.simTime, eng.waves);
   // the light at a world point, as the cells have it (lightAt in the shaders: the tide's bands under the sky and duckweed)
   const noteLight = (x, y) => { const [W, H] = eng.grid; return (eng.ambient + (1 - eng.ambient) * tideAt(x, y, W, H, eng.simTime, eng.tide, eng.tidePh) * eng.season) * eng.sky * (1 - duckShade(x, y, eng.duck, W, H)); };
-  // the camera as the notes see it: flying to another shot, or panned or zoomed fast; and since when it has held still
-  const noteCam = { x: 0, y: 0, zoom: 1, stillAt: 0 };
+  // how the camera moves, as the notes see it (eased): world units a real second, and how fast it zooms in
+  const noteCam = { x: null, y: null, zoom: null, vel: [0, 0], zoomIn: 0 };
   // the duckweed's shade at a world point (0..1), when there is any
-  const noteShade = (x, y) => { const [W, H] = eng.grid; return eng.duck[3] > 0 || eng.duck[7] > 0 ? duckShade(x, y, eng.duck, W, H) : 0; };
+  const noteShade = (x, y) => { const [W, H] = eng.grid; return duckShade(x, y, eng.duck, W, H); };
   // raindrops fallen in the last moment and a half (eng.drops: x, y, when, size, four at a time), and how many in 30 s
   const noteDropsSeen = new Map();
   const noteDrops = () => {
@@ -4543,16 +4543,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const speed = state.paused ? 0 : state.speed === Infinity ? perf.rate || 16 : state.speed;
     const shot = director.active ? director.shot : null, flying = !!(shot && shot.t < shot.flight);
     const dts = Math.max(dtMs / 1000, 1e-3), [W, H] = eng.grid, C = noteCam;
-    const vx = wrapD(cam.x - C.x, W) / dts, vy = wrapD(cam.y - C.y, H) / dts, pan = Math.hypot(vx, vy) * cssPPU(), zoomRate = Math.abs(Math.log(cam.zoom / C.zoom)) / dts;
-    C.x = cam.x; C.y = cam.y; C.zoom = cam.zoom;
-    // (the camera's motion, eased: world units a real second, and how fast it zooms in, for what will still show)
+    C.x ??= cam.x; C.y ??= cam.y; C.zoom ??= cam.zoom;
     const f = 1 - Math.exp(-dts / 0.2);
-    C.vel = [(C.vel?.[0] ?? 0) + (vx - (C.vel?.[0] ?? 0)) * f, (C.vel?.[1] ?? 0) + (vy - (C.vel?.[1] ?? 0)) * f];
-    C.zoomIn = (C.zoomIn ?? 0) + (Math.log(cam.zoom / (C.zoomPrev ?? cam.zoom)) / dts - (C.zoomIn ?? 0)) * f;
-    C.zoomPrev = cam.zoom;
-    if (flying || pan > 220 || zoomRate > 0.15) C.stillAt = now;
+    C.vel = [C.vel[0] + (wrapD(cam.x - C.x, W) / dts - C.vel[0]) * f, C.vel[1] + (wrapD(cam.y - C.y, H) / dts - C.vel[1]) * f];
+    C.zoomIn += (Math.log(cam.zoom / C.zoom) / dts - C.zoomIn) * f;
+    C.x = cam.x; C.y = cam.y; C.zoom = cam.zoom;
     const list = notes.update({ now, speed, ppu: cssPPU(), phone: phone(), pool: eng.tbg, visible: noteVisible, inner: noteInner,
-      still: now - C.stillAt, camVel: C.vel, zoomIn: C.zoomIn, central: noteCentral, leaving: flying, flow: noteFlow, light: noteLight, shade: noteShade, drops: noteDrops, dropsIn30: () => noteDropsSeen.size,
+      camVel: C.vel, zoomIn: C.zoomIn, central: noteCentral, leaving: flying, flow: noteFlow, light: noteLight, shade: noteShade, drops: noteDrops, dropsIn30: () => noteDropsSeen.size,
       ahead: shot ? shot.dur - shot.t : Infinity,
       // (where the auto camera is flying to: the world it will show)
       dest: flying && shot.target ? { x: shot.target.x, y: shot.target.y, w: shot.target.w, h: shot.target.w * (noteOpen.b - noteOpen.t) / Math.max(1, noteOpen.r - noteOpen.l) } : null });
@@ -4564,7 +4561,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (plateRect) avoid.push(plateRect);
     const sh = director.active ? director.shot : null;
     const mode = director.active ? NOTE_MODE[sh && sh.why && sh.why.kind] || 'AUTO' : 'OBSERVE';
-    noteView.draw({ now, dt: dtMs / 1000, ppu: cssPPU(), world: eng.grid, flow: noteFlow, light: noteLight, shade: noteShade, lens: noteLens, notes: list, model: notes, species: noteSp, project: noteProject, radius: noteRadius,
+    noteView.draw({ now, dt: dtMs / 1000, ppu: cssPPU(), world: eng.grid, flow: noteFlow, shade: noteShade, lens: noteLens, notes: list, model: notes, species: noteSp, project: noteProject, radius: noteRadius,
       open: noteOpen, avoid, mode, pool: eng.tbg, phone: phone(), roster: true, since: notesSince, cap: cssPPU() >= notes.T.close ? 400 : 220 });
     const ms = performance.now() - t0;
     notes.ms.draw += ms;

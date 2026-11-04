@@ -29954,8 +29954,6 @@ ${e.message}` : String(e?.message || e));
     // past this speed, single moments are too quick to follow: only what holds for a while
     window: 30,
     // sim seconds counted for "in the last 30 s"
-    settle: 0.8,
-    // (no longer a wait: a note may begin as the view moves, if what it points at will still show)
     hold: 0.7,
     // and until its story has held this long (a single moment: is still in view, well inside it)
     grace: 0.6,
@@ -30305,7 +30303,6 @@ ${e.message}` : String(e?.message || e));
     update(ctx) {
       this._now = ctx.now;
       ctx.inner ||= ctx.visible;
-      ctx.still ??= 1e9;
       ctx.ahead ??= Infinity;
       if (this.fresh && this.view) {
         this.fresh = false;
@@ -30489,8 +30486,7 @@ ${e.message}` : String(e?.message || e));
           scalds,
           squares: [...hot],
           fine,
-          census: s.kind,
-          water: this.water.hi
+          census: s.kind
         });
       }
       if (band === "wide") {
@@ -30704,7 +30700,7 @@ ${e.message}` : String(e?.message || e));
       const G = NOTE_TG * NOTE_TG, inSq = [];
       for (let k = 0; k < G; k++) if (v.sqIn[k]) inSq.push(k);
       const [Ww, Hw] = this.world(), [gx, gy, gs] = v.grid, sqMid = (k) => [gx + (k % NOTE_TG + 0.5) * gs, gy + (Math.floor(k / NOTE_TG) + 0.5) * gs];
-      const sqN = new Float32Array(G), sqOf = new Int16Array(v.n).fill(-1), bySq = /* @__PURE__ */ new Map();
+      const sqN = new Float32Array(G), sqOf = new Int16Array(v.n).fill(-1);
       for (let i = 0; i < v.n; i++) {
         if (!isLiving(v.kind[i])) continue;
         const k = squareOf(v, v.x[i], v.y[i], [Ww, Hw]);
@@ -31251,8 +31247,7 @@ ${e.message}` : String(e?.message || e));
         bins: comp,
         anchor: v.id[anchor],
         band,
-        // (its cells' places, for its outline: drawn once as found)
-        pts: rows.slice(0, 1500).map((i) => [near(v.x[i], cx, W), near(v.y[i], cy, H2)]),
+        // (its cells, for its outline: drawn once as found, riding with them)
         ids: rows.slice(0, 1500).map((i) => v.id[i])
       };
     }
@@ -31489,7 +31484,7 @@ ${e.message}` : String(e?.message || e));
   function createAudit() {
     let S, tracks, boxes, frame, T = { ox: 0, oy: 0, rx: 0, ry: 0, k: 1 };
     function reset() {
-      S = { frames: 0, jerk: {}, overlapFrames: 0, overlaps: 0, examples: [], moves: 0, flips: 0, swaps: 0, hidden: 0, blinks: 0, blinked: [] };
+      S = { frames: 0, jerk: {}, overlapFrames: 0, overlaps: 0, examples: [], swaps: 0, hidden: 0, blinks: 0, blinked: [] };
       tracks = /* @__PURE__ */ new Map();
       boxes = [];
       frame = 0;
@@ -31712,16 +31707,8 @@ ${e.message}` : String(e?.message || e));
     // a cell's mark eases out a new sample's correction
     fade: 0.25,
     // a cell's mark fades in or out
-    relook: 0.7,
-    // a label's place is weighed again this often (at once when it covers text)
-    better: 120,
-    // and changes only for one this much better (in the placement's score)
     follow: 0.3,
     // a label follows its cell's own motion (a swimmer's beat) this smoothly, the camera's exactly
-    slide: 0.22,
-    // a label's offset eases this fast; a jump past `far` px crossfades instead
-    far: 90,
-    swap: 0.25,
     roster: 0.6,
     // the roster's numbers change this often; a species passes another only with 15% more
     minShow: 3,
@@ -31973,7 +31960,7 @@ ${e.message}` : String(e?.message || e));
         g.globalAlpha = a0;
       }
     }
-    function census(pts, glyph2, tone, t2, from, size = 4) {
+    function census(pts, glyph, tone, t2, from, size = 4) {
       if (!pts.length) return;
       if (LM) {
         pts = pts.map((p) => {
@@ -31987,15 +31974,15 @@ ${e.message}` : String(e?.message || e));
       for (const p of pts) far = Math.max(far, Math.hypot(p[0] - from[0], p[1] - from[1]));
       const P = new Path2D(), a0 = g.globalAlpha, fading = [];
       const add = (Pt, x, y, Q) => {
-        if (glyph2 === "plus") {
+        if (glyph === "plus") {
           Pt.moveTo(x - Q, y);
           Pt.lineTo(x + Q, y);
           Pt.moveTo(x, y - Q);
           Pt.lineTo(x, y + Q);
-        } else if (glyph2 === "ring") {
+        } else if (glyph === "ring") {
           Pt.moveTo(x + Q * 1.3, y);
           Pt.arc(x, y, Q * 1.3, 0, TAU3);
-        } else if (glyph2 === "square") Pt.rect(x - Q * 0.8, y - Q * 0.8, Q * 1.6, Q * 1.6);
+        } else if (glyph === "square") Pt.rect(x - Q * 0.8, y - Q * 0.8, Q * 1.6, Q * 1.6);
         else {
           Pt.moveTo(x - Q * 0.8, y - Q * 0.8);
           Pt.lineTo(x + Q * 0.8, y + Q * 0.8);
@@ -32018,7 +32005,7 @@ ${e.message}` : String(e?.message || e));
         g.stroke(Pt);
         g.lineWidth = 1.3;
         g.strokeStyle = rgba2(tone, 0.95);
-        if (glyph2 === "ring") g.setLineDash([2, 2]);
+        if (glyph === "ring") g.setLineDash([2, 2]);
         g.stroke(Pt);
         g.setLineDash([]);
       };
@@ -32420,22 +32407,6 @@ ${e.message}` : String(e?.message || e));
         g.closePath();
       } else if (guild === "scavenger") g.rect(x - r * 0.85, y - r * 0.85, r * 1.7, r * 1.7);
       else g.arc(x, y, r * 0.75, 0, TAU3);
-    }
-    function glyph(guild, x, y, col) {
-      g.fillStyle = rgba2(col, 0.95);
-      g.beginPath();
-      if (guild === "producer") {
-        g.moveTo(x, y - 3.5);
-        g.lineTo(x + 3.5, y);
-        g.lineTo(x, y + 3.5);
-        g.lineTo(x - 3.5, y);
-      } else if (guild === "predator") {
-        g.moveTo(x, y - 3.5);
-        g.lineTo(x + 3.5, y + 3);
-        g.lineTo(x - 3.5, y + 3);
-      } else if (guild === "scavenger") g.rect(x - 3, y - 3, 6, 6);
-      else g.arc(x, y, 2.6, 0, TAU3);
-      g.fill();
     }
     function fit3(k, s, w) {
       if (width(k, s) <= w) return s;
@@ -33038,15 +33009,15 @@ ${e.message}` : String(e?.message || e));
         const pts = group("c", M.rows(d.kind, d.type === "dormant" ? "cyst" : "all"));
         const an = hang(0, pts, d.kind);
         if (!an) return null;
-        const glyph2 = d.type === "dormant" ? "ring" : "plus";
-        P.draws.push((t2) => census(pts, glyph2, INK4, t2, an, glyphOf(d.kind)));
+        const glyph = d.type === "dormant" ? "ring" : "plus";
+        P.draws.push((t2) => census(pts, glyph, INK4, t2, an, glyphOf(d.kind)));
         P.anchor = an;
         P.pts = pts;
         const s = M.stats.by.get(d.kind), g2 = sp(d.kind);
         if (d.type === "bloom") P.label = { tone: INK4, eye: "Dividing", num: `+${d.births}`, main: nm(d.kind), data: [`BORN IN 20 S · ${Math.round((s?.n ?? 0) * M.stats.scale)} IN VIEW`, up(g2?.guild || "")] };
         else if (d.type === "waking") P.label = { tone: INK4, eye: "Waking", num: String(d.count), main: nm(d.kind), data: ["CYSTS WAKING IN 20 S", "TO TRY THEIR LUCK AGAIN"] };
         else P.label = { tone: INK4, eye: "Going dormant", num: String(d.count), main: nm(d.kind), data: ["CURLED INTO CYSTS IN 20 S", "NOTHING IN REACH TO EAT"] };
-        P.keys.push({ glyph: glyph2, text: d.type === "dormant" ? `${nm(d.kind)} CYST` : `${nm(d.kind)} CELL`, tone: INK4 });
+        P.keys.push({ glyph, text: d.type === "dormant" ? `${nm(d.kind)} CYST` : `${nm(d.kind)} CELL`, tone: INK4 });
       } else if (d.type === "heat") {
         const g2 = sp(d.kind);
         if (!g2) return null;
@@ -34039,7 +34010,7 @@ ${e.message}` : String(e?.message || e));
       if (A && on === "reset") A.reset();
       return !!A;
     };
-    return { draw, audit, text: textOut, label: label3, labelSize, width: (k, s) => {
+    return { draw, audit, text: textOut, width: (k, s) => {
       const w = width(k, s);
       cur = null;
       return w;
@@ -42746,10 +42717,10 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
       const [W, H2] = eng.grid;
       return (eng.ambient + (1 - eng.ambient) * tideAt(x, y, W, H2, eng.simTime, eng.tide, eng.tidePh) * eng.season) * eng.sky * (1 - duckShade(x, y, eng.duck, W, H2));
     };
-    const noteCam = { x: 0, y: 0, zoom: 1, stillAt: 0 };
+    const noteCam = { x: null, y: null, zoom: null, vel: [0, 0], zoomIn: 0 };
     const noteShade = (x, y) => {
       const [W, H2] = eng.grid;
-      return eng.duck[3] > 0 || eng.duck[7] > 0 ? duckShade(x, y, eng.duck, W, H2) : 0;
+      return duckShade(x, y, eng.duck, W, H2);
     };
     const noteDropsSeen = /* @__PURE__ */ new Map();
     const noteDrops = () => {
@@ -42773,15 +42744,15 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
       const speed = state.paused ? 0 : state.speed === Infinity ? perf.rate || 16 : state.speed;
       const shot = director.active ? director.shot : null, flying = !!(shot && shot.t < shot.flight);
       const dts = Math.max(dtMs / 1e3, 1e-3), [W, H2] = eng.grid, C3 = noteCam;
-      const vx = wrapD2(cam.x - C3.x, W) / dts, vy = wrapD2(cam.y - C3.y, H2) / dts, pan = Math.hypot(vx, vy) * cssPPU(), zoomRate = Math.abs(Math.log(cam.zoom / C3.zoom)) / dts;
+      C3.x ??= cam.x;
+      C3.y ??= cam.y;
+      C3.zoom ??= cam.zoom;
+      const f2 = 1 - Math.exp(-dts / 0.2);
+      C3.vel = [C3.vel[0] + (wrapD2(cam.x - C3.x, W) / dts - C3.vel[0]) * f2, C3.vel[1] + (wrapD2(cam.y - C3.y, H2) / dts - C3.vel[1]) * f2];
+      C3.zoomIn += (Math.log(cam.zoom / C3.zoom) / dts - C3.zoomIn) * f2;
       C3.x = cam.x;
       C3.y = cam.y;
       C3.zoom = cam.zoom;
-      const f2 = 1 - Math.exp(-dts / 0.2);
-      C3.vel = [(C3.vel?.[0] ?? 0) + (vx - (C3.vel?.[0] ?? 0)) * f2, (C3.vel?.[1] ?? 0) + (vy - (C3.vel?.[1] ?? 0)) * f2];
-      C3.zoomIn = (C3.zoomIn ?? 0) + (Math.log(cam.zoom / (C3.zoomPrev ?? cam.zoom)) / dts - (C3.zoomIn ?? 0)) * f2;
-      C3.zoomPrev = cam.zoom;
-      if (flying || pan > 220 || zoomRate > 0.15) C3.stillAt = now;
       const list = notes.update({
         now,
         speed,
@@ -42790,7 +42761,6 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
         pool: eng.tbg,
         visible: noteVisible,
         inner: noteInner,
-        still: now - C3.stillAt,
         camVel: C3.vel,
         zoomIn: C3.zoomIn,
         central: noteCentral,
@@ -42817,7 +42787,6 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
         ppu: cssPPU(),
         world: eng.grid,
         flow: noteFlow,
-        light: noteLight,
         shade: noteShade,
         lens: noteLens,
         notes: list,

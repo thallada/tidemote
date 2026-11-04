@@ -28,7 +28,6 @@ export const TUNE = {
   keyCool: 60,     // before the same story again
   fast: 4,         // past this speed, single moments are too quick to follow: only what holds for a while
   window: 30,      // sim seconds counted for "in the last 30 s"
-  settle: 0.8,     // (no longer a wait: a note may begin as the view moves, if what it points at will still show)
   hold: 0.7,       // and until its story has held this long (a single moment: is still in view, well inside it)
   grace: 0.6,      // a note whose cell has left the view (or whose label has no room) goes after this long
   minLife: 3,      // a note, once shown, stays at least this long, whatever becomes of what it marks (but for the
@@ -339,7 +338,6 @@ export class Notes {
   update(ctx) {
     this._now = ctx.now;
     ctx.inner ||= ctx.visible;
-    ctx.still ??= 1e9;
     ctx.ahead ??= Infinity;
     if (this.fresh && this.view) {
       this.fresh = false;
@@ -480,7 +478,7 @@ export class Notes {
         if (inHot >= 3 && (!fine || inHot > fine.n)) fine = { kind: o.kind, n: inHot };
       }
       out.push({ type: 'heat', key: `heat:${s.kind}`, prio: 0.6, strength: s.hot / s.n * 10 + 2 * scalds, kind: s.kind, hot: Math.round(s.hot * S.scale), scalds,
-        squares: [...hot], fine, census: s.kind, water: this.water.hi });
+        squares: [...hot], fine, census: s.kind });
     }
     // (from afar, the water too warm is one story, for the species it scalds most: not one for each)
     if (band === 'wide') {
@@ -635,7 +633,7 @@ export class Notes {
     for (let k = 0; k < G; k++) if (v.sqIn[k]) inSq.push(k);
     const [Ww, Hw] = this.world(), [gx, gy, gs] = v.grid, sqMid = (k) => [gx + ((k % NOTE_TG) + 0.5) * gs, gy + (Math.floor(k / NOTE_TG) + 0.5) * gs];
     // the living by square, all and by species (rows looked at once)
-    const sqN = new Float32Array(G), sqOf = new Int16Array(v.n).fill(-1), bySq = new Map();
+    const sqN = new Float32Array(G), sqOf = new Int16Array(v.n).fill(-1);
     for (let i = 0; i < v.n; i++) {
       if (!isLiving(v.kind[i])) continue;
       const k = squareOf(v, v.x[i], v.y[i], [Ww, Hw]);
@@ -988,8 +986,8 @@ export class Notes {
     if (cs < 0.6 * (speed / living)) why.push(['still', cs]);
     return { key: best.key, cells: Math.round(rows.length * S.scale), species: new Set(rows.map((i) => v.kind[i])).size, many: best.many, shares: shares.slice(0, 5), why,
       size: 2 * far, b, bins: comp, anchor: v.id[anchor], band,
-      // (its cells' places, for its outline: drawn once as found)
-      pts: rows.slice(0, 1500).map((i) => [near(v.x[i], cx, W), near(v.y[i], cy, H)]), ids: rows.slice(0, 1500).map((i) => v.id[i]) };
+      // (its cells, for its outline: drawn once as found, riding with them)
+      ids: rows.slice(0, 1500).map((i) => v.id[i]) };
   }
 
   // the nearest hunter closing on a cell of the species it last ate: within reach, moving toward it
