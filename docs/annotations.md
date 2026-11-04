@@ -164,8 +164,14 @@ The marks ride the scene as what they mark does, however the auto camera pans an
   is the isotherm of the view's squares' warmth at what a species bears (from afar) or a soft shape about its too-warm
   cells (up close: each spreads a bump on a lattice fixed in the world, the field eased from look to look so the shape
   changes as the crowd does, never at a jump); ice, light, stone, a range, a killing ground are the contours of their
-  squares' fields; a community's outline is drawn once, about its cells as found, and does not shift. Squares out of
-  view count as outside, a finite way below the level, so no edge runs along a row of square middles. Hatching is
+  squares' fields; a community's outline is drawn once, about its cells as found. A shape about cells (a scalding
+  species' ground, the stranded, a community) rides with them as their marks do: it is built at each look about an
+  origin carried along with its cells (their mean motion and the current, through `F.project`, the carrying the marks
+  and the page's brackets have) and drawn each frame about where that origin is now, so it never trails its cells
+  however fast they or the camera move; its shape eases as the crowd changes, in that moving frame (`ride`). Squares
+  out of view count as outside, a finite way below the level, so no edge runs along a row of square middles; and a
+  square counts only where it lies on the camera's side of the world's wrap, never again as its repeat when the grid
+  is wider than the world (else from afar one stretch was outlined two or three times over). Hatching is
   fixed to the world.
 - A label hangs on one cell of its group, chosen once and kept: found every frame by its id (`n.pins`, with
   `Engine.watch`) wherever the group's sample goes; another only when that cell is gone altogether. When it leaves the
@@ -184,7 +190,7 @@ The marks ride the scene as what they mark does, however the auto camera pans an
 - The loupe magnifies the marks with the world: the marks under it are drawn again within its circle, their places
   mapped as it maps the view (about its middle, by its magnification: `mp` in `src/noteview.js`) and cell-sized marks
   (locks, glyphs, a raindrop's rings) grown with it, while the unmagnified ones under it are left out; a leader to a
-  cell under it reaches the cell where the loupe shows it. Labels are never hidden by it (a new one is set clear of it
+  cell under it reaches the cell where the loupe shows it, and one to a cell the loupe does not show passes under it. Labels are never hidden by it (a new one is set clear of it
   if it can be). The second pass draws only the marks, only while the loupe shows.
 - Once a label can be read it stays readable at least 1.6 s whatever becomes of its note (the notes keep a note so
   read until then), so nothing blinks.

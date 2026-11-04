@@ -60,20 +60,22 @@ if (v.frames) await page.evaluate(() => {
   requestAnimationFrame(tick);
   try { new PerformanceObserver((l) => { for (const e of l.getEntries()) F.long.push([Math.round(e.startTime), Math.round(e.duration)]); }).observe({ type: 'longtask', buffered: false }); } catch {}
 });
+// (the loops beside the main one stop when it ends and swallow their own errors, so none outlives the browser)
+let done = false;
 if (v.mouse) {
   const [mx, my] = v.mouse.split(',').map(Number);
-  (async () => { for (let q = 0; q < 1e6; q++) { await page.mouse.move(mx + (q % 2) * 3, my).catch(() => {}); await page.waitForTimeout(400); } })();
+  (async () => { for (let q = 0; !done; q++) { await page.mouse.move(mx + (q % 2) * 3, my).catch(() => {}); await page.waitForTimeout(400).catch(() => {}); } })().catch(() => {});
 }
 const t0 = Date.now();
 let k = 0;
 if (v.when) (async () => {
   let shots = 0, last = 0;
-  while (Date.now() - t0 < v.secs * 1000 && shots < 12) {
-    await page.waitForTimeout(700);
+  while (!done && Date.now() - t0 < v.secs * 1000 && shots < 12) {
+    await page.waitForTimeout(700).catch(() => {});
     const on = await page.evaluate((ty) => globalThis.__tidemote.notes.notes.some((n) => n.type === ty && n.exitAt == null && performance.now() / 1000 - n.born > 1.5), v.when).catch(() => false);
     if (on && Date.now() - last > 4000) { last = Date.now(); await page.screenshot({ path: path.join(v.out, `w-${String(shots++).padStart(2, '0')}.png`) }).catch(() => {}); }
   }
-})();
+})().catch(() => {});
 if (v.profile) setTimeout(async () => {
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Profiler.enable');
@@ -114,4 +116,5 @@ if (v.frames) {
   console.log('frames', JSON.stringify(r));
 }
 fs.writeFileSync(path.join(v.out, 'log.txt'), log.join('\n'));
+done = true;
 await ctx.close(); server.close();
