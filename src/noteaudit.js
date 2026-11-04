@@ -5,10 +5,12 @@
 //   camera's pan and zoom, from a fixed world point's screen place and the scale: frame()) and told in screen px:
 //   steady motion has little, a mark that snaps or wobbles has much, however the camera moves. 'cam' is that fixed
 //   point itself (≈0, but for the water's bending of the view).
+//   Labels hold still on the screen (their leaders reach to their cells): 'label' is measured on the screen.
+//   blinks: labels readable (past half their alpha) for under 1.5 s: there should be none.
 export function createAudit() {
   let S, tracks, boxes, frame, T = { ox: 0, oy: 0, rx: 0, ry: 0, k: 1 };
   function reset() {
-    S = { frames: 0, jerk: {}, overlapFrames: 0, overlaps: 0, examples: [], moves: 0, flips: 0, swaps: 0, hidden: 0 };
+    S = { frames: 0, jerk: {}, overlapFrames: 0, overlaps: 0, examples: [], moves: 0, flips: 0, swaps: 0, hidden: 0, blinks: 0, blinked: [] };
     tracks = new Map();
     boxes = [];
     frame = 0;
@@ -33,9 +35,18 @@ export function createAudit() {
       }
       tracks.set(k, { f: frame, a: [x, y], b: tr && tr.f === frame - 1 ? tr.a : null });
     },
-    /** a piece of text (or a tag) as drawn: its owner and its box */
+    /** a place meant to hold still on the screen (a label), measured there rather than in the world */
+    screen(c, key, x, y) {
+      const T0 = T;
+      T = { ox: 0, oy: 0, rx: 0, ry: 0, k: 1 };
+      this.point(c, key, x, y);
+      T = T0;
+    },
+        /** a piece of text (or a tag) as drawn: its owner and its box */
     box(owner, s, l, t, r, b) { boxes.push({ owner, s, l, t, r, b }); },
     count(k) { S[k]++; },
+    /** a label readable for less than a moment and a half before it went (what it said, for how long) */
+    blink(what, secs) { S.blinks++; if (S.blinked.length < 40) S.blinked.push(`${what} (${secs.toFixed(2)} s)`); },
     end() {
       let any = false;
       for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {

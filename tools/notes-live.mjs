@@ -2,6 +2,7 @@
 // at Max, then a screenshot every few seconds and a log of what the notes held and cost (__tidemote.notes.debug()).
 //   tools/gpu-node.sh tools/notes-live.mjs --out runs/notes/a [--warm 60] [--secs 60] [--every 5] [--speed 1] [--zoom Z] [--phone] [--eval JS] [--audit]
 // --audit: how steadily the marks and labels ride the scene and any text that overlaps (src/noteaudit.js), in audit.json
+// --when TYPE: also a screenshot (w-*.png) whenever a note of that type shows, 4 s apart at most
 // --profile S: a CPU profile of the page's main thread over S seconds, from --profileAt seconds in (default 30): the
 // functions that took the most time themselves, in profile.txt
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http'; import os from 'node:os';
@@ -49,6 +50,14 @@ else await page.evaluate(() => { if (!globalThis.__tidemote.director.active) doc
 if (v.audit) await page.evaluate(() => globalThis.__tidemote.noteView.audit('reset'));
 const t0 = Date.now();
 let k = 0;
+if (v.when) (async () => {
+  let shots = 0, last = 0;
+  while (Date.now() - t0 < v.secs * 1000 && shots < 12) {
+    await page.waitForTimeout(700);
+    const on = await page.evaluate((ty) => globalThis.__tidemote.notes.notes.some((n) => n.type === ty && n.exitAt == null && performance.now() / 1000 - n.born > 1.5), v.when).catch(() => false);
+    if (on && Date.now() - last > 4000) { last = Date.now(); await page.screenshot({ path: path.join(v.out, `w-${String(shots++).padStart(2, '0')}.png`) }).catch(() => {}); }
+  }
+})();
 if (v.profile) setTimeout(async () => {
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Profiler.enable');
@@ -77,7 +86,7 @@ while (Date.now() - t0 < v.secs * 1000) {
 if (v.audit) {
   const a = await page.evaluate(() => globalThis.__tidemote.noteView.audit());
   fs.writeFileSync(path.join(v.out, 'audit.json'), JSON.stringify(a, null, 1));
-  console.log(JSON.stringify({ frames: a.frames, overlapFrames: a.overlapFrames, jerk: a.jerk, moves: a.moves, flips: a.flips, swaps: a.swaps, hidden: a.hidden }, null, 1));
+  console.log(JSON.stringify({ frames: a.frames, overlapFrames: a.overlapFrames, jerk: a.jerk, moves: a.moves, flips: a.flips, swaps: a.swaps, hidden: a.hidden, blinks: a.blinks, blinked: a.blinked }, null, 1));
   console.log(a.examples.slice(0, 12).join('\n'));
 }
 fs.writeFileSync(path.join(v.out, 'log.txt'), log.join('\n'));

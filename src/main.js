@@ -4460,7 +4460,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const noteSp = (slot) => {
     const g = genomeFor(slot);
     const sp = g && life.reg.get(g.serial);
-    return sp ? { name: sp.name, guild: dietGuild(g), topt: g.topt ?? 19, tol: Math.max(g.tol ?? 7, 0.5), serial: g.serial, genus: sp.genus, genusName: sp.name.split(' ')[0] } : null;
+    return sp ? { name: sp.name, guild: dietGuild(g), topt: g.topt ?? 19, tol: Math.max(g.tol ?? 7, 0.5), serial: g.serial, genus: sp.genus, genusName: sp.name.split(' ')[0], col: cssCol(g.col) } : null;
   };
   const notes = new Notes({ species: noteSp, world: () => eng.grid });
   const noteView = createNoteView(octx);
@@ -4510,6 +4510,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const noteFlow = (x, y) => flowAt(x, y, eng.simTime, eng.waves);
   // the camera as the notes see it: flying to another shot, or panned or zoomed fast; and since when it has held still
   const noteCam = { x: 0, y: 0, zoom: 1, stillAt: 0 };
+  let noteCap = null;
   const NOTE_MODE = { follow: 'FOLLOW', linger: 'LINGER', scene: 'SURVEY', wide: 'WIDE', event: 'EVENT' };
   function drawNotes(dtMs) {
     const now = performance.now() / 1000, t0 = performance.now();
@@ -4523,8 +4524,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const list = notes.update({ now, speed, ppu: cssPPU(), phone: phone(), pool: eng.tbg, visible: noteVisible, inner: noteInner,
       still: now - C.stillAt, leaving: flying, flow: noteFlow, ahead: shot ? shot.dur - shot.t : Infinity });
     const avoid = [];
+    // (the caption's place, while it shows and while it is between one caption and the next)
     const cr = capEl.classList.contains('on') ? capEl.getBoundingClientRect() : null;
-    if (cr && cr.width) avoid.push({ l: cr.left - 8, t: cr.top - 8, r: cr.right + 8, b: cr.bottom + 8 });
+    if (cr && cr.width) noteCap = { l: cr.left - 8, t: cr.top - 8, r: cr.right + 8, b: cr.bottom + 8, at: now };
+    if (noteCap && (cr?.width || (director.active && now - noteCap.at < 30))) avoid.push(noteCap);
     if (plateRect) avoid.push(plateRect);
     const sh = director.active ? director.shot : null;
     const mode = director.active ? NOTE_MODE[sh && sh.why && sh.why.kind] || 'AUTO' : 'OBSERVE';

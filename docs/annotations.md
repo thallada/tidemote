@@ -64,7 +64,8 @@ Each story is found from the events and the view, every 0.35 s at most, as a can
 | body | an organism of 6+ cells bonded together (each cell's bonded partners, from the view; union–find once a look) | its cells, brackets about it with its size measured above them; its form (filament, mat, colony, cluster) |
 | swim | a body of 3+ cells moving half a body length a second or more | as a body, and its heading as an arrow and where it has been as a dotted trail |
 | stalk | a hunter heading (within 45°) for the nearest cell of the species it last ate, within 1.5 units (up close) | lock on the hunter, a dashed line to its quarry with the distance between them, brackets on the quarry |
-| web | 3+ eaten–eater pairs among 3+ species in 30 s (not on a phone) | a panel: the species by trophic level, an arrow from each eaten to its eater weighted by bites and kills |
+| web | 3+ eaten–eater pairs among 3+ species in 30 s (not on a phone; when no label holds its corner) | a panel: the species by trophic level (three a level at most, ordered under their eaters so the arrows cross least), each a tag with its glyph in the species' own color, its genus over its epithet, and how much it ate and was eaten; a curved arrow from each eaten to its eater, as thick as its share (kills in hot) |
+| clump | the biggest dense clump in view (its squares on a world lattice, about 24 across the view, 2.2× denser than the view's mean) of 3+ species each a twentieth of it (2.5+ in effect), under half the view | its outline, solid; how many species, cells and how far across; its make-up by share as a bar in the species' own colors; why it may hold together: its cells bonded into mats, grazers biting its producers there, hunters among them, births there (a nursery), the current flowing in toward it, its cells holding still while the rest drift |
 | balance | the species in view with the most births and deaths in 30 s (12+) | census; born against died by cause as a split bar; THRIVING, DECLINING or TURNOVER |
 | genus | 3+ species of one genus in view | each sister its own glyph; their names |
 | old | 3+ of one species died of age in 20 s | crosses where they died |
@@ -89,8 +90,10 @@ or the view panned faster than 220 px or zoomed faster than 15% a second) nor un
 less than 5 s of the shot left (a single moment, 3 s); a story must have held 0.7 s (a single moment is told at
 once); what it points at must lie well inside the view (90 px or 12% of it in from the edges) and, at the pace its
 cells move, still be in view two seconds on. The auto camera setting off for another shot takes the notes with it,
-fading. A note whose cell has left the view, or whose label has found no room, goes after 0.6 s; otherwise it stays
-at least 2.5 s. Zooming out ends a cell's note only well past the wide step (three quarters of it). `notes.debug()`
+fading (slowly, over 1.2 s, when it has been up less than 3 s). Once shown, a note stays at least 3 s whatever
+becomes of what it marks: a note whose cell has left the view keeps its label where it was last seen in the world
+(its marks and leader gone) until then, and goes after 0.6 s more; one whose label has found no room goes after 0.6 s.
+The same kind of story about the same species (another of its cells, another pair it grazes) waits 60 s. Zooming out ends a cell's note only well past the wide step (three quarters of it). `notes.debug()`
 counts what was shown, how long, and why any went within 2.5 s.
 
 ### Ideas not built yet
@@ -149,15 +152,18 @@ The marks ride the scene as what they mark does, however the auto camera pans an
   of its frame rate (5 fps for 9,000 cells, measured with `notes.debug().drawn`).
 - A label hangs on one cell of its group, chosen once and kept: found every frame by its id (`n.pins`, with
   `Engine.watch`) wherever the group's sample goes; another only when that cell is gone altogether. When it leaves the
-  view, the note ends rather than hopping to another cell. What it hangs from is that cell's place in the world, smoothed over 0.3 s (a swimmer's beat does not
-  shake it), shown each frame where the camera now shows it: so it rides the view's pans and zooms exactly, and the
-  leader alone reaches to the cell itself. Its offset from there is weighed again every 0.7 s, or at once when it has
-  come to cover text, and moves only for a clearly better place; a near move eases, a far one, one to the other
-  side or one that would slide over other text crossfades.
+  view, the note ends rather than hopping to another cell. Its place is chosen once, when it first shows (the best
+  about where that cell shows, clear of text and the panels), and there it holds still on the screen, as a HUD's
+  callout does: its leader reaches to the cell as the cell, or the camera, moves, meeting the label at whichever end
+  faces it, so the words can be read. Only when the cell has gone far from it (the leader past a third of the view)
+  does the label glide after it, slowly (1.5 s), to keep it in reach; it always keeps inside the view and never jumps
+  to another place.
 - A note's marks show only as its label does (never a zone or a line with nothing to say why); a label's plate is
   dark (80%), fades in as its text types on, and its corners are ticked (the auto camera's caption, `.caption` in
-  `src/page.css`, sits on the same plate). A label hidden for want of room shows again
-  only after 0.3 s clear, so it never flickers.
+  `src/page.css`, sits on the same plate). A label with no room when it first would show waits hidden (its marks
+  too), so it never shows only to vanish; once shown it stays at least 3 s even if something comes to cover it; after
+  that, covered, it hides for good and its note ends: nothing blinks on and off. The audit counts any label readable
+  for under 1.5 s (`blinks`, with what it said): there should be none.
 - No two pieces of text overlap: anything that is text (labels, the frame's panels, the links' verbs, the page's
   caption and nameplate) is a hard obstacle, and a label with no free place fades out until one frees. A link's verb
   under the page's text, a panel or another verb fades out until it is clear; the marks keep out from under the
@@ -175,7 +181,8 @@ the interface showing and logs what the notes held and what they cost (`__tidemo
 finding and drawing; events the ring overwrote before they were read). With `--audit` it also measures, every frame
 (`src/noteaudit.js`, `__tidemote.noteView.audit()`), how steadily the marks ride the scene (the second difference of
 each anchor's, label's, glyph's and zone corner's screen place from frame to frame, against a fixed world point's, the
-camera's own) and every pair of text boxes that overlap, with examples, into `audit.json`.
+camera's own; a label's on the screen, where it is meant to hold still) and every pair of text boxes that overlap,
+with examples, into `audit.json`; `--when TYPE` takes a screenshot whenever a note of that type shows.
 
 ## What it costs
 
