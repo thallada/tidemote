@@ -4145,8 +4145,9 @@ struct Cull { first: vec2u, count: vec2u, grid: vec2u, pad: vec2u };
 @group(0) @binding(1) var<storage, read> cellStart: array<u32>;
 // [0]: (segments, particles), then (first index, particles before) per segment
 @group(0) @binding(2) var<storage, read_write> segs: array<vec2u>;
-// points (4 vertices), lines (4), bridges (30), as drawIndirect arguments
-@group(0) @binding(3) var<storage, read_write> args: array<u32, 12>;
+// points (4 vertices), lines (4), bridges (30), as drawIndirect arguments; then listMain's workgroups over the
+// points, as dispatchWorkgroupsIndirect's
+@group(0) @binding(3) var<storage, read_write> args: array<u32, 15>;
 var<workgroup> sums: array<u32, 256>;
 
 @compute @workgroup_size(256)
@@ -4186,7 +4187,7 @@ fn cullRows(@builtin(local_invocation_index) l: u32) {
   if (l == 255u) {
     let total = sums[255];
     segs[0] = vec2u(n, total);
-    args = array<u32, 12>(4u, total, 0u, 0u, 4u, total, 0u, 0u, 30u, total, 0u, 0u);
+    args = array<u32, 15>(4u, total, 0u, 0u, 4u, total, 0u, 0u, 30u, total, 0u, 0u, (total + 255u) / 256u, 1u, 1u);
   }
 }
 `;
@@ -4767,8 +4768,8 @@ fn cullIndex(ii: u32) -> u32 {
 }
 // the particle a point's instance draws, and the cell a bond's instance draws (living, unless culled)
 fn pointAt(ii: u32) -> u32 {
-  if (view.culled == 1u) { return cullIndex(ii); }
   if (view.splat != 0.0) { return quadR[4u + ii]; }
+  if (view.culled == 1u) { return cullIndex(ii); }
   return ii;
 }
 fn livingAt(ii: u32) -> u32 { if (view.culled == 1u) { return cullIndex(ii); } return livingList[ii]; }
@@ -5337,7 +5338,7 @@ fn splatOne(i: u32) -> u32 {
   }
   return NONE;
 }
-// Without splatting (the main view, unculled), each sprite is sized and colored once (spriteOf) rather than at each
+// Without splatting (the main view), each sprite is sized and colored once (spriteOf) rather than at each
 // of its quad's four corners: those vsPoint would draw unresolved (a few pixels across, or no detail) are written as
 // records (smallW: where, how large, its color and profile) for vsPointSmall, a slim pipeline that only places them,
 // and the rest are listed for vsPoint (quadW, as splatMain lists them). On an M1 a mature 139k world at fit spent
@@ -5352,12 +5353,15 @@ var<workgroup> smallBase: u32;
 fn listMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) l: u32) {
   if (l == 0u) { atomicStore(&quadN, 0u); atomicStore(&smallN, 0u); }
   workgroupBarrier();
-  let i = gid.x;
+  // (every particle, or a culled view's: those of the grid rows in view)
+  let culled = view.culled == 1u;
+  var i = gid.x;
   var big = NONE;
   var small = NONE;
   var ra = vec4f(0.0);
   var rb = vec4u(0u);
-  if (i < arrayLength(&parts)) {
+  if (i < select(arrayLength(&parts), segs[0].y, culled)) {
+    if (culled) { i = cullIndex(i); }
     let p = parts[i];
     if (p.kind != STONE && p.kind != FRAMBOID) {
       let d = wrapd(drawnPos(p) - view.cam) * view.ppu;

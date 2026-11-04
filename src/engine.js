@@ -299,7 +299,7 @@ class Engine {
     this.cull = [0, 1, 2].map(() => {
       const u = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
       const segs = d.createBuffer({ size: CULL_SEGS * 8, usage: U.STORAGE });
-      const args = d.createBuffer({ size: 48, usage: U.STORAGE | U.INDIRECT });
+      const args = d.createBuffer({ size: 64, usage: U.STORAGE | U.INDIRECT });
       return { u, segs, args, bg: null };
     });
     // particles are in grid-cell order (cellStart valid) once a step has sorted them
@@ -797,7 +797,7 @@ class Engine {
     this.splatBG = d.createBindGroup({ layout: this.cpSplat.getBindGroupLayout(0), entries: [[0, b.view], [1, b.parts], [2, b.genomes], [3, b.intent], [5, b.focus], [9, b.sway], [11, b.thermal], [13, b.splat], [15, b.quads]]
       .map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
     this.splatDrawBG = d.createBindGroup({ layout: this.main.splat.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: b.view } }, { binding: 14, resource: { buffer: b.splat } }] });
-    this.listBG = d.createBindGroup({ layout: this.cpList.getBindGroupLayout(0), entries: [[0, b.view], [1, b.parts], [2, b.genomes], [3, b.intent], [5, b.focus], [9, b.sway], [11, b.thermal], [15, b.quads], [18, b.smallArgs], [19, b.small]]
+    this.listBG = d.createBindGroup({ layout: this.cpList.getBindGroupLayout(0), entries: [[0, b.view], [1, b.parts], [2, b.genomes], [3, b.intent], [5, b.focus], [9, b.sway], [11, b.thermal], [12, this.cull[0].segs], [15, b.quads], [18, b.smallArgs], [19, b.small]]
       .map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
     this.smallBG = d.createBindGroup({ layout: this.main.small.getBindGroupLayout(0), entries: [[0, b.view], [20, b.small]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
   }
@@ -2396,7 +2396,7 @@ class Engine {
       if (v[22] < 0) { pass.setPipeline(pl.small); pass.setBindGroup(0, this.smallBG); pass.drawIndirect(this.b.smallArgs, 0); }
       pass.setPipeline(pl.point);
       pass.setBindGroup(0, bgPoint);
-      if (culled) pass.drawIndirect(culled, 0); else if (quads) pass.drawIndirect(quads, 0); else pass.draw(4, this.count);
+      if (quads) pass.drawIndirect(quads, 0); else if (culled) pass.drawIndirect(culled, 0); else pass.draw(4, this.count);
     }
   }
 
@@ -2521,14 +2521,15 @@ class Engine {
     // there are enough of them to pay for the buffer it clears and adds in (a quarter as many as pixels)
     const ps = Math.max(1.1 * dpr, 0.085 * cam.ppu);
     const splat = !culled[0] && this.settings.nodes && ps <= SPLAT_PX && this.count >= W * H / 4 ? SPLAT_PX : 0;
-    // otherwise, unculled, each sprite is sized once and those drawn small take a slim pipeline (listMain)
-    const listed = !splat && !culled[0] && this.settings.nodes && !!this.cpList;
+    // otherwise each sprite in view is sized once and those drawn small take a slim pipeline (listMain)
+    const listed = !splat && this.settings.nodes && !!this.cpList;
     this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId, lod, culled[0], listed ? -1 : splat, true);
     if (listed) {
       d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0]));
       d.queue.writeBuffer(this.b.smallArgs, 0, new Uint32Array([4, 0, 0, 0]));
       const pass = enc.beginComputePass({ timestampWrites: tsBegin() });
-      pass.setPipeline(this.cpList); pass.setBindGroup(0, this.listBG); pass.dispatchWorkgroups(Math.ceil(this.count / 256));
+      pass.setPipeline(this.cpList); pass.setBindGroup(0, this.listBG);
+      if (culled[0]) pass.dispatchWorkgroupsIndirect(this.cull[0].args, 48); else pass.dispatchWorkgroups(Math.ceil(this.count / 256));
       pass.end();
     }
     if (splat) {
