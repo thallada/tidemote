@@ -50,6 +50,8 @@ const SP = {
 const H = FIRST_LIFE, P = FIRST_LIFE + 1, Wd = FIRST_LIFE + 2, Hd = FIRST_LIFE + 3;
 const notes = () => new Notes({ species: (k) => SP[k] || null, world: () => WORLD });
 const ctx = (now, o = {}) => ({ now, speed: 1, ppu: 80, phone: false, pool: 20, visible: () => true, ...o });
+// a story is told once it has held a moment: look, then look again that moment later
+const told = (N, now, o) => { N.update(ctx(now, o)); return N.update(ctx(now + TUNE.hold, o)); };
 
 test('the ring is read from where it was last read, oldest first, across its wrap, with each event\'s sim time', () => {
   const recs = Array.from({ length: 5 }, (_, k) => ({ ev: 'bite', kind: P, akind: H, id: 100 + k, aid: 7, tick: 590 + k }));
@@ -120,7 +122,7 @@ test('grazing is told once a pair has bitten often enough, with the grazers coun
   N.ingest(scan(cells));
   const bites = Array.from({ length: 6 }, (_, k) => ({ ev: k === 5 ? 'grazed' : 'bite', kind: Wd, akind: P, id: 20 + (k % 5), aid: 10 + (k % 5), x: 30, y: 31, tick: 600 + k }));
   N.ingest(scan(cells, { simTime: 10.2, tick: 612, ring: ring(bites, 6) }));
-  const on = N.update(ctx(100));
+  const on = told(N, 100);
   assert.equal(on.length, 1);
   assert.equal(on[0].type, 'graze');
   assert.equal(on[0].data.bites, 6);
@@ -135,7 +137,7 @@ test('a species in water warmer than it bears is told scalding, beside one that 
   for (let k = 0; k < 8; k++) cells.push({ id: 10 + k, x: 20 + k, y: 20, kind: Wd, tx: 1.75 }, { id: 30 + k, x: 20 + k, y: 21, kind: Hd, tx: 0.1 });
   N.ingest(scan(cells, { temps: 31 }));
   N.ingest(scan(cells, { temps: 31, simTime: 10.2, tick: 612, ring: ring([0, 1, 2].map((k) => ({ ev: 'scalded', kind: Wd, id: 50 + k, x: 22, y: 20, tick: 610 })), 3) }));
-  const on = N.update(ctx(100));
+  const on = told(N, 100);
   assert.equal(on.length, 1);
   assert.equal(on[0].type, 'heat');
   assert.equal(on[0].data.kind, Wd);
@@ -148,7 +150,7 @@ test('the cold: most cells torpid', () => {
   const cells = Array.from({ length: 10 }, (_, k) => ({ id: k + 1, x: 10 + k, y: 10, kind: k < 8 ? Wd : Hd, torpid: k < 8 }));
   N.ingest(scan(cells, { temps: 0 }));
   N.ingest(scan(cells, { temps: 0, simTime: 10.2 }));
-  const on = N.update(ctx(100));
+  const on = told(N, 100);
   assert.equal(on[0].type, 'cold');
   assert.equal(on[0].data.torpid, 8);
   assert.equal(on[0].data.kind, Wd);
@@ -162,13 +164,14 @@ test('the budget: a few at a time, one arriving at a time, a wide view only the 
   for (let k = 0; k < 6; k++) evs.push({ ev: 'birth', kind: H, akind: H, id: 5000 + k, aid: 1000 * H, tick: 605 }, { ev: 'cyst', kind: Wd, id: 1000 * Wd + k, tick: 605 }, { ev: 'scalded', kind: Wd, id: 6000 + k, tick: 605 });
   N.ingest(scan(cells));
   N.ingest(scan(cells, { simTime: 10.2, tick: 612, ring: ring(evs, evs.length) }));
-  assert.equal(N.update(ctx(100)).length, 1);
+  assert.equal(told(N, 100).length, 1);
   assert.equal(N.notes[0].type, 'heat');
   // the next waits its gap
-  assert.equal(N.update(ctx(100 + TUNE.gap / 2)).filter((n) => n.exitAt == null).length, 1);
-  assert.equal(N.update(ctx(100 + TUNE.gap + 0.1)).filter((n) => n.exitAt == null).length, 2);
+  const t0 = 100 + TUNE.hold;
+  assert.equal(N.update(ctx(t0 + TUNE.gap / 2)).filter((n) => n.exitAt == null).length, 1);
+  assert.equal(N.update(ctx(t0 + TUNE.gap + 0.1)).filter((n) => n.exitAt == null).length, 2);
   // zoomed out: only the water's story stays
-  const wide = N.update(ctx(101 + TUNE.gap, { ppu: 5 })).filter((n) => n.exitAt == null);
+  const wide = N.update(ctx(t0 + 1 + TUNE.gap, { ppu: 5 })).filter((n) => n.exitAt == null);
   assert.deepEqual(wide.map((n) => n.type), ['heat']);
   assert.equal(N.eventMask(5) & (1 << EV.bite), 0);
   assert.notEqual(N.eventMask(80) & (1 << EV.bite), 0);
@@ -183,7 +186,7 @@ test('a coarse step\'s bite names no grazer: it goes to the nearest in reach who
   N.ingest(scan(cells));
   const bites = Array.from({ length: 5 }, (_, k) => ({ ev: 'bite', kind: Wd, id: 20 + k, x: 30 + 0.1 * k, y: 30, tick: 600 + k }));
   N.ingest(scan(cells, { simTime: 10.2, tick: 612, ring: ring(bites, 5) }));
-  const on = N.update(ctx(100));
+  const on = told(N, 100);
   assert.equal(on.length, 1);
   assert.equal(on[0].data.akind, P);
   assert.equal(on[0].data.bites, 5);
@@ -202,9 +205,121 @@ test('a crowd biting faster than the ring is read: a share of bites is asked for
   const s = scan(cells, { simTime: 10.2, ring: ring(bites, NOTE_MAX + 3) });
   s.biteKeep = 0.25;
   N.ingest(s);
-  const on = N.update(ctx(100));
+  const on = told(N, 100);
   assert.equal(on[0].type, 'graze');
   assert.equal(on[0].data.bites, 12);
   // a quiet read asks for more again
   assert.ok(N.biteKeep > 0.5);
+});
+
+// a chain of n cells of kind k bonded each to the next, from (x, y) along x, moving at (vx, vy)
+const chain = (n, k, x, y, vx = 0, vy = 0, id0 = 100) => Array.from({ length: n }, (_, i) => ({ id: id0 + i, x: x + 0.2 * i, y, kind: k, vx, vy,
+  p1: i > 0 ? id0 + i - 1 : NONE, p2: i < n - 1 ? id0 + i + 1 : NONE }));
+
+test('an organism: cells bonded into one body are told as one, its shape and size; one moving fast, swimming', () => {
+  let N = notes();
+  N.ingest(scan(chain(8, Wd, 20, 20)));
+  N.ingest(scan(chain(8, Wd, 20, 20), { simTime: 10.2 }));
+  let on = told(N, 100);
+  assert.equal(on.length, 1);
+  assert.equal(on[0].type, 'body');
+  assert.equal(on[0].data.cells, 8);
+  assert.equal(on[0].data.form, 'filament');
+  assert.ok(Math.abs(on[0].data.size - 1.4) < 0.01);
+  // the same body, two body lengths a second toward +x: swimming, its heading east
+  N = notes();
+  const fast = chain(8, Wd, 20, 20, 2.8, 0);
+  N.ingest(scan(fast));
+  N.ingest(scan(fast, { simTime: 10.2 }));
+  on = told(N, 100);
+  assert.equal(on[0].type, 'swim');
+  assert.ok(Math.abs(on[0].data.lengths - 2) < 0.01);
+  assert.ok(Math.abs(on[0].data.heading) < 1e-6);
+  assert.deepEqual(on[0].track, [on[0].data.anchor]);
+});
+
+test('a hunter heading for a cell of the species it last ate is told stalking it', () => {
+  const N = notes();
+  const cells = [{ id: 1, x: 40, y: 40, kind: H, img: P, vx: 1, vy: 0.1 }, { id: 2, x: 40.8, y: 40, kind: P },
+    // one behind it, nearer, is not what it heads for
+    { id: 3, x: 39.6, y: 40, kind: P }];
+  N.ingest(scan(cells));
+  N.ingest(scan(cells, { simTime: 10.2 }));
+  const on = told(N, 100);
+  assert.equal(on[0].type, 'stalk');
+  assert.equal(on[0].data.actor, 1);
+  assert.equal(on[0].data.target, 2);
+});
+
+test('the food web in view: who ate whom, by bites and kills', () => {
+  const N = notes();
+  const cells = [];
+  for (const k of [H, P, Wd, Hd]) for (let i = 0; i < 3; i++) cells.push({ id: 100 * k + i, x: 10 + i * 5, y: 10 + k, kind: k });
+  N.ingest(scan(cells));
+  const evs = [];
+  for (let i = 0; i < 4; i++) evs.push({ ev: 'bite', kind: Wd, akind: P, id: 100 * Wd, aid: 100 * P, tick: 600 }, { ev: 'bite', kind: Hd, akind: P, id: 100 * Hd, aid: 100 * P + 1, tick: 600 });
+  evs.push({ ev: 'kill', kind: P, akind: H, id: 100 * P + 2, aid: 100 * H, tick: 600 }, { ev: 'kill', kind: P, akind: H, id: 100 * P + 2, aid: 100 * H, tick: 601 });
+  N.ingest(scan(cells, { simTime: 10.2, tick: 612, ring: ring(evs, evs.length) }));
+  N.update(ctx(100));
+  const web = N.cands.find((c) => c.type === 'web');
+  assert.ok(web);
+  const e = (from, to) => web.edges.find((x) => x.from === from && x.to === to);
+  assert.equal(e(Wd, P).bites, 4);
+  assert.equal(e(Hd, P).bites, 4);
+  assert.equal(e(P, H).kills, 2);
+  assert.equal(web.nodes.length, 4);
+});
+
+test('a species\' balance: born against died, by cause', () => {
+  const N = notes();
+  const cells = Array.from({ length: 8 }, (_, i) => ({ id: 10 + i, x: 20 + i, y: 20, kind: P }));
+  N.ingest(scan(cells));
+  const evs = [];
+  for (let i = 0; i < 4; i++) evs.push({ ev: 'birth', kind: P, akind: P, id: 50 + i, aid: 10, tick: 600 });
+  for (let i = 0; i < 6; i++) evs.push({ ev: 'grazed', kind: P, id: 60 + i, tick: 600 });
+  for (let i = 0; i < 3; i++) evs.push({ ev: 'starved', kind: P, id: 70 + i, tick: 600 });
+  N.ingest(scan(cells, { simTime: 10.2, tick: 612, ring: ring(evs, evs.length) }));
+  N.update(ctx(100));
+  const b = N.cands.find((c) => c.type === 'balance');
+  assert.equal(b.born, 4); assert.equal(b.dead, 9); assert.equal(b.died.grazed, 6); assert.equal(b.died.starved, 3);
+});
+
+test('sister species: three of one genus in view', () => {
+  const sp = { ...SP, [Hd + 1]: { name: 'Hardy Two', guild: 'producer', genus: 7, genusName: 'Hardy' }, [Hd + 2]: { name: 'Hardy Three', guild: 'producer', genus: 7, genusName: 'Hardy' } };
+  sp[Hd] = { ...SP[Hd], genus: 7, genusName: 'Hardy' };
+  const N = new Notes({ species: (k) => sp[k] || null, world: () => WORLD });
+  const cells = [];
+  for (const k of [Hd, Hd + 1, Hd + 2]) for (let i = 0; i < 3; i++) cells.push({ id: 100 * k + i, x: 10 + i, y: k, kind: k });
+  N.ingest(scan(cells));
+  N.ingest(scan(cells, { simTime: 10.2 }));
+  N.update(ctx(100));
+  const g = N.cands.find((c) => c.type === 'genus');
+  assert.equal(g.species, 3);
+  assert.equal(g.genusName, 'Hardy');
+});
+
+test('nothing new while the camera moves or has just stopped; its setting off takes the notes with it', () => {
+  const N = notes();
+  N.ingest(scan(chain(8, Wd, 20, 20)));
+  N.ingest(scan(chain(8, Wd, 20, 20), { simTime: 10.2 }));
+  assert.equal(told(N, 100, { still: TUNE.settle / 2 }).length, 0);
+  const on = told(N, 101, { still: TUNE.settle + 0.1 });
+  assert.equal(on.length, 1);
+  N.update(ctx(102, { leaving: true }));
+  assert.ok(N.notes.every((n) => n.exitAt != null));
+});
+
+test('a story is told only once it has held a moment; a note whose cell has left the view goes after a grace', () => {
+  const N = notes();
+  N.ingest(scan(chain(8, Wd, 20, 20)));
+  N.ingest(scan(chain(8, Wd, 20, 20), { simTime: 10.2 }));
+  assert.equal(N.update(ctx(100)).length, 0);
+  assert.equal(N.update(ctx(100 + TUNE.hold)).length, 1);
+  const n = N.notes[0];
+  // its anchor out of view: kept a moment (it may come back), then gone
+  const away = { visible: (x) => x > 50 };
+  N.update(ctx(101, away));
+  assert.equal(n.exitAt, null);
+  N.update(ctx(101 + TUNE.grace + 0.1, away));
+  assert.notEqual(n.exitAt, null);
 });

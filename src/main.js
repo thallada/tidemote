@@ -4460,7 +4460,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const noteSp = (slot) => {
     const g = genomeFor(slot);
     const sp = g && life.reg.get(g.serial);
-    return sp ? { name: sp.name, guild: dietGuild(g), topt: g.topt ?? 19, tol: Math.max(g.tol ?? 7, 0.5), serial: g.serial } : null;
+    return sp ? { name: sp.name, guild: dietGuild(g), topt: g.topt ?? 19, tol: Math.max(g.tol ?? 7, 0.5), serial: g.serial, genus: sp.genus, genusName: sp.name.split(' ')[0] } : null;
   };
   const notes = new Notes({ species: noteSp, world: () => eng.grid });
   const noteView = createNoteView(octx);
@@ -4501,23 +4501,34 @@ function run(eng, device, ctx, specCtx, hasTS) {
     return toShown(((x % W) + W) % W, ((y % H) + H) % H);
   }
   const noteRadius = (kind) => { const g = kind >= FIRST_LIFE ? genomeFor(kind) : null; return Math.max(6, cellRadius({ role: 0 }, g, cssPPU()) * 1.25 + 2); };
-  function noteVisible(x, y) {
+  function noteVisible(x, y, m = 12) {
     const [sx, sy] = toScreen(x, y), o = noteOpen;
-    return sx > o.l + 12 && sx < o.r - 12 && sy > o.t + 12 && sy < o.b - 12;
+    return sx > o.l + m && sx < o.r - m && sy > o.t + m && sy < o.b - m;
   }
+  // well inside the view: what a new note points at, so it stays in view long enough to read
+  const noteInner = (x, y) => noteVisible(x, y, Math.min(90, 0.12 * Math.min(noteOpen.r - noteOpen.l, noteOpen.b - noteOpen.t)));
+  const noteFlow = (x, y) => flowAt(x, y, eng.simTime, eng.waves);
+  // the camera as the notes see it: flying to another shot, or panned or zoomed fast; and since when it has held still
+  const noteCam = { x: 0, y: 0, zoom: 1, stillAt: 0 };
   const NOTE_MODE = { follow: 'FOLLOW', linger: 'LINGER', scene: 'SURVEY', wide: 'WIDE', event: 'EVENT' };
   function drawNotes(dtMs) {
     const now = performance.now() / 1000, t0 = performance.now();
     noteOpen = openArea();
     const speed = state.paused ? 0 : state.speed === Infinity ? perf.rate || 16 : state.speed;
-    const list = notes.update({ now, speed, ppu: cssPPU(), phone: phone(), pool: eng.tbg, visible: noteVisible });
+    const shot = director.active ? director.shot : null, flying = !!(shot && shot.t < shot.flight);
+    const dts = Math.max(dtMs / 1000, 1e-3), [W, H] = eng.grid, C = noteCam;
+    const pan = Math.hypot(wrapD(cam.x - C.x, W), wrapD(cam.y - C.y, H)) * cssPPU() / dts, zoomRate = Math.abs(Math.log(cam.zoom / C.zoom)) / dts;
+    C.x = cam.x; C.y = cam.y; C.zoom = cam.zoom;
+    if (flying || pan > 220 || zoomRate > 0.15) C.stillAt = now;
+    const list = notes.update({ now, speed, ppu: cssPPU(), phone: phone(), pool: eng.tbg, visible: noteVisible, inner: noteInner,
+      still: now - C.stillAt, leaving: flying, flow: noteFlow, ahead: shot ? shot.dur - shot.t : Infinity });
     const avoid = [];
     const cr = capEl.classList.contains('on') ? capEl.getBoundingClientRect() : null;
     if (cr && cr.width) avoid.push({ l: cr.left - 8, t: cr.top - 8, r: cr.right + 8, b: cr.bottom + 8 });
     if (plateRect) avoid.push(plateRect);
     const sh = director.active ? director.shot : null;
     const mode = director.active ? NOTE_MODE[sh && sh.why && sh.why.kind] || 'AUTO' : 'OBSERVE';
-    noteView.draw({ now, dt: dtMs / 1000, ppu: cssPPU(), world: eng.grid, notes: list, model: notes, species: noteSp, project: noteProject, radius: noteRadius,
+    noteView.draw({ now, dt: dtMs / 1000, ppu: cssPPU(), world: eng.grid, flow: noteFlow, notes: list, model: notes, species: noteSp, project: noteProject, radius: noteRadius,
       open: noteOpen, avoid, mode, pool: eng.tbg, phone: phone(), roster: true, since: notesSince, cap: cssPPU() >= notes.T.close ? 400 : 220 });
     notes.ms.draw += performance.now() - t0;
   }

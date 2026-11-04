@@ -521,7 +521,16 @@ body.dragging-card #bench-open, body.dragging-card .bench-pip, body.dragging-car
   position: absolute; left: 50%; bottom: calc(var(--bot) + 22px); transform: translate(-50%, 6px);
   max-width: min(620px, calc(100% - 2 * var(--gut))); text-align: center; pointer-events: none;
   opacity: 0; transition: opacity .8s ease, transform .8s ease;
-  padding: 10px 18px 11px; background: radial-gradient(ellipse at center, rgba(6, 9, 10, 0.78), rgba(6, 9, 10, 0.4) 70%, transparent);
+  padding: 10px 18px 11px;
+  /* the annotations' plate (src/noteview.js, PLATE): dark enough that a bright scene never fights the words, its
+     corners ticked */
+  --tick: rgba(150, 222, 230, 0.4);
+  background:
+    linear-gradient(var(--tick), var(--tick)) left top / 5px 1px no-repeat, linear-gradient(var(--tick), var(--tick)) left top / 1px 5px no-repeat,
+    linear-gradient(var(--tick), var(--tick)) right top / 5px 1px no-repeat, linear-gradient(var(--tick), var(--tick)) right top / 1px 5px no-repeat,
+    linear-gradient(var(--tick), var(--tick)) left bottom / 5px 1px no-repeat, linear-gradient(var(--tick), var(--tick)) left bottom / 1px 5px no-repeat,
+    linear-gradient(var(--tick), var(--tick)) right bottom / 5px 1px no-repeat, linear-gradient(var(--tick), var(--tick)) right bottom / 1px 5px no-repeat,
+    rgba(4, 7, 8, 0.8);
 }
 .caption.on { opacity: 1; transform: translate(-50%, 0); }
 .caption .cap-eye { color: var(--hot); font-size: 11px; letter-spacing: .24em; text-transform: uppercase; font-weight: 500; font-stretch: 115%; }
