@@ -590,10 +590,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // world leaves out is the living cells' passes for the rest. Their cost per living cell differs most between GPUs
   // (lifeMain, register-bound: about 3 ns a cell on an RTX 4070 Ti, 85 on an M1), so it is measured: the step dispatch
   // by dispatch, with no frame drawn beside it (frames overlap a tiled GPU's timestamps), over the new world's
-  // founders. ms a living cell, or 0 without timestamps.
+  // founders. ms of those passes, or 0 without timestamps.
   const MATURE_LIVING = 0.5;
   const LIVING_PASSES = new Set(['lifeMain', 'contactMain', 'bondBackMain', 'bodyTick']);
-  async function livingCost(n) {
+  async function livingMs() {
     if (!hasTS) return 0;
     state.busy = true;
     try {
@@ -604,7 +604,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         for (const [k, t] of await eng.profileStep(1 / 60)) if (LIVING_PASSES.has(k)) ms += t;
         runs.push(ms);
       }
-      return median(runs) / Math.max(1, n * K.foundLife);
+      return median(runs);
     } catch { return 0; } finally { state.busy = false; }
   }
 
@@ -633,22 +633,29 @@ function run(eng, device, ctx, specCtx, hasTS) {
     let t = await measure();
     if (calibCut) return n;
     // the frame as the world will cost once life fills it: what was measured, and the living cells' passes for the
-    // share still to come (livingCost)
-    const perCell = await livingCost(n);
-    const grown = (m, ms) => ms + perCell * m * Math.max(0, MATURE_LIVING - K.foundLife);
-    let next = clampN((n * target) / grown(n, t));
-    if (next > n * 1.2) {
-      next = await allocDown(next);
-      seedWorld(next);
+    // share still to come (livingMs, per founder)
+    const founders = (m) => Math.max(1, m * K.foundLife);
+    const ms1 = await livingMs();
+    let perCell = ms1 / founders(n);
+    // A GPU with room for more is measured again nearer its count. Too few founders to fill a large GPU take about
+    // as long as one cell's work (an RTX 4070 Ti, 262k particles: 35 ns a founder against 5 in a grown world, which
+    // sized its worlds at half), so there the cost a cell is the difference between the two worlds' (about 2.6 ns).
+    const room = clampN((n * target) / t);
+    if (room > n * 1.2) {
+      const m = await allocDown(room);
+      seedWorld(m);
       state.busy = false;
-      calStep(`Measuring the GPU · ${fmt(next)} particles`, 0.8);
+      calStep(`Measuring the GPU · ${fmt(m)} particles`, 0.8);
       const t2 = await measure();
-      if (calibCut) return next;
-      n = next;
+      if (calibCut) return m;
+      const ms2 = await livingMs();
+      const slope = (ms2 - ms1) / (founders(m) - founders(n)), each = ms2 / founders(m);
+      perCell = slope > 0 ? Math.min(slope, each) : each;
+      n = m;
       t = t2;
-      next = clampN((n * target) / grown(n, t));
-      if (next > n) next = Math.min(next, clampN(n * 1.3));
     }
+    const grown = t + perCell * n * Math.max(0, MATURE_LIVING - K.foundLife);
+    const next = Math.min(clampN((n * target) / grown), clampN(n * 1.3));
     const final = next === n ? n : await allocDown(next);
     seedWorld(final);
     state.busy = false;

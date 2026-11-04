@@ -277,9 +277,12 @@ class Engine {
     const rPipe = (desc) => track(d.createRenderPipelineAsync(desc), desc.label);
     const dp4a = !!globalThis.navigator?.gpu?.wgslLanguageFeatures?.has('packed_4x8_integer_dot_product');
     // Apple's GPUs run lifeMain, register-bound, a quarter faster in workgroups of 256 than of 128 (an M1,
-    // 2026-11-04: 3.8 → 2.9 ms in a 78k world; 64 and 32 between; docs/performance.md, Apple)
-    const lifeWG = d.adapterInfo?.vendor === 'apple' ? 256 : 128;
-    this.simModule = d.createShaderModule({ code: simWGSL(K, { dp4a, lifeWG }), label: 'sim' });
+    // 2026-11-04: 3.8 → 2.9 ms in a 78k world; 64 and 32 between; docs/performance.md, Apple), and 5% faster
+    // reading the cell's genome through a pointer where used (2.86 → 2.72 ms); elsewhere the copy is faster
+    // (an RTX 4070 Ti in Chrome on D3D12, a 1M world: 1.94 ms against 2.33 through the pointer)
+    const apple = d.adapterInfo?.vendor === 'apple';
+    const lifeWG = apple ? 256 : 128;
+    this.simModule = d.createShaderModule({ code: simWGSL(K, { dp4a, lifeWG, genomePtr: apple }), label: 'sim' });
     this.pickModule = d.createShaderModule({ code: PICK_WGSL, label: 'pick' });
     this.listenModule = d.createShaderModule({ code: LISTEN_WGSL, label: 'listen' });
     this.watchModule = d.createShaderModule({ code: WATCH_WGSL, label: 'watch' });

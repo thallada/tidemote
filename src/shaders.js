@@ -736,10 +736,11 @@ const shownThermal = (g, t) => `thermalState(${g}, ${t}, ${f(DEFAULT_K.specBonus
 
 // One living cell's senses, forces and energy budget for this frame, shared by lifeMain and mindMain.
 // w (mindMain only) adds statements that record each term; without it the text is lifeMain's alone.
-function cellWGSL(K, w) {
+function cellWGSL(K, w, gp) {
   const W = (s) => (w ? ' ' + s : '');
+  const G = gp ? '*g' : 'g';
   return /* wgsl */ `  let p = sortedFull[i];
-  let g = &genomes[p.kind];
+  let g = ${gp ? '&' : ''}genomes[p.kind];
   let role = roleOf(p.info);
   let sg = g.sig[role];
   // its surface signature (x, y) and receptors (z, w), kept packed: sdot reads them as they are
@@ -817,10 +818,10 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
   }
   let keep1 = n1 != NONE; let keep2 = n2 != NONE;
   // a tree grows from its tips at the angles of its plan, bonded mother to daughter only
-  let gr = growAt(*g, p.info);
+  let gr = growAt(${G}, p.info);
   let tree = bonding && gr.tree;
   // a tail cell (a packed body's), and a cell of such a body that bears tails (tails: its species' habit)
-  let tail = tree && tailCell(*g, p.info);
+  let tail = tree && tailCell(${G}, p.info);
   let tails = bonding && !tree && g.tail.x > 0.0;
   // how tightly its bodies hold: the most adhesive species grow tissue, membrane to membrane; the
   // least keep open, strung-out bodies (a tree's cells touch)
@@ -828,10 +829,10 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
 
   let bondRest = 0.0;
   // warmth: the water here, plus a heat-maker's own (a body insulates its cells)
-  let thermo = thermoOf(*g);
+  let thermo = thermoOf(${G});
   let heat = heatSample(p.pos);
   let Tc = heat.x + ${f(K.selfWarm)} * thermo * (1.0 + 0.5 * (select(0.0, 1.0, keep1) + select(0.0, 1.0, keep2)));
-  let th = cellThermal(*g, Tc);
+  let th = cellThermal(${G}, Tc);
   // a torpid cell neither hunts, grazes nor divides
   // a child's body costs bodyCost (K.bodyE, by size); divE: the energy a cell divides at, reproE beyond it
   let bodyCost = ${bodyOf(K, 'g')};
@@ -877,7 +878,7 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
     }
     hasKid = have != 0u;
     // (a tail grows to its length)
-    let miss = select(growWants(gr, genOf(p.info), orderOf(p.info)), 0u, tail && genOf(p.info) + 1u >= tailLen(*g)) & ~have;
+    let miss = select(growWants(gr, genOf(p.info), orderOf(p.info)), 0u, tail && genOf(p.info) + 1u >= tailLen(${G})) & ~have;
     if (miss != 0u) {
       budTurn = firstTrailingBit(miss);
       let hd = headingOf(i, gr);
@@ -1315,7 +1316,7 @@ ${w ? `  if (sub) { bondF += bendOn(i, gr) * ${f(K.growStiff)}; mSwim = select(n
   // the gut: what an eater could not assimilate, held in the color's spare byte (1: empty) until dropped as dung
   var gut = (1.0 - unpack4x8unorm(p.col).a) * ${f(K.dungE)};
   if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K.colorMix)}); }
-  col = mix(col, roleColor(*g, role), ${f(K.baseMix)});
+  col = mix(col, roleColor(${G}, role), ${f(K.baseMix)});
 
   let light = lightAt(p.pos);
   // photosynthesis needs minerals: silt within reach. Drifters ride along with their own (depleting)
@@ -1340,8 +1341,10 @@ ${w ? `  if (sub) { bondF += bendOn(i, gr) * ${f(K.growStiff)}; mSwim = select(n
 }
 
 // dp4a: the WGSL language feature packed_4x8_integer_dot_product is available; lifeWG: the workgroup size of
-// the passes over the living list (contactMain, bondBackMain, lifeMain, bodyTick), which the list is padded to
-export function simWGSL(K, { dp4a = false, lifeWG = 128 } = {}) {
+// the passes over the living list (contactMain, bondBackMain, lifeMain, bodyTick), which the list is padded to;
+// genomePtr: lifeMain and mindMain read their cell's genome through a pointer, where used, rather than a copy
+export function simWGSL(K, { dp4a = false, lifeWG = 128, genomePtr = false } = {}) {
+  const G = genomePtr ? '*g' : 'g';
   // reef stone's neighborhood: a disc of the square's area (side 2 regionR + 1), in cells, and its reach
   const REGION_DISC = (2 * (K.regionR | 0) + 1) / Math.sqrt(Math.PI);
   const REGION_REACH = Math.ceil(REGION_DISC + 0.5);
@@ -3231,9 +3234,9 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = livingList[gid.x];
   if (i == NONE) { return; }
   if ((sortedFull[i].info & 15u) == CYST) { cystStep(i); return; }
-${cellWGSL(K, false)}
+${cellWGSL(K, false, genomePtr)}
   var E = p.energy + shareE + (photoGain - upkeep) * sim.dt;
-  let dg = ledgerGuild(*g);
+  let dg = ledgerGuild(${G});
   if (DIAG && torn > 0u) { diagAdd(dg, 24u, torn); }
   // all the energy a cell spends warms its water (every eighth frame, eight frames' worth)
   if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, upkeep * sim.dt * 8.0 * ${f(K.metabHeat)}); }
@@ -3284,7 +3287,7 @@ ${cellWGSL(K, false)}
     if (E > divE && silt != NONE && !th.torpid && age > select(${f(K.mature)} * g.lifespan, select(${f(K.growTipA)}, ${f(K.mature)} * g.lifespan, g.photo > 0.4), tree && (g.photo > 0.4 || g.beat.w > 0.5 || tail)) && (!tree || (budTurn < 3u && !budBlocked))) {
       if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
         ck = p.kind;
-        cr = sampleRole(*g, role, &s);
+        cr = sampleRole(${G}, role, &s);
         if (rnd(&s) < g.mutRate * ${f(K.mutScale)}) {
           let slot = allocSlot(&s);
           if (slot != NONE) {
@@ -3301,14 +3304,14 @@ ${cellWGSL(K, false)}
     // a meal opportunity every K.eatEvery ticks, in the cell's own phase
     } else if (food != NONE && (sim.tick + p.id) % ${K.eatEvery | 0}u == 0u && mealDue(sortedFull[food].kind, (sim.tick + p.id) / ${K.eatEvery | 0}u)) {
       let fk = sortedFull[food].kind;
-      let missed = mealMissed(fk, info, *g, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, E / (divE * ${f(K.satietyAt)}), &s);
+      let missed = mealMissed(fk, info, ${G}, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, E / (divE * ${f(K.satietyAt)}), &s);
       let won = !missed && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged;
       if (DIAG && canHunt && isAnimal(food)) { diagAdd(dg, 15u, 1u); diagAdd(dg, select(select(17u, 18u, won), 16u, missed), 1u); }
       if (fk >= FIRST_LIFE) { splPair(p.kind, fk, won); }
       if (won) {
         let fp = sortedFull[food];
         if (fp.kind >= FIRST_LIFE) {
-          atomicAdd(&ledger[META_DEATH + 32u + 5u * ledgerGuild(*g) + ledgerGuild(genomes[fp.kind])], 1u);
+          atomicAdd(&ledger[META_DEATH + 32u + 5u * ledgerGuild(${G}) + ledgerGuild(genomes[fp.kind])], 1u);
         }
         ck = fp.kind;
         var gain = 0.0;
@@ -3345,7 +3348,7 @@ ${cellWGSL(K, false)}
         if (!won && silt2 != NONE) { won = atomicCompareExchangeWeak(&ledger[META_CLAIM + silt2], 0u, i + 1u).exchanged; }
         if (won) {
           ck = p.kind;
-          cr = sampleRole(*g, role, &s);
+          cr = sampleRole(${G}, role, &s);
           if (rnd(&s) < g.mutRate * ${f(K.mutScale)}) {
             let slot = allocSlot(&s);
             if (slot != NONE) {
@@ -3373,7 +3376,7 @@ ${cellWGSL(K, false)}
           let fp = sortedFull[fd];
           // handling time, or a miss (armour, an unfamiliar quarry, skill, shelter), ends this opportunity
           if (!mealDue(fp.kind, mi)) { break; }
-          if (mealMissed(fp.kind, info, *g, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, E / (divE * ${f(K.satietyAt)}), &s)) {
+          if (mealMissed(fp.kind, info, ${G}, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, E / (divE * ${f(K.satietyAt)}), &s)) {
             if (hunt && isAnimal(fd)) { diagAdd(dg, 16u, 1u); }
             if (fp.kind >= FIRST_LIFE) { splPair(p.kind, fp.kind, false); }
             break;
@@ -3402,7 +3405,7 @@ ${cellWGSL(K, false)}
             gain = (${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)}) * min(1.0, spec(g.dFlesh) * eatEff * th.perf * ${f(K.assimilate)}) + take(max(fp.energy, 0.0), spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u); gut = min(gut + max(0.0, (${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)} + max(fp.energy, 0.0)) - gain), ${f(K.dungE)});
           }
           if (fp.kind >= FIRST_LIFE) {
-            atomicAdd(&ledger[META_DEATH + 32u + 5u * ledgerGuild(*g) + ledgerGuild(genomes[fp.kind])], 1u);
+            atomicAdd(&ledger[META_DEATH + 32u + 5u * ledgerGuild(${G}) + ledgerGuild(genomes[fp.kind])], 1u);
             info = (info & 0xffff003fu) | (fp.kind << 6u);
           }
           E += gain;
@@ -3437,7 +3440,7 @@ ${cellWGSL(K, false)}
     kind = HUSK; E = bodyCost; age = 0.0; vel *= 0.3;
     info = (info & 0xffff7fc0u) | 1u${litterOf('g')};
     atomicAdd(&ledger[5], 1u);
-    atomicAdd(&ledger[META_DEATH + 4u * ledgerGuild(*g) + 1u], 1u);
+    atomicAdd(&ledger[META_DEATH + 4u * ledgerGuild(${G}) + 1u], 1u);
     splCause(p.kind, select(1u, 5u, stranded));
     // (the cold: starved torpid, in the ice, or stranded where nothing is dry ground but the ice's edge)
     noteSelf(select(select(EV_STARVED, EV_DRIED, stranded), EV_FROZE, th.torpid || inIce(pos) || (stranded && sim.pond.x >= 1.0)), p.kind, p.id, pos);
@@ -3445,7 +3448,7 @@ ${cellWGSL(K, false)}
     kind = HUSK; E = bodyCost + ${f(K.huskFrac)} * E; age = 0.0; vel *= 0.3;
     info = (info & 0xffff7fc0u) | 2u${litterOf('g')};
     atomicAdd(&ledger[6], 1u);
-    atomicAdd(&ledger[META_DEATH + 4u * ledgerGuild(*g) + 2u], 1u);
+    atomicAdd(&ledger[META_DEATH + 4u * ledgerGuild(${G}) + 2u], 1u);
     splCause(p.kind, 2u);
     noteSelf(EV_OLD, p.kind, p.id, pos);
   } else if (th.x > 0.8 && rnd(&s) < ${f(K.scald)} * smoothstep(0.8, 1.4, th.x) * sim.dt) {
@@ -3726,7 +3729,7 @@ fn mPair(j: u32, q: Lite, d: vec2f, r: f32, inside: bool, kin: bool, fr0: f32, f
 fn mindMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = gid.x;
   if (i >= sim.count || sortedFull[i].id != mind[0] || sortedFull[i].kind < FIRST_LIFE) { return; }
-${cellWGSL(K, true)}
+${cellWGSL(K, true, genomePtr)}
   let acc = stride * g.force * heavy;
   mind[1] = 1u;
   mind[2] = select(0u, 1u, hungry) | select(0u, 2u, silt != NONE) | select(0u, 4u, food != NONE);

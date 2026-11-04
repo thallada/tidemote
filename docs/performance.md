@@ -119,8 +119,10 @@ under plain node), on a 78k world (`slow-mac-world.tidemote`, 32k living) in a 1
   planes' seams (1.0 ms).
 - **`lifeMain` reads its genome through a pointer** (`let g = &genomes[p.kind]`): `genomes` is read_write in the
   sim, so a copy had every field the kernel uses loaded at its start and held; read where used, 5% faster (2.86 →
-  2.72 ms, coarse 4.23 → 3.99). The neighbor scan is three quarters of the kernel (2.4 of 3 ms skipped at run time);
-  the mutation path and the hand's and stranding's paths are not where its registers peak.
+  2.72 ms, coarse 4.23 → 3.99). Only on Apple's GPUs (`genomePtr`, simWGSL): on an RTX 4070 Ti in Chrome on D3D12
+  the pointer made `lifeMain` 15-20% slower (step scenarios, a 1M world: 1.94 → 2.33 ms; 4M: 6.10 → 6.58; 6-tick
+  coarse steps the same), so other GPUs keep the copy. The neighbor scan is three quarters of the kernel (2.4 of 3 ms
+  skipped at run time); the mutation path and the hand's and stranding's paths are not where its registers peak.
 - **Close up (slow-mac-world at 71 pixels a unit), the next round.** The composite read the sea from a field from
   about 32 pixels a unit (`seaFieldMain`, 4.0 → 3.3 ms) and the eyepiece's iris and dust from a texture worked out only
   when they change (`opticsMain`; the rainbow rims' sectors without `atan2`; 3.37 → 2.98 ms); it is ALU-bound now (the
@@ -149,10 +151,15 @@ under plain node), on a 78k world (`slow-mac-world.tidemote`, 32k living) in a 1
   Timing the step alone was tried and dropped: it sized the world at 442k, 30 fps at half scale once life filled it.
   With the drawing cheaper (the changes below) the error grew: a new world measured at 258k ran at 30 fps and half
   scale two minutes in. `calibrate` now adds what the measure leaves out, the living cells' passes for the life still to
-  come: `livingCost` times the step dispatch by dispatch (`profileStep`, no frame beside it) over the new world's
+  come: `livingMs` times the step dispatch by dispatch (`profileStep`, no frame beside it) over the new world's
   founders (`K.foundLife`, 2%), and the frame is projected to `MATURE_LIVING` (0.5: a 143k world bloomed to 50% living
   in five minutes). On the M1 Auto now sizes a world at 106k, which holds 10–11 ms a frame at full scale through its
-  bloom; on the RTX 4070 Ti a living cell costs about 3 ns of `lifeMain`, so the projection adds about 1.5 ms there.
+  bloom. On a large GPU the founders of the first measure are too few to fill it: on the RTX 4070 Ti 262k particles'
+  5k founders took 0.18 ms, 35 ns each against about 5 in a grown world, which sized its worlds at 700k (half what
+  it had) that then drew in 3 ms a frame. A GPU with room for more than 1.2 times the first count (the measure alone,
+  before the projection) is measured again nearer it, and its cost a cell is the difference between the two worlds'
+  (about 2.6 ns there): it sizes 1.76-2.09M (five fresh worlds), and a 1.8M one four minutes in (640k living) draws in
+  5.3-8 ms at every zoom. A GPU without that room (the M1) takes one measure, as before.
 
 ## Where to look next (left off 2026-11-04, branch mac-perf merged)
 
@@ -242,9 +249,9 @@ take two steps to keep time (main.js's clock), so a world just past the budget s
 7. **The stone cache's relighting** (1.2 ms in its first frame every half second): `fsStone`'s grain shading, most
    of it in the top bands. Smaller than it was; shading grains cheaper or relighting only the part of the cache whose
    grains changed would remove the rest.
-8. **Auto on other GPUs.** `calibrate` now adds the living cells' projected cost (`livingCost`, `MATURE_LIVING`
-   0.5). On the RTX 4070 Ti, where it sized well before, this adds about 1.5 ms and may size worlds 10-15% smaller:
-   check there, and correct its fresh-world drawing (heavier than a mature world's) if so.
+8. **Auto on other GPUs.** `calibrate` adds the living cells' projected cost (`livingMs`, `MATURE_LIVING` 0.5),
+   from two measures' difference where it measures twice (see Sizing: checked on the RTX 4070 Ti, 2026-11-04). A
+   mid-range GPU that measures once with its founders leaving it idle would still be undersized: check one.
 9. **The page's overlay canvas.** With the live annotations drawing, Chrome ran a ~4 ms compute pass alongside the
    scene each frame on the M1 (Skia drawing the 2D overlay); it overlapped there without costing frames, but may not
    elsewhere.
