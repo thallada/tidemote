@@ -14,10 +14,11 @@
 // free place waits, hidden, until one frees.
 import { NOTE_TG } from './shaders.js';
 import { createAudit } from './noteaudit.js';
+import { fmtLen, UM_PER_UNIT } from './fmt.js';
 
 const FONT = 'Saira, Bahnschrift, "DIN Alternate", "Segoe UI", system-ui, sans-serif';
 const INK = '226,241,240', INK2 = '163,189,190', INK3 = '111,138,140', LINE = '150,222,230', HOT = '255,95,58', CYAN = '127,214,223';
-const SHADE = 'rgba(4,7,8,0.85)', HALO = 'rgba(0,0,0,0.55)', PLATE = 'rgba(4,7,8,0.42)';
+const SHADE = 'rgba(4,7,8,0.85)', HALO = 'rgba(0,0,0,0.55)', PLATE = 'rgba(4,7,8,0.8)';
 const rgba = (c, a) => `rgba(${c},${a})`;
 const SCRAMBLE = '0123456789ABCDEFHKLMNPRSTVXZ/·-';
 const TAU = Math.PI * 2;
@@ -67,8 +68,10 @@ export function createNoteView(g) {
   const notesAt = new Map();
   const lay = new Map();
   const marks = new Map();
-  const rosterSt = { at: -1e9, rows: [] };
+  const rosterSt = { at: -1e9, rows: [] }, modeSt = {};
   let A = null, owner = '', ref = null, stats = null;
+  // the labels' boxes last frame (a link's verb gives way to a label already there)
+  let lastLabels = [], nextLabels = [];
   // (widths measured before the page's face arrived are the fallback's: measured again once it has)
   if (typeof document !== 'undefined') document.fonts?.addEventListener?.('loadingdone', () => widths.clear());
 
@@ -355,18 +358,19 @@ export function createNoteView(g) {
   //   ├──[█████]──┤            a range bar: a band of comfort on a scale, the reading as a tick
   //      14    28              the band's ends
   // Each row has its own band of height, so nothing in one reaches into another; the block sits on a faint plate.
-  const RANGE_W = 120;
+  const RANGE_W = 120, SPLIT_W = 170;
   function labelSize(L) {
     L = norm(L);
     const head = (L.eye ? width('eye', L.eye) : 0) + (L.tag ? width('tag', L.tag) + 10 + (L.eye ? 8 : 0) : 0);
     const row = (L.num ? width('num', L.num) + 8 : 0) + (L.main ? width('main', L.main) : 0);
     const data = Math.max(0, ...(L.data || []).map((d) => width('data', d)));
-    const w = Math.max(head, row, data, L.range ? RANGE_W + 8 : 0);
+    const w = Math.max(head, row, data, L.range ? RANGE_W + 8 : 0, L.split ? SPLIT_W : 0);
     let h = 0;
     if (L.eye || L.tag) h += 13;
     if (L.num || L.main) h += (L.num ? 24 : 15) + 4;
     h += (L.data || []).length * 14;
     if (L.range) h += 42;
+    if (L.split) h += 24;
     return { w, h: h + 4 };
   }
   function label(L, x, y, dir, t) {
@@ -374,8 +378,17 @@ export function createNoteView(g) {
     const { w, h } = labelSize(L), tone = L.tone || INK;
     const X = (dx) => (dir > 0 ? x + dx : x - dx);
     const al = dir > 0 ? 'left' : 'right';
+    // a plate under it, dark enough that the scene beneath never fights the text, its corners ticked
+    // (fading in as its text begins to type on: never a plate with nothing on it)
+    const pl = dir > 0 ? x - 6 : x - w - 6, pr = pl + w + 12, pt = y - 14, pb = y + h, a0 = g.globalAlpha;
+    if (!reduced && t < 0.2) { if (t <= -0.1) return { w, h }; g.globalAlpha = a0 * clamp((t + 0.1) / 0.3, 0, 1); }
     g.fillStyle = PLATE;
-    g.fillRect(dir > 0 ? x - 6 : x - w - 6, y - 14, w + 12, h + 14);
+    g.fillRect(pl, pt, pr - pl, pb - pt);
+    g.lineWidth = 1; g.strokeStyle = rgba(LINE, 0.4);
+    g.beginPath();
+    for (const [cx, cy, dx, dy] of [[pl, pt, 1, 1], [pr, pt, -1, 1], [pl, pb, 1, -1], [pr, pb, -1, -1]]) { g.moveTo(cx + 0.5 * dx, cy + 5 * dy); g.lineTo(cx + 0.5 * dx, cy + 0.5 * dy); g.lineTo(cx + 5 * dx, cy + 0.5 * dy); }
+    g.stroke();
+    g.globalAlpha = a0;
     let yy = y;
     if (L.eye || L.tag) {
       let ox = 0;
@@ -397,6 +410,7 @@ export function createNoteView(g) {
     }
     for (const d of L.data || []) { yy += 14; text('data', decoded(d, t - 0.2), X(0), yy, rgba(INK2, 0.95), al, d); }
     if (L.range) { yy += 22; range(L.range, dir > 0 ? x : x - RANGE_W, yy, t - 0.25); yy += 20; }
+    if (L.split) { yy += 12; split(L.split, dir > 0 ? x : x - SPLIT_W, yy, t - 0.25); yy += 12; }
     return { w, h: yy - y };
   }
   // where two numbers meant to stand centred at a and b (widths wa, wb) can stand without touching: spread about their
@@ -428,6 +442,22 @@ export function createNoteView(g) {
     text('micro', sh, xh, y + 18, rgba(INK3, 1), 'center');
     const sv = `${R.v.toFixed(1)}°`, wv = width('micro', sv);
     text('micro', sv, clamp(f(R.v), x0 - 4 + wv / 2, x0 + bw + 4 - wv / 2), y - 7, rgba(out ? HOT : INK, 1), 'center');
+    g.globalAlpha = a;
+  }
+  // SPLIT: a balance, deaths to the left of the zero (by cause, each its own shade) and births to its right, on one
+  // scale; its two totals at its ends
+  function split(B, x0, y, t) {
+    if (t < 0 && !reduced) return;
+    // (its totals at its ends, inside its width)
+    const a = g.globalAlpha, u = reduced ? 1 : ease(t / 0.5), mid = x0 + SPLIT_W / 2, half = SPLIT_W / 2 - 34;
+    const dead = B.deaths.reduce((s2, d) => s2 + d[1], 0), k = (half / Math.max(1, B.born, dead)) * u;
+    g.globalAlpha = a * (reduced ? 1 : clamp(t / 0.3, 0, 1));
+    g.fillStyle = rgba(CYAN, 0.75); g.fillRect(mid + 1, y - 3, B.born * k, 6);
+    let xx = mid - 1;
+    B.deaths.forEach(([, c, tone], i) => { const w = c * k; g.fillStyle = rgba(tone, i % 2 ? 0.7 : 0.95); g.fillRect(xx - w, y - 3, Math.max(0, w - 1), 6); xx -= w; });
+    g.fillStyle = rgba(INK, 0.9); g.fillRect(mid - 0.5, y - 6, 1, 12);
+    text('micro', `−${dead}`, mid - half - 4, y + 4, rgba(HOT, 1), 'right');
+    text('micro', `+${B.born}`, mid + half + 4, y + 4, rgba(CYAN, 1), 'left');
     g.globalAlpha = a;
   }
   // GAUGE: the water's temperature on an arc, with a species' band of comfort, its ends numbered; past it, hot
@@ -742,6 +772,107 @@ export function createNoteView(g) {
 
   // ------------------------------------------------------------------ one note, planned
   const up = (s) => (s || '').toUpperCase();
+  // a heading as the compass has it (the view's up is north)
+  const compass = (an) => ['E', 'SE', 'S', 'SW', 'W', 'NW', 'N', 'NE'][((Math.round(an / (Math.PI / 4)) % 8) + 8) % 8];
+  // a species' short name: its genus's initial and its own epithet
+  const short = (name) => { const w = up(name).split(' '); return w.length > 1 ? `${w[0][0]}. ${w.slice(1).join(' ')}` : w[0]; };
+  // TARGET BOX: brackets around a group on screen, its size across measured above it on a ruled dimension line
+  function targetBox(pts, tone, t, measure) {
+    let l = Infinity, tp = Infinity, r = -Infinity, b = -Infinity;
+    for (const p of pts) if (p[3] > 0.5) { l = Math.min(l, p[0]); r = Math.max(r, p[0]); tp = Math.min(tp, p[1]); b = Math.max(b, p[1]); }
+    if (!(r > l)) return null;
+    const pad = 12;
+    l -= pad; r += pad; tp -= pad; b += pad;
+    brackets(l, tp, r, b, rgba(tone, 0.9), t);
+    if (measure && t > 0.35) {
+      const y = tp - 8, u = reduced ? 1 : ease((t - 0.35) / 0.4), m = (l + r) / 2, hw = ((r - l) / 2) * u;
+      stroke(() => { g.beginPath(); g.moveTo(m - hw, y); g.lineTo(m + hw, y); g.moveTo(m - hw, y - 3); g.lineTo(m - hw, y + 3); g.moveTo(m + hw, y - 3); g.lineTo(m + hw, y + 3); }, rgba(LINE, 0.7), 1);
+      if (u >= 1) text('micro', measure, m, y - 5, rgba(INK, 0.95), 'center');
+    }
+    return { l, t: tp - (measure ? 22 : 0), r, b };
+  }
+  // ARROW: a heading, from a point, with a chevron head
+  function arrow(x, y, an, len, tone, t) {
+    const u = reduced ? 1 : ease(t / 0.5), ex = x + Math.cos(an) * len * u, ey = y + Math.sin(an) * len * u;
+    stroke(() => {
+      g.beginPath(); g.moveTo(x, y); g.lineTo(ex, ey);
+      for (const s2 of [-1, 1]) { g.moveTo(ex, ey); g.lineTo(ex - Math.cos(an + s2 * 0.5) * 8, ey - Math.sin(an + s2 * 0.5) * 8); }
+    }, rgba(tone, 0.95), 1.4);
+  }
+  // TRAIL: where something has been (world points, oldest first), as a dotted line fading into the past
+  function trail(ws, tone, F) {
+    if (ws.length < 2) return;
+    const a = g.globalAlpha;
+    for (let i = 1; i < ws.length; i++) {
+      const p = F.toScreen(ws[i - 1]), q = F.toScreen(ws[i]);
+      g.globalAlpha = a * (0.15 + 0.7 * (i / ws.length));
+      g.setLineDash([2, 4]); g.lineWidth = 1.2; g.strokeStyle = rgba(tone, 0.9);
+      g.beginPath(); g.moveTo(p[0], p[1]); g.lineTo(q[0], q[1]); g.stroke();
+    }
+    g.setLineDash([]);
+    g.globalAlpha = a;
+  }
+  // FOOD WEB: the species in view that ate or were eaten here lately, by trophic level (hunters above, grazers and
+  // scavengers between, producers below), each a tag; each eaten–eater pair an arrow up from the eaten's tag to the
+  // eater's (its weight by how much, kills in hot), the totals in its head
+  const WEB_W = 370, WEB_H = 200;
+  function web(W2, x, y, t, F) {
+    const a = g.globalAlpha;
+    g.globalAlpha = a * (reduced ? 1 : clamp(t / 0.4, 0, 1));
+    g.fillStyle = PLATE; g.fillRect(x, y, WEB_W, WEB_H);
+    g.strokeStyle = rgba(LINE, 0.28); g.lineWidth = 1; g.strokeRect(x + 0.5, y + 0.5, WEB_W - 1, WEB_H - 1);
+    const bites = Math.round(W2.edges.reduce((s2, e) => s2 + e.bites, 0)), kills = W2.edges.reduce((s2, e) => s2 + e.kills, 0);
+    const head = 'FOOD WEB IN VIEW', hw = width('head', head) + 14;
+    g.fillStyle = 'rgba(6,9,10,0.9)'; g.fillRect(x + 8, y - 7, hw, 15);
+    g.strokeStyle = rgba(LINE, 0.55); g.strokeRect(x + 8.5, y - 6.5, hw - 1, 14);
+    setType('head'); g.textAlign = 'left'; g.fillStyle = rgba(INK, 0.95); g.fillText(head, x + 15, y + 4);
+    if (A) A.box(owner, head, x + 8, y - 7, x + 8 + hw, y + 8);
+    const tail = ` · ${kills} KILLS · 30 S`;
+    text('micro', `${bites} BITES`, x + WEB_W - 10 - width('micro', tail), y + 22, rgba(INK2, 1), 'right');
+    text('micro', tail, x + WEB_W - 10, y + 22, rgba(kills ? HOT : INK2, 1), 'right');
+    const level = (k) => { const gd = F.species(k)?.guild; return gd === 'predator' ? 0 : gd === 'producer' ? 2 : 1; };
+    const rows = [[], [], []];
+    for (const nd of W2.nodes) rows[level(nd.kind)].push(nd);
+    // each species a tag in its level's row (three at most a row, the most numerous), its name fitted; the levels
+    // with none left out, the rest spread down the panel
+    const box = new Map(), x0 = x + 82, w0 = WEB_W - 90, tw = w0 / 3 - 8;
+    const present = [0, 1, 2].filter((r) => rows[r].length), gap = Math.min(60, 112 / Math.max(1, present.length - 1));
+    present.forEach((r, ri) => {
+      const row = rows[r];
+      row.sort((p, q) => q.n - p.n).splice(3);
+      const ry = y + 52 + ri * gap + (present.length === 1 ? 56 : present.length === 2 ? 24 : 0);
+      text('micro', ['HUNTERS', 'GRAZERS', 'PRODUCERS'][r], x + 10, ry + 4, rgba(INK3, 1));
+      row.forEach((nd, i) => { const cx = x0 + (w0 * (i + 0.5)) / row.length; box.set(nd.kind, { l: cx - tw / 2, r: cx + tw / 2, t: ry - 9, b: ry + 9, cx }); });
+    });
+    // the arrows first, from the eaten's tag's top to the eater's tag's bottom, spread where several meet one tag
+    const u = reduced ? 1 : ease((t - 0.2) / 0.6), ends = new Map();
+    const spread = (k, side) => { const key = `${k}${side}`, n2 = ends.get(key) || 0; ends.set(key, n2 + 1); return ((n2 % 3) - 1) * 9; };
+    const sum = W2.edges.reduce((s2, e) => s2 + e.bites + 4 * e.kills, 0) || 1;
+    for (const e of W2.edges) {
+      const p = box.get(e.from), q = box.get(e.to);
+      if (!p || !q || p === q) continue;
+      const tone = e.kills ? HOT : INK, w = clamp(0.8 + 6 * ((e.bites + 4 * e.kills) / sum), 0.8, 3.5);
+      const upward = q.b <= p.t;
+      const s0 = upward ? [p.cx + spread(e.from, 't'), p.t] : [p.cx + spread(e.from, 'b'), p.b];
+      const s1 = upward ? [q.cx + spread(e.to, 'b'), q.b] : [q.cx + spread(e.to, 't'), q.t];
+      const m = [s0[0] + (s1[0] - s0[0]) * u, s0[1] + (s1[1] - s0[1]) * u];
+      stroke(() => { g.beginPath(); g.moveTo(...s0); g.lineTo(...m); }, rgba(tone, 0.85), w);
+      if (u >= 1) {
+        const an2 = Math.atan2(s1[1] - s0[1], s1[0] - s0[0]);
+        stroke(() => { g.beginPath(); for (const sg of [-1, 1]) { g.moveTo(...s1); g.lineTo(s1[0] - Math.cos(an2 + sg * 0.5) * 6, s1[1] - Math.sin(an2 + sg * 0.5) * 6); } }, rgba(tone, 0.95), 1.3);
+      }
+    }
+    for (const [k, b2] of box) {
+      const sp = F.species(k), hot = isActive(k);
+      g.fillStyle = 'rgba(6,9,10,0.95)'; g.fillRect(b2.l, b2.t, b2.r - b2.l, b2.b - b2.t);
+      g.strokeStyle = rgba(hot ? HOT : LINE, hot ? 0.9 : 0.5); g.lineWidth = 1; g.strokeRect(b2.l + 0.5, b2.t + 0.5, b2.r - b2.l - 1, b2.b - b2.t - 1);
+      glyph(sp?.guild, b2.l + 8, b2.t + 9, hot ? HOT : INK);
+      text('data', fit('data', short(sp?.name), b2.r - b2.l - 18), b2.l + 14, b2.t + 13, rgba(INK, 0.95));
+    }
+    text('micro', 'ARROW: FROM THE EATEN TO THE EATER', x + 10, y + WEB_H - 9, rgba(INK3, 1));
+    g.globalAlpha = a;
+  }
+  let isActive = () => false;
   function noteState(id) {
     let S = notesAt.get(id);
     if (!S) notesAt.set(id, (S = { c: {}, an: [{}, {}], z: {} }));
@@ -754,8 +885,21 @@ export function createNoteView(g) {
     const shows = (p, m = 0) => p[0] > F.open.l + m && p[0] < F.open.r - m && p[1] > F.open.t + m && p[1] < F.open.b - m
       && !F.block.some((b) => p[0] > b.l - m && p[0] < b.r + m && p[1] > b.t - m && p[1] < b.b + m);
     const group = (key, rows) => steady((S.c[key] ||= {}), rows, F);
-    // a label's anchor: one cell of the group, kept
-    const hang = (k, pts) => anchorOf(S.an[k], pts, (p) => shows(p, 16));
+    // a label's anchor: one cell of the group, chosen once and kept, found every frame by its id (the page looks for it
+    // on the GPU: n.pins) wherever the group's sample goes; another only when that cell is gone altogether (its note
+    // ends when that cell leaves the view)
+    const hang = (k, pts, kind, prefer = null) => {
+      const st = S.an[k];
+      // (a living cell is looked for every frame; a place where one died, or a husk, is where it is)
+      st.pin = kind !== -1;
+      if (st.anchor == null && prefer != null) st.anchor = prefer;
+      if (st.anchor != null) {
+        const c = M.cell(st.anchor);
+        const p = c && markAt(st.anchor, c, c.kind === -1 ? kind : c.kind, F.project, F.dt);
+        if (p) return [p[0], p[1], st.anchor, 1];
+      }
+      return anchorOf(st, pts, (p) => shows(p, 24));
+    };
     const P = { tone: INK, draws: [], label: null, anchor: null, keys: [], gauge: null, extra: null, pts: [], boxes: [] };
     const recent = (evs, kind, secs) => M.since(M.view.simTime - secs, evs, (e) => kind == null || e.kind === kind);
     const wide = d.band === 'wide';
@@ -771,7 +915,7 @@ export function createNoteView(g) {
     // (a verb that would lie under the page's own text or a panel fades out until it is clear)
     const verbBox = (a, b, verb, bend) => {
       const C = linkCurve(a, b, bend, 9), box = C && linkTag(C, verb, bend).box;
-      const clear = box && ![...F.avoid, ...F.block, ...F.verbs].some((r) => area(box, r) > 0);
+      const clear = box && ![...F.avoid, ...F.block, ...F.verbs, ...lastLabels].some((r) => area(box, r) > 0);
       S.verbA = clamp((S.verbA ?? 0) + ((clear ? 1 : -1) * F.dt) / 0.08, 0, 1);
       if (box && S.verbA > 0) { P.boxes.push({ ...box, hard: true }); F.verbs.push(box); }
       return S.verbA;
@@ -838,7 +982,7 @@ export function createNoteView(g) {
     } else if (d.type === 'graze') {
       const pts = group('g', M.rows(d.census));
       const a = d.actor !== NONE ? pos(d.actor) : null, b = d.target !== NONE ? pos(d.target) : null;
-      const c = a || hang(0, pts);
+      const c = a || hang(0, pts, d.akind);
       if (!c) return null;
       P.draws.push((t) => census(pts, 'plus', INK, t, c, glyphOf(d.akind)));
       if (a && b) {
@@ -875,7 +1019,7 @@ export function createNoteView(g) {
         : { tone: HOT, tag: 'New species', main: nm(d.kind), data: [`A MUTANT OF ${nm(d.akind)}`, `${up(g2?.guild || '')}${comfort ? ' · ' + comfort : ''}`] };
     } else if (d.type === 'bloom' || d.type === 'waking' || d.type === 'dormant') {
       const pts = group('c', M.rows(d.kind, d.type === 'dormant' ? 'cyst' : 'all'));
-      const an = hang(0, pts);
+      const an = hang(0, pts, d.kind);
       if (!an) return null;
       const glyph = d.type === 'dormant' ? 'ring' : 'plus';
       P.draws.push((t) => census(pts, glyph, INK, t, an, glyphOf(d.kind)));
@@ -890,7 +1034,7 @@ export function createNoteView(g) {
       const g2 = sp(d.kind);
       if (!g2) return null;
       const rows = M.rows(d.kind, 'hot'), pts = group('h', rows);
-      const an = hang(0, pts);
+      const an = hang(0, pts, d.kind);
       if (!an) return null;
       P.tone = HOT;
       if (wide) {
@@ -917,7 +1061,7 @@ export function createNoteView(g) {
       // beside it, a species that bears the same water
       if (d.fine) {
         const f2 = sp(d.fine.kind), fpts = group('f', M.rows(d.fine.kind));
-        const fa = f2 && hang(1, fpts);
+        const fa = f2 && hang(1, fpts, d.fine.kind);
         if (fa) {
           const flo = f2.topt - f2.tol, fhi = f2.topt + f2.tol;
           P.extra = { anchor: fa, pts: fpts, label: { tone: INK, tag: 'Not scalding', num: String(Math.round(d.fine.n * M.stats.scale)), main: nm(d.fine.kind),
@@ -930,7 +1074,7 @@ export function createNoteView(g) {
       const St = M.stats, rows = [];
       for (const s of St.by.values()) for (const i of s.torpidRows) rows.push(i);
       const pts = group('t', rows);
-      const an = hang(0, pts);
+      const an = hang(0, pts, d.kind);
       if (!an) return null;
       P.tone = CYAN;
       if (wide) {
@@ -956,13 +1100,151 @@ export function createNoteView(g) {
       }
       if (d.warm >= 0) {
         const w2 = sp(d.warm), wpts = group('w', M.rows(d.warm));
-        const wa = w2 && hang(1, wpts);
+        const wa = w2 && hang(1, wpts, d.warm);
         if (wa) {
           P.extra = { anchor: wa, pts: wpts, label: { tone: INK, tag: 'Still active', num: String(Math.round((St.by.get(d.warm)?.n ?? 0) * St.scale)), main: nm(d.warm), data: [`COMFORT ${Math.round(w2.topt - w2.tol)}–${Math.round(w2.topt + w2.tol)}°C`] } };
           P.draws.push((t) => census(wpts, 'plus', INK, t - 0.6, wa, glyphOf(d.warm)));
           P.keys.push({ glyph: 'plus', text: `${nm(d.warm)}: STILL ACTIVE`, tone: INK });
         }
       }
+    } else if (d.type === 'body' || d.type === 'swim') {
+      // an organism: its cells (by their ids, wherever the view's sample has them), brackets about it with its size,
+      // and swimming, its heading and where it has been
+      const v = M.view, rows = [];
+      for (const id of d.members) { const i = v.at.get(id); if (i !== undefined) rows.push(i); }
+      const pts = group('b', rows), an = hang(0, pts, d.kind, d.anchor);
+      if (!an) return null;
+      const swim = d.type === 'swim', g2 = sp(d.kind), tone = swim ? HOT : INK;
+      P.tone = tone;
+      const live = pts.filter((p) => p[3] > 0.5);
+      const mid = live.length ? [live.reduce((a, p) => a + p[0], 0) / live.length, live.reduce((a, p) => a + p[1], 0) / live.length] : an;
+      if (swim) {
+        // (its middle in the world, every quarter second, for the last four)
+        const tr = (S.trail ||= []), w = F.toWorld(mid);
+        if (!tr.length || F.now - tr.at > 0.25) { tr.push(w); tr.at = F.now; if (tr.length > 16) tr.shift(); }
+        P.draws.push(() => trail(tr, HOT, F));
+        P.draws.push((t) => arrow(mid[0], mid[1], d.heading, clamp(d.lengths * 30, 36, 90), HOT, t - 0.3));
+      }
+      P.draws.push((t) => census(pts, 'plus', tone, t, an, clamp(F.radius(d.kind) * 0.18, 3, 6)));
+      P.draws.push((t) => { const b = targetBox(pts, tone, t, fmtLen(d.size)); if (b) S.box = b; });
+      // (its size readout is text: the labels keep off it as off any other)
+      if (S.box) P.boxes.push({ ...S.box, t: S.box.t, b: S.box.t + 24, hard: true }, { ...S.box });
+      P.anchor = an;
+      P.pts = pts;
+      const form = up(d.form);
+      P.label = swim
+        ? { tone: HOT, eye: 'Swimming', num: d.lengths.toFixed(1), main: 'BODY LENGTHS / S', data: [`${nm(d.kind)} · ${d.cells}-CELL ${form}`, `${fmtLen(d.speed, '/s')} · HEADING ${compass(d.heading)}`] }
+        : { tone: INK, eye: 'Organism', num: String(d.cells), main: `CELLS · ${nm(d.kind)}`, data: [`ONE BODY: A ${form} ${fmtLen(d.size)} ACROSS`, `${up(g2?.guild || '')} · BONDED CELLS SHARE WHAT THEY GATHER`] };
+      P.keys.push({ glyph: 'plus', text: `${nm(d.kind)}: ONE BODY`, tone });
+    } else if (d.type === 'stalk') {
+      // a hunter closing on its quarry: its lock, a dashed line to the quarry with how far it has to go
+      const a = pos(d.actor), b = pos(d.target);
+      if (!a || !b) return null;
+      const r = F.radius(d.akind), wa = F.toWorld(a), wb = F.toWorld(b), dist = Math.hypot(wb[0] - wa[0], wb[1] - wa[1]) - 0;
+      P.tone = HOT;
+      const va = verbBox(a, b, fmtLen(dist), 0.12);
+      P.draws.push((t) => link(a, b, fmtLen(dist), HOT, t - 0.3, F.now, 0.12, 9, true, va));
+      P.draws.push((t) => lock(a[0], a[1], r, HOT, t));
+      P.draws.push((t) => brackets(b[0] - F.radius(d.kind) - 4, b[1] - F.radius(d.kind) - 4, b[0] + F.radius(d.kind) + 4, b[1] + F.radius(d.kind) + 4, rgba(INK, 0.8), t - 0.5));
+      lockBox(a, r);
+      P.anchor = [a[0], a[1] - r];
+      P.pts = [a, b];
+      P.label = { tone: HOT, eye: 'Hunting', main: nm(d.akind), data: [`CLOSING ON ${nm(d.kind)}`, `ITS LAST MEAL WAS ONE OF THEM · ${fmtLen(d.speed, '/s')}`] };
+      P.keys.push({ glyph: 'cross', text: 'QUARRY', tone: INK });
+    } else if (d.type === 'web') {
+      // the food web: a panel, its species marked in the view by their guild's glyph
+      if (F.phone) return null;
+      P.panel = { w: WEB_W, h: WEB_H, draw: (x, y, t) => web(d, x, y, t, F) };
+      P.anchor = null;
+    } else if (d.type === 'balance') {
+      const pts = group('c', M.rows(d.kind));
+      const an = hang(0, pts, d.kind);
+      if (!an) return null;
+      P.draws.push((t) => census(pts, 'plus', INK, t, an, glyphOf(d.kind)));
+      const died = recent(new Set(['kill', 'grazed', 'starved', 'old', 'scalded', 'froze', 'dried']), d.kind, 10);
+      pips(died, HOT, 0.3);
+      P.anchor = an;
+      P.pts = pts;
+      const net = d.born - d.dead, CAUSE = { kill: ['KILLED', HOT], grazed: ['GRAZED', HOT], starved: ['STARVED', INK2], old: ['OLD AGE', INK3], scalded: ['SCALDED', HOT], froze: ['FROZE', CYAN], dried: ['DRIED', INK3] };
+      const deaths = Object.entries(d.died).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).map(([c, k]) => [CAUSE[c][0], k, CAUSE[c][1]]);
+      P.label = { tone: net >= 0 ? CYAN : HOT, tag: net > d.dead * 0.2 ? 'Thriving' : -net > d.born * 0.2 ? 'Declining' : 'Turnover', num: `${net > 0 ? '+' : ''}${net}`, main: nm(d.kind),
+        data: [`BORN ${d.born} · DIED ${d.dead} · LAST 30 S`, deaths.slice(0, 3).map(([c, k]) => `${c} ${k}`).join(' · ') || 'NONE DIED'], split: { born: d.born, deaths } };
+      P.keys.push({ glyph: 'plus', text: `${nm(d.kind)} CELL`, tone: INK });
+      if (died.length) P.keys.push({ glyph: 'cross', text: 'DIED, LAST 10 S', tone: HOT });
+    } else if (d.type === 'genus') {
+      // sister species: each its own glyph
+      const GL = ['plus', 'square', 'ring', 'cross'];
+      const F2 = { ...F, cap: Math.round(F.cap / 3) };
+      const groups = d.kinds.map((k, i) => ({ k, glyph: GL[i], pts: steady((S.c[`s${i}`] ||= {}), M.rows(k), F2) }));
+      const an = hang(0, groups[0].pts, d.kinds[0]);
+      if (!an) return null;
+      for (const G of groups) P.draws.push((t) => census(G.pts, G.glyph, INK, t, an, glyphOf(G.k)));
+      P.anchor = an;
+      P.pts = groups.flatMap((G) => G.pts);
+      P.label = { tone: INK, eye: 'Sister species', num: String(d.species), main: `SPECIES OF ${up(d.genusName)}`,
+        data: [d.kinds.map((k) => short(sp(k)?.name)).join(' · '), 'DESCENDED FROM ONE ANCESTOR, SIDE BY SIDE'] };
+      for (const G of groups) P.keys.push({ glyph: G.glyph, text: nm(G.k), tone: INK });
+    } else if (d.type === 'old') {
+      const evs = recent('old', d.kind, 20), pts = [];
+      for (const e of evs.slice(0, 40)) {
+        const p = F.project({ x: e.x, y: e.y, vx: 0, vy: 0, t: e.t }, -1);
+        if (p && shows(p)) pts.push([p[0], p[1], e.id, 1, clamp((20 - (M.view.simTime - e.t)) / 2, 0, 1)]);
+      }
+      const an = hang(0, pts, -1);
+      if (!an) return null;
+      for (const p of pts) P.draws.push((t) => pip(p[0], p[1], INK, t, p[4]));
+      P.anchor = an;
+      P.pts = pts;
+      P.label = { tone: INK, eye: 'Old age', num: String(d.count), main: nm(d.kind), data: ['DIED OF AGE IN 20 S', 'A COHORT REACHING ITS END'] };
+      P.keys.push({ glyph: 'cross', text: 'DIED OF AGE', tone: INK });
+    } else if (d.type === 'rot') {
+      const pts = group('r', M.stats.husks);
+      const an = hang(0, pts, -1);
+      if (!an) return null;
+      P.draws.push((t) => census(pts, 'ring', INK2, t, an, 3));
+      P.anchor = an;
+      P.pts = pts;
+      P.label = { tone: INK, eye: 'Decay', num: String(d.husks), main: 'HUSKS ROTTING TO SILT',
+        data: [`${d.count} RETURNED TO SILT IN 30 S`, d.sparks ? `${d.sparks} NEW LIVES SPARKED FROM SILT` : 'THE SILT FEEDS WHAT GROWS NEXT'] };
+      P.keys.push({ glyph: 'ring', text: 'HUSK: THE REMAINS OF A CELL', tone: INK2 });
+    } else if (d.type === 'current') {
+      // the current: lines of flow through the view from seeds fixed in the world, chevrons running along them
+      if (!F.flow) return null;
+      const r = M.view.rect, step = 2 ** Math.round(Math.log2(Math.max(r[2], r[3]) / 6));
+      const i0 = Math.floor(r[0] / step), j0 = Math.floor(r[1] / step), lines = [];
+      for (let i = i0; i <= i0 + Math.ceil(r[2] / step); i++) for (let j = j0; j <= j0 + Math.ceil(r[3] / step); j++) {
+        // (each seed offset within its square by its own hash, so they do not line up)
+        const h = hashU(i * 7919 + j * 104729), x0 = (i + 0.2 + 0.6 * h) * step, y0 = (j + 0.2 + 0.6 * hashU(h * 1e9 + 17)) * step;
+        const L2 = [[x0, y0]];
+        let x = x0, y = y0;
+        for (let k = 0; k < 10; k++) { const f = F.flow(x, y), m = Math.hypot(f[0], f[1]) || 1; x += (f[0] / m) * step * 0.06; y += (f[1] / m) * step * 0.06; L2.push([x, y]); }
+        lines.push(L2);
+      }
+      P.draws.push((t) => {
+        const a = g.globalAlpha, u = reduced ? 1 : clamp(t / 0.8, 0, 1);
+        g.globalAlpha = a * u;
+        g.lineWidth = 1; g.strokeStyle = rgba(LINE, 0.5);
+        g.beginPath();
+        for (const L2 of lines) { const p0 = F.toScreen(L2[0]); g.moveTo(...p0); for (const w of L2.slice(1)) g.lineTo(...F.toScreen(w)); }
+        g.stroke();
+        g.fillStyle = rgba(LINE, 0.9);
+        for (const L2 of lines) {
+          const s2 = (F.now * 0.35 + hashU(L2.length + L2[0][0] * 13)) % 1, k = Math.min(L2.length - 2, Math.floor(s2 * (L2.length - 1)));
+          const p = F.toScreen(L2[k]), q = F.toScreen(L2[k + 1]), an2 = Math.atan2(q[1] - p[1], q[0] - p[0]);
+          g.save(); g.translate(p[0], p[1]); g.rotate(an2);
+          g.beginPath(); g.moveTo(3, 0); g.lineTo(-2.5, -3); g.lineTo(-1, 0); g.lineTo(-2.5, 3); g.closePath(); g.fill();
+          g.restore();
+        }
+        g.globalAlpha = a;
+      });
+      // hung on the seed nearest the view's middle (a fixed place in the world)
+      const c = [r[0] + r[2] / 2, r[1] + r[3] / 2];
+      if (S.seed && !shows(F.toScreen(S.seed), 40)) S.seed = null;
+      S.seed ||= lines.map((L2) => L2[0]).sort((p, q) => Math.hypot(p[0] - c[0], p[1] - c[1]) - Math.hypot(q[0] - c[0], q[1] - c[1]))[0];
+      P.anchor = F.toScreen(S.seed);
+      const um = d.speed * UM_PER_UNIT;
+      P.label = { tone: INK, eye: 'Current', num: um >= 10 ? String(Math.round(um)) : um.toFixed(1), main: `µm/s TOWARD ${compass(d.heading)}`,
+        data: ['THE WATER CARRIES WHAT DOES NOT SWIM', 'DRIFTERS RIDE IT · SWIMMERS CROSS IT'] };
     } else if (d.type === 'starving' || d.type === 'drying') {
       const evs = recent(d.type === 'starving' ? 'starved' : 'dried', d.type === 'starving' ? d.kind : null, 20);
       const pts = [];
@@ -970,7 +1252,7 @@ export function createNoteView(g) {
         const p = F.project({ x: e.x, y: e.y, vx: 0, vy: 0, t: e.t }, -1);
         if (p && shows(p)) pts.push([p[0], p[1], e.id, 1, clamp((20 - (M.view.simTime - e.t)) / 2, 0, 1)]);
       }
-      const an = hang(0, pts);
+      const an = hang(0, pts, -1);
       if (!an) return null;
       P.tone = HOT;
       for (const p of pts) P.draws.push((t) => pip(p[0], p[1], HOT, t, p[4]));
@@ -981,7 +1263,8 @@ export function createNoteView(g) {
         : { tone: HOT, tag: 'Stranded', num: String(d.count), main: 'DRYING ON THE MUD', data: [`MOSTLY ${nm(d.kind)}`, 'THE WATER WITHDREW FROM THEM'] };
       P.keys.push({ glyph: 'cross', text: d.type === 'starving' ? 'STARVED, LAST 20 S' : 'DRIED OUT, LAST 20 S', tone: HOT });
     }
-    return P.anchor ? P : null;
+    n.pins = S.an.filter((a) => a.anchor != null && a.pin).map((a) => a.anchor);
+    return P.anchor || P.panel ? P : null;
   }
 
   // The roster's rows, steadied: its numbers change every so often, its bars ease, and a species passes the one above
@@ -1040,6 +1323,7 @@ export function createNoteView(g) {
     g.save();
     const active = new Set();
     for (const n of F.notes) for (const k of [n.data.kind, n.data.akind, n.data.census, n.data.fine?.kind]) if (k != null && k >= 0) active.add(k);
+    isActive = (k) => active.has(k);
     // the panels of the frame first (where they go), so the marks keep out from under them
     const rosterRows = F.roster && !F.phone && M.stats
       ? steadyRoster(M.roster().map((r) => ({ ...r, name: F.species(r.kind)?.name || '', guild: F.species(r.kind)?.guild, hot: active.has(r.kind) })).filter((r) => r.name), F.now, F.dt) : [];
@@ -1051,12 +1335,16 @@ export function createNoteView(g) {
     const modeAt = F.mode ? [(F.open.l + F.open.r) / 2, F.open.t + 14] : null;
     // (where the panels go, kept clear of the marks' anchors: the roster, the gauge and the key, whichever show)
     const gaugeArea = { l: F.open.r - 130, t: F.open.b - 154, r: F.open.r, b: F.open.b };
-    F.block = F.phone ? [] : [rosterBox, gaugeArea, { l: F.open.l, t: F.open.b - 120, r: F.open.l + KEY_W, b: F.open.b }].filter(Boolean);
+    // (a panel note, the food web, top left)
+    const panelArea = { l: F.open.l + 14, t: F.open.t + 34, r: F.open.l + 14 + WEB_W, b: F.open.t + 34 + WEB_H };
+    const panelOn = !F.phone && F.notes.some((n) => n.type === 'web');
+    F.block = F.phone ? [] : [rosterBox, gaugeArea, { l: F.open.l, t: F.open.b - 120, r: F.open.l + KEY_W, b: F.open.b }, panelOn ? panelArea : null].filter(Boolean);
     F.verbs = [];
     const T0 = performance.now();
     for (const n of F.notes) {
       const P = plan(n, M, F);
-      if (P) plans.push({ n, P });
+      // (one that cannot be drawn is as one with no room: the notes end it)
+      if (P) plans.push({ n, P }); else n.hiddenAt ??= F.now;
     }
     const T1 = performance.now();
     const gaugeP = !F.phone && plans.find(({ P }) => P.gauge);
@@ -1065,7 +1353,8 @@ export function createNoteView(g) {
     const keyBox = keys.length && !F.phone ? { l: F.open.l, t: F.open.b - 12 - 17 * Math.min(6, keys.length) - 6, r: F.open.l + KEY_W, b: F.open.b } : null;
     // (and the page's own text: the auto camera's caption, its subject's nameplate)
     // (holes that overlap merged into one, as an even-odd clip would show their overlap again)
-    const panels = [rosterBox, gaugeP ? gaugeArea : null, keyBox, ...F.avoid].filter(Boolean);
+    const panelP = plans.find(({ P }) => P.panel);
+    const panels = [rosterBox, gaugeP ? gaugeArea : null, keyBox, panelP ? panelArea : null, ...F.avoid].filter(Boolean);
     for (let i = 0; i < panels.length; i++) for (let j = i + 1; j < panels.length; j++) {
       const a = panels[i], b = panels[j];
       if (a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b) {
@@ -1082,10 +1371,12 @@ export function createNoteView(g) {
     const allPts = [];
     for (const { n, P } of plans) {
       const t = F.now - n.born, out = n.exitAt != null ? clamp(1 - (F.now - n.exitAt) / 0.6, 0, 1) : 1;
-      g.globalAlpha = out;
+      // (a note's marks show only as its label does: never a mark nothing explains)
+      const shown = P.panel ? 1 : lay.get(n.id * 2)?.shown ?? 0;
+      g.globalAlpha = out * shown;
       owner = `n${n.id}`;
-      if (A) A.point('anchor', n.id, P.anchor[0], P.anchor[1]);
-      for (const d of P.draws) d(t);
+      if (A && P.anchor) A.point('anchor', n.id, P.anchor[0], P.anchor[1]);
+      if (shown > 0.01) for (const d of P.draws) d(t);
       g.globalAlpha = 1;
       for (const p of P.pts.slice(0, 120)) allPts.push(p);
       for (const b of P.boxes) taken.push(b);
@@ -1095,7 +1386,20 @@ export function createNoteView(g) {
     // the frame's devices: its corners, its mode, the species in view, the water's gauge, the key
     owner = 'frame';
     corners(F.open);
-    if (modeAt) taken.push(modeTag(F.mode, ...modeAt));
+    // (the mode gives way to the page's own text, as the roster does)
+    if (modeAt) {
+      const w = width('head', F.mode) + 14, mb = { l: modeAt[0] - w / 2, t: modeAt[1] - 11, r: modeAt[0] + w / 2, b: modeAt[1] + 5 };
+      const under = F.avoid.some((r) => area(mb, r) > 0);
+      modeSt.vis = clamp((modeSt.vis ?? 1) + ((under ? -1 : 1) * F.dt) / 0.2, 0, 1);
+      if (modeSt.vis > 0) {
+        const a0 = A;
+        if (modeSt.vis < 0.5) A = null;
+        g.globalAlpha = modeSt.vis;
+        taken.push(modeTag(F.mode, ...modeAt));
+        g.globalAlpha = 1;
+        A = a0;
+      }
+    }
     if (rosterBox) {
       g.globalAlpha = rosterSt.vis;
       const a0 = A;
@@ -1114,6 +1418,14 @@ export function createNoteView(g) {
     }
     owner = 'key';
     if (keyBox) taken.push(key(keys.slice(0, 6), F.open.l + 14, F.open.b - 12));
+    if (panelP) {
+      const n = panelP.n;
+      g.globalAlpha = n.exitAt != null ? clamp(1 - (F.now - n.exitAt) / 0.6, 0, 1) : 1;
+      owner = 'panel';
+      panelP.P.panel.draw(panelArea.l, panelArea.t + 8, F.now - n.born);
+      g.globalAlpha = 1;
+      taken.push({ ...panelArea, hard: true });
+    }
     const T3 = performance.now();
     // labels, the oldest first (they keep their places)
     for (const { n, P } of plans) {
@@ -1137,7 +1449,8 @@ export function createNoteView(g) {
         const at = place(id, base, size, taken, F.open, allPts, F.now);
         // set off it by an offset that eases to a near new place and crossfades to a far one (or the other side)
         const want = [at.x - base[0], at.y - base[1]];
-        if (!st.off) { st.off = want; st.dir = at.dir; st.a = st.ghost ? 0 : 1; st.vis ??= 1; }
+        // (one with no room from its first frame starts hidden, its marks with it: it never shows only to vanish)
+        if (!st.off) { st.off = want; st.dir = at.dir; st.a = st.ghost ? 0 : 1; st.vis ??= at.hard ? 0 : 1; st.hide ??= at.hard; }
         else if (st.dir !== at.dir || Math.hypot(want[0] - st.off[0], want[1] - st.off[1]) > STEADY.far) {
           if (A) A.count('flips');
           st.ghost = { w: st.w, off: st.off, dir: st.dir, a: st.a * st.vis };
@@ -1155,9 +1468,16 @@ export function createNoteView(g) {
         st.a = Math.min(1, st.a + F.dt / STEADY.swap);
         // never over other text: with no free place it waits, hidden, until one frees
         const lx = base[0] + st.off[0], ly = base[1] + st.off[1], box = boxAt(lx, ly, st.dir, size);
+        // (hidden at once when it would cover text; shown again only once clear for a moment, so it never flickers)
         const blocked = taken.some((r) => r.hard && area(box, r) > 4);
-        st.vis = clamp(st.vis + ((blocked ? -1 : 1) * F.dt) / 0.15, 0, 1);
+        if (blocked) { st.hide = true; st.clearAt = null; } else { st.clearAt ??= F.now; if (F.now - st.clearAt > 0.3) st.hide = false; }
+        st.vis = clamp(st.vis + ((st.hide ? -1 : 1) * F.dt) / 0.15, 0, 1);
         if (blocked && A) A.count('hidden');
+        if (k === 0) {
+          st.shown = st.a * st.vis;
+          // (the notes end one whose label finds no room for a while: n.hiddenAt)
+          if (st.vis < 0.05) n.hiddenAt ??= F.now; else n.hiddenAt = null;
+        }
         if (st.ghost) {
           st.ghost.a -= F.dt / (STEADY.swap * 0.8);
           if (st.ghost.a <= 0) st.ghost = null;
@@ -1165,7 +1485,6 @@ export function createNoteView(g) {
             const gb = F.toScreen(st.ghost.w), gx = gb[0] + st.ghost.off[0], gy = gb[1] + st.ghost.off[1], a0 = A;
             g.globalAlpha = out * st.ghost.a;
             A = null;
-            leader(an[0], an[1], gx - st.ghost.dir * 4, gy + 7, L.tone || INK, 9);
             label(L, gx, gy, st.ghost.dir, 9);
             A = a0;
           }
@@ -1185,12 +1504,15 @@ export function createNoteView(g) {
         g.globalAlpha = 1;
         if (blocked) continue;
         taken.push({ ...box, hard: true });
+        nextLabels.push(box);
         // its leader, as segments the next labels keep off
         const ey = ly + 7, { mx } = leaderPath(an[0], an[1], lx, ey);
         taken.push({ seg: [an[0], an[1], mx, ey] }, { seg: [mx, ey, lx, ey] });
       }
     }
     g.restore();
+    lastLabels = nextLabels;
+    nextLabels = [];
     g.letterSpacing = '0px'; g.fontStretch = 'normal'; g.textAlign = 'left';
     cur = null;
     const T4 = performance.now(), ms = (M.ms.parts ||= { plan: 0, marks: 0, frame: 0, labels: 0 });

@@ -58,12 +58,21 @@ Each story is found from the events and the view, every 0.35 s at most, as a can
 | bloom | 5+ births of one species in 20 s | census of the species |
 | dormant / waking | 4+ of one species encysted or woke in 20 s | census of its cysts / its cells |
 | starving | 3+ of one species starved in 20 s | crosses where they died |
-| heat | 3+ of a species scalded in 30 s, or a quarter of its cells past 0.8 tolerances above its optimum | a hatched zone and squares on its too-warm cells, crosses on the scalded, its comfort band against the water's warmth, the gauge; beside it the most numerous species in the same water that bears it |
+| heat | 3+ of a species scalded in 30 s with a fifth of its cells too warm, or 8+ and two fifths of them past 0.8 tolerances above its optimum | a hatched zone and squares on its too-warm cells, crosses on the scalded, its comfort band against the water's warmth, the gauge; beside it the most numerous species in the same water that bears it |
 | cold | 30% of the living in view torpid, or 3+ froze | rings on the torpid, the share stilled, the water and its ice; the species still active |
 | drying | 3+ dried on the mud in 20 s | crosses |
+| body | an organism of 6+ cells bonded together (each cell's bonded partners, from the view; union–find once a look) | its cells, brackets about it with its size measured above them; its form (filament, mat, colony, cluster) |
+| swim | a body of 3+ cells moving half a body length a second or more | as a body, and its heading as an arrow and where it has been as a dotted trail |
+| stalk | a hunter heading (within 45°) for the nearest cell of the species it last ate, within 1.5 units (up close) | lock on the hunter, a dashed line to its quarry with the distance between them, brackets on the quarry |
+| web | 3+ eaten–eater pairs among 3+ species in 30 s (not on a phone) | a panel: the species by trophic level, an arrow from each eaten to its eater weighted by bites and kills |
+| balance | the species in view with the most births and deaths in 30 s (12+) | census; born against died by cause as a split bar; THRIVING, DECLINING or TURNOVER |
+| genus | 3+ species of one genus in view | each sister its own glyph; their names |
+| old | 3+ of one species died of age in 20 s | crosses where they died |
+| rot | 12+ husks rotted to silt in 30 s, 10+ in view | rings on the husks; sparks from silt, if any |
+| current | the water across the view moving 0.05 units a second or more | lines of flow from seeds fixed in the world, chevrons running along them; speed and heading |
 
 By zoom: from 50 CSS px a world unit, cells are pointed at one by one; below 18 the view is wide and tells only the
-water's stories (heat, cold, drying), drawn on the grid's squares, with only those events written to the ring (its
+water's stories (heat, cold, drying, current), drawn on the grid's squares, with only those events written to the ring (its
 bites and births would crowd it). Past 4× speed a single moment (a kill, a spark) passes too fast to follow and is
 not told.
 
@@ -71,6 +80,26 @@ The budget (`TUNE`, real seconds, so a note reads the same at any speed): at mos
 one in a wide view), one arriving at a time 4.5 s apart, each held at least 6 s and at most 16 (a single moment 9);
 the same story not again within 60 s nor the same kind within 18. A much stronger story may take the place of the
 weakest that has been read. The design study measured 4.3–8.6 new notes a minute with rules like these.
+
+A kind of story told in the last two minutes counts against another of its kind (its score divided by 1 + 0.5 for
+each), so the view's other stories get their turn.
+
+So that nothing shows only to vanish: no note begins while the camera moves (the auto camera flying to another shot,
+or the view panned faster than 220 px or zoomed faster than 15% a second) nor until it has held still 0.8 s, nor with
+less than 5 s of the shot left (a single moment, 3 s); a story must have held 0.7 s (a single moment is told at
+once); what it points at must lie well inside the view (90 px or 12% of it in from the edges) and, at the pace its
+cells move, still be in view two seconds on. The auto camera setting off for another shot takes the notes with it,
+fading. A note whose cell has left the view, or whose label has found no room, goes after 0.6 s; otherwise it stays
+at least 2.5 s. Zooming out ends a cell's note only well past the wide step (three quarters of it). `notes.debug()`
+counts what was shown, how long, and why any went within 2.5 s.
+
+### Ideas not built yet
+
+From the same readbacks or a little more: phototaxis (cells turning toward the light; needs the light at each cell in
+the view's scan), heat-makers keeping a colony warm in a cold snap (their genome's thermogenesis against the water),
+a species' fullness (the view reads it: how many are ready to divide), schools (cells of a species moving together,
+from velocity alignment), an invader (a species new to this stretch of the world), a tree's growth tip, the hand's
+own acts (the needle's cuts, the pipette's draws), and the song (cells that sing in view, from the listening scan).
 
 ## How it is drawn (`src/noteview.js`)
 
@@ -118,12 +147,17 @@ The marks ride the scene as what they mark does, however the auto camera pans an
   open view fades out (over 1,500 cells, at once), as the water's squares too warm nearly everywhere are not drawn:
   the label and the gauge tell it, and a hatched path of thousands of cells cost a wide view under a heat wave most
   of its frame rate (5 fps for 9,000 cells, measured with `notes.debug().drawn`).
-- A label hangs on one cell of its group, kept while it shows clear of the panels; then on the one nearest the
-  group's middle. What it hangs from is that cell's place in the world, smoothed over 0.3 s (a swimmer's beat does not
+- A label hangs on one cell of its group, chosen once and kept: found every frame by its id (`n.pins`, with
+  `Engine.watch`) wherever the group's sample goes; another only when that cell is gone altogether. When it leaves the
+  view, the note ends rather than hopping to another cell. What it hangs from is that cell's place in the world, smoothed over 0.3 s (a swimmer's beat does not
   shake it), shown each frame where the camera now shows it: so it rides the view's pans and zooms exactly, and the
   leader alone reaches to the cell itself. Its offset from there is weighed again every 0.7 s, or at once when it has
   come to cover text, and moves only for a clearly better place; a near move eases, a far one, one to the other
   side or one that would slide over other text crossfades.
+- A note's marks show only as its label does (never a zone or a line with nothing to say why); a label's plate is
+  dark (80%), fades in as its text types on, and its corners are ticked (the auto camera's caption, `.caption` in
+  `src/page.css`, sits on the same plate). A label hidden for want of room shows again
+  only after 0.3 s clear, so it never flickers.
 - No two pieces of text overlap: anything that is text (labels, the frame's panels, the links' verbs, the page's
   caption and nameplate) is a hard obstacle, and a label with no free place fades out until one frees. A link's verb
   under the page's text, a panel or another verb fades out until it is clear; the marks keep out from under the
