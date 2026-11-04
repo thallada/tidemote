@@ -31,9 +31,11 @@ export const TUNE = {
   settle: 0.8,     // a new note waits until the camera has held still this long (and leaves when it flies on)
   hold: 0.7,       // and until its story has held this long (a single moment: is still in view, well inside it)
   grace: 0.6,      // a note whose cell has left the view (or whose label has no room) goes after this long
-  minLife: 2.5,    // otherwise a note, once shown, stays at least this long
+  minLife: 3,      // a note, once shown, stays at least this long, whatever becomes of what it marks (but for the
+                   // camera setting off: then it fades out slowly)
+  subjectCool: 60, // the same kind of story about the same species not again within this long (another cell of it)
   ahead: 5,        // a new note waits for a shot with this long still to run (a single moment: aheadOne)
-  aheadOne: 3,
+  aheadOne: 5,
   variety: 120,    // a kind of story shown in the last this many seconds counts against another of its kind
   body: 6,         // cells bonded into one organism worth telling
   swim: 0.5,       // body lengths a second from which a body is told swimming
@@ -119,7 +121,7 @@ export function readRing(ring, last, tick, stepTime) {
 
 const isLiving = (k) => k >= FIRST_LIFE;
 // the stories a wide view tells: the water's own, drawn on the view's squares of water
-const WATER_TYPES = new Set(['heat', 'cold', 'drying', 'current']);
+const WATER_TYPES = new Set(['heat', 'cold', 'drying', 'current', 'clump']);
 
 /** Notes over the view: fed the GPU's readbacks, asked each frame which notes to draw. */
 export class Notes {
@@ -315,21 +317,23 @@ export class Notes {
     const seen = (id) => { const c = this.cell(id); return c && ctx.visible(c.x, c.y) ? c : null; };
     const name = (k) => this.sp(k)?.name;
     // the events of the last 30 s, tallied once: by what happened and to which species, and bites by pair
-    const n = new Map(), recent = [], pairs = new Map();
-    const tally = (k) => n.set(k, (n.get(k) || 0) + 1);
+    // (by numbers, not strings: a busy view has tens of thousands of events in its window, looked at three times a second)
+    const n30 = new Map(), n20 = new Map(), by = new Map(), kp = new Map(), evN = new Int32Array(32), recent = [], pairs = new Map();
+    const bump = (m, k) => m.set(k, (m.get(k) || 0) + 1);
     for (let i = this.events.length - 1; i >= 0; i--) {
       const e = this.events[i];
       if (e.t < t - W) break;
-      tally(`${e.ev}:${e.kind}`);
-      if (e.t >= t - 20) tally(`${e.ev}20:${e.kind}`);
-      if (e.ev === 'kill' || e.ev === 'scavenge') tally(`${e.ev}by:${e.akind}`);
-      if (e.ev === 'kill' && e.akind !== e.kind && isLiving(e.akind)) tally(`kp:${e.akind}>${e.kind}`);
-      tally(e.ev);
+      const ek = e.e * 1024 + e.kind;
+      bump(n30, ek);
+      if (e.t >= t - 20) bump(n20, ek);
+      if (e.ev === 'kill' || e.ev === 'scavenge') bump(by, e.e * 1024 + e.akind);
+      if (e.ev === 'kill' && e.akind !== e.kind && isLiving(e.akind)) bump(kp, e.akind * 1024 + e.kind);
+      evN[e.e]++;
       if (e.t >= t - 8) recent.push(e);
       if ((e.ev === 'bite' || e.ev === 'grazed') && band !== 'wide') {
         let ak = e.akind, aid = e.aid;
         if (aid === NONE) { const g = this._grazerOf(e); if (!g) continue; ak = g.kind; aid = g.id; }
-        const key = `${ak}>${e.kind}`;
+        const key = ak * 1024 + e.kind;
         let p = pairs.get(key);
         if (!p) pairs.set(key, (p = { akind: ak, kind: e.kind, n: 0, dead: 0, last: null }));
         p.n += e.w ?? 1;
@@ -337,7 +341,12 @@ export class Notes {
         if (!p.last) p.last = { ...e, aid };
       }
     }
-    const count = (k) => n.get(k) || 0;
+    // how many: count('froze'), count('scalded:k') (30 s), count('birth20:k') (20 s), count('killby:k') (by that kind)
+    const count = (q) => {
+      const [h, k] = q.split(':'), win = h.endsWith('20'), byk = h.endsWith('by'), ev = EV[win ? h.slice(0, -2) : byk ? h.slice(0, -2) : h];
+      if (k === undefined) return evN[ev] || 0;
+      return (byk ? by : win ? n20 : n30).get(ev * 1024 + +k) || 0;
+    };
 
     if (band !== 'wide') {
       // A kill: the hunter, its quarry's remains, and how many kills its kind has made in view.
@@ -430,7 +439,9 @@ export class Notes {
       // An organism: cells bonded into one body (each cell's bonded partners, from the view), its size, its shape, and
       // whether it swims (body lengths a second). The biggest is told as a body; the fastest, swimming.
       let big = null, fastest = null;
-      for (const b of this._bodies()) {
+      const tb = performance.now(), bodies = this._bodies();
+      this._part('bodies', tb);
+      for (const b of bodies) {
         if (!name(b.kind) || !ctx.inner(b.ax, b.ay)) continue;
         if (b.n >= this.T.body && (!big || b.n > big.n)) big = b;
         if (b.n >= 3 && b.lengths >= this.T.swim && (!fastest || b.lengths > fastest.lengths)) fastest = b;
@@ -443,16 +454,16 @@ export class Notes {
       // A hunter closing on its quarry: a hunter whose last meal was the species of the nearest cell ahead of it,
       // heading for it (up close, before the kill).
       if (close && !fast) {
-        const st = this._stalk(ctx);
+        const ts = performance.now(), st = this._stalk(ctx);
+        this._part('stalk', ts);
         if (st) out.push({ type: 'stalk', key: `stalk:${st.actor}`, prio: 0.7, strength: 1 / Math.max(st.dist, 0.05), ...st, track: [st.actor, st.target] });
       }
 
       // The food web in view: who has eaten whom here in the last 30 s, by bites and kills.
       const edges = new Map();
       for (const p of pairs.values()) if (p.n >= 2 && name(p.akind) && name(p.kind)) edges.set(`${p.akind}>${p.kind}`, { from: p.kind, to: p.akind, bites: p.n, kills: 0 });
-      for (const [k, c] of n) {
-        if (!k.startsWith('kp:')) continue;
-        const [a, b] = k.slice(3).split('>').map(Number);
+      for (const [k, c] of kp) {
+        const a = Math.floor(k / 1024), b = k % 1024;
         if (!name(a) || !name(b)) continue;
         const e = edges.get(`${a}>${b}`) || { from: b, to: a, bites: 0, kills: 0 };
         e.kills = c; edges.set(`${a}>${b}`, e);
@@ -500,6 +511,10 @@ export class Notes {
         if (o >= 3 && name(s.kind)) out.push({ type: 'old', key: `old:${s.kind}`, prio: 0.38, strength: o, kind: s.kind, count: o });
       }
     }
+    // A community: a dense clump where several species live together; what it holds and why it holds together.
+    const tc = performance.now(), cl = this._clump(ctx, band);
+    this._part('clump', tc);
+    if (cl) out.push({ ...cl, type: 'clump', key: `clump:${cl.key}`, prio: 0.6, strength: cl.species * 2 + Math.log1p(cl.cells), track: [cl.anchor] });
     // Decay: the dead rotting back to silt, which feeds what grows next.
     const rot = count('rot');
     if (rot >= 12 && S.husks.length >= 10) out.push({ type: 'rot', key: 'rot', prio: 0.32, strength: rot, count: rot, husks: Math.round(S.husks.length * S.scale), sparks: count('spark') });
@@ -514,6 +529,9 @@ export class Notes {
     for (const c of out) c.band = band;
     return out;
   }
+
+  // (the time a part of the looking took, for debug())
+  _part(k, t0) { const d = (this.ms.detectParts ||= {}); d[k] = (d[k] || 0) + performance.now() - t0; }
 
   // The view's organisms: cells joined by their bonds (each cell's two bonded partners, of its own kind, as the view
   // read them), as { kind, ids, n, anchor (the member nearest its middle), its place (ax, ay), size (world units across),
@@ -577,6 +595,100 @@ export class Notes {
     this._bodyView = v;
     this._bodyList = list;
     return list;
+  }
+
+  // The view's biggest clump of several species: its living counted on a lattice fixed in the world (about 24 squares
+  // across the view, a power of two units a side), squares much denser than the view's mean joined into clumps; the
+  // biggest where three or more species each make a twentieth of it (and two and a half or more in effect), not over
+  // half the view. With what it holds and why it may hold together (from what the view shows: its cells bonded into
+  // bodies, grazers biting its producers there, hunters among them, births there, the current gathering water in, its
+  // cells holding still). Kept by key from look to look while it keeps any of its squares.
+  _clump(ctx, band) {
+    const v = this.view, [W, H] = this.world(), r = v.rect, cx = r[0] + r[2] / 2, cy = r[1] + r[3] / 2;
+    const b = 2 ** Math.round(Math.log2(Math.max(r[2], r[3]) / 24));
+    const bins = new Map(), near = (x, c, L) => c + (x - c) - L * Math.round((x - c) / L);
+    let living = 0, speed = 0;
+    for (let i = 0; i < v.n; i++) {
+      if (!isLiving(v.kind[i])) continue;
+      const x = near(v.x[i], cx, W), y = near(v.y[i], cy, H), key = (Math.floor(x / b) + 32768) * 65536 + (Math.floor(y / b) + 32768);
+      let c = bins.get(key);
+      if (!c) bins.set(key, (c = []));
+      c.push(i);
+      living++; speed += Math.hypot(v.vx[i], v.vy[i]);
+    }
+    if (!bins.size || living < 40) return null;
+    const mean = living / bins.size, dense = new Set();
+    for (const [key, c] of bins) if (c.length >= Math.max(6, 2.2 * mean)) dense.add(key);
+    // the dense squares, joined to their neighbours (diagonals too)
+    const seen = new Set(), clumps = [];
+    for (const k0 of dense) {
+      if (seen.has(k0)) continue;
+      const comp = [], stack = [k0];
+      seen.add(k0);
+      while (stack.length) {
+        const k = stack.pop(), i = Math.floor(k / 65536), j = k % 65536;
+        comp.push(k);
+        for (let a = -1; a <= 1; a++) for (let c = -1; c <= 1; c++) { const n2 = (i + a) * 65536 + (j + c); if (dense.has(n2) && !seen.has(n2)) { seen.add(n2); stack.push(n2); } }
+      }
+      if (comp.length >= 4 && comp.length * b * b <= 0.5 * r[2] * r[3]) clumps.push(comp);
+    }
+    const prev = this._clumpKeys || new Map(), keys = new Map();
+    let best = null;
+    for (const comp of clumps) {
+      const rows = comp.flatMap((k) => bins.get(k)), byKind = new Map();
+      for (const i of rows) byKind.set(v.kind[i], (byKind.get(v.kind[i]) || 0) + 1);
+      const shares = [...byKind].map(([k, c]) => ({ kind: k, share: c / rows.length })).sort((p, q) => q.share - p.share);
+      const many = shares.filter((x) => x.share >= 0.05).length, eff = 1 / shares.reduce((a, x) => a + x.share * x.share, 0);
+      if (many < 3 || eff < 2.5 || rows.length < 40) continue;
+      if (!best || rows.length > best.rows.length) best = { comp, rows, shares, eff, many };
+    }
+    // (keys kept by the squares they share)
+    for (const comp of clumps) {
+      let key = null, most = 0;
+      for (const [k, set] of prev) { let c = 0; for (const q of comp) if (set.has(q)) c++; if (c > most) { most = c; key = k; } }
+      if (key == null || keys.has(key)) key = `${b}.${comp[0]}`;
+      keys.set(key, new Set(comp));
+      if (best && comp === best.comp) best.key = key;
+    }
+    this._clumpKeys = keys;
+    if (!best) return null;
+    const { comp, rows, shares } = best, set = new Set(comp), S = this.stats;
+    // its middle, its size, the cell nearest its middle (the label hangs on it), how its cells move
+    let mx = 0, my = 0, bonded = 0, cs = 0;
+    for (const i of rows) { mx += near(v.x[i], cx, W); my += near(v.y[i], cy, H); if (v.p1[i] !== NONE || v.p2[i] !== NONE) bonded++; cs += Math.hypot(v.vx[i], v.vy[i]); }
+    mx /= rows.length; my /= rows.length; cs /= rows.length;
+    let anchor = rows[0], nd = Infinity, far = 0;
+    for (const i of rows) {
+      const d = Math.hypot(near(v.x[i], cx, W) - mx, near(v.y[i], cy, H) - my);
+      if (d < nd && v.cause[i] !== CYST) { nd = d; anchor = i; }
+      far = Math.max(far, d);
+    }
+    if (!ctx.inner(v.x[anchor], v.y[anchor])) return null;
+    const guild = (k) => this.sp(k)?.guild, share = (gd) => shares.reduce((a, x) => a + (guild(x.kind) === gd ? x.share : 0), 0);
+    // what happened in it in the last 30 s
+    const inIt = (e) => set.has((Math.floor(near(e.x, cx, W) / b) + 32768) * 65536 + (Math.floor(near(e.y, cy, H) / b) + 32768));
+    let bites = 0, births = 0;
+    for (let k = this.events.length - 1; k >= 0; k--) {
+      const e = this.events[k];
+      if (e.t < v.simTime - this.T.window) break;
+      if ((e.ev === 'bite' || e.ev === 'grazed') && inIt(e)) bites += e.w ?? 1;
+      else if (e.ev === 'birth' && inIt(e)) births++;
+    }
+    // the current about it: how much of it flows in toward its middle (on a ring at its edge)
+    let inflow = 0, flow = 0;
+    if (ctx.flow) for (let q = 0; q < 8; q++) {
+      const an = (q * Math.PI) / 4, R = Math.max(far, b), f = ctx.flow(mx + Math.cos(an) * R, my + Math.sin(an) * R);
+      inflow -= (f[0] * Math.cos(an) + f[1] * Math.sin(an)) / 8; flow += Math.hypot(f[0], f[1]) / 8;
+    }
+    const why = [];
+    if (bonded >= 0.4 * rows.length) why.push(['bodies', bonded / rows.length]);
+    if (share('producer') >= 0.25 && share('grazer') >= 0.1 && bites >= 10) why.push(['grazing', Math.round(bites)]);
+    if (share('predator') >= 0.05) why.push(['hunters', share('predator')]);
+    if (births >= 10) why.push(['nursery', births]);
+    if (inflow > 0.02 && inflow > 0.3 * flow) why.push(['current', inflow]);
+    if (cs < 0.6 * (speed / living)) why.push(['still', cs]);
+    return { key: best.key, cells: Math.round(rows.length * S.scale), species: new Set(rows.map((i) => v.kind[i])).size, many: best.many, shares: shares.slice(0, 5), why,
+      size: 2 * far, b, bins: comp, anchor: v.id[anchor], band };
   }
 
   // the nearest hunter closing on a cell of the species it last ate: within reach, moving toward it
@@ -663,8 +775,9 @@ export class Notes {
       if (n.exitAt != null) continue;
       // the camera setting off elsewhere takes the notes with it (rather than dragging them out of view)
       if (ctx.leaving) { this._exit(n, now, 'camera'); continue; }
+      const young = now - n.born < T.minLife;
       // a wide view keeps only the water's own stories, and only as many as it has room for (the newest)
-      if ((tooWide && !WATER_TYPES.has(n.type)) || ++live > (tooWide ? 1 : maxOn)) { this._exit(n, now, 'zoom'); continue; }
+      if (((tooWide && !WATER_TYPES.has(n.type)) || ++live > (tooWide ? 1 : maxOn)) && !young) { this._exit(n, now, 'zoom'); continue; }
       const c = byKey.get(n.key);
       const age = now - n.born;
       if (c) { Object.assign(n.data, c, { track: c.track?.length ? c.track : n.data.track }); n.track = n.data.track; n.lastHeld = now; }
@@ -673,9 +786,10 @@ export class Notes {
       if (this._marked(n, ctx)) n.lostAt = null; else n.lostAt ??= now;
       const lost = n.lostAt != null && now - n.lostAt > T.grace;
       const hidden = n.hiddenAt != null && now - n.hiddenAt > T.grace;
+      if (young) continue;
       if (lost || hidden || (!held && age > Math.max(T.dwell, T.minLife)) || age > (n.data.one ? T.lifeOne : T.life)) this._exit(n, now, lost ? 'lost' : hidden ? 'hidden' : 'done');
     }
-    this.notes = this.notes.filter((n) => n.exitAt == null || now - n.exitAt < T.exit);
+    this.notes = this.notes.filter((n) => n.exitAt == null || now - n.exitAt < (n.fade || T.exit));
     const on = this.notes.filter((n) => n.exitAt == null);
     // nothing new while the camera moves, nor until it has held still a moment
     if (now - this.lastArrive < T.gap || ctx.leaving || ctx.still < T.settle) return;
@@ -693,10 +807,13 @@ export class Notes {
       }
       return true;
     };
+    const subject = (c) => `${c.type}~${c.akind ?? c.kind ?? ''}`;
     const pick = this.cands
       .filter((c) => !(fast && c.one) && !on.some((n) => n.key === c.key || this._clash(n.data, c))
         && now - (this.keyAt.get(c.key) ?? -1e9) > T.keyCool && now - (this.typeAt.get(c.type) ?? -1e9) > T.typeCool
+        && now - (this.keyAt.get(subject(c)) ?? -1e9) > T.subjectCool
         // (a story that has held a moment, a single moment one still in view; each well inside the view)
+        && (c.type !== 'web' || this.panelFree !== false)
         && (c.one || now - (this.firstSeen.get(c.key) ?? now) >= T.hold) && ctx.ahead >= (c.one ? T.aheadOne : T.ahead) && inner(c))
       .sort((a, b) => score(b) - score(a))[0];
     if (!pick) return;
@@ -709,12 +826,16 @@ export class Notes {
     this.notes.push({ id: ++this.seq, type: pick.type, key: pick.key, born: now, lastHeld: now, exitAt: null, data: { ...pick }, track: pick.track || [], pins: [] });
     this.lastArrive = now;
     this.keyAt.set(pick.key, now);
+    this.keyAt.set(subject(pick), now);
     this.typeAt.set(pick.type, now);
     this.shownAt.push([pick.type, now]);
   }
 
   _exit(n, now, why = '') {
     n.exitAt = now;
+    // (one the camera takes before it could be read fades out slowly, rather than blinking away)
+    // (readable, past half its alpha, for a moment and a half at least: its fade as long as that takes)
+    n.fade = why === 'camera' && now - n.born < this.T.minLife ? Math.max(1.2, 2 * (1.5 - (now - n.born)) + 0.2) : this.T.exit;
     this.keyAt.set(n.key, now);
     // (what was shown, for how long and why it went, for debug(): the variety, and any shown too briefly to read)
     this.history.push([n.type, now - n.born, why]);
@@ -763,6 +884,6 @@ export class Notes {
     this.ms.drawn = {};
     const by = {};
     for (const [t, life, why] of this.history) { const b = (by[t] ||= { n: 0, brief: 0, secs: 0 }); b.n++; b.secs = Math.round(b.secs + life); if (life < 2.5) { b.brief++; b[why] = (b[why] || 0) + 1; } }
-    return { shown: by, drawn, lost: this.lost, biteKeep: this.biteKeep, ms: Object.fromEntries(Object.entries(this.ms).filter(([k]) => k !== 'drawn').map(([k, v]) => [k, typeof v === 'number' ? Math.round(v) : Object.fromEntries(Object.entries(v).map(([a, b]) => [a, Math.round(b)]))])), cells: this.view?.n ?? 0, inView: this.view?.inView ?? 0, events: this.events.length, cands: this.cands.map((c) => c.key), notes: this.notes.map((n) => `${n.key}${n.exitAt != null ? '(out)' : ''}`) };
+    return { shown: by, drawn, detectParts: Object.fromEntries(Object.entries(this.ms.detectParts || {}).map(([k, v]) => [k, Math.round(v)])), lost: this.lost, biteKeep: this.biteKeep, ms: Object.fromEntries(Object.entries(this.ms).filter(([k]) => k !== 'drawn' && k !== 'detectParts').map(([k, v]) => [k, typeof v === 'number' ? Math.round(v) : Object.fromEntries(Object.entries(v).map(([a, b]) => [a, Math.round(b)]))])), cells: this.view?.n ?? 0, inView: this.view?.inView ?? 0, events: this.events.length, cands: this.cands.map((c) => c.key), notes: this.notes.map((n) => `${n.key}${n.exitAt != null ? '(out)' : ''}`) };
   }
 }

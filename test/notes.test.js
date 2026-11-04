@@ -170,8 +170,8 @@ test('the budget: a few at a time, one arriving at a time, a wide view only the 
   const t0 = 100 + TUNE.hold;
   assert.equal(N.update(ctx(t0 + TUNE.gap / 2)).filter((n) => n.exitAt == null).length, 1);
   assert.equal(N.update(ctx(t0 + TUNE.gap + 0.1)).filter((n) => n.exitAt == null).length, 2);
-  // zoomed out: only the water's story stays
-  const wide = N.update(ctx(t0 + 1 + TUNE.gap, { ppu: 5 })).filter((n) => n.exitAt == null);
+  // zoomed out (once the newest has been up its least): only the water's story stays
+  const wide = N.update(ctx(t0 + TUNE.gap + 0.2 + TUNE.minLife, { ppu: 5 })).filter((n) => n.exitAt == null);
   assert.deepEqual(wide.map((n) => n.type), ['heat']);
   assert.equal(N.eventMask(5) & (1 << EV.bite), 0);
   assert.notEqual(N.eventMask(80) & (1 << EV.bite), 0);
@@ -309,17 +309,58 @@ test('nothing new while the camera moves or has just stopped; its setting off ta
   assert.ok(N.notes.every((n) => n.exitAt != null));
 });
 
-test('a story is told only once it has held a moment; a note whose cell has left the view goes after a grace', () => {
+test('a story is told only once it has held a moment; a note whose cell has left the view goes after a grace, never before its least', () => {
   const N = notes();
   N.ingest(scan(chain(8, Wd, 20, 20)));
   N.ingest(scan(chain(8, Wd, 20, 20), { simTime: 10.2 }));
   assert.equal(N.update(ctx(100)).length, 0);
   assert.equal(N.update(ctx(100 + TUNE.hold)).length, 1);
   const n = N.notes[0];
-  // its anchor out of view: kept a moment (it may come back), then gone
-  const away = { visible: (x) => x > 50 };
-  N.update(ctx(101, away));
+  // its anchor out of view: kept a moment (it may come back), and in any case until it has been up its least; then gone
+  const away = { visible: (x) => x > 50 }, born = n.born;
+  N.update(ctx(born + 0.3, away));
+  N.update(ctx(born + 0.3 + TUNE.grace + 0.1, away));
   assert.equal(n.exitAt, null);
-  N.update(ctx(101 + TUNE.grace + 0.1, away));
+  N.update(ctx(born + TUNE.minLife + 0.1, away));
   assert.notEqual(n.exitAt, null);
+});
+
+test('a community: a dense clump of several species, what it holds and why it holds together', () => {
+  const N = notes();
+  const cells = [];
+  // a sparse view, one cell every 12 units, and a clump of four species, 30 each, in an 8-unit square
+  for (let x = 2; x < 100; x += 12) for (let y = 2; y < 100; y += 12) cells.push({ id: cells.length + 1, x, y, kind: Wd });
+  [H, P, Wd, Hd].forEach((k, s) => { for (let i = 0; i < 30; i++) cells.push({ id: 1000 + 100 * s + i, x: 40.5 + ((i * 7 + s) % 30) / 4, y: 40.5 + ((i * 11 + s * 3) % 30) / 4, kind: k }); });
+  N.ingest(scan(cells));
+  const bites = Array.from({ length: 12 }, (_, k) => ({ ev: 'bite', kind: Wd, akind: P, id: 1200 + k, aid: 1100 + k, x: 42, y: 42, tick: 600 }));
+  N.ingest(scan(cells, { simTime: 10.2, tick: 612, ring: ring(bites, 12) }));
+  N.update(ctx(100));
+  const c = N.cands.find((x) => x.type === 'clump');
+  assert.ok(c);
+  assert.equal(c.species, 4);
+  assert.equal(c.many, 4);
+  assert.ok(c.why.some(([k]) => k === 'grazing'));
+  // the same clump is the same story on the next look
+  const key = c.key;
+  N.ingest(scan(cells, { simTime: 10.4, tick: 624 }));
+  N.update(ctx(101));
+  assert.equal(N.cands.find((x) => x.type === 'clump').key, key);
+});
+
+test('once shown a note stays its least, and the same kind of story about the same species waits', () => {
+  const N = notes();
+  N.ingest(scan(chain(8, Wd, 20, 20)));
+  N.ingest(scan(chain(8, Wd, 20, 20), { simTime: 10.2 }));
+  told(N, 100);
+  const n = N.notes[0];
+  // its cell gone from view at once: it stays until it has been up its least
+  const gone = { visible: () => false };
+  N.update(ctx(n.born + 1, gone));
+  assert.equal(n.exitAt, null);
+  N.update(ctx(n.born + TUNE.minLife + 0.1, gone));
+  assert.notEqual(n.exitAt, null);
+  // another body of the same species, soon after: not told
+  N.ingest(scan(chain(8, Wd, 60, 60, 0, 0, 500), { simTime: 11 }));
+  told(N, n.born + TUNE.minLife + TUNE.gap + 1);
+  assert.ok(!N.notes.some((m) => m !== n && m.exitAt == null && m.type === 'body'));
 });
