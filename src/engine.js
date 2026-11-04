@@ -427,13 +427,13 @@ class Engine {
     this.pStoneLitM = rp(this.postModule, 'vsFull', 'fsStoneLitMicro', 'triangle-list', undefined);
     this.pUp = rp(this.postModule, 'vsFull', 'fsUp', 'triangle-list', additive);
     this.pMurk = rp(this.postModule, 'vsFull', 'fsMurk', 'triangle-list', undefined);
-    this.pComp = rp(this.postModule, 'vsFull', 'fsComposite', 'triangle-list', undefined, format);
-    this.pCompClear = rp(this.postModule, 'vsFull', 'fsComposite', 'triangle-list', undefined, format, { MICRO_SUSPENSION: 0 });
+    this.pComp = rp(this.postModule, 'vsComp', 'fsComposite', 'triangle-list', undefined, format);
+    this.pCompClear = rp(this.postModule, 'vsComp', 'fsComposite', 'triangle-list', undefined, format, { MICRO_SUSPENSION: 0 });
     // the lean composite (LEAN in POST_WGSL), compiled on after the engine starts (the full one draws until it is
     // ready), and compPick, which writes both composites' draws each frame (b.compArgs: full, lean, then the allow word)
     this.pCompLean = null; this.pCompClearLean = null;
     const leanP = (constants) => d.createRenderPipelineAsync({ layout: 'auto', label: 'fsComposite', primitive: { topology: 'triangle-list' },
-      vertex: { module: this.postModule, entryPoint: 'vsFull' }, fragment: { module: this.postModule, entryPoint: 'fsComposite', targets: [{ format }], constants: { LEAN: 1, ...constants } } });
+      vertex: { module: this.postModule, entryPoint: 'vsComp' }, fragment: { module: this.postModule, entryPoint: 'fsComposite', targets: [{ format }], constants: { LEAN: 1, ...constants } } });
     this._leanP = () => Promise.all([leanP({}), leanP({ MICRO_SUSPENSION: 0 })]).then(([a, c]) => {
       if (this._compHot) return;
       // (its bind groups made with the composite's, here and on every resize)
@@ -694,7 +694,7 @@ class Engine {
     const d = this.device;
     const mod = d.createShaderModule({ code, label: 'post' });
     const rp = (constants) => d.createRenderPipeline({ layout: 'auto', label: 'fsComposite', primitive: { topology: 'triangle-list' },
-      vertex: { module: mod, entryPoint: 'vsFull' }, fragment: { module: mod, entryPoint: 'fsComposite', targets: [{ format: this.format }], constants } });
+      vertex: { module: mod, entryPoint: 'vsComp' }, fragment: { module: mod, entryPoint: 'fsComposite', targets: [{ format: this.format }], constants } });
     this.pComp = rp({}); this.pCompClear = rp({ MICRO_SUSPENSION: 0 });
     this.compBG = this.compBGOf(this.pComp); this.compClearBG = this.compBGOf(this.pCompClear);
     // (the lean composite is the old shader's: the full one draws from now on)

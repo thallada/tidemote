@@ -8660,8 +8660,7 @@ struct Surface { shift: vec2f, slope: vec2f, light: f32 };
 // otherwise carry the whole of it to and fro, reading as the camera swaying, while what varies across the view stays;
 // taking it at every zoom keeps the sea in place across zooms. The light: the surface's curvature focuses the lamp onto
 // the focal plane below, brightening where it converges (by the divergence of the slope) and dimming where it spreads.
-fn seaSurface(wp: vec2f, ppu: f32, center: vec2f) -> Surface {
-  let c0 = seaAt(center, ppu);
+fn seaSurface(wp: vec2f, ppu: f32, c0: vec4f) -> Surface {
   var x0 = wp;
   // (calm water's gentle swell is not choppy: no carrying)
   if (post.seaC[0].z > 0.0) { for (var it = 0; it < 2; it++) { x0 = wp - (seaAt(x0, ppu).zw - c0.zw); } }
@@ -8776,16 +8775,16 @@ fn keepInside(d: vec2f, room: f32) -> vec2f {
 fn keepInFrame(d: vec2f, room: f32, band: f32) -> vec2f { return keepInside(d * smoothstep(0.0, band, room), room); }
 // how far a pixel of the main view lies from its frame's nearest edge (its band there is a tenth of its height)
 fn frameRoom(pos: vec2f) -> f32 { return min(min(pos.x, post.res.x - pos.x), min(pos.y, post.res.y - pos.y)); }
-// The water's surface at wp, seen at ppu pixels a unit from a view centered on center: the sea, gently swaying in calm
+// The water's surface at wp, seen at ppu pixels a unit from a view centered where the sea is c0 (seaAt there): the sea, gently swaying in calm
 // water and heaving in a storm, and the rings raindrops send across it (on open water only: dry mud and ice have no
 // surface to wave).
-fn surfaceAt(wp: vec2f, ppu: f32, center: vec2f) -> Surface {
+fn surfaceAt(wp: vec2f, ppu: f32, c0: vec4f) -> Surface {
   var o: Surface;
   o.light = 1.0;
   let room = waterRoom(wp);
   let wet = smoothstep(0.0, 0.4, room);
   if (wet <= 0.0) { return o; }
-  if (post.seaHead.z > 0.0) { o = seaSurface(wp, ppu, center); }
+  if (post.seaHead.z > 0.0) { o = seaSurface(wp, ppu, c0); }
   let r = ripples(wp);
   // the bending eases out toward the water's edge within the room there (keepInside): faded over a fixed width
   // instead, a storm's bending (as long as that width or more) smeared what lies by the shore into bands
@@ -8802,7 +8801,7 @@ fn surfaceAt(wp: vec2f, ppu: f32, center: vec2f) -> Surface {
   if (g.x >= ${SHIFT_W}u || g.y >= ${SHIFT_H}u) { return; }
   let px = (vec2f(g.xy) + 0.5) / vec2f(${SHIFT_W}.0, ${SHIFT_H}.0) * post.res;
   let wp = post.cam + (px - post.res * 0.5) / post.ppu;
-  let surf = surfaceAt(wp, post.ppu, post.cam);
+  let surf = surfaceAt(wp, post.ppu, seaAt(post.cam, post.ppu));
   shiftMap[g.y * ${SHIFT_W}u + g.x] = keepInFrame(surf.shift * post.ppu, frameRoom(px), 0.1 * post.res.y);
 }
 // Schlieren, in pixels: with the heat map on Shimmer, warm water bends the light passing through it like the
@@ -9157,14 +9156,25 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f,
   }
   return c;
 }
-@fragment fn fsComposite(i: VO) -> @location(0) vec4f {
+// The composite's full-screen triangle, with the sea at the view's center (seaSurface takes it away from every
+// pixel's), sampled once at its corners rather than at every pixel (a quarter of the composite's sea taps)
+struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) @interpolate(flat) sea0: vec4f };
+@vertex fn vsComp(@builtin(vertex_index) vi: u32) -> CompVO {
+  let uv = vec2f(f32((vi << 1u) & 2u), f32(vi & 2u));
+  var o: CompVO;
+  o.pos = vec4f(uv * 2.0 - 1.0, 0.0, 1.0);
+  o.uv = vec2f(uv.x, 1.0 - uv.y);
+  o.sea0 = seaAt(post.cam, post.ppu);
+  return o;
+}
+@fragment fn fsComposite(i: CompVO) -> @location(0) vec4f {
   let k = post.optics;
   let q = (i.pos.xy - post.res * 0.5) / (post.res.y * 0.5);
   let wp = post.cam + (i.pos.xy - post.res * 0.5) / post.ppu;
   var water = vec3f(post.heat.x, 0.0, 0.0);
   var uv = i.uv;
   // the water's surface (the sea, raindrops' rings) bends the view and focuses the light
-  let surf = surfaceAt(wp, post.ppu, post.cam);
+  let surf = surfaceAt(wp, post.ppu, i.sea0);
   if (post.seaLook.z > 0.5 && post.seaLook.z < 2.5) {
     return vec4f(vec3f(clamp(select(0.5 + 2.5 * dot(surf.slope, LAMP_L), 0.25 * surf.light, post.seaLook.z < 1.5), 0.0, 1.0)), 1.0);
   }
@@ -9267,7 +9277,7 @@ fn loupeScene(r: vec2f) -> vec3f {
   let toR = microView.ppu / (microView.res * 0.5);
   let r0 = r;
   let wp = microView.cam + r0 / toR;
-  let surf = surfaceAt(wp, loupe.ppu, microView.cam);
+  let surf = surfaceAt(wp, loupe.ppu, seaAt(microView.cam, loupe.ppu));
   var bend = surf.shift;
   var water = vec3f(post.heat.x, 0.0, 0.0);
   if (post.heatVis >= 0.0) {
