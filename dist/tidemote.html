@@ -31818,7 +31818,22 @@ ${e.message}` : String(e?.message || e));
       }
       return p;
     }
+    let LM = null;
+    const mp = (p) => LM ? [LM.x + (p[0] - LM.c[0]) * LM.k, LM.y + (p[1] - LM.c[1]) * LM.k] : p;
+    const unmapped = (fn) => {
+      const lm = LM;
+      LM = null;
+      try {
+        fn();
+      } finally {
+        LM = lm;
+      }
+    };
     function brackets2(l, t0, r, b, col, t2) {
+      if (LM) {
+        [l, t0] = mp([l, t0]);
+        [r, b] = mp([r, b]);
+      }
       const k = reduced ? 1 : 1 + 1.2 * (1 - ease3(t2 / 0.35));
       const cx = (l + r) / 2, cy = (t0 + b) / 2, hw = (r - l) / 2 * k, hh = (b - t0) / 2 * k;
       const L = cx - hw, R2 = cx + hw, T = cy - hh, B = cy + hh, m = Math.min(R2 - L, B - T), c = clamp9(m * 0.22, 4, 22);
@@ -31833,6 +31848,11 @@ ${e.message}` : String(e?.message || e));
     }
     const lockR = (r) => Math.max(r, 7) * 1.45 + 6;
     function lock(x, y, r, tone, t2) {
+      if (LM) {
+        [x, y] = mp([x, y]);
+        r *= LM.k;
+        return unmapped(() => lock(x, y, r, tone, t2));
+      }
       r = Math.max(r, 7);
       const a = g.globalAlpha, R2 = lockR(r), u = reduced ? 1 : ease3(t2 / 1.1);
       g.globalAlpha = a * (reduced ? 0.35 : 0.9 - 0.55 * u);
@@ -31894,6 +31914,8 @@ ${e.message}` : String(e?.message || e));
       return { qx, qy, ox, oy, x: ox, y: oy + 7, box: { l: ox - w / 2 - 3, t: oy - 6, r: ox + w / 2 + 3, b: oy + 14 } };
     }
     function link(a, b, verb, tone, t2, now, bend = 0.18, gap = 9, hollow = false, verbA = 1) {
+      a = mp(a);
+      b = mp(b);
       const C3 = linkCurve(a, b, bend, gap);
       if (!C3) return;
       const { at, p1, L } = C3;
@@ -31948,6 +31970,14 @@ ${e.message}` : String(e?.message || e));
     }
     function census(pts, glyph2, tone, t2, from, size = 4) {
       if (!pts.length) return;
+      if (LM) {
+        pts = pts.map((p) => {
+          const q = mp(p);
+          return [q[0], q[1], p[2], p[3]];
+        });
+        from = mp(from);
+        size *= Math.min(LM.k, 2);
+      }
       let far = 1;
       for (const p of pts) far = Math.max(far, Math.hypot(p[0] - from[0], p[1] - from[1]));
       const P = new Path2D(), a0 = g.globalAlpha, fading = [];
@@ -32000,6 +32030,7 @@ ${e.message}` : String(e?.message || e));
       if (stats) stats.glyphs = (stats.glyphs || 0) + pts.length;
     }
     function pip(x, y, tone, t2, fade = 1) {
+      [x, y] = mp([x, y]);
       const on = reduced || t2 > 0.9 || Math.floor(t2 / 0.15) % 2 === 0;
       const a = g.globalAlpha;
       g.globalAlpha = a * (on ? t2 > 0.9 ? 0.75 : 1 : 0.2) * fade;
@@ -32698,7 +32729,9 @@ ${e.message}` : String(e?.message || e));
     };
     function boxOf(pts) {
       let l = Infinity, tp = Infinity, r = -Infinity, b = -Infinity;
-      for (const p of pts) if (p[3] > 0.5) {
+      for (const p0 of pts) {
+        if (!(p0[3] > 0.5)) continue;
+        const p = mp(p0);
         l = Math.min(l, p[0]);
         r = Math.max(r, p[0]);
         tp = Math.min(tp, p[1]);
@@ -32710,7 +32743,7 @@ ${e.message}` : String(e?.message || e));
       const B = boxOf(pts);
       if (!B) return null;
       const { l, r, b } = B, tp = B.t;
-      brackets2(l, tp, r, b, rgba2(tone, 0.9), t2);
+      unmapped(() => brackets2(l, tp, r, b, rgba2(tone, 0.9), t2));
       if (measure2 && t2 > 0.35) {
         const y = tp - 8, u = reduced ? 1 : ease3((t2 - 0.35) / 0.4), m = (l + r) / 2, hw = (r - l) / 2 * u;
         stroke(() => {
@@ -32727,6 +32760,7 @@ ${e.message}` : String(e?.message || e));
       return { l, t: tp - (measure2 ? 22 : 0), r, b };
     }
     function arrow(x, y, an, len2, tone, t2) {
+      [x, y] = mp([x, y]);
       const u = reduced ? 1 : ease3(t2 / 0.5), ex = x + Math.cos(an) * len2 * u, ey = y + Math.sin(an) * len2 * u;
       stroke(() => {
         g.beginPath();
@@ -33497,30 +33531,30 @@ ${e.message}` : String(e?.message || e));
         };
         P.keys.push({ glyph: "plus", text: "A PRODUCER IN THE SHADE", tone: MOSS });
       } else if (d.type === "rain") {
-        const c = F.project({ x: d.x, y: d.y, vx: 0, vy: 0, t: 0 }, -1);
+        const c = F.project({ x: d.x, y: d.y, vx: 0, vy: 0, t: 0 }, -1), c0 = c;
         if (!c) return null;
         P.tone = CYAN;
-        const R2 = d.size * F.ppu;
+        const R0 = d.size * F.ppu;
         P.draws.push((t2) => {
-          const a = g.globalAlpha;
+          const a = g.globalAlpha, c2 = mp(c0), R2 = R0 * (LM ? LM.k : 1);
           for (let q = 0; q < 3; q++) {
             const u = (t2 * 0.6 + q / 3) % 1;
             g.globalAlpha = a * (1 - u) * 0.9;
             stroke(() => {
               g.beginPath();
-              g.arc(c[0], c[1], 6 + u * R2, 0, TAU3);
+              g.arc(c2[0], c2[1], 6 + u * R2, 0, TAU3);
             }, rgba2(CYAN, 0.9), 1.2);
           }
           g.globalAlpha = a;
           stroke(() => {
             g.beginPath();
-            g.moveTo(c[0] - 7, c[1]);
-            g.lineTo(c[0] + 7, c[1]);
-            g.moveTo(c[0], c[1] - 7);
-            g.lineTo(c[0], c[1] + 7);
+            g.moveTo(c2[0] - 7, c2[1]);
+            g.lineTo(c2[0] + 7, c2[1]);
+            g.moveTo(c2[0], c2[1] - 7);
+            g.lineTo(c2[0], c2[1] + 7);
           }, rgba2(INK4, 0.95), 1.2);
         });
-        P.boxes.push({ l: c[0] - R2, t: c[1] - R2, r: c[0] + R2, b: c[1] + R2 });
+        P.boxes.push({ l: c[0] - R0, t: c[1] - R0, r: c[0] + R0, b: c[1] + R0 });
         P.anchor = [c[0], c[1] - 8];
         P.label = { tone: CYAN, tag: "Raindrop", main: "A RING WAVE SPREADS", data: [`${fmtLen(d.size)} ACROSS · IT PUSHES THE CELLS OUTWARD`, `${d.drops} DROPS IN VIEW AND ABOUT IN 30 S`] };
       } else if (d.type === "old") {
@@ -33696,12 +33730,7 @@ ${e.message}` : String(e?.message || e));
       g.save();
       if (F.lens) {
         const { x, y, r: r2 } = F.lens;
-        g.beginPath();
-        g.rect(-1e4, -1e4, 2e4, 2e4);
-        g.moveTo(x + r2 + 2, y);
-        g.arc(x, y, r2 + 2, 0, TAU3);
-        g.clip("evenodd");
-        taken.push({ l: x - r2 - 6, t: y - r2 - 6, r: x + r2 + 6, b: y + r2 + 6, hard: true });
+        taken.push({ l: x - r2 - 6, t: y - r2 - 6, r: x + r2 + 6, b: y + r2 + 6 });
       }
       const active = /* @__PURE__ */ new Set();
       for (const n of F.notes) for (const k of [n.data.kind, n.data.akind, n.data.census, n.data.fine?.kind]) if (k != null && k >= 0) active.add(k);
@@ -33718,7 +33747,6 @@ ${e.message}` : String(e?.message || e));
       const panelOn = !!webNote;
       F.block = [
         ...F.phone ? [] : [rosterBox, gaugeArea, { l: F.open.l, t: F.open.b - 120, r: F.open.l + KEY_W, b: F.open.b }, panelOn ? panelArea : null],
-        F.lens ? { l: F.lens.x - F.lens.r, t: F.lens.y - F.lens.r, r: F.lens.x + F.lens.r, b: F.lens.y + F.lens.r } : null,
         // (the mode's tag at the top: a link's verb keeps off it too)
         modeAt ? { l: modeAt[0] - width("head", F.mode) / 2 - 12, t: modeAt[1] - 13, r: modeAt[0] + width("head", F.mode) / 2 + 12, b: modeAt[1] + 7 } : null
       ].filter(Boolean);
@@ -33752,6 +33780,15 @@ ${e.message}` : String(e?.message || e));
         }
       }
       g.save();
+      if (F.lens) {
+        const { x, y, r: r2 } = F.lens;
+        g.beginPath();
+        g.rect(-1e4, -1e4, 2e4, 2e4);
+        g.moveTo(x + r2, y);
+        g.arc(x, y, r2, 0, TAU3);
+        g.clip("evenodd");
+      }
+      g.save();
       g.beginPath();
       g.rect(F.open.l, F.open.t, F.open.r - F.open.l, F.open.b - F.open.t);
       for (const b of panels) {
@@ -33776,6 +33813,32 @@ ${e.message}` : String(e?.message || e));
         for (const b of P.boxes) taken.push(b);
       }
       g.restore();
+      g.restore();
+      if (F.lens && plans.length) {
+        const { x, y, r: r2 } = F.lens, toScreen = F.toScreen, a0 = A;
+        g.save();
+        g.beginPath();
+        g.arc(x, y, r2 - 1, 0, TAU3);
+        g.clip();
+        LM = F.lens;
+        A = null;
+        F.toScreen = (w) => mp(toScreen(w));
+        try {
+          for (const { n, P, frozen } of plans) {
+            if (frozen) continue;
+            const shown = P.panel ? 1 : lay.get(n.id * 2)?.shown ?? 0, out = n.exitAt != null ? clamp9(1 - (F.now - n.exitAt) / (n.fade || 0.6), 0, 1) : 1;
+            if (shown <= 0.01) continue;
+            g.globalAlpha = out * shown;
+            for (const d of P.draws) d(F.now - n.born);
+          }
+        } finally {
+          LM = null;
+          A = a0;
+          F.toScreen = toScreen;
+          g.globalAlpha = 1;
+          g.restore();
+        }
+      }
       const T2 = performance.now();
       owner = "frame";
       corners2(F.open);
@@ -33827,7 +33890,8 @@ ${e.message}` : String(e?.message || e));
         const t2 = F.now - n.born, out = keep * (n.exitAt != null ? clamp9(1 - (F.now - n.exitAt) / (n.fade || 0.6), 0, 1) : 1);
         for (const [k, part] of [[0, P], [1, P.extra]]) {
           if (!part || !part.label) continue;
-          const L = norm(part.label), size = labelSize(L), id = n.id * 2 + k, an = part.anchor;
+          const L = norm(part.label), size = labelSize(L), id = n.id * 2 + k;
+          let an = part.anchor;
           let st = lay.get(id);
           if (!st) lay.set(id, st = { pick: null, lookAt: -1e9 });
           const wa = frozen && st.w ? st.w : F.toWorld(an);
@@ -33850,6 +33914,12 @@ ${e.message}` : String(e?.message || e));
             st.fix = [st.dir > 0 ? clamp9(st.fix[0], F.open.l + 6, F.open.r - size.w - 6) : clamp9(st.fix[0], F.open.l + size.w + 6, F.open.r - 6), clamp9(st.fix[1], F.open.t + 14, F.open.b - size.h)];
           }
           const lx = st.fix[0], ly = st.fix[1], box = boxAt(lx, ly, st.dir, size);
+          if (F.lens && Math.hypot(an[0] - F.lens.x, an[1] - F.lens.y) < F.lens.r) {
+            LM = F.lens;
+            const m = mp(an);
+            LM = null;
+            if (Math.hypot(m[0] - F.lens.x, m[1] - F.lens.y) < F.lens.r - 4) an = m;
+          }
           const near = st.dir > 0 ? an[0] <= lx + size.w / 2 : an[0] >= lx - size.w / 2;
           const ex = near ? lx - st.dir * 4 : lx + st.dir * (size.w + 4);
           const over = taken.filter((r2) => r2.hard && area(box, r2) > 4), blocked = over.length > 0;
@@ -42637,7 +42707,6 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
     };
     function noteVisible(x, y, m = 12) {
       const [sx, sy] = toScreen(x, y), o = noteOpen;
-      if (noteLens && Math.hypot(sx - noteLens.x, sy - noteLens.y) < noteLens.r + m) return false;
       return sx > o.l + m && sx < o.r - m && sy > o.t + m && sy < o.b - m;
     }
     const noteInner = (x, y) => noteVisible(x, y, Math.min(90, 0.12 * Math.min(noteOpen.r - noteOpen.l, noteOpen.b - noteOpen.t)));
@@ -42667,7 +42736,7 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
     const NOTE_MODE = { follow: "FOLLOW", linger: "LINGER", scene: "SURVEY", wide: "WIDE", event: "EVENT" };
     let noteLens = null;
     function drawNotes(dtMs, L) {
-      noteLens = L ? { x: L.sx, y: L.sy, r: L.R } : null;
+      noteLens = L ? { x: L.sx, y: L.sy, r: L.R, c: toShown(L.cx, L.cy), k: L.cssPPU / cssPPU() } : null;
       const now = performance.now() / 1e3, t0 = performance.now();
       noteOpen = openArea();
       const speed = state.paused ? 0 : state.speed === Infinity ? perf.rate || 16 : state.speed;
