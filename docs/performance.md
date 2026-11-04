@@ -79,6 +79,17 @@ under plain node), on a 78k world (`slow-mac-world.tidemote`, 32k living) in a 1
   compute). In workgroups of 256 instead of 128 it is a quarter faster (3.8 → 2.8 ms; coarse 4-tick steps
   5.6 → 4.3; 64 and 32 between), so Apple's adapters build the living-list passes at 256 (`lifeWG`, simWGSL).
   The kernel is register-bound, which Apple's GPUs feel more: the place to look next.
+- **Where the frame goes** (Instruments: `xcrun xctrace record --template 'Metal System Trace' --instrument 'Metal GPU
+  Counters' --attach PID` on Chrome's GPU process, exported with `xctrace export`; per-encoder times are exact, and
+  the shader profiler's samples fall in each shader's code range, though not to lines). A mature 139k world at 1×,
+  1440×757: the composite 7 ms of an 18 ms frame (42% of the shader samples), the step 3.1, the scene about 2.5. No
+  unit is the limit: the composite ran at 18% fragment occupancy with the ALU 48% busy and textures 9%, the step at 22%
+  compute occupancy: too many registers to keep enough threads in flight.
+- **The lean composite.** The composite's rare features (dry floor, ice, duckweed, an instrument in the water, the
+  maps) sit behind uniform branches, but their registers count against every pixel. `LEAN` (POST_WGSL) builds it
+  without them, compiled after start; `compPick` writes both composites' draws each frame, the lean one where the
+  engine's uniforms allow it and no water is frozen (ICE_N, which only the GPU knows). The same pixels (a frozen frame
+  compared lean against full, with and without ice), 16.8 → 14.0 ms a frame.
 - **Sizing.** Auto's measure is a frame of a world with nothing living yet (the step without `lifeMain`'s cost)
   and a fresh world's heavier drawing: 262k measured 3.3 ms of step and 16–22 ms of drawing, which sized the world
   at 139k, where a mature world (21k living) takes 3.7 and 13 ms at 1×. On the RTX 4070 Ti the two errors about cancel;

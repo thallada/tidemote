@@ -427,6 +427,19 @@ class Engine {
     this.pMurk = rp(this.postModule, 'vsFull', 'fsMurk', 'triangle-list', undefined);
     this.pComp = rp(this.postModule, 'vsFull', 'fsComposite', 'triangle-list', undefined, format);
     this.pCompClear = rp(this.postModule, 'vsFull', 'fsComposite', 'triangle-list', undefined, format, { MICRO_SUSPENSION: 0 });
+    // the lean composite (LEAN in POST_WGSL), compiled on after the engine starts (the full one draws until it is
+    // ready), and compPick, which writes both composites' draws each frame (b.compArgs: full, lean, then the allow word)
+    this.pCompLean = null; this.pCompClearLean = null;
+    const leanP = (constants) => d.createRenderPipelineAsync({ layout: 'auto', label: 'fsComposite', primitive: { topology: 'triangle-list' },
+      vertex: { module: this.postModule, entryPoint: 'vsFull' }, fragment: { module: this.postModule, entryPoint: 'fsComposite', targets: [{ format }], constants: { LEAN: 1, ...constants } } });
+    this._leanP = () => Promise.all([leanP({}), leanP({ MICRO_SUSPENSION: 0 })]).then(([a, c]) => {
+      if (this._compHot) return;
+      // (its bind groups made with the composite's, here and on every resize)
+      if (this.compBGOf) { this.compLeanBG = this.compBGOf(a); this.compClearLeanBG = this.compBGOf(c); }
+      this.pCompLean = a; this.pCompClearLean = c;
+    }).catch(() => {});
+    this.cpCompPick = cPipe({ layout: 'auto', compute: { module: this.postModule, entryPoint: 'compPick' }, label: 'compPick' });
+    b.compArgs = d.createBuffer({ size: 48, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
     this.pLoupe = rp(this.postModule, 'vsLoupe', 'fsLoupe', 'triangle-list', over, format);
     this.pPlain = rp(this.postModule, 'vsFull', 'fsPlain', 'triangle-list', undefined, format);
     this.sampler = d.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
@@ -508,6 +521,9 @@ class Engine {
     this.cpShiftBG = d.createBindGroup({ layout: this.cpShift.getBindGroupLayout(0), entries: [
       { binding: 2, resource: { buffer: b.post } }, { binding: 11, resource: { buffer: b.thermal } },
       { binding: 13, resource: this.seaView }, { binding: 14, resource: this.seaSampler }, { binding: 15, resource: { buffer: b.shiftMap } }] });
+    this.compPickBG = d.createBindGroup({ layout: this.cpCompPick.getBindGroupLayout(0), entries: [
+      { binding: 11, resource: { buffer: b.thermal } }, { binding: 20, resource: { buffer: b.compArgs } }] });
+    this._leanP();
     this.cpMicroBG = d.createBindGroup({ layout: this.cpMicro.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.post } }, { binding: 1, resource: { buffer: b.microU } },
       { binding: 2, resource: { buffer: b.specks } }, { binding: 3, resource: { buffer: b.microArgs } }] });
@@ -675,6 +691,8 @@ class Engine {
       vertex: { module: mod, entryPoint: 'vsFull' }, fragment: { module: mod, entryPoint: 'fsComposite', targets: [{ format: this.format }], constants } });
     this.pComp = rp({}); this.pCompClear = rp({ MICRO_SUSPENSION: 0 });
     this.compBG = this.compBGOf(this.pComp); this.compClearBG = this.compBGOf(this.pCompClear);
+    // (the lean composite is the old shader's: the full one draws from now on)
+    this._compHot = true; this.pCompLean = this.pCompClearLean = null;
     return mod.getCompilationInfo().then((i) => i.messages.filter((m) => m.type === 'error').map((m) => `${m.lineNum}:${m.linePos} ${m.message}`));
   }
 
@@ -749,6 +767,7 @@ class Engine {
       { binding: 13, resource: this.seaView }, { binding: 14, resource: this.seaSampler }] });
     this.compBG = compBG(this.pComp);
     this.compClearBG = compBG(this.pCompClear);
+    if (this.pCompLean) { this.compLeanBG = compBG(this.pCompLean); this.compClearLeanBG = compBG(this.pCompClearLean); }
     this.compBGOf = compBG;
     this.reprojBG = this.accumViews.map((v) => d.createBindGroup({ layout: this.main.reproj.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: v }, { binding: 5, resource: { buffer: this.b.reprojU } }] }));
@@ -2682,12 +2701,28 @@ class Engine {
     const micro = this.settings.specks && cam.ppu > Math.max(80, 2 * Math.max(W / this.grid[0], H / this.grid[1]));
     if (micro) this._drawSpecks(enc, cam, W, H);
 
+    // The lean composite where nothing it leaves out is there: the pool full, no duckweed, no instrument in the
+    // water, no map (as fsComposite tests them: post.pond.x, post.duck.w, post.toolB.x; mapsOver's post.tideVis,
+    // post.heat.w, post.heatVis and post.lens.w), and no ice (compPick asks the GPU)
+    const lean = this.pCompLean && pd[56] >= 1 && !(this.duck[3] > 0) && !(this.tool[4] > 0)
+      && !(pd[6] > 0.5) && !(pd[55] > 0.5) && !(pd[15] > 1.5) && !(this.lens[3] > 0);
+    if (lean) {
+      d.queue.writeBuffer(this.b.compArgs, 32, new Uint32Array([1]));
+      const cp = enc.beginComputePass();
+      cp.setPipeline(this.cpCompPick); cp.setBindGroup(0, this.compPickBG); cp.dispatchWorkgroups(1); cp.end();
+    }
     const pass = enc.beginRenderPass({
       colorAttachments: [{ view: target, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }],
       timestampWrites: tsEnd,
     });
     pass.setPipeline(micro ? this.pComp : this.pCompClear);
-    pass.setBindGroup(0, micro ? this.compBG : this.compClearBG); pass.draw(3);
+    pass.setBindGroup(0, micro ? this.compBG : this.compClearBG);
+    if (lean) {
+      pass.drawIndirect(this.b.compArgs, 0);
+      pass.setPipeline(micro ? this.pCompLean : this.pCompClearLean);
+      pass.setBindGroup(0, micro ? this.compLeanBG : this.compClearLeanBG);
+      pass.drawIndirect(this.b.compArgs, 16);
+    } else pass.draw(3);
     if (loupe) { pass.setPipeline(this.pLoupe); pass.setBindGroup(0, this.loupeBG); pass.draw(6); }
     pass.end();
   }

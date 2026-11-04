@@ -7096,6 +7096,11 @@ fn microLattice(spacing: f32, octave: f32, depth: f32) -> MicroLattice {
 
 export const POST_WGSL = 'diagnostic(off, derivative_uniformity);\n' + COMMON + /* wgsl */ `
 override MICRO_SUSPENSION: bool = true;
+// The composite as it is drawn while none of the rare things it shows is: no dry floor (the pool full), no ice, no
+// duckweed, no instrument in the water, no map (light, bands, the thermal camera, the hand's heat lens). Their code left out, it holds fewer registers, so more pixels run at once
+// (an M1's composite 2.4 ms faster at 1×). compPick chooses which composite draws, frame by frame (the ice only
+// the GPU knows of); the engine allows the lean one only while the uniforms these test say none is there.
+override LEAN: bool = false;
 const LOUPE_FIELD = ${LOUPE_FIELD};
 ${POST_STRUCT}struct Loupe { center: vec2f, radius: f32, strength: f32, res: vec2f, ppu: f32, p1: f32 };
 // Prefix of DRAW's View: reuse the inspection cameras, without another buffer.
@@ -8675,11 +8680,11 @@ fn duckRoot(p: vec2f, o: vec2f, dir: vec2f, len: f32, wr: f32, seed: f32, ppu: f
 fn waterRoom(wpIn: vec2f) -> f32 {
   let wp = wpIn - post.world * floor(wpIn / post.world);
   var room = 1e4;
-  if (post.pond.x < 1.0) {
+  if (!LEAN && post.pond.x < 1.0) {
     let pd = pondPost(wp);
     room = min(room, pd.x / max(length(pd.yz), 1e-4));
   }
-  if (iceAny()) {
+  if (!LEAN && iceAny()) {
     let ic = iceSeen(wp);
     room = min(room, ic.sd - (ICE_LEAD + ICE_OWN) * ic.reach);
   }
@@ -8741,7 +8746,7 @@ fn shimmer(wp: vec2f, water: vec3f) -> vec2f {
 // What of the light reaches wp past the sky (clouds) and any duckweed's shade, as lifeMain has it (lightAt).
 fn lightPassed(wp: vec2f) -> f32 {
   var k = post.pond.z;
-  if (post.duck.w > 0.0) { k *= 1.0 - duckShade(wp, post.duck, post.duckB, post.world); }
+  if (!LEAN && post.duck.w > 0.0) { k *= 1.0 - duckShade(wp, post.duck, post.duckB, post.world); }
   return k;
 }
 // The light at wp as lifeMain gives it to producers (lightAt): the baseline and the Tide's bands (S, tideAt) by the
@@ -8846,6 +8851,7 @@ fn seaFocus(light: f32, l: Lit) -> f32 { return 1.0 + (light - 1.0) * mix(0.6, 1
 // The tide and thermal maps over the tonemapped view at world point wp (pos: the fragment's pixel; water: the
 // water's temperature there), in the main view and the loupe alike.
 fn mapsOver(cIn: vec3f, wp: vec2f, pos: vec2f, water: f32) -> vec3f {
+  if (LEAN) { return cIn; }
   var c = cIn;
   if (post.tideVis > 0.5) {
     let L = lightPost(wp, tideAt(wp, post.world, post.simTime, post.tide, post.tidePh));
@@ -8920,7 +8926,7 @@ fn toolAt(wp: vec2f, ppu: f32) -> vec4f {
 }
 // The glass (the pipette, Touch's rod) bends the view through it, as a lens of its shape would (pixels).
 fn toolBend(wp: vec2f) -> vec2f {
-  if (post.toolB.x < 1.5 || (post.toolB.x > 2.5 && post.toolB.x < 3.5)) { return vec2f(0.0); }
+  if (LEAN || post.toolB.x < 1.5 || (post.toolB.x > 2.5 && post.toolB.x < 3.5)) { return vec2f(0.0); }
   let g = toolAt(wp, post.ppu);
   if (g.x > 0.0) { return vec2f(0.0); }
   let ax = normalize(post.tool.zw);
@@ -8929,7 +8935,7 @@ fn toolBend(wp: vec2f) -> vec2f {
 // The instrument drawn over the scene: glass (the pipette, Touch's rod) or steel (the needle, the cold probe).
 fn instrument(cIn: vec3f, wp: vec2f, ppu: f32) -> vec3f {
   let kind = post.toolB.x;
-  if (kind <= 0.0) { return cIn; }
+  if (LEAN || kind <= 0.0) { return cIn; }
   let g = toolAt(wp, ppu);
   let blur = g.w;
   if (g.x > 3.0 * blur) { return cIn; }
@@ -8995,7 +9001,7 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f,
   let wp = wpIn - post.world * floor(wpIn / post.world);
   // the pool's edge and dry floor (docs/catastrophes.md), behind what lies on them; the water's edge itself, a
   // meniscus, is a bright thin line, and the thinning film just inside it a faint sheen
-  if (post.pond.x < 1.0) {
+  if (!LEAN && post.pond.x < 1.0) {
     let pd = pondPost(wp);
     let sd = pd.x / max(length(pd.yz), 1e-4);
     let px = 1.0 / ppu;
@@ -9027,7 +9033,7 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f,
   }
   // ice (a frost's, the cold probe's): over what is frozen in it, its front a crisp bright line, crystals
   // (frazil) in the near-freezing water ahead of it while it grows
-  if (iceAny()) {
+  if (!LEAN && iceAny()) {
     let ic = iceSeen(wp);
     let grow = iceGrowth(waterAt(wp).x);
     if (ic.sd < (ICE_LEAD + ICE_OWN) * ic.reach + 0.3) { c += iceLook(wp, ic.sd, ppu, grow, ic.reach, ic.rg) * (0.35 + 0.65 * behind); }
@@ -9045,7 +9051,7 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f,
   // duckweed floating on the pool, far above the focal plane: its fronds keep the lamp's light from what lies under
   // them and pass a little of it, green, mottled by the air chambers inside them; each hangs a root down into the
   // water, out of focus near its frond, sharp where it reaches the focal plane
-  if (post.duck.w > 0.0) {
+  if (!LEAN && post.duck.w > 0.0) {
     let sh = duckShade(wp, post.duck, post.duckB, post.world);
     // the roots trail together, with the current, swaying
     let trail = post.duckB.y * 0.37 + 0.35 * sin(post.simTime * 0.031 + post.duckB.y);
@@ -9253,6 +9259,15 @@ fn loupeScene(r: vec2f) -> vec3f {
   var c = lookTone(hdr) + vec3f(0.006, 0.005, 0.012);
   c = pondMicro(c, hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu, 0.0, 1.0);
   return vec4f(lookGrade(pow(max(c, vec3f(0.0)), vec3f(1.0 / 2.2)), i.pos.xy), 1.0);
+}
+
+// Which composite draws this frame (the draws' arguments, full then lean): the lean one where the engine allows
+// it (compArgs[8], from the uniforms) and no water is frozen.
+@group(0) @binding(20) var<storage, read_write> compArgs: array<u32>;
+@compute @workgroup_size(1) fn compPick() {
+  let lean = compArgs[8] != 0u && !iceAny();
+  compArgs[0] = select(3u, 0u, lean); compArgs[1] = 1u; compArgs[2] = 0u; compArgs[3] = 0u;
+  compArgs[4] = select(0u, 3u, lean); compArgs[5] = 1u; compArgs[6] = 0u; compArgs[7] = 0u;
 }
 `;
 
