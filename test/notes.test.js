@@ -48,7 +48,7 @@ const SP = {
   [FIRST_LIFE + 3]: { name: 'Hardy', guild: 'producer', topt: 30, tol: 10 },
 };
 const H = FIRST_LIFE, P = FIRST_LIFE + 1, Wd = FIRST_LIFE + 2, Hd = FIRST_LIFE + 3;
-const notes = () => new Notes({ species: (k) => SP[k] || null, world: () => WORLD });
+const notes = () => new Notes({ species: (k) => SP[k] || null, world: () => WORLD, tune: { stepped: false } });
 const ctx = (now, o = {}) => ({ now, speed: 1, ppu: 80, phone: false, pool: 20, visible: () => true, ...o });
 // a story is told once it has held a moment: look, then look again that moment later
 const told = (N, now, o) => { N.update(ctx(now, o)); return N.update(ctx(now + TUNE.hold, o)); };
@@ -287,7 +287,7 @@ test('a species\' balance: born against died, by cause', () => {
 test('sister species: three of one genus in view', () => {
   const sp = { ...SP, [Hd + 1]: { name: 'Hardy Two', guild: 'producer', genus: 7, genusName: 'Hardy' }, [Hd + 2]: { name: 'Hardy Three', guild: 'producer', genus: 7, genusName: 'Hardy' } };
   sp[Hd] = { ...SP[Hd], genus: 7, genusName: 'Hardy' };
-  const N = new Notes({ species: (k) => sp[k] || null, world: () => WORLD });
+  const N = new Notes({ species: (k) => sp[k] || null, world: () => WORLD, tune: { stepped: false } });
   const cells = [];
   for (const k of [Hd, Hd + 1, Hd + 2]) for (let i = 0; i < 3; i++) cells.push({ id: 100 * k + i, x: 10 + i, y: k, kind: k });
   N.ingest(scan(cells));
@@ -316,6 +316,7 @@ test('a story is told only once it has held a moment; a note whose cell has left
   assert.equal(N.update(ctx(100)).length, 0);
   assert.equal(N.update(ctx(100 + TUNE.hold)).length, 1);
   const n = N.notes[0];
+  n.readAt = n.born; // (as the view marks it, once its label can be read)
   // its anchor out of view: kept a moment (it may come back), and in any case until it has been up its least; then gone
   const away = { visible: (x) => x > 50 }, born = n.born;
   N.update(ctx(born + 0.3, away));
@@ -353,6 +354,7 @@ test('once shown a note stays its least, and the same kind of story about the sa
   N.ingest(scan(chain(8, Wd, 20, 20), { simTime: 10.2 }));
   told(N, 100);
   const n = N.notes[0];
+  n.readAt = n.born;
   // its cell gone from view at once: it stays until it has been up its least
   const gone = { visible: () => false };
   N.update(ctx(n.born + 1, gone));

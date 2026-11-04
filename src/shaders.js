@@ -4006,7 +4006,9 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
 // ids (NONE: none).
 export const NOTE_TG = 16;
 export const NOTE_TEMPS = 4;
-export const NOTE_HEAD = NOTE_TEMPS + 2 * NOTE_TG * NOTE_TG;
+// (then how many stone grains lie in each square, from NOTE_STONE)
+export const NOTE_STONE = NOTE_TEMPS + 2 * NOTE_TG * NOTE_TG;
+export const NOTE_HEAD = NOTE_TEMPS + 3 * NOTE_TG * NOTE_TG;
 export const NOTE_REC = 8;
 export const NOTE_WGSL = COMMON + /* wgsl */ `
 struct NoteU { corner: vec2f, size: vec2f, world: vec2f, count: u32, cap: u32, keep: f32, p0: u32, p1: u32, p2: u32, grid: vec4f };
@@ -4035,6 +4037,13 @@ fn noteMain(@builtin(global_invocation_id) gid: vec3u) {
   }
   if (i >= nu.count) { return; }
   let p = parts[i];
+  // stone, counted by the squares of water (where cells may shelter among it)
+  if (p.kind == 3u) {
+    var q = (p.pos - nu.grid.xy) / nu.grid.z;
+    q -= (nu.world / nu.grid.z) * floor(q / (nu.world / nu.grid.z));
+    if (q.x < ${NOTE_TG}.0 && q.y < ${NOTE_TG}.0) { atomicAdd(&nout[${NOTE_STONE}u + u32(q.y) * ${NOTE_TG}u + u32(q.x)], 1u); }
+    return;
+  }
   if (p.kind < FIRST_LIFE && p.kind != HUSK) { return; }
   var d = p.pos - nu.corner;
   d -= nu.world * floor(d / nu.world);

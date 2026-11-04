@@ -71,10 +71,21 @@ Each story is found from the events and the view, every 0.35 s at most, as a can
 | old | 3+ of one species died of age in 20 s | crosses where they died |
 | rot | 12+ husks rotted to silt in 30 s, 10+ in view | rings on the husks; sparks from silt, if any |
 | current | the water across the view moving 0.05 units a second or more | lines of flow from seeds fixed in the world, chevrons running along them; speed and heading |
+| scavenging | a species that ate 4+ husks in 30 s | census of the scavengers; crosses where they ate |
+| sprint | the fastest cell in view, 4× the median speed and 0.25 units a second (about 15 µm/s) or more | lock, its heading, a trail of where it has been; how much faster than most |
+| beat | the biggest body in view of a species whose cells beat (its genome's beat) | brackets and its size; its beat as an oscillograph at the genome's rate; whether it swims or beats in place, tail or not |
+| light | the view's light (the cells' own `lightAt`, from the page) reaching 1.25× its mean, with the producers crowded in the brightest (1.5× their share of the water) or half of those in the dim heading up its slope | the brightest water, hatched in sunlight's yellow; the producers' share there; how many seek it |
+| shelter | prey crowding among stone (squares with 6+ grains, counted by the scan: `NOTE_STONE`), 1.5× as dense as in the open, with hunters about (up close) | the stone's patches dashed; rings on the cells among them; kills there against the water's share |
+| range | a species with a quarter of the living in view | its range (where it is thickest) in its own color |
+| front | the two most numerous, each 15%+, holding ground side by side | both ranges in their colors; a table of the two |
+| barren | a quarter of the view or more nearly empty (a tenth of the view's mean or less a square) | the empty water dotted; what it lacks (ice, stone, light, warmth, or nothing yet settled) |
+| deaths | 30+ deaths in 30 s, half in a fifth of the view or less | where they died, hatched; of what |
+
 
 By zoom: from 50 CSS px a world unit, cells are pointed at one by one; below 18 the view is wide and tells only the
-water's stories (heat, cold, drying, current), drawn on the grid's squares, with only those events written to the ring (its
-bites and births would crowd it). Past 4× speed a single moment (a kill, a spark) passes too fast to follow and is
+whole view's stories (heat, as one story for the water; cold, drying, current, community, light, range, front, barren,
+killing grounds), drawn on the grid's squares, with only those events written to the ring (its
+bites and births would crowd it; its deaths are written, for its killing grounds). Past 4× speed a single moment (a kill, a spark) passes too fast to follow and is
 not told.
 
 The budget (`TUNE`, real seconds, so a note reads the same at any speed): at most three notes at once (two on a phone,
@@ -98,11 +109,12 @@ counts what was shown, how long, and why any went within 2.5 s.
 
 ### Ideas not built yet
 
-From the same readbacks or a little more: phototaxis (cells turning toward the light; needs the light at each cell in
-the view's scan), heat-makers keeping a colony warm in a cold snap (their genome's thermogenesis against the water),
-a species' fullness (the view reads it: how many are ready to divide), schools (cells of a species moving together,
-from velocity alignment), an invader (a species new to this stretch of the world), a tree's growth tip, the hand's
-own acts (the needle's cuts, the pipette's draws), and the song (cells that sing in view, from the listening scan).
+Heat-makers keeping a colony warm in a cold snap (their genome's thermogenesis against the water); a species' fullness
+(the view reads it: how many are ready to divide); schools (cells of a species moving together, from velocity
+alignment); an invader (a species new to this stretch of the world); a tree's growth tip; cells fleeing a hunter into
+stone (the mind's flight, from `mindMain`, for the cells in view); the hand's own acts (the needle's cuts, the
+pipette's draws); the song (cells that sing in view, from the listening scan); from afar, a species' range moving
+(its middle over a minute), and the richest water (the most species a square).
 
 ## How it is drawn (`src/noteview.js`)
 
@@ -137,19 +149,14 @@ The marks ride the scene as what they mark does, however the auto camera pans an
   and the difference eased out over 0.12 s, so a mark never jumps when a readback lands. A cell joining a census
   fades in and one leaving fades out (0.25 s); past a census's cap the sample is by id hash, its share changed only by
   quarter octaves, so the same cells stay marked.
-- A group's ground (the hatched zone of a scalding species) and the water's squares are cells of a lattice fixed in
-  the world: a power of two world units on a side, about as big as the group's cells (or the water's squares), drawn
-  through one vertex near the view's middle by the view's scale, so they move rigidly with the world. A group's
-  ground is marked only where its members keep company (two or more about a lattice cell; one alone has its glyph).
-  A lattice cell joins the outline only after holding members for 0.5 s (its hatching fading in meanwhile), and stays
-  1.2 s after its last member leaves (a square of water 1.6 s; its edge going first, its hatching fading), so a cell
-  passing through never moves the edge. A zoom past 1.5× starts a coarser or finer lattice, crossfaded. The hatching
-  is fixed to the lattice too (a whole number of lines a side), so it does not crawl over the zone as the view pans;
-  cells joining or leaving are filled in four bands of alpha and the rest by runs along each row, a few fills in all
-  (each pattern fill is work for the GPU's rasterizer, which the world's frames wait on). A ground over 45% of the
-  open view fades out (over 1,500 cells, at once), as the water's squares too warm nearly everywhere are not drawn:
-  the label and the gauge tell it, and a hatched path of thousands of cells cost a wide view under a heat wave most
-  of its frame rate (5 fps for 9,000 cells, measured with `notes.debug().drawn`).
+- A stretch of the world is an organic shape (`src/contour.js`: marching squares, then Chaikin's corner cutting): the
+  loops where a field crosses a level, fixed in the world, drawn each frame where the view shows them. Water too warm
+  is the isotherm of the view's squares' warmth at what a species bears (from afar) or a soft shape about its too-warm
+  cells (up close: each spreads a bump on a lattice fixed in the world, the field eased from look to look so the shape
+  changes as the crowd does, never at a jump); ice, light, stone, a range, a killing ground are the contours of their
+  squares' fields; a community's outline is drawn once, about its cells as found, and does not shift. Squares out of
+  view count as outside, a finite way below the level, so no edge runs along a row of square middles. Hatching is
+  fixed to the world.
 - A label hangs on one cell of its group, chosen once and kept: found every frame by its id (`n.pins`, with
   `Engine.watch`) wherever the group's sample goes; another only when that cell is gone altogether. When it leaves the
   view, the note ends rather than hopping to another cell. Its place is chosen once, when it first shows (the best
@@ -182,9 +189,23 @@ finding and drawing; events the ring overwrote before they were read). With `--a
 (`src/noteaudit.js`, `__tidemote.noteView.audit()`), how steadily the marks ride the scene (the second difference of
 each anchor's, label's, glyph's and zone corner's screen place from frame to frame, against a fixed world point's, the
 camera's own; a label's on the screen, where it is meant to hold still) and every pair of text boxes that overlap,
-with examples, into `audit.json`; `--when TYPE` takes a screenshot whenever a note of that type shows.
+with examples, into `audit.json`; `--when TYPE` takes a screenshot whenever a note of that type shows; `--frames` the
+time between frames as drawn and the browser's long tasks, into `frames.json` (`--notes 0` to compare with them off);
+the audit's `blinks` should be none.
 
 ## What it costs
+
+Smoothness is the first rule: the annotations must never make the world stutter. A look at the view runs a step a
+frame (a generator: the tallies, the core stories, bodies, stalking, the web and balance, scavengers and the fastest,
+the water's own, the community, the rest), so no frame carries all of it; events are tallied by number; the view's
+columns come from three pooled sets and its ids go into an open-addressed table in typed arrays (`IdIndex`), so
+reading ten views a second makes nothing for the collector; a body keeps its key by a map of its cells (linear, not a
+body against each); the stalker looks only at the kinds some hunter last ate; the ring keeps about 150 bites a sim
+second at most (each counting for those left out); the readback is copied into one kept buffer. Measured with
+`notes-live.mjs --frames` (the time between frames as drawn, the browser's long tasks) and `notes.debug().worst` (the
+longest single call of each part): before, 13 long tasks of about 80 ms in 150 s and frames to 131 ms; after, none,
+the longest frame 29–40 ms (as with the annotations off, 17–34), the longest step of a look 6 ms.
+
 
 Measured 2026-11-03 on an RTX 4070 Ti (Windows Chrome): the step's passes with the ring's writes in them against the
 build before (`tools/perf/plans/step.json`, two runs each): `lifeMain` 1.70–1.96 ms before and 1.92–1.98 after on a

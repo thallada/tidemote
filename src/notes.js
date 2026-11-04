@@ -5,7 +5,7 @@
 // happened (who killed, bit, bore or scavenged whom, who starved, scalded, froze, dried, encysted or woke). So every
 // mark stands on what the world did, by ID: nothing is guessed from what disappeared between looks. Pure: the page
 // hands in the readbacks and what it knows of each species, and gets back the notes to draw.
-import { NOTE_EV, NOTE_MAX, NOTE_W, NOTE_LITTER, NOTE_HEAD, NOTE_REC, NOTE_TG, NOTE_TEMPS, FIRST_LIFE, CYST } from './shaders.js';
+import { NOTE_EV, NOTE_MAX, NOTE_W, NOTE_LITTER, NOTE_HEAD, NOTE_REC, NOTE_TG, NOTE_TEMPS, NOTE_STONE, FIRST_LIFE, CYST } from './shaders.js';
 
 const HUSK = 2; // a husk's kind (the dead, rotting back to silt)
 
@@ -34,12 +34,15 @@ export const TUNE = {
   minLife: 3,      // a note, once shown, stays at least this long, whatever becomes of what it marks (but for the
                    // camera setting off: then it fades out slowly)
   subjectCool: 60, // the same kind of story about the same species not again within this long (another cell of it)
+  dwellLong: 12,   // a story with much to read (a community) is held at least this long
   ahead: 5,        // a new note waits for a shot with this long still to run (a single moment: aheadOne)
   aheadOne: 5,
   variety: 120,    // a kind of story shown in the last this many seconds counts against another of its kind
   body: 6,         // cells bonded into one organism worth telling
   swim: 0.5,       // body lengths a second from which a body is told swimming
   current: 0.05,   // world units a second from which the water's current is told
+  sprint: 0.25,    // world units a second (about 15 µm/s) from which the fastest in view is told
+  stepped: true,   // a look at the view a step a frame
 };
 
 // half float to float
@@ -51,6 +54,40 @@ function half(h) {
 }
 
 /**
+ * Cell ids to their rows in a view: an open-addressed table in typed arrays (no object for each, so reading ten views a
+ * second makes nothing for the collector). get(id) -> row, or undefined.
+ */
+export class IdIndex {
+  constructor() { this.cap = 0; }
+  reset(n) {
+    let cap = 16;
+    while (cap < 2 * n) cap *= 2;
+    if (cap > this.cap) { this.cap = cap; this.keys = new Uint32Array(cap); this.rows = new Int32Array(cap); }
+    this.mask = cap - 1;
+    this.rows.fill(-1, 0, this.cap);
+    return this;
+  }
+  set(id, row) {
+    let h = Math.imul(id, 2654435761) >>> 0 & this.mask;
+    while (this.rows[h] >= 0 && this.keys[h] !== id) h = (h + 1) & this.mask;
+    this.keys[h] = id; this.rows[h] = row;
+  }
+  get(id) {
+    let h = Math.imul(id, 2654435761) >>> 0 & this.mask;
+    while (this.rows[h] >= 0) { if (this.keys[h] === id) return this.rows[h]; h = (h + 1) & this.mask; }
+    return undefined;
+  }
+}
+
+// the views' columns, three sets taken in turn and grown only when a view outgrows them (a look at the view may still be
+// reading the one before last while the next arrives)
+const POOL = [{}, {}, {}];
+let poolAt = 0;
+const COLS = [['id', Uint32Array], ['x', Float32Array], ['y', Float32Array], ['vx', Float32Array], ['vy', Float32Array], ['kind', Uint16Array],
+  ['cause', Uint8Array], ['role', Uint8Array], ['img', Uint16Array], ['litter', Uint8Array], ['torpid', Uint8Array], ['fed', Float32Array],
+  ['tx', Float32Array], ['p1', Uint32Array], ['p2', Uint32Array]];
+
+/**
  * The view's cells from a scan (Engine.onNotes), as columns, with an id -> row index; and its water, square by square
  * (grid: the squares' corner and side, fixed in the world; inView: those that overlap the stretch scanned).
  */
@@ -58,17 +95,16 @@ export function readView(scan, world) {
   const { n, u32, f32, rect } = scan;
   const [W, H] = world, G = NOTE_TG * NOTE_TG;
   const grid = scan.grid && scan.grid[2] > 0 ? scan.grid : [rect[0], rect[1], Math.max(rect[2], rect[3]) / NOTE_TG];
+  const P = POOL[poolAt++ % POOL.length];
+  if (!(P.cap >= n)) { P.cap = Math.max(n, Math.ceil((P.cap || 0) * 1.5), 1024); for (const [k, T] of COLS) P[k] = new T(P.cap); P.at = new IdIndex(); }
   const v = {
-    n, simTime: scan.simTime, rect, grid, keep: scan.keep, inView: scan.inView,
-    id: new Uint32Array(n), x: new Float32Array(n), y: new Float32Array(n),
-    vx: new Float32Array(n), vy: new Float32Array(n), kind: new Uint16Array(n), cause: new Uint8Array(n), role: new Uint8Array(n),
-    img: new Uint16Array(n), litter: new Uint8Array(n), torpid: new Uint8Array(n), fed: new Float32Array(n), tx: new Float32Array(n),
-    p1: new Uint32Array(n), p2: new Uint32Array(n), at: new Map(),
-    temps: new Float32Array(G), ice: new Float32Array(G), sqIn: new Uint8Array(G),
+    n, simTime: scan.simTime, rect, grid, keep: scan.keep, inView: scan.inView, at: P.at.reset(n),
+    temps: new Float32Array(G), ice: new Float32Array(G), sqIn: new Uint8Array(G), stone: new Float32Array(G),
   };
+  for (const [k] of COLS) v[k] = P[k].subarray(0, n);
   const s = grid[2], cx = rect[0] + rect[2] / 2, cy = rect[1] + rect[3] / 2;
   for (let k = 0; k < G; k++) {
-    v.temps[k] = f32[NOTE_TEMPS + k]; v.ice[k] = f32[NOTE_TEMPS + G + k];
+    v.temps[k] = f32[NOTE_TEMPS + k]; v.ice[k] = f32[NOTE_TEMPS + G + k]; v.stone[k] = u32[NOTE_STONE + k];
     let dx = grid[0] + ((k % NOTE_TG) + 0.5) * s - cx, dy = grid[1] + (Math.floor(k / NOTE_TG) + 0.5) * s - cy;
     dx -= W * Math.round(dx / W); dy -= H * Math.round(dy / H);
     v.sqIn[k] = Math.abs(dx) < (rect[2] + s) / 2 && Math.abs(dy) < (rect[3] + s) / 2 ? 1 : 0;
@@ -121,7 +157,9 @@ export function readRing(ring, last, tick, stepTime) {
 
 const isLiving = (k) => k >= FIRST_LIFE;
 // the stories a wide view tells: the water's own, drawn on the view's squares of water
-const WATER_TYPES = new Set(['heat', 'cold', 'drying', 'current', 'clump']);
+// (and the whole view's own: where the light falls, who holds the most of it, where two meet, where nothing lives, where
+// most die)
+const WATER_TYPES = new Set(['heat', 'cold', 'drying', 'current', 'clump', 'light', 'range', 'front', 'barren', 'deaths']);
 
 /** Notes over the view: fed the GPU's readbacks, asked each frame which notes to draw. */
 export class Notes {
@@ -180,8 +218,15 @@ export class Notes {
     for (const e of r.events) { if (e.ev === 'bite') e.w = w; this.events.push(e); }
     // a crowd at speed bites far more than the ring holds between reads: write a share of the bites, enough to count
     // them, keeping the ring at most half full
-    if (wrote > NOTE_MAX / 2) this.biteKeep = Math.max(1 / 4096, this.biteKeep * 0.5);
-    else if (wrote < NOTE_MAX / 8) this.biteKeep = Math.min(1, this.biteKeep * 1.25);
+    // (and no more than about 150 bites a sim second kept in all: each counts for those left out, and every look at the
+    // view goes over the last 30 s of them)
+    let bites = 0;
+    for (const e of r.events) if (e.ev === 'bite') bites++;
+    // (a sim second's worth: the window is 30 sim seconds)
+    const span = Math.max(1 / 60, v.simTime - (this._readAt ?? v.simTime - 0.1)), rate = bites / span;
+    this._readAt = v.simTime;
+    if (wrote > NOTE_MAX / 2 || rate > 200) this.biteKeep = Math.max(1 / 4096, this.biteKeep * (wrote > NOTE_MAX / 2 ? 0.5 : 0.8));
+    else if (wrote < NOTE_MAX / 8 && rate < 100) this.biteKeep = Math.min(1, this.biteKeep * 1.25);
     const old = v.simTime - 120;
     let cut = 0;
     while (cut < this.events.length && (this.events[cut].t < old || this.events.length - cut > 20000)) cut++;
@@ -198,7 +243,8 @@ export class Notes {
     // (coming in from a wide view, bites start as a small share and rise to what the ring holds)
     if (this._wide && !wide) this.biteKeep = 1 / 64;
     this._wide = wide;
-    const want = wide ? ['scalded', 'froze', 'dried'] : NOTE_EV.filter(Boolean);
+    // (deaths too, which a wide view's killing grounds are told from; but none of its countless bites and births)
+    const want = wide ? ['scalded', 'froze', 'dried', 'kill', 'grazed', 'starved', 'old', 'scavenge'] : NOTE_EV.filter(Boolean);
     return want.reduce((m, n) => m | (1 << EV[n]), 0) >>> 0;
   }
 
@@ -292,14 +338,27 @@ export class Notes {
       this.fresh = false;
       this.stats = this._stats();
       this.water = this._water();
-      if (ctx.now - (this.detectAt ?? -1e9) >= this.T.detectEvery) {
-        const t0 = performance.now();
+      if (!this.looking && ctx.now - (this.detectAt ?? -1e9) >= this.T.detectEvery) {
         this.detectAt = ctx.now;
-        this.cands = this.detect(ctx);
+        this.looking = this.detect(ctx);
+        this._looked = {};
+      }
+    }
+    // a look at the view goes a step a frame (each a few ms at most), so no one frame carries it all
+    if (this.looking) {
+      // (tests and tools may ask for a whole look at once: TUNE.stepped false)
+      const t0 = performance.now();
+      let r = this.looking.next();
+      while (!this.T.stepped && !r.done) r = this.looking.next();
+      const ms = performance.now() - t0;
+      this.ms.detect += ms;
+      this.worst('detect', ms, { ...this._looked });
+      if (r.done) {
+        this.looking = null;
+        this.cands = r.value;
         const keys = new Set(this.cands.map((c) => c.key));
         for (const k of keys) if (!this.firstSeen.has(k)) this.firstSeen.set(k, ctx.now);
         for (const k of this.firstSeen.keys()) if (!keys.has(k)) this.firstSeen.delete(k);
-        this.ms.detect += performance.now() - t0;
       }
     }
     this.schedule(ctx);
@@ -308,8 +367,9 @@ export class Notes {
 
   // ------------------------------------------------------------------ detectors
   // Each finds the stories the view holds now, as candidates: { type, key, prio, strength, one (a single moment),
-  // track (living ids to find each frame), ...what the view draws }.
-  detect(ctx) {
+  // track (living ids to find each frame), ...what the view draws }. A step at a time (yield): update() takes one a
+  // frame, all on the view as it was when the look began.
+  *detect(ctx) {
     const v = this.view, S = this.stats, out = [], t = v.simTime, W = this.T.window;
     const fast = ctx.speed > this.T.fast;
     const band = ctx.ppu >= this.T.close ? 'close' : ctx.ppu >= this.T.wide ? 'mid' : 'wide';
@@ -341,19 +401,17 @@ export class Notes {
         if (!p.last) p.last = { ...e, aid };
       }
     }
-    // how many: count('froze'), count('scalded:k') (30 s), count('birth20:k') (20 s), count('killby:k') (by that kind)
-    const count = (q) => {
-      const [h, k] = q.split(':'), win = h.endsWith('20'), byk = h.endsWith('by'), ev = EV[win ? h.slice(0, -2) : byk ? h.slice(0, -2) : h];
-      if (k === undefined) return evN[ev] || 0;
-      return (byk ? by : win ? n20 : n30).get(ev * 1024 + +k) || 0;
-    };
+    // how many: of an event in the last 30 s (of species k, or any), in the last 20 s, done by species k
+    const c30 = (ev, k) => (k === undefined ? evN[ev] : n30.get(ev * 1024 + k) || 0), c20 = (ev, k) => n20.get(ev * 1024 + k) || 0;
+    const cby = (ev, k) => by.get(ev * 1024 + k) || 0;
+    yield;
 
     if (band !== 'wide') {
       // A kill: the hunter, its quarry's remains, and how many kills its kind has made in view.
       if (close && !fast) for (const e of recent) {
         if (e.ev !== 'kill' || e.t < t - 6 || e.aid === NONE || !name(e.akind) || !name(e.kind)) continue;
         if (!seen(e.aid) || !seen(e.id)) continue;
-        const kills = count(`killby:${e.akind}`);
+        const kills = cby(EV.kill, e.akind);
         out.push({ type: 'hunt', key: `hunt:${e.aid}`, prio: 0.85, strength: kills, one: true, at: e.t,
           actor: e.aid, target: e.id, akind: e.akind, kind: e.kind, track: [e.aid], kills });
       }
@@ -374,7 +432,7 @@ export class Notes {
         if (e.ev !== 'scavenge' || e.litter || e.t < t - 5 || e.aid === NONE || !name(e.akind)) continue;
         if (!seen(e.aid) || !ctx.visible(e.x, e.y)) continue;
         out.push({ type: 'scavenge', key: `scav:${e.aid}`, prio: 0.35, strength: 1, one: true, at: e.t, actor: e.aid, akind: e.akind,
-          spot: [e.x, e.y], track: [e.aid], meals: count(`scavengeby:${e.akind}`) });
+          spot: [e.x, e.y], track: [e.aid], meals: cby(EV.scavenge, e.akind) });
       }
       // A new species: a mutant daughter budding from her mother, or life sparked from silt.
       for (const e of recent) {
@@ -388,21 +446,22 @@ export class Notes {
       for (const s of S.by.values()) {
         if (!name(s.kind)) continue;
         // A bloom: one species dividing fast in view.
-        const b = count(`birth20:${s.kind}`);
+        const b = c20(EV.birth, s.kind);
         if (b >= 5 && s.n >= 6) out.push({ type: 'bloom', key: `bloom:${s.kind}`, prio: 0.42, strength: b, kind: s.kind, births: b, census: s.kind });
         // Dormancy and waking: a species curling up into cysts, or waking from them, many at once; starving.
-        const c = count(`cyst20:${s.kind}`), w = count(`woke20:${s.kind}`), st = count(`starved20:${s.kind}`);
+        const c = c20(EV.cyst, s.kind), w = c20(EV.woke, s.kind), st = c20(EV.starved, s.kind);
         if (c >= 4) out.push({ type: 'dormant', key: `dorm:${s.kind}`, prio: 0.5, strength: c, kind: s.kind, count: c, census: s.kind });
         if (w >= 4) out.push({ type: 'waking', key: `wake:${s.kind}`, prio: 0.46, strength: w, kind: s.kind, count: w, census: s.kind });
         if (st >= 3) out.push({ type: 'starving', key: `starve:${s.kind}`, prio: 0.5, strength: st, kind: s.kind, count: st });
       }
     }
+    yield;
     // Heat: a species whose water has warmed past what it bears (crowds warm their own water), scalding; beside it,
     // the most numerous species in the same water that bears it.
     for (const s of S.by.values()) {
       // (scalding: deaths seen, or a good share of its cells in water past what it bears)
       // (deaths seen with a fair share too warm, or most of it too warm: water merely warm for some is not a story)
-      const scalds = count(`scalded:${s.kind}`);
+      const scalds = c30(EV.scalded, s.kind);
       if (!((scalds >= 3 && s.hot >= 0.2 * s.n) || (s.hot >= 8 && s.hot >= 0.4 * s.n)) || !name(s.kind)) continue;
       const hot = this._hotCells(this.sp(s.kind));
       let fine = null;
@@ -416,8 +475,14 @@ export class Notes {
       out.push({ type: 'heat', key: `heat:${s.kind}`, prio: 0.6, strength: s.hot / s.n * 10 + 2 * scalds, kind: s.kind, hot: Math.round(s.hot * S.scale), scalds,
         squares: [...hot], fine, census: s.kind, water: this.water.hi });
     }
+    // (from afar, the water too warm is one story, for the species it scalds most: not one for each)
+    if (band === 'wide') {
+      const heat = out.filter((c) => c.type === 'heat').sort((a, b) => b.strength - a.strength);
+      for (const c of heat.slice(1)) out.splice(out.indexOf(c), 1);
+      if (heat[0]) { heat[0].key = 'heat:wide'; heat[0].others = heat.length - 1; }
+    }
     // Cold: the view's water near freezing and its cells stilled (torpid), or frozen to death.
-    const froze = count('froze');
+    const froze = c30(EV.froze);
     if ((S.living >= 8 && S.torpid >= 0.3 * S.living) || froze >= 3) {
       let most = null, warm = null; // the species most stilled, and the one that stays active
       for (const s of S.by.values()) {
@@ -428,18 +493,19 @@ export class Notes {
       out.push({ type: 'cold', key: 'cold', prio: 0.66, strength: S.torpid + froze, torpid: S.torpid, living: S.living,
         froze, species: [...S.by.values()].filter((s) => s.torpid > 0).length, kind: most ? most.kind : -1, warm: warm && band !== 'wide' ? warm.kind : -1 });
     }
-    const dried = count('dried');
+    const dried = c30(EV.dried);
     if (dried >= 3) {
       let most = -1, mn = 0;
-      for (const s of S.by.values()) { const d = count(`dried:${s.kind}`); if (d > mn) { mn = d; most = s.kind; } }
+      for (const s of S.by.values()) { const d = c30(EV.dried, s.kind); if (d > mn) { mn = d; most = s.kind; } }
       out.push({ type: 'drying', key: 'drying', prio: 0.7, strength: dried, count: dried, kind: most });
     }
 
+    yield;
     if (band !== 'wide') {
       // An organism: cells bonded into one body (each cell's bonded partners, from the view), its size, its shape, and
       // whether it swims (body lengths a second). The biggest is told as a body; the fastest, swimming.
       let big = null, fastest = null;
-      const tb = performance.now(), bodies = this._bodies();
+      const tb = performance.now(), bodies = this._bodies(v);
       this._part('bodies', tb);
       for (const b of bodies) {
         if (!name(b.kind) || !ctx.inner(b.ax, b.ay)) continue;
@@ -451,14 +517,16 @@ export class Notes {
       if (fastest) out.push(bodyOf(fastest, 'swim', 0.58));
       if (big && big !== fastest) out.push(bodyOf(big, 'body', 0.5));
 
+      yield;
       // A hunter closing on its quarry: a hunter whose last meal was the species of the nearest cell ahead of it,
       // heading for it (up close, before the kill).
       if (close && !fast) {
-        const ts = performance.now(), st = this._stalk(ctx);
+        const ts = performance.now(), st = this._stalk(ctx, v);
         this._part('stalk', ts);
         if (st) out.push({ type: 'stalk', key: `stalk:${st.actor}`, prio: 0.7, strength: 1 / Math.max(st.dist, 0.05), ...st, track: [st.actor, st.target] });
       }
 
+      yield;
       // The food web in view: who has eaten whom here in the last 30 s, by bites and kills.
       const edges = new Map();
       for (const p of pairs.values()) if (p.n >= 2 && name(p.akind) && name(p.kind)) edges.set(`${p.akind}>${p.kind}`, { from: p.kind, to: p.akind, bites: p.n, kills: 0 });
@@ -482,7 +550,7 @@ export class Notes {
       let bal = null;
       for (const s of S.by.values()) {
         if (s.n < 6 || !name(s.kind)) continue;
-        const born = count(`birth:${s.kind}`), died = Object.fromEntries(CAUSES.map((c) => [c, count(`${c}:${s.kind}`)]));
+        const born = c30(EV.birth, s.kind), died = Object.fromEntries(CAUSES.map((c) => [c, c30(EV[c], s.kind)]));
         const dead = CAUSES.reduce((a, c) => a + died[c], 0);
         if (born + dead >= 12 && (!bal || born + dead > bal.born + bal.dead)) bal = { kind: s.kind, born, dead, died };
       }
@@ -507,17 +575,170 @@ export class Notes {
 
       // Old age: a cohort dying of its years.
       for (const s of S.by.values()) {
-        const o = count(`old20:${s.kind}`);
+        const o = c20(EV.old, s.kind);
         if (o >= 3 && name(s.kind)) out.push({ type: 'old', key: `old:${s.kind}`, prio: 0.38, strength: o, kind: s.kind, count: o });
       }
     }
+    yield;
     // A community: a dense clump where several species live together; what it holds and why it holds together.
-    const tc = performance.now(), cl = this._clump(ctx, band);
+    const tc = performance.now(), cl = this._clump(ctx, band, v, S);
     this._part('clump', tc);
-    if (cl) out.push({ ...cl, type: 'clump', key: `clump:${cl.key}`, prio: 0.6, strength: cl.species * 2 + Math.log1p(cl.cells), track: [cl.anchor] });
+    if (cl) out.push({ ...cl, type: 'clump', key: `clump:${cl.key}`, prio: 0.6, strength: cl.species * 2 + Math.log1p(cl.cells), track: [cl.anchor], lock: true });
+
+    yield;
+    // Scavengers: a species eating the dead, many meals over (the husks it ate, from the ring).
+    if (band !== 'wide') {
+      let sc = null;
+      for (const s of S.by.values()) {
+        const m = cby(EV.scavenge, s.kind);
+        if (m >= 4 && name(s.kind) && s.n >= 2 && (!sc || m > sc.meals)) sc = { kind: s.kind, meals: m };
+      }
+      if (sc) out.push({ type: 'scavenging', key: `scavs:${sc.kind}`, prio: 0.5, strength: sc.meals, kind: sc.kind, akind: sc.kind, meals: sc.meals, census: sc.kind });
+      // The fastest in view: a cell (or a body's) moving far faster than the rest, and how much.
+      const sp = [];
+      for (let i = 0; i < v.n; i++) if (isLiving(v.kind[i]) && v.cause[i] !== CYST) sp.push(Math.hypot(v.vx[i], v.vy[i]));
+      if (sp.length >= 20) {
+        const med = sp.sort((a, b) => a - b)[sp.length >> 1];
+        let best = -1, bs = 0;
+        for (let i = 0; i < v.n; i++) {
+          if (!isLiving(v.kind[i]) || v.cause[i] === CYST) continue;
+          const q = Math.hypot(v.vx[i], v.vy[i]);
+          if (q > bs && ctx.inner(v.x[i], v.y[i]) && name(v.kind[i])) { bs = q; best = i; }
+        }
+        if (best >= 0 && bs >= Math.max(4 * med, this.T.sprint)) out.push({ type: 'sprint', key: `sprint:${v.id[best]}`, prio: 0.5, strength: bs / Math.max(med, 1e-3),
+          actor: v.id[best], akind: v.kind[best], kind: v.kind[best], speed: bs, times: bs / Math.max(med, 1e-3), heading: Math.atan2(v.vy[best], v.vx[best]), track: [v.id[best]] });
+      }
+      // A beating body: an organism of a species whose cells beat, a wave running down it (its genome's beat).
+      let bt = null;
+      for (const b of this._bodies(v)) {
+        const g = this.sp(b.kind);
+        if (!g || !(g.beat > 0) || b.n < 3 || !ctx.inner(b.ax, b.ay)) continue;
+        if (!bt || b.n > bt.n) bt = b;
+      }
+      if (bt) {
+        const g = this.sp(bt.kind);
+        out.push({ type: 'beat', key: `beat:${bt.key}`, prio: 0.52, strength: bt.n, kind: bt.kind, members: bt.ids, cells: bt.n, size: bt.size, form: bt.form,
+          speed: bt.speed, lengths: bt.lengths, heading: bt.heading, anchor: bt.anchor, track: [bt.anchor], beat: g.beat, hz: g.beatHz, tail: g.tail });
+      }
+    }
+
+    yield;
+    // The water's own, in every view, from its squares: the light, the stone, who lives where.
+    const G = NOTE_TG * NOTE_TG, inSq = [];
+    for (let k = 0; k < G; k++) if (v.sqIn[k]) inSq.push(k);
+    const [Ww, Hw] = this.world(), [gx, gy, gs] = v.grid, sqMid = (k) => [gx + ((k % NOTE_TG) + 0.5) * gs, gy + (Math.floor(k / NOTE_TG) + 0.5) * gs];
+    // the living by square, all and by species (rows looked at once)
+    const sqN = new Float32Array(G), sqOf = new Int16Array(v.n).fill(-1), bySq = new Map();
+    for (let i = 0; i < v.n; i++) {
+      if (!isLiving(v.kind[i])) continue;
+      const k = squareOf(v, v.x[i], v.y[i], [Ww, Hw]);
+      if (k < 0 || !v.sqIn[k]) continue;
+      sqOf[i] = k; sqN[k]++;
+    }
+    if (inSq.length >= 12 && S.living >= 40) {
+      // The light: where it falls brightest in view, and whether the producers are there (basking) or heading there.
+      if (ctx.light) {
+        const L = new Float32Array(G);
+        let lo = Infinity, hi = -Infinity, mean = 0;
+        for (const k of inSq) { const [x, y] = sqMid(k); L[k] = ctx.light(x, y); lo = Math.min(lo, L[k]); hi = Math.max(hi, L[k]); mean += L[k] / inSq.length; }
+        if (hi - lo >= 0.15 && hi >= 1.25 * mean) {
+          const bright = mean + 0.5 * (hi - mean), sqs = inSq.filter((k) => L[k] >= bright);
+          let prodIn = 0, prod = 0, toward = 0, moving = 0;
+          for (let i = 0; i < v.n; i++) {
+            const k = sqOf[i];
+            if (k < 0 || this.sp(v.kind[i])?.guild !== 'producer') continue;
+            prod++;
+            if (L[k] >= bright) prodIn++;
+            // heading up the light's slope (from the squares beside it)
+            const a = k % NOTE_TG, b = Math.floor(k / NOTE_TG), at = (aa, bb) => (aa >= 0 && bb >= 0 && aa < NOTE_TG && bb < NOTE_TG && v.sqIn[bb * NOTE_TG + aa] ? L[bb * NOTE_TG + aa] : L[k]);
+            const gxl = at(a + 1, b) - at(a - 1, b), gyl = at(a, b + 1) - at(a, b - 1), sp2 = Math.hypot(v.vx[i], v.vy[i]), gl = Math.hypot(gxl, gyl);
+            if (sp2 > 0.01 && gl > 0.02 && L[k] < bright) { moving++; if ((v.vx[i] * gxl + v.vy[i] * gyl) / (sp2 * gl) > 0.5) toward++; }
+          }
+          const share = prod ? prodIn / prod : 0, areaShare = sqs.length / inSq.length;
+          if (prod >= 20 && (share >= areaShare * 1.5 || (moving >= 10 && toward >= 0.5 * moving))) out.push({ type: 'light', key: 'light', prio: 0.5,
+            strength: share / Math.max(areaShare, 0.05), light: Array.from(L), level: bright, hi, mean, share, areaShare, seeking: moving >= 10 ? toward / moving : 0,
+            producers: Math.round(prod * S.scale), grid: [...v.grid] });
+        }
+      }
+      // Shelter: cells crowding among stone, where hunters miss more often.
+      let stoneSq = 0, prey = 0, preyIn = 0, hunters = 0;
+      const rocky = (k) => v.stone[k] >= 6;
+      for (const k of inSq) if (rocky(k)) stoneSq++;
+      if (stoneSq >= 2 && stoneSq <= 0.6 * inSq.length && band !== 'wide') {
+        for (let i = 0; i < v.n; i++) {
+          const k = sqOf[i];
+          if (k < 0) continue;
+          if (this.sp(v.kind[i])?.guild === 'predator') { hunters++; continue; }
+          prey++;
+          if (rocky(k)) preyIn++;
+        }
+        const dens = (preyIn / stoneSq) / Math.max(1e-3, (prey - preyIn) / Math.max(1, inSq.length - stoneSq));
+        let killsIn = 0, kills = 0;
+        for (let q = this.events.length - 1; q >= 0; q--) {
+          const e = this.events[q];
+          if (e.t < t - W) break;
+          if (e.ev !== 'kill' && e.ev !== 'grazed') continue;
+          const k = squareOf(v, e.x, e.y, [Ww, Hw]);
+          if (k < 0 || !v.sqIn[k]) continue;
+          kills++;
+          if (rocky(k)) killsIn++;
+        }
+        if (preyIn >= 8 && dens >= 1.5 && (hunters >= 3 || kills >= 3)) out.push({ type: 'shelter', key: 'shelter', prio: 0.55, strength: dens,
+          stone: Array.from(v.stone), grid: [...v.grid], cells: Math.round(preyIn * S.scale), dens, hunters: Math.round(hunters * S.scale), kills, killsIn,
+          killShare: kills ? killsIn / kills : 0, areaShare: stoneSq / inSq.length });
+      }
+      // Who holds the view: a species with a quarter or more of the living, its range; two such, where they meet.
+      const top = [...S.by.values()].filter((x) => name(x.kind)).sort((a, b) => b.n - a.n);
+      const range = (k) => { const f = new Float32Array(G); for (const i of S.by.get(k).rows) if (sqOf[i] >= 0) f[sqOf[i]]++; return Array.from(f); };
+      if (top[0] && top[0].n >= 0.25 * S.living) out.push({ type: 'range', key: `range:${top[0].kind}`, prio: 0.42, strength: top[0].n / S.living * 10, kind: top[0].kind,
+        share: top[0].n / S.living, cells: Math.round(top[0].n * S.scale), field: range(top[0].kind), grid: [...v.grid] });
+      if (top[1] && top[0].n >= 0.15 * S.living && top[1].n >= 0.15 * S.living) {
+        const fa = range(top[0].kind), fb = range(top[1].kind);
+        // squares where each holds the most, and the edges between them: a front
+        let edges = 0;
+        for (const k of inSq) {
+          const a = fa[k] > fb[k] && fa[k] >= 3, i = k % NOTE_TG;
+          if (!a) continue;
+          for (const n2 of [k + 1, k - 1, k + NOTE_TG, k - NOTE_TG]) if (n2 >= 0 && n2 < G && v.sqIn[n2] && Math.abs((n2 % NOTE_TG) - i) <= 1 && fb[n2] > fa[n2] && fb[n2] >= 3) edges++;
+        }
+        if (edges >= 3) out.push({ type: 'front', key: `front:${top[0].kind}:${top[1].kind}`, prio: 0.48, strength: edges, kind: top[0].kind, akind: top[1].kind,
+          a: { kind: top[0].kind, share: top[0].n / S.living, field: fa }, b: { kind: top[1].kind, share: top[1].n / S.living, field: fb }, edges, grid: [...v.grid] });
+      }
+      // Barren water: a good share of the view with no life, and what it lacks.
+      // (a square nearly empty for the view: a tenth of its mean or less, the view's cells being a sample when it is wide)
+      const meanN = inSq.reduce((a, k) => a + sqN[k], 0) / inSq.length, few = 0.1 * meanN;
+      const empty = inSq.filter((k) => sqN[k] <= few);
+      if (meanN >= 5 && empty.length >= 0.25 * inSq.length && empty.length >= 6) {
+        const avg = (ks, f) => ks.reduce((a, k) => a + f(k), 0) / Math.max(1, ks.length), full = inSq.filter((k) => sqN[k] > few);
+        const lightE = ctx.light ? avg(empty, (k) => ctx.light(...sqMid(k))) : 0, lightF = ctx.light ? avg(full, (k) => ctx.light(...sqMid(k))) : 0;
+        const tE = avg(empty, (k) => v.temps[k]), tF = avg(full, (k) => v.temps[k]), iceE = avg(empty, (k) => v.ice[k]), stoneE = avg(empty, (k) => v.stone[k]);
+        const why = iceE > 0.4 ? 'ice' : stoneE >= 6 ? 'stone' : lightE < 0.8 * lightF ? 'dark' : tE < tF - 3 ? 'cold' : tE > tF + 3 ? 'warm' : 'unsettled';
+        out.push({ type: 'barren', key: 'barren', prio: 0.36, strength: empty.length / inSq.length * 10, share: empty.length / inSq.length, why,
+          field: Array.from(sqN), level: Math.max(0.5, 1.5 * few), grid: [...v.grid], lightE, lightF, tE, tF });
+      }
+      // A killing ground: where most died here lately, and of what.
+      const dead = new Float32Array(G), causes = {};
+      let nd = 0;
+      for (let q = this.events.length - 1; q >= 0; q--) {
+        const e = this.events[q];
+        if (e.t < t - W) break;
+        if (e.ev !== 'kill' && e.ev !== 'grazed' && e.ev !== 'starved' && e.ev !== 'scalded' && e.ev !== 'froze' && e.ev !== 'old' && e.ev !== 'dried') continue;
+        const k = squareOf(v, e.x, e.y, [Ww, Hw]);
+        if (k < 0 || !v.sqIn[k]) continue;
+        dead[k] += e.w ?? 1; nd++;
+        causes[e.ev] = (causes[e.ev] || 0) + 1;
+      }
+      let peak = 0;
+      for (const k of inSq) peak = Math.max(peak, dead[k]);
+      // (most of them in a fifth of the view or less)
+      const hot = inSq.filter((k) => dead[k] >= 0.35 * peak), inHot = hot.reduce((a, k) => a + dead[k], 0);
+      if (nd >= 30 && hot.length <= 0.2 * inSq.length && inHot >= 0.5 * nd) out.push({ type: 'deaths', key: 'deaths', prio: 0.46, strength: inHot / 10,
+        field: Array.from(dead), level: 0.35 * peak, grid: [...v.grid], died: Math.round(inHot), all: nd, causes });
+    }
+    yield;
     // Decay: the dead rotting back to silt, which feeds what grows next.
-    const rot = count('rot');
-    if (rot >= 12 && S.husks.length >= 10) out.push({ type: 'rot', key: 'rot', prio: 0.32, strength: rot, count: rot, husks: Math.round(S.husks.length * S.scale), sparks: count('spark') });
+    const rot = c30(EV.rot);
+    if (rot >= 12 && S.husks.length >= 10) out.push({ type: 'rot', key: 'rot', prio: 0.32, strength: rot, count: rot, husks: Math.round(S.husks.length * S.scale), sparks: c30(EV.spark) });
     // The current: water moving through the whole view, carrying whatever does not swim against it.
     if (ctx.flow) {
       const r = v.rect;
@@ -531,20 +752,22 @@ export class Notes {
   }
 
   // (the time a part of the looking took, for debug())
-  _part(k, t0) { const d = (this.ms.detectParts ||= {}); d[k] = (d[k] || 0) + performance.now() - t0; }
+  _part(k, t0) { const d = (this.ms.detectParts ||= {}), ms = performance.now() - t0; d[k] = (d[k] || 0) + ms; (this._looked ||= {})[k] = +ms.toFixed(1); }
+  /** the longest one call of a part took (ms), with what it was doing then, for debug(): a hitch is one long call */
+  worst(k, ms, what) { const w = (this.ms.worst ||= {}); if (!w[k] || ms > w[k].ms) w[k] = { ms: +ms.toFixed(1), what, cells: this.view?.n, events: this.events.length }; }
 
   // The view's organisms: cells joined by their bonds (each cell's two bonded partners, of its own kind, as the view
   // read them), as { kind, ids, n, anchor (the member nearest its middle), its place (ax, ay), size (world units across),
   // form, speed (world units a second), lengths (body lengths a second), heading, key }, kept by key from look to look
   // (a body keeps its key while it keeps any of its cells). Once a look.
-  _bodies() {
-    const v = this.view;
+  _bodies(v = this.view) {
     if (this._bodyView === v) return this._bodyList;
     const [W, H] = this.world(), parent = new Int32Array(v.n).fill(-1);
     const find = (i) => { while (parent[i] >= 0 && parent[parent[i]] >= 0) i = parent[i] = parent[parent[i]]; return parent[i] >= 0 ? parent[i] : i; };
     for (let i = 0; i < v.n; i++) {
       if (!isLiving(v.kind[i])) continue;
-      for (const pid of [v.p1[i], v.p2[i]]) {
+      for (let q = 0; q < 2; q++) {
+        const pid = q ? v.p2[i] : v.p1[i];
         if (pid === NONE) continue;
         const j = v.at.get(pid);
         if (j === undefined || v.kind[j] !== v.kind[i]) continue;
@@ -552,15 +775,18 @@ export class Notes {
         if (a !== b) parent[Math.max(a, b)] = Math.min(a, b);
       }
     }
-    const groups = new Map();
+    // (each group's size counted first, so only the groups of three or more are gathered)
+    const root = new Int32Array(v.n), size = new Int32Array(v.n), groups = new Map();
+    for (let i = 0; i < v.n; i++) { root[i] = -1; if (isLiving(v.kind[i]) && (v.p1[i] !== NONE || v.p2[i] !== NONE)) { root[i] = find(i); size[root[i]]++; } }
     for (let i = 0; i < v.n; i++) {
-      if (!isLiving(v.kind[i]) || (parent[i] < 0 && v.p1[i] === NONE && v.p2[i] === NONE)) continue;
-      const r = find(i);
+      const r = root[i];
+      if (r < 0 || size[r] < 3) continue;
       let gr = groups.get(r);
       if (!gr) groups.set(r, (gr = []));
       gr.push(i);
     }
-    const prev = this._bodyKeys || new Map(), keys = new Map(), list = [];
+    // (which body each cell was in at the last look, to keep a body's key: one map of cells, not a body against each)
+    const was = this._bodyCells || new Map(), keys = new Set(), cells = new Map(), list = [];
     for (const rows of groups.values()) {
       if (rows.length < 3) continue;
       // its middle, its motion and its spread (about its first cell, across the world's wrap)
@@ -583,15 +809,17 @@ export class Notes {
       const size = 2 * Math.sqrt(far), speed = Math.hypot(vx, vy);
       const ids = rows.map((i) => v.id[i]);
       // its key: the one it had while it held any of these cells (the one it shared most with), else its first cell's
+      const votes = new Map();
       let key = null, best = 0;
-      for (const [k, set] of prev) { let c = 0; for (const id of ids) if (set.has(id)) c++; if (c > best) { best = c; key = k; } }
-      if (key == null || keys.has(key)) key = `${v.kind[rows[0]]}.${Math.min(...ids)}`;
-      keys.set(key, new Set(ids));
+      for (const id of ids) { const k = was.get(id); if (k !== undefined) { const c = (votes.get(k) || 0) + 1; votes.set(k, c); if (c > best) { best = c; key = k; } } }
+      if (key == null || keys.has(key)) { let lo = ids[0]; for (const id of ids) if (id < lo) lo = id; key = `${v.kind[rows[0]]}.${lo}`; }
+      keys.add(key);
+      for (const id of ids) cells.set(id, key);
       list.push({ kind: v.kind[rows[0]], ids, n, anchor: v.id[anchor], ax: v.x[anchor], ay: v.y[anchor], size, speed,
         lengths: speed / Math.max(size, 0.05), heading: Math.atan2(vy, vx), key,
         form: elong >= 3.5 ? 'filament' : n >= 20 && elong < 1.8 ? 'mat' : n >= 8 ? 'colony' : 'cluster' });
     }
-    this._bodyKeys = keys;
+    this._bodyCells = cells;
     this._bodyView = v;
     this._bodyList = list;
     return list;
@@ -603,8 +831,8 @@ export class Notes {
   // half the view. With what it holds and why it may hold together (from what the view shows: its cells bonded into
   // bodies, grazers biting its producers there, hunters among them, births there, the current gathering water in, its
   // cells holding still). Kept by key from look to look while it keeps any of its squares.
-  _clump(ctx, band) {
-    const v = this.view, [W, H] = this.world(), r = v.rect, cx = r[0] + r[2] / 2, cy = r[1] + r[3] / 2;
+  _clump(ctx, band, v = this.view, S = this.stats) {
+    const [W, H] = this.world(), r = v.rect, cx = r[0] + r[2] / 2, cy = r[1] + r[3] / 2;
     const b = 2 ** Math.round(Math.log2(Math.max(r[2], r[3]) / 24));
     const bins = new Map(), near = (x, c, L) => c + (x - c) - L * Math.round((x - c) / L);
     let living = 0, speed = 0;
@@ -652,7 +880,7 @@ export class Notes {
     }
     this._clumpKeys = keys;
     if (!best) return null;
-    const { comp, rows, shares } = best, set = new Set(comp), S = this.stats;
+    const { comp, rows, shares } = best, set = new Set(comp);
     // its middle, its size, the cell nearest its middle (the label hangs on it), how its cells move
     let mx = 0, my = 0, bonded = 0, cs = 0;
     for (const i of rows) { mx += near(v.x[i], cx, W); my += near(v.y[i], cy, H); if (v.p1[i] !== NONE || v.p2[i] !== NONE) bonded++; cs += Math.hypot(v.vx[i], v.vy[i]); }
@@ -688,14 +916,20 @@ export class Notes {
     if (inflow > 0.02 && inflow > 0.3 * flow) why.push(['current', inflow]);
     if (cs < 0.6 * (speed / living)) why.push(['still', cs]);
     return { key: best.key, cells: Math.round(rows.length * S.scale), species: new Set(rows.map((i) => v.kind[i])).size, many: best.many, shares: shares.slice(0, 5), why,
-      size: 2 * far, b, bins: comp, anchor: v.id[anchor], band };
+      size: 2 * far, b, bins: comp, anchor: v.id[anchor], band,
+      // (its cells' places, for its outline: drawn once as found)
+      pts: rows.slice(0, 1500).map((i) => [near(v.x[i], cx, W), near(v.y[i], cy, H)]) };
   }
 
   // the nearest hunter closing on a cell of the species it last ate: within reach, moving toward it
-  _stalk(ctx) {
-    const v = this.view, [W, H] = this.world(), grid = new Map(), R = 1.5;
+  _stalk(ctx, v = this.view) {
+    const [W, H] = this.world(), grid = new Map(), R = 1.5;
+    // (only the kinds some hunter in view last ate are looked for: none, and there is nothing to do)
+    const wanted = new Set();
+    for (let i = 0; i < v.n; i++) { const img = v.img[i]; if (isLiving(v.kind[i]) && isLiving(img) && img !== v.kind[i] && this.sp(v.kind[i])?.guild === 'predator') wanted.add(img); }
+    if (!wanted.size) return null;
     for (let i = 0; i < v.n; i++) {
-      if (!isLiving(v.kind[i]) || v.cause[i] === CYST) continue;
+      if (!wanted.has(v.kind[i]) || v.cause[i] === CYST) continue;
       const k = Math.floor(v.x[i] / R) * 65536 + Math.floor(v.y[i] / R);
       let a = grid.get(k);
       if (!a) grid.set(k, (a = []));
@@ -775,13 +1009,16 @@ export class Notes {
       if (n.exitAt != null) continue;
       // the camera setting off elsewhere takes the notes with it (rather than dragging them out of view)
       if (ctx.leaving) { this._exit(n, now, 'camera'); continue; }
-      const young = now - n.born < T.minLife;
+      // (its least counted from when it could first be read: n.readAt, from the view; one never read is not held)
+      const young = n.readAt != null && now - n.readAt < T.minLife;
       // a wide view keeps only the water's own stories, and only as many as it has room for (the newest)
       if (((tooWide && !WATER_TYPES.has(n.type)) || ++live > (tooWide ? 1 : maxOn)) && !young) { this._exit(n, now, 'zoom'); continue; }
       const c = byKey.get(n.key);
       const age = now - n.born;
-      if (c) { Object.assign(n.data, c, { track: c.track?.length ? c.track : n.data.track }); n.track = n.data.track; n.lastHeld = now; }
-      const held = c || now - n.lastHeld < 1.5;
+      // (one told as first found, its words and its outline, keeps them while it is told: data.lock)
+      if (c && !n.data.lock) { Object.assign(n.data, c, { track: c.track?.length ? c.track : n.data.track }); n.track = n.data.track; }
+      if (c) n.lastHeld = now;
+      const held = c || now - n.lastHeld < 1.5 || (n.data.lock && age < T.dwellLong);
       // what it marks gone from view (or its label with no room) for a moment: it goes
       if (this._marked(n, ctx)) n.lostAt = null; else n.lostAt ??= now;
       const lost = n.lostAt != null && now - n.lostAt > T.grace;
@@ -835,7 +1072,8 @@ export class Notes {
     n.exitAt = now;
     // (one the camera takes before it could be read fades out slowly, rather than blinking away)
     // (readable, past half its alpha, for a moment and a half at least: its fade as long as that takes)
-    n.fade = why === 'camera' && now - n.born < this.T.minLife ? Math.max(1.2, 2 * (1.5 - (now - n.born)) + 0.2) : this.T.exit;
+    const read = n.readAt != null ? now - n.readAt : null;
+    n.fade = why === 'camera' && read != null && read < this.T.minLife ? Math.max(1.2, 2 * (1.5 - read) + 0.2) : this.T.exit;
     this.keyAt.set(n.key, now);
     // (what was shown, for how long and why it went, for debug(): the variety, and any shown too briefly to read)
     this.history.push([n.type, now - n.born, why]);
@@ -884,6 +1122,6 @@ export class Notes {
     this.ms.drawn = {};
     const by = {};
     for (const [t, life, why] of this.history) { const b = (by[t] ||= { n: 0, brief: 0, secs: 0 }); b.n++; b.secs = Math.round(b.secs + life); if (life < 2.5) { b.brief++; b[why] = (b[why] || 0) + 1; } }
-    return { shown: by, drawn, detectParts: Object.fromEntries(Object.entries(this.ms.detectParts || {}).map(([k, v]) => [k, Math.round(v)])), lost: this.lost, biteKeep: this.biteKeep, ms: Object.fromEntries(Object.entries(this.ms).filter(([k]) => k !== 'drawn' && k !== 'detectParts').map(([k, v]) => [k, typeof v === 'number' ? Math.round(v) : Object.fromEntries(Object.entries(v).map(([a, b]) => [a, Math.round(b)]))])), cells: this.view?.n ?? 0, inView: this.view?.inView ?? 0, events: this.events.length, cands: this.cands.map((c) => c.key), notes: this.notes.map((n) => `${n.key}${n.exitAt != null ? '(out)' : ''}`) };
+    return { shown: by, drawn, worst: this.ms.worst, detectParts: Object.fromEntries(Object.entries(this.ms.detectParts || {}).map(([k, v]) => [k, Math.round(v)])), lost: this.lost, biteKeep: this.biteKeep, ms: Object.fromEntries(Object.entries(this.ms).filter(([k]) => k !== 'drawn' && k !== 'detectParts' && k !== 'worst' && k !== 'lastParts').map(([k, v]) => [k, typeof v === 'number' ? Math.round(v) : Object.fromEntries(Object.entries(v).map(([a, b]) => [a, Math.round(b)]))])), cells: this.view?.n ?? 0, inView: this.view?.inView ?? 0, events: this.events.length, cands: this.cands.map((c) => c.key), notes: this.notes.map((n) => `${n.key}${n.exitAt != null ? '(out)' : ''}`) };
   }
 }

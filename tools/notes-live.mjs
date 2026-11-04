@@ -2,6 +2,9 @@
 // at Max, then a screenshot every few seconds and a log of what the notes held and cost (__tidemote.notes.debug()).
 //   tools/gpu-node.sh tools/notes-live.mjs --out runs/notes/a [--warm 60] [--secs 60] [--every 5] [--speed 1] [--zoom Z] [--phone] [--eval JS] [--audit]
 // --audit: how steadily the marks and labels ride the scene and any text that overlaps (src/noteaudit.js), in audit.json
+// --frames: the time between frames as the page draws them (requestAnimationFrame), its spread and its long ones, with
+// the annotations' own share of each frame (the browser's long tasks too), in frames.json
+// --notes 0: the annotations off (state.notes = 0), to compare
 // --when TYPE: also a screenshot (w-*.png) whenever a note of that type shows, 4 s apart at most
 // --profile S: a CPU profile of the page's main thread over S seconds, from --profileAt seconds in (default 30): the
 // functions that took the most time themselves, in profile.txt
@@ -48,6 +51,14 @@ if (v.zoom) await page.evaluate((z) => {
 }, +v.zoom);
 else await page.evaluate(() => { if (!globalThis.__tidemote.director.active) document.getElementById('auto-play').click(); });
 if (v.audit) await page.evaluate(() => globalThis.__tidemote.noteView.audit('reset'));
+if (v.notes != null) await page.evaluate((x) => { const T = globalThis.__tidemote; setTimeout(() => { T.state.notes = x; }, 100); }, +v.notes);
+if (v.frames) await page.evaluate(() => {
+  const F = (globalThis.__frames = { d: [], long: [] });
+  let last = performance.now();
+  const tick = (t) => { F.d.push(t - last); last = t; requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+  try { new PerformanceObserver((l) => { for (const e of l.getEntries()) F.long.push([Math.round(e.startTime), Math.round(e.duration)]); }).observe({ type: 'longtask', buffered: false }); } catch {}
+});
 const t0 = Date.now();
 let k = 0;
 if (v.when) (async () => {
@@ -88,6 +99,14 @@ if (v.audit) {
   fs.writeFileSync(path.join(v.out, 'audit.json'), JSON.stringify(a, null, 1));
   console.log(JSON.stringify({ frames: a.frames, overlapFrames: a.overlapFrames, jerk: a.jerk, moves: a.moves, flips: a.flips, swaps: a.swaps, hidden: a.hidden, blinks: a.blinks, blinked: a.blinked }, null, 1));
   console.log(a.examples.slice(0, 12).join('\n'));
+}
+if (v.frames) {
+  const F = await page.evaluate(() => globalThis.__frames);
+  const d = F.d.slice(30).sort((a, b) => a - b), q = (p) => d[Math.min(d.length - 1, Math.floor(p * d.length))];
+  const r = { frames: d.length, p50: +q(0.5).toFixed(1), p95: +q(0.95).toFixed(1), p99: +q(0.99).toFixed(1), max: +d[d.length - 1].toFixed(1),
+    over25: d.filter((x) => x > 25).length, over50: d.filter((x) => x > 50).length, over100: d.filter((x) => x > 100).length, longTasks: F.long.length, longMs: F.long.reduce((a, x) => a + x[1], 0) };
+  fs.writeFileSync(path.join(v.out, 'frames.json'), JSON.stringify({ ...r, long: F.long }, null, 1));
+  console.log('frames', JSON.stringify(r));
 }
 fs.writeFileSync(path.join(v.out, 'log.txt'), log.join('\n'));
 await ctx.close(); server.close();
