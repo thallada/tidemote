@@ -105,9 +105,10 @@ export function readView(scan, world) {
   const s = grid[2], cx = rect[0] + rect[2] / 2, cy = rect[1] + rect[3] / 2;
   for (let k = 0; k < G; k++) {
     v.temps[k] = f32[NOTE_TEMPS + k]; v.ice[k] = f32[NOTE_TEMPS + G + k]; v.stone[k] = u32[NOTE_STONE + k];
-    let dx = grid[0] + ((k % NOTE_TG) + 0.5) * s - cx, dy = grid[1] + (Math.floor(k / NOTE_TG) + 0.5) * s - cy;
-    dx -= W * Math.round(dx / W); dy -= H * Math.round(dy / H);
-    v.sqIn[k] = Math.abs(dx) < (rect[2] + s) / 2 && Math.abs(dy) < (rect[3] + s) / 2 ? 1 : 0;
+    // (the grid and the view are on the same side of the world's wrap, both about the camera: a square counts where it
+    // lies, never again as the wrap's repeat of itself when the grid is wider than the world)
+    const dx = grid[0] + ((k % NOTE_TG) + 0.5) * s - cx, dy = grid[1] + (Math.floor(k / NOTE_TG) + 0.5) * s - cy;
+    v.sqIn[k] = Math.abs(dx) < Math.min((rect[2] + s) / 2, W / 2) && Math.abs(dy) < Math.min((rect[3] + s) / 2, H / 2) ? 1 : 0;
   }
   for (let i = 0; i < n; i++) {
     const o = NOTE_HEAD + i * NOTE_REC, w = u32[o + 3];
@@ -124,9 +125,11 @@ export function readView(scan, world) {
 
 /** The square of the view's water (its index, or -1 outside the grid) that world point (x, y) lies in. */
 export function squareOf(v, x, y, world) {
-  const [W, H] = world, [ox, oy, s] = v.grid;
-  const i = Math.floor((((x - ox) % W) + W) % W / s), j = Math.floor((((y - oy) % H) + H) % H / s);
-  return i < NOTE_TG && j < NOTE_TG ? j * NOTE_TG + i : -1;
+  // (the point taken where it lies nearest the view's middle, as the squares counted in view are: never in a repeat of
+  // the world the grid also reaches when it is wider than the world)
+  const [W, H] = world, [ox, oy, s] = v.grid, cx = v.rect[0] + v.rect[2] / 2, cy = v.rect[1] + v.rect[3] / 2;
+  const i = Math.floor((cx + x - cx - W * Math.round((x - cx) / W) - ox) / s), j = Math.floor((cy + y - cy - H * Math.round((y - cy) / H) - oy) / s);
+  return i >= 0 && j >= 0 && i < NOTE_TG && j < NOTE_TG ? j * NOTE_TG + i : -1;
 }
 
 /**
@@ -980,7 +983,7 @@ export class Notes {
     return { key: best.key, cells: Math.round(rows.length * S.scale), species: new Set(rows.map((i) => v.kind[i])).size, many: best.many, shares: shares.slice(0, 5), why,
       size: 2 * far, b, bins: comp, anchor: v.id[anchor], band,
       // (its cells' places, for its outline: drawn once as found)
-      pts: rows.slice(0, 1500).map((i) => [near(v.x[i], cx, W), near(v.y[i], cy, H)]) };
+      pts: rows.slice(0, 1500).map((i) => [near(v.x[i], cx, W), near(v.y[i], cy, H)]), ids: rows.slice(0, 1500).map((i) => v.id[i]) };
   }
 
   // the nearest hunter closing on a cell of the species it last ate: within reach, moving toward it

@@ -15,6 +15,7 @@ import { NOTE_TG } from './shaders.js';
 import { createAudit } from './noteaudit.js';
 import { fmtLen, UM_PER_UNIT } from './fmt.js';
 import { contours, smooth } from './contour.js';
+import { squareOf } from './notes.js';
 
 const FONT = 'Saira, Bahnschrift, "DIN Alternate", "Segoe UI", system-ui, sans-serif';
 const INK = '226,241,240', INK2 = '163,189,190', INK3 = '111,138,140', LINE = '150,222,230', HOT = '255,95,58', CYAN = '127,214,223', SUN = '255,204,92';
@@ -768,6 +769,30 @@ export function createNoteView(g) {
     if (rel) { let peak = 0; for (const w of arr) peak = Math.max(peak, w); level = Math.max(0.05, rel * peak); }
     return contours(arr, nx, ny, level).map((L) => smooth(L, 2).map(([x, y]) => [(x + i0) * c, (y + j0) * c]));
   }
+  // A crowd's shape that rides with it, as each cell's mark does. At each look it is built from its cells about an
+  // origin carried along with them (by their mean motion, and the current for `kind`, through F.project: the very
+  // carrying the marks and the page's own brackets have), and each frame it is drawn about where that origin has been
+  // carried to now. So it moves with the scene frame by frame, however fast its cells or the camera, while its shape
+  // eases as the crowd changes (crowdLoops' field, kept in that moving frame); `freeze`, drawn once as first found.
+  function ride(st, rows, kind, R, { freeze = false, rel = 0 } = {}) {
+    const F = curF, v = F.model.view;
+    if (st.view !== v && rows.length) {
+      st.view = v;
+      const pts = rows.map((i) => nearView(F, v.x[i], v.y[i]));
+      let mx = 0, my = 0, vx = 0, vy = 0;
+      rows.forEach((i, q) => { mx += pts[q][0]; my += pts[q][1]; vx += v.vx[i]; vy += v.vy[i]; });
+      const n = rows.length;
+      st.o = st.o ? here(st, kind) : [mx / n, my / n];
+      st.t = v.simTime; st.vm = [vx / n, vy / n];
+      if (!freeze || !st.loops) st.loops = crowdLoops(pts.map(([x, y]) => [x - st.o[0], y - st.o[1]]), R, freeze ? null : (st.crowd ||= {}), rel);
+    }
+    return st.loops ? { loops: st.loops, at: () => here(st, kind) } : null;
+  }
+  // where a riding shape's origin is now: carried from its look's moment to the moment shown, as a mark is
+  function here(st, kind) {
+    const p = curF.project({ x: st.o[0], y: st.o[1], vx: st.vm[0], vy: st.vm[1], t: st.t }, kind);
+    return p ? curF.toWorld(p) : st.o;
+  }
   // a world point as near the view's middle as the world's wrap allows (so a shape about a crowd is the view's)
   function nearView(F, x, y) {
     const [W, H] = F.world, r = F.model.view.rect, cx = r[0] + r[2] / 2, cy = r[1] + r[3] / 2;
@@ -782,9 +807,10 @@ export function createNoteView(g) {
     let top = null, n = 0;
     // (each loop moved, whole, by the world's size to lie on the side of its wrap the view is on: a shape found about
     // one side of the seam shows whole wherever the camera is)
-    const [W, H] = F.world, c0 = F.toWorld([(F.open.l + F.open.r) / 2, (F.open.t + F.open.b) / 2]);
+    // (o.at: the loops are about an origin that rides with their cells, where it is now)
+    const [W, H] = F.world, c0 = F.toWorld([(F.open.l + F.open.r) / 2, (F.open.t + F.open.b) / 2]), o0 = o.at ? o.at() : [0, 0];
     for (const L of loops) {
-      const sx = -W * Math.round((L[0][0] - c0[0]) / W), sy = -H * Math.round((L[0][1] - c0[1]) / H);
+      const sx = o0[0] - W * Math.round((L[0][0] + o0[0] - c0[0]) / W), sy = o0[1] - H * Math.round((L[0][1] + o0[1] - c0[1]) / H);
       L.forEach((w, i) => { const p = F.toScreen([w[0] + sx, w[1] + sy]); if (i) P.lineTo(p[0], p[1]); else P.moveTo(p[0], p[1]); if (!top || p[1] < top[1]) top = p; });
       P.closePath();
       n += L.length;
@@ -1071,17 +1097,9 @@ export function createNoteView(g) {
         const loops = S.loops;
         P.draws.push((t) => blob(loops, HOT, t, F, { hatch: true, ppu0: S.ppu0 }));
       } else {
-        // its too-warm cells' ground: a shape about them, eased from look to look; its frame held to one side of the
-        // world's wrap (the first view's middle), so the field carries over however the camera wraps
-        if (S.heatView !== M.view) {
-          S.heatView = M.view;
-          const v = M.view, R = clamp(F.radius(d.kind) * 2.4, 16, 90) / F.ppu, [W, H] = F.world;
-          const ref = (S.ref ||= [v.rect[0] + v.rect[2] / 2, v.rect[1] + v.rect[3] / 2]);
-          const near = (x, y) => [ref[0] + (x - ref[0]) - W * Math.round((x - ref[0]) / W), ref[1] + (y - ref[1]) - H * Math.round((y - ref[1]) / H)];
-          S.loops = crowdLoops(rows.map((i) => near(v.x[i], v.y[i])), R, (S.crowd ||= {}));
-        }
-        const loops = S.loops;
-        P.draws.push((t) => blob(loops, HOT, t, F, { hatch: true, ppu0: S.ppu0 }));
+        // its too-warm cells' ground: a shape about them that rides with them, eased from look to look
+        const sh = ride((S.ride ||= {}), rows, d.kind, clamp(F.radius(d.kind) * 2.4, 16, 90) / F.ppu);
+        if (sh) P.draws.push((t) => blob(sh.loops, HOT, t, F, { hatch: true, ppu0: S.ppu0, at: sh.at }));
         P.draws.push((t) => census(pts, 'square', HOT, t - 0.2, an, glyphOf(d.kind)));
       }
       const deaths = recent('scalded', d.kind, 10);
@@ -1227,9 +1245,10 @@ export function createNoteView(g) {
       // a community: its outline (a shape about its cells as they were when it was found: it does not shift), the label
       // hung on a cell at its middle; what it holds as a table of its species (glyph, name, share) and a bar in their
       // colors; why it may hold together
-      S.loops ||= crowdLoops(d.pts, d.b * 1.4, null, 0.2);
-      const loops = S.loops;
-      P.draws.push((t) => blob(loops, LINE, t, F, { width: 1.4, fill: ['rgba(150,222,230,1)', 0.05] }));
+      const v = M.view, rows = [];
+      for (const id of d.ids || []) { const i = v.at.get(id); if (i !== undefined) rows.push(i); }
+      const sh = ride((S.ride ||= {}), rows, d.shares[0]?.kind ?? -2, d.b * 1.4, { freeze: true, rel: 0.2 });
+      if (sh) P.draws.push((t) => blob(sh.loops, LINE, t, F, { width: 1.4, fill: ['rgba(150,222,230,1)', 0.05], at: sh.at }));
       const an = hang(0, [], -2, d.anchor);
       if (!an) return null;
       P.anchor = an;
@@ -1317,11 +1336,8 @@ export function createNoteView(g) {
       const loops = S.loops, v = M.view, W2 = F.world, rows = [];
       for (let i = 0; i < v.n; i++) {
         if (!(v.kind[i] >= 5) || F.species(v.kind[i])?.guild === 'predator') continue;
-        const [ox, oy, gs] = d.grid;
-        let dx = v.x[i] - ox, dy = v.y[i] - oy;
-        dx -= W2[0] * Math.floor(dx / W2[0]); dy -= W2[1] * Math.floor(dy / W2[1]);
-        const a = Math.floor(dx / gs), b = Math.floor(dy / gs);
-        if (a < NOTE_TG && b < NOTE_TG && d.stone[b * NOTE_TG + a] >= 6) rows.push(i);
+        const k = squareOf(v, v.x[i], v.y[i], W2);
+        if (k >= 0 && d.stone[k] >= 6) rows.push(i);
       }
       const pts = group('s', rows), an = hang(0, pts, -2);
       if (!an) return null;
@@ -1389,11 +1405,10 @@ export function createNoteView(g) {
       for (let i = 0; i < v.n; i++) if (v.dry[i] && v.kind[i] >= 5) rows.push(i);
       const pts = group('d', rows), an = hang(0, pts, -2);
       if (!an) return null;
-      if (S.dryView !== v) { S.dryView = v; S.loops = crowdLoops(rows.map((i) => nearView(F, v.x[i], v.y[i])), clamp(F.radius(d.kind) * 3, 18, 100) / F.ppu, (S.crowd ||= {})); }
-      const loops = S.loops;
+      const sh = ride((S.ride ||= {}), rows, -2, clamp(F.radius(d.kind) * 3, 18, 100) / F.ppu);
       S.ppu0 ||= F.ppu;
       P.tone = SAND;
-      P.draws.push((t) => blob(loops, SAND, t, F, { hatch: true, ppu0: S.ppu0, hatchA: 0.45, dash: [4, 3] }));
+      if (sh) P.draws.push((t) => blob(sh.loops, SAND, t, F, { hatch: true, ppu0: S.ppu0, hatchA: 0.45, dash: [4, 3], at: sh.at }));
       P.draws.push((t) => census(pts, 'ring', SAND, t, an, 3.5));
       pips(recent('dried', null, 10), HOT, 0.4);
       P.anchor = an;
@@ -1407,11 +1422,8 @@ export function createNoteView(g) {
       const v = M.view, W2 = F.world, rows = [];
       for (let i = 0; i < v.n; i++) {
         if (!(v.kind[i] >= 5) || !v.torpid[i]) continue;
-        const [ox, oy, gs] = v.grid;
-        let dx = v.x[i] - ox, dy = v.y[i] - oy;
-        dx -= W2[0] * Math.floor(dx / W2[0]); dy -= W2[1] * Math.floor(dy / W2[1]);
-        const a = Math.floor(dx / gs), b = Math.floor(dy / gs);
-        if (a < NOTE_TG && b < NOTE_TG && v.ice[b * NOTE_TG + a] > 0.5) rows.push(i);
+        const k = squareOf(v, v.x[i], v.y[i], W2);
+        if (k >= 0 && v.ice[k] > 0.5) rows.push(i);
       }
       const pts = group('i', rows), an = hang(0, pts, -2);
       if (!an) return null;
@@ -1792,9 +1804,10 @@ export function createNoteView(g) {
         const lx = st.fix[0], ly = st.fix[1], box = boxAt(lx, ly, st.dir, size);
         // its leader meets it at whichever end faces its cell (the cell may have gone round to its far side)
         // (a cell under the loupe is reached where the loupe shows it)
+        let intoLens = false;
         if (F.lens && Math.hypot(an[0] - F.lens.x, an[1] - F.lens.y) < F.lens.r) {
           LM = F.lens; const m = mp(an); LM = null;
-          if (Math.hypot(m[0] - F.lens.x, m[1] - F.lens.y) < F.lens.r - 4) an = m;
+          if (Math.hypot(m[0] - F.lens.x, m[1] - F.lens.y) < F.lens.r - 4) { an = m; intoLens = true; }
         }
         const near = st.dir > 0 ? an[0] <= lx + size.w / 2 : an[0] >= lx - size.w / 2;
         const ex = near ? lx - st.dir * 4 : lx + st.dir * (size.w + 4);
@@ -1832,7 +1845,13 @@ export function createNoteView(g) {
           owner = `L${id}`;
           // (a label held on the screen: its steadiness there, not in the world)
           if (A) A.screen('label', id, lx, ly);
-          if (!frozen) leader(an[0], an[1], ex, ly + 7, L.tone || INK, t - 0.15 - k * 0.5);
+          // (a leader to a cell the loupe does not show passes under it: it would point at nothing there)
+          if (!frozen) {
+            const under = F.lens && !intoLens;
+            if (under) { g.save(); g.beginPath(); g.rect(-1e4, -1e4, 2e4, 2e4); g.moveTo(F.lens.x + F.lens.r, F.lens.y); g.arc(F.lens.x, F.lens.y, F.lens.r, 0, TAU); g.clip('evenodd'); }
+            leader(an[0], an[1], ex, ly + 7, L.tone || INK, t - 0.15 - k * 0.5);
+            if (under) g.restore();
+          }
           label(L, lx, ly, st.dir, t - 0.25 - k * 0.5);
           A = a0;
         }
