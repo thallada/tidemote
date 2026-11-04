@@ -6982,7 +6982,7 @@ struct Post {
   // each cascade: its patch (x, y), how far it carries the water toward its crests, whether it holds any waves
   seaC: array<vec4f, ${SEA_CASCADES}>,
   // x how its caustics' focus is softened, y the most it focuses the light, z what is drawn (seaTune.view: 0 the
-  // view, 1 the sea's light alone, 2 its sheen alone)
+  // view, 1 the sea's light alone, 2 its sheen alone), w 1 where the composite reads it from its field (seaFieldMain)
   seaLook: vec4f,
   // the hand's lamp or shade, as the simulation has it (Hand.lamp); the warm stage's or cold probe's lens (center,
   // radius, 1 shown): the thermal camera inside the tool's reach
@@ -8805,12 +8805,44 @@ fn surfaceAt(wp: vec2f, ppu: f32, c0: vec4f) -> Surface {
   let wet = smoothstep(0.0, 0.4, room);
   if (wet <= 0.0) { return o; }
   if (post.seaHead.z > 0.0) { o = seaSurface(wp, ppu, c0); }
+  return surfaceNear(o, wp, room);
+}
+// The sea's surface (sea) with the raindrops' rings and the water's edge at wp, room: waterRoom there
+fn surfaceNear(sea: Surface, wp: vec2f, room: f32) -> Surface {
+  var o = sea;
+  let wet = smoothstep(0.0, 0.4, room);
   let r = ripples(wp);
   // the bending eases out toward the water's edge within the room there (keepInside): faded over a fixed width
   // instead, a storm's bending (as long as that width or more) smeared what lies by the shore into bands
   o.shift = keepInside(o.shift + r * 1.2, room);
   o.slope = (o.slope + r) * wet;
   o.light = mix(1.0, o.light, wet);
+  return o;
+}
+// The sea seen from close up, where its finest waves span many pixels (post.seaLook.w, Engine._seaPost): seaSurface
+// taken every SEA_FIELD pixels of the view (seaFieldMain) and read between them, for the composite. Its six to ten
+// bicubic taps of the sea's cascades a pixel cost an M1 0.8 ms a frame; between points of a field this smooth the
+// bending read is within a small fraction of a pixel of the exact one.
+const SEA_FIELD = 4.0;
+@group(0) @binding(21) var seaFieldW: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(22) var seaLightW: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(23) var seaField: texture_2d<f32>;
+@group(0) @binding(24) var seaLight: texture_2d<f32>;
+@compute @workgroup_size(8, 8) fn seaFieldMain(@builtin(global_invocation_id) g: vec3u) {
+  if (any(g.xy >= textureDimensions(seaFieldW))) { return; }
+  // (the view pixel whose middle the point stands at)
+  let px = vec2f(g.xy) * SEA_FIELD + 0.5;
+  let s = seaSurface(post.cam + (px - post.res * 0.5) / post.ppu, post.ppu, seaAt(post.cam, post.ppu));
+  textureStore(seaFieldW, g.xy, vec4f(s.shift, s.slope));
+  textureStore(seaLightW, g.xy, vec4f(s.light, 0.0, 0.0, 0.0));
+}
+fn seaFieldAt(pos: vec2f) -> Surface {
+  let uv = ((pos - 0.5) / SEA_FIELD + 0.5) / vec2f(textureDimensions(seaField));
+  let f = textureSampleLevel(seaField, samp, uv, 0.0);
+  var o: Surface;
+  o.shift = f.xy;
+  o.slope = f.zw;
+  o.light = textureSampleLevel(seaLight, samp, uv, 0.0).x;
   return o;
 }
 // The water's bend over the main view on a coarse grid (SHIFT_W x SHIFT_H points, each at its cell's middle), in
@@ -9194,7 +9226,18 @@ struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location
   var water = vec3f(post.heat.x, 0.0, 0.0);
   var uv = i.uv;
   // the water's surface (the sea, raindrops' rings) bends the view and focuses the light
-  let surf = surfaceAt(wp, post.ppu, i.sea0);
+  var surf: Surface;
+  if (post.seaLook.w > 0.5) {
+    // (the sea from its field: surfaceAt's otherwise)
+    surf.light = 1.0;
+    let room = waterRoom(wp);
+    if (smoothstep(0.0, 0.4, room) > 0.0) {
+      var sea: Surface;
+      sea.light = 1.0;
+      if (post.seaHead.z > 0.0) { sea = seaFieldAt(i.pos.xy); }
+      surf = surfaceNear(sea, wp, room);
+    }
+  } else { surf = surfaceAt(wp, post.ppu, i.sea0); }
   if (post.seaLook.z > 0.5 && post.seaLook.z < 2.5) {
     return vec4f(vec3f(clamp(select(0.5 + 2.5 * dot(surf.slope, LAMP_L), 0.25 * surf.light, post.seaLook.z < 1.5), 0.0, 1.0)), 1.0);
   }

@@ -8896,7 +8896,7 @@ struct Post {
   // each cascade: its patch (x, y), how far it carries the water toward its crests, whether it holds any waves
   seaC: array<vec4f, ${SEA_CASCADES}>,
   // x how its caustics' focus is softened, y the most it focuses the light, z what is drawn (seaTune.view: 0 the
-  // view, 1 the sea's light alone, 2 its sheen alone)
+  // view, 1 the sea's light alone, 2 its sheen alone), w 1 where the composite reads it from its field (seaFieldMain)
   seaLook: vec4f,
   // the hand's lamp or shade, as the simulation has it (Hand.lamp); the warm stage's or cold probe's lens (center,
   // radius, 1 shown): the thermal camera inside the tool's reach
@@ -10720,12 +10720,44 @@ fn surfaceAt(wp: vec2f, ppu: f32, c0: vec4f) -> Surface {
   let wet = smoothstep(0.0, 0.4, room);
   if (wet <= 0.0) { return o; }
   if (post.seaHead.z > 0.0) { o = seaSurface(wp, ppu, c0); }
+  return surfaceNear(o, wp, room);
+}
+// The sea's surface (sea) with the raindrops' rings and the water's edge at wp, room: waterRoom there
+fn surfaceNear(sea: Surface, wp: vec2f, room: f32) -> Surface {
+  var o = sea;
+  let wet = smoothstep(0.0, 0.4, room);
   let r = ripples(wp);
   // the bending eases out toward the water's edge within the room there (keepInside): faded over a fixed width
   // instead, a storm's bending (as long as that width or more) smeared what lies by the shore into bands
   o.shift = keepInside(o.shift + r * 1.2, room);
   o.slope = (o.slope + r) * wet;
   o.light = mix(1.0, o.light, wet);
+  return o;
+}
+// The sea seen from close up, where its finest waves span many pixels (post.seaLook.w, Engine._seaPost): seaSurface
+// taken every SEA_FIELD pixels of the view (seaFieldMain) and read between them, for the composite. Its six to ten
+// bicubic taps of the sea's cascades a pixel cost an M1 0.8 ms a frame; between points of a field this smooth the
+// bending read is within a small fraction of a pixel of the exact one.
+const SEA_FIELD = 4.0;
+@group(0) @binding(21) var seaFieldW: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(22) var seaLightW: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(23) var seaField: texture_2d<f32>;
+@group(0) @binding(24) var seaLight: texture_2d<f32>;
+@compute @workgroup_size(8, 8) fn seaFieldMain(@builtin(global_invocation_id) g: vec3u) {
+  if (any(g.xy >= textureDimensions(seaFieldW))) { return; }
+  // (the view pixel whose middle the point stands at)
+  let px = vec2f(g.xy) * SEA_FIELD + 0.5;
+  let s = seaSurface(post.cam + (px - post.res * 0.5) / post.ppu, post.ppu, seaAt(post.cam, post.ppu));
+  textureStore(seaFieldW, g.xy, vec4f(s.shift, s.slope));
+  textureStore(seaLightW, g.xy, vec4f(s.light, 0.0, 0.0, 0.0));
+}
+fn seaFieldAt(pos: vec2f) -> Surface {
+  let uv = ((pos - 0.5) / SEA_FIELD + 0.5) / vec2f(textureDimensions(seaField));
+  let f = textureSampleLevel(seaField, samp, uv, 0.0);
+  var o: Surface;
+  o.shift = f.xy;
+  o.slope = f.zw;
+  o.light = textureSampleLevel(seaLight, samp, uv, 0.0).x;
   return o;
 }
 // The water's bend over the main view on a coarse grid (SHIFT_W x SHIFT_H points, each at its cell's middle), in
@@ -11109,7 +11141,18 @@ struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location
   var water = vec3f(post.heat.x, 0.0, 0.0);
   var uv = i.uv;
   // the water's surface (the sea, raindrops' rings) bends the view and focuses the light
-  let surf = surfaceAt(wp, post.ppu, i.sea0);
+  var surf: Surface;
+  if (post.seaLook.w > 0.5) {
+    // (the sea from its field: surfaceAt's otherwise)
+    surf.light = 1.0;
+    let room = waterRoom(wp);
+    if (smoothstep(0.0, 0.4, room) > 0.0) {
+      var sea: Surface;
+      sea.light = 1.0;
+      if (post.seaHead.z > 0.0) { sea = seaFieldAt(i.pos.xy); }
+      surf = surfaceNear(sea, wp, room);
+    }
+  } else { surf = surfaceAt(wp, post.ppu, i.sea0); }
   if (post.seaLook.z > 0.5 && post.seaLook.z < 2.5) {
     return vec4f(vec3f(clamp(select(0.5 + 2.5 * dot(surf.slope, LAMP_L), 0.25 * surf.light, post.seaLook.z < 1.5), 0.0, 1.0)), 1.0);
   }
@@ -21758,6 +21801,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.cpNote = { pipe: cp(this.noteModule, "noteMain"), bg: null };
       const seaModule = d.createShaderModule({ code: SEA_WGSL, label: "sea" });
       this.cpShift = cp(this.postModule, "seaShiftMap");
+      this.cpSeaField = cp(this.postModule, "seaFieldMain");
       b.shiftMap = d.createBuffer({ size: SHIFT_W * SHIFT_H * 8, usage: U.STORAGE | U.COPY_SRC });
       this.shiftRead = [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: SHIFT_W * SHIFT_H * 8, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST }), busy: false }));
       this.seaShifts = [];
@@ -22282,6 +22326,15 @@ ${e.message}` : String(e?.message || e));
       this.bloom = [];
       for (let i = 0; i < BLOOM_LEVELS; i++) this.bloom.push(tex(w >> i + 1, h >> i + 1));
       this.murkTex = tex(w >> 2, h >> 2);
+      this.seaFieldTex?.forEach((t2) => t2.destroy());
+      this.seaFieldTex = [0, 1].map(() => d.createTexture({ size: [Math.ceil(w / 4) + 1, Math.ceil(h / 4) + 1], format: "rgba16float", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING }));
+      this.seaFieldBG = d.createBindGroup({ layout: this.cpSeaField.getBindGroupLayout(0), entries: [
+        { binding: 2, resource: { buffer: this.b.post } },
+        { binding: 13, resource: this.seaView },
+        { binding: 14, resource: this.seaSampler },
+        { binding: 21, resource: this.seaFieldTex[0].createView() },
+        { binding: 22, resource: this.seaFieldTex[1].createView() }
+      ] });
       this.murkView = this.murkTex.createView();
       this.microTex = tex(w, h);
       this.microView = this.microTex.createView();
@@ -22326,7 +22379,9 @@ ${e.message}` : String(e?.message || e));
         { binding: 11, resource: { buffer: this.b.thermal } },
         { binding: 12, resource: this.liveView },
         { binding: 13, resource: this.seaView },
-        { binding: 14, resource: this.seaSampler }
+        { binding: 14, resource: this.seaSampler },
+        { binding: 23, resource: this.seaFieldTex[0].createView() },
+        { binding: 24, resource: this.seaFieldTex[1].createView() }
       ] });
       this.compBG = compBG(this.pComp);
       this.compClearBG = compBG(this.pCompClear);
@@ -22850,7 +22905,8 @@ ${e.message}` : String(e?.message || e));
       pd[95] = t2.caustic * a;
       const kc = 2 * Math.PI / this.seaSpec.lmin;
       seaLayout(this.grid, this.seaSpec).forEach((c, i) => pd.set([c.L[0], c.L[1], t2.chop * r * t2.height, c.k0 < 2.5 * kc ? 1 : 0], 96 + i * 4));
-      pd.set([t2.lightSoft, t2.lightCap, t2.view, 0], 96 + 4 * SEA_CASCADES);
+      this._seaField = this.seaFieldOk !== false && this.seaSpec.lmin * pd[7] >= 128;
+      pd.set([t2.lightSoft, t2.lightCap, t2.view, this._seaField ? 1 : 0], 96 + 4 * SEA_CASCADES);
     }
     _writeSim(extra = {}) {
       this._fillSim(extra);
@@ -24541,6 +24597,13 @@ ${e.message}` : String(e?.message || e));
       }
       const micro = this.settings.specks && cam.ppu > Math.max(80, 2 * Math.max(W / this.grid[0], H2 / this.grid[1]));
       if (micro) this._drawSpecks(enc, cam, W, H2);
+      if (this._seaField) {
+        const cp = enc.beginComputePass();
+        cp.setPipeline(this.cpSeaField);
+        cp.setBindGroup(0, this.seaFieldBG);
+        cp.dispatchWorkgroups(Math.ceil(this.seaFieldTex[0].width / 8), Math.ceil(this.seaFieldTex[0].height / 8));
+        cp.end();
+      }
       const lean = this.pCompLean && pd[56] >= 1 && !(this.duck[3] > 0) && !(this.tool[4] > 0) && !(pd[6] > 0.5) && !(pd[55] > 0.5) && !(pd[15] > 1.5) && !(this.lens[3] > 0);
       if (lean) {
         d.queue.writeBuffer(this.b.compArgs, 32, new Uint32Array([1]));
@@ -38441,9 +38504,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "639c2dccbb8e0d78") return;
+      if (localStorage.getItem(key) === "1bd15b2286360e94") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "639c2dccbb8e0d78");
+      if (res) localStorage.setItem(key, "1bd15b2286360e94");
     } catch {
     }
   }

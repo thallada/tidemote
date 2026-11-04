@@ -375,6 +375,7 @@ class Engine {
     const seaModule = d.createShaderModule({ code: SEA_WGSL, label: 'sea' });
     // the water's bend over the main view, read back for the page's overlays (seaShiftMap; seaShift)
     this.cpShift = cp(this.postModule, 'seaShiftMap');
+    this.cpSeaField = cp(this.postModule, 'seaFieldMain');
     b.shiftMap = d.createBuffer({ size: SHIFT_W * SHIFT_H * 8, usage: U.STORAGE | U.COPY_SRC });
     this.shiftRead = [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: SHIFT_W * SHIFT_H * 8, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST }), busy: false }));
     // the last two grids read back: { data (pixels of the view drawn then), cam: { x, y, ppu, w, h }, at (ms) }
@@ -793,6 +794,12 @@ class Engine {
     this.bloom = [];
     for (let i = 0; i < BLOOM_LEVELS; i++) this.bloom.push(tex(w >> (i + 1), h >> (i + 1)));
     this.murkTex = tex(w >> 2, h >> 2);
+    // the sea's surface every 4 pixels of the view, for the composite from close up (seaFieldMain)
+    this.seaFieldTex?.forEach((t) => t.destroy());
+    this.seaFieldTex = [0, 1].map(() => d.createTexture({ size: [Math.ceil(w / 4) + 1, Math.ceil(h / 4) + 1], format: 'rgba16float', usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING }));
+    this.seaFieldBG = d.createBindGroup({ layout: this.cpSeaField.getBindGroupLayout(0), entries: [
+      { binding: 2, resource: { buffer: this.b.post } }, { binding: 13, resource: this.seaView }, { binding: 14, resource: this.seaSampler },
+      { binding: 21, resource: this.seaFieldTex[0].createView() }, { binding: 22, resource: this.seaFieldTex[1].createView() }] });
     this.murkView = this.murkTex.createView();
     this.microTex = tex(w, h);
     this.microView = this.microTex.createView();
@@ -822,7 +829,8 @@ class Engine {
       { binding: 2, resource: { buffer: this.b.post } }, { binding: 3, resource: this.bloomViews[0] },
       { binding: 7, resource: this.orderView }, { binding: 9, resource: this.murkView },
       { binding: 10, resource: this.microView }, { binding: 11, resource: { buffer: this.b.thermal } }, { binding: 12, resource: this.liveView },
-      { binding: 13, resource: this.seaView }, { binding: 14, resource: this.seaSampler }] });
+      { binding: 13, resource: this.seaView }, { binding: 14, resource: this.seaSampler },
+      { binding: 23, resource: this.seaFieldTex[0].createView() }, { binding: 24, resource: this.seaFieldTex[1].createView() }] });
     this.compBG = compBG(this.pComp);
     this.compClearBG = compBG(this.pCompClear);
     if (this.pCompLean) { this.compLeanBG = compBG(this.pCompLean); this.compClearLeanBG = compBG(this.pCompClearLean); }
@@ -1317,8 +1325,12 @@ class Engine {
     pd[92] = t.tilt * a; pd[93] = t.refract * a; pd[94] = t.view === 3 ? 0 : 1; pd[95] = t.caustic * a;
     const kc = (2 * Math.PI) / this.seaSpec.lmin;
     seaLayout(this.grid, this.seaSpec).forEach((c, i) => pd.set([c.L[0], c.L[1], t.chop * r * t.height, c.k0 < 2.5 * kc ? 1 : 0], 96 + i * 4));
-    // how the caustics' focus is softened and capped, and what is drawn (seaTune.view)
-    pd.set([t.lightSoft, t.lightCap, t.view, 0], 96 + 4 * SEA_CASCADES);
+    // how the caustics' focus is softened and capped, and what is drawn (seaTune.view); and the composite reads the
+    // sea from its field (seaFieldMain, a point every 4 pixels) where the shortest waves left (lmin, damped past it:
+    // the light's focus, from the surface's curvature, holds them to about half of it) span 128 pixels or more,
+    // which a field that fine follows within half a percent
+    this._seaField = this.seaFieldOk !== false && this.seaSpec.lmin * pd[7] >= 128;
+    pd.set([t.lightSoft, t.lightCap, t.view, this._seaField ? 1 : 0], 96 + 4 * SEA_CASCADES);
   }
 
   _writeSim(extra = {}) {
@@ -2778,6 +2790,11 @@ class Engine {
 
     const micro = this.settings.specks && cam.ppu > Math.max(80, 2 * Math.max(W / this.grid[0], H / this.grid[1]));
     if (micro) this._drawSpecks(enc, cam, W, H);
+    if (this._seaField) {
+      const cp = enc.beginComputePass();
+      cp.setPipeline(this.cpSeaField); cp.setBindGroup(0, this.seaFieldBG);
+      cp.dispatchWorkgroups(Math.ceil(this.seaFieldTex[0].width / 8), Math.ceil(this.seaFieldTex[0].height / 8)); cp.end();
+    }
 
     // The lean composite where nothing it leaves out is there: the pool full, no duckweed, no instrument in the
     // water, no map (as fsComposite tests them: post.pond.x, post.duck.w, post.toolB.x; mapsOver's post.tideVis,
