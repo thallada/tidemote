@@ -6610,7 +6610,8 @@ struct View {
   detail: u32,
   // 1: the draw covers only the grid rows in view (segs, CULL_WGSL); instances map through cullIndex
   culled: u32,
-  // sprites no larger than this radius in pixels are splatted (splatMain), not drawn as quads; 0: none
+  // sprites no larger than this radius in pixels are splatted (splatMain), not drawn as quads; 0: none; below 0:
+  // none, the sprites sized once and listed (listMain)
   splat: f32,
   // the adhesion where bodies start to close into tissue (K.tightFrom)
   tightFrom: f32,
@@ -6681,7 +6682,7 @@ fn cullIndex(ii: u32) -> u32 {
 // the particle a point's instance draws, and the cell a bond's instance draws (living, unless culled)
 fn pointAt(ii: u32) -> u32 {
   if (view.culled == 1u) { return cullIndex(ii); }
-  if (view.splat > 0.0) { return quadR[4u + ii]; }
+  if (view.splat != 0.0) { return quadR[4u + ii]; }
   return ii;
 }
 fn livingAt(ii: u32) -> u32 { if (view.culled == 1u) { return cullIndex(ii); } return livingList[ii]; }
@@ -7249,6 +7250,72 @@ fn splatOne(i: u32) -> u32 {
     atomicAdd(&splatW[q + 4u], u32(living * w + 0.5));
   }
   return NONE;
+}
+// Without splatting (the main view, unculled), each sprite is sized and colored once (spriteOf) rather than at each
+// of its quad's four corners: those vsPoint would draw unresolved (a few pixels across, or no detail) are written as
+// records (smallW: where, how large, its color and profile) for vsPointSmall, a slim pipeline that only places them,
+// and the rest are listed for vsPoint (quadW, as splatMain lists them). On an M1 a mature 139k world at fit spent
+// 2.1 ms in vsPoint, nearly all on sprites a pixel or two across, each corner reading its cell's genome, motion
+// and water. The record holds what vsPoint's unresolved path gives fsPointLive's, so they are drawn the same.
+@group(0) @binding(18) var<storage, read_write> smallArgs: array<atomic<u32>>;
+@group(0) @binding(19) var<storage, read_write> smallW: array<vec4u>;
+@group(0) @binding(20) var<storage, read> smallR: array<vec4u>;
+var<workgroup> smallN: atomic<u32>;
+var<workgroup> smallBase: u32;
+@compute @workgroup_size(256)
+fn listMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) l: u32) {
+  if (l == 0u) { atomicStore(&quadN, 0u); atomicStore(&smallN, 0u); }
+  workgroupBarrier();
+  let i = gid.x;
+  var big = NONE;
+  var small = NONE;
+  var ra = vec4f(0.0);
+  var rb = vec4u(0u);
+  if (i < arrayLength(&parts)) {
+    let p = parts[i];
+    if (p.kind != STONE && p.kind != FRAMBOID) {
+      let d = wrapd(drawnPos(p) - view.cam) * view.ppu;
+      // (as vsPoint culls an unresolved sprite)
+      if (view.pointSize > 6.0 || all(abs(d) <= view.res * 0.5 + vec2f(60.0))) {
+        let sp = spriteOf(p, i);
+        if (sp.px <= 2.8 || view.detail == 0u) {
+          let footprint = select(1.0, 0.85, sp.kind >= FIRST_LIFE);
+          ra = vec4f(d, sp.px * footprint, footprint);
+          rb = vec4u(bitcast<vec3u>(sp.col), (sp.shape & 255u) | select(0u, 256u, p.kind >= FIRST_LIFE));
+          small = atomicAdd(&smallN, 1u);
+        } else {
+          big = atomicAdd(&quadN, 1u);
+        }
+      }
+    }
+  }
+  workgroupBarrier();
+  if (l == 0u) {
+    quadBase = atomicAdd(&quadW[1], atomicLoad(&quadN));
+    smallBase = atomicAdd(&smallArgs[1], atomicLoad(&smallN));
+  }
+  let qb = workgroupUniformLoad(&quadBase);
+  let sb = workgroupUniformLoad(&smallBase);
+  if (big != NONE) { atomicStore(&quadW[4u + qb + big], i); }
+  if (small != NONE) { smallW[2u * (sb + small)] = bitcast<vec4u>(ra); smallW[2u * (sb + small) + 1u] = rb; }
+}
+struct SmallPO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) col: vec3f, @location(2) @interpolate(flat) shape: u32 };
+@vertex fn vsPointSmall(@builtin(vertex_index) vi: u32, @builtin(instance_index) inst: u32) -> SmallPO {
+  let a = bitcast<vec4f>(smallR[2u * inst]);
+  let b = smallR[2u * inst + 1u];
+  let corner = vec2f(f32(vi & 1u), f32(vi >> 1u)) * 2.0 - 1.0;
+  var o: SmallPO;
+  o.pos = toClip(a.xy + corner * a.z);
+  o.uv = corner * a.w;
+  o.col = bitcast<vec3f>(b.xyz);
+  o.shape = b.w;
+  return o;
+}
+// (pointColor and liveShare for a sprite drawn unresolved)
+@fragment fn fsPointSmall(i: SmallPO) -> PointOut {
+  let far = spriteFalloff(i.uv, i.shape & 255u);
+  let c = vec4f(i.col * far, far * SPRITE_COVER);
+  return PointOut(c, c * select(0.0, 1.0, (i.shape & 256u) != 0u));
 }
 // (the living's share of their light goes to the living's layer too, uncovered: the composite still lays the scene's
 // sprites as they were, and the scene's light (sceneLit) tells the living from the matter)
@@ -9251,6 +9318,11 @@ struct LitOut { @location(0) scene: vec4f, @location(1) pile: vec4f };
   let pile = textureLoad(stoneCacheTex, vec2i(clamp(cuv * cs, vec2f(0.0), cs - 1.0)), 0).a;
   return LitOut(underCells(textureLoad(src, vec2i(i.pos.xy), 0), textureSampleLevel(stoneCacheTex, samp, cuv, 0.0).rgb), vec4f(0.0, 0.0, 0.0, pile));
 }
+// (the scene alone, where the composite reads no pile: its focus deep in a pile is for views past lensScene's start)
+@fragment fn fsStoneLitScene(i: VO) -> @location(0) vec4f {
+  let cuv = i.uv * stoneXf.xy + stoneXf.zw;
+  return underCells(textureLoad(src, vec2i(i.pos.xy), 0), textureSampleLevel(stoneCacheTex, samp, cuv, 0.0).rgb);
+}
 // (the loupe's and the close-up's, lit as they are drawn, at their own scale)
 @fragment fn fsStoneLitMicro(i: VO) -> @location(0) vec4f {
   return underCells(textureLoad(src, vec2i(i.pos.xy), 0), boulder(i.uv, microView.cam + (i.pos.xy - microView.res * 0.5) / microView.ppu, microView.ppu));
@@ -10503,8 +10575,7 @@ struct Surface { shift: vec2f, slope: vec2f, light: f32 };
 // otherwise carry the whole of it to and fro, reading as the camera swaying, while what varies across the view stays;
 // taking it at every zoom keeps the sea in place across zooms. The light: the surface's curvature focuses the lamp onto
 // the focal plane below, brightening where it converges (by the divergence of the slope) and dimming where it spreads.
-fn seaSurface(wp: vec2f, ppu: f32, center: vec2f) -> Surface {
-  let c0 = seaAt(center, ppu);
+fn seaSurface(wp: vec2f, ppu: f32, c0: vec4f) -> Surface {
   var x0 = wp;
   // (calm water's gentle swell is not choppy: no carrying)
   if (post.seaC[0].z > 0.0) { for (var it = 0; it < 2; it++) { x0 = wp - (seaAt(x0, ppu).zw - c0.zw); } }
@@ -10619,16 +10690,16 @@ fn keepInside(d: vec2f, room: f32) -> vec2f {
 fn keepInFrame(d: vec2f, room: f32, band: f32) -> vec2f { return keepInside(d * smoothstep(0.0, band, room), room); }
 // how far a pixel of the main view lies from its frame's nearest edge (its band there is a tenth of its height)
 fn frameRoom(pos: vec2f) -> f32 { return min(min(pos.x, post.res.x - pos.x), min(pos.y, post.res.y - pos.y)); }
-// The water's surface at wp, seen at ppu pixels a unit from a view centered on center: the sea, gently swaying in calm
+// The water's surface at wp, seen at ppu pixels a unit from a view centered where the sea is c0 (seaAt there): the sea, gently swaying in calm
 // water and heaving in a storm, and the rings raindrops send across it (on open water only: dry mud and ice have no
 // surface to wave).
-fn surfaceAt(wp: vec2f, ppu: f32, center: vec2f) -> Surface {
+fn surfaceAt(wp: vec2f, ppu: f32, c0: vec4f) -> Surface {
   var o: Surface;
   o.light = 1.0;
   let room = waterRoom(wp);
   let wet = smoothstep(0.0, 0.4, room);
   if (wet <= 0.0) { return o; }
-  if (post.seaHead.z > 0.0) { o = seaSurface(wp, ppu, center); }
+  if (post.seaHead.z > 0.0) { o = seaSurface(wp, ppu, c0); }
   let r = ripples(wp);
   // the bending eases out toward the water's edge within the room there (keepInside): faded over a fixed width
   // instead, a storm's bending (as long as that width or more) smeared what lies by the shore into bands
@@ -10645,15 +10716,18 @@ fn surfaceAt(wp: vec2f, ppu: f32, center: vec2f) -> Surface {
   if (g.x >= ${SHIFT_W}u || g.y >= ${SHIFT_H}u) { return; }
   let px = (vec2f(g.xy) + 0.5) / vec2f(${SHIFT_W}.0, ${SHIFT_H}.0) * post.res;
   let wp = post.cam + (px - post.res * 0.5) / post.ppu;
-  let surf = surfaceAt(wp, post.ppu, post.cam);
+  let surf = surfaceAt(wp, post.ppu, seaAt(post.cam, post.ppu));
   shiftMap[g.y * ${SHIFT_W}u + g.x] = keepInFrame(surf.shift * post.ppu, frameRoom(px), 0.1 * post.res.y);
 }
 // Schlieren, in pixels: with the heat map on Shimmer, warm water bends the light passing through it like the
 // air over a hot road, faintly, wherever warmth changes (around colonies and framboids, at fronts), the
 // ripples carried by the current. water: waterAt(wp).
 fn shimmer(wp: vec2f, water: vec3f) -> vec2f {
-  // (water near boiling roils, whatever the heat map shows)
-  let boil = boilAt(water.x) * flowNoise(wp, 2.5) * 5.0;
+  // (water near boiling roils, whatever the heat map shows; its noise only where it does: everywhere else it cost an
+  // M1 most of a millisecond of the composite to multiply by 0)
+  let roil = boilAt(water.x);
+  var boil = vec2f(0.0);
+  if (roil > 0.0) { boil = roil * flowNoise(wp, 2.5) * 5.0; }
   if (post.heatVis <= 0.5 || post.heatVis >= 1.5) { return boil; }
   let shift = water.yz * flowNoise(wp, 7.0) * 2.0;
   return shift * min(1.0, 3.0 / max(length(shift), 1e-4)) + boil;
@@ -10997,14 +11071,25 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f,
   }
   return c;
 }
-@fragment fn fsComposite(i: VO) -> @location(0) vec4f {
+// The composite's full-screen triangle, with the sea at the view's center (seaSurface takes it away from every
+// pixel's), sampled once at its corners rather than at every pixel (a quarter of the composite's sea taps)
+struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) @interpolate(flat) sea0: vec4f };
+@vertex fn vsComp(@builtin(vertex_index) vi: u32) -> CompVO {
+  let uv = vec2f(f32((vi << 1u) & 2u), f32(vi & 2u));
+  var o: CompVO;
+  o.pos = vec4f(uv * 2.0 - 1.0, 0.0, 1.0);
+  o.uv = vec2f(uv.x, 1.0 - uv.y);
+  o.sea0 = seaAt(post.cam, post.ppu);
+  return o;
+}
+@fragment fn fsComposite(i: CompVO) -> @location(0) vec4f {
   let k = post.optics;
   let q = (i.pos.xy - post.res * 0.5) / (post.res.y * 0.5);
   let wp = post.cam + (i.pos.xy - post.res * 0.5) / post.ppu;
   var water = vec3f(post.heat.x, 0.0, 0.0);
   var uv = i.uv;
   // the water's surface (the sea, raindrops' rings) bends the view and focuses the light
-  let surf = surfaceAt(wp, post.ppu, post.cam);
+  let surf = surfaceAt(wp, post.ppu, i.sea0);
   if (post.seaLook.z > 0.5 && post.seaLook.z < 2.5) {
     return vec4f(vec3f(clamp(select(0.5 + 2.5 * dot(surf.slope, LAMP_L), 0.25 * surf.light, post.seaLook.z < 1.5), 0.0, 1.0)), 1.0);
   }
@@ -11107,7 +11192,7 @@ fn loupeScene(r: vec2f) -> vec3f {
   let toR = microView.ppu / (microView.res * 0.5);
   let r0 = r;
   let wp = microView.cam + r0 / toR;
-  let surf = surfaceAt(wp, loupe.ppu, microView.cam);
+  let surf = surfaceAt(wp, loupe.ppu, seaAt(microView.cam, loupe.ppu));
   var bend = surf.shift;
   var water = vec3f(post.heat.x, 0.0, 0.0);
   if (post.heatVis >= 0.0) {
@@ -21639,6 +21724,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       });
       this.pPoint = rp(this.drawModule, "vsPoint", "fsPoint", "triangle-strip", additive);
       this.cpSplat = cPipe({ layout: "auto", compute: { module: this.drawModule, entryPoint: "splatMain" }, label: "splatMain" });
+      this.cpList = cPipe({ layout: "auto", compute: { module: this.drawModule, entryPoint: "listMain" }, label: "listMain" });
       this.pLine = rp(this.drawModule, "vsLine", "fsLine", "line-list", additive);
       this.pStone = rPipe({
         layout: "auto",
@@ -21670,18 +21756,19 @@ registerProcessor("tidemote-sound", TidemoteSound);
         vertex: { module: this.postModule, entryPoint: "vsFull" },
         fragment: { module: this.postModule, entryPoint: "fsStoneLit", targets: [{ format: HDR }, { format: HDR }] }
       });
+      this.pStoneLitScene = rp(this.postModule, "vsFull", "fsStoneLitScene", "triangle-list", void 0);
       this.pStoneLitM = rp(this.postModule, "vsFull", "fsStoneLitMicro", "triangle-list", void 0);
       this.pUp = rp(this.postModule, "vsFull", "fsUp", "triangle-list", additive);
       this.pMurk = rp(this.postModule, "vsFull", "fsMurk", "triangle-list", void 0);
-      this.pComp = rp(this.postModule, "vsFull", "fsComposite", "triangle-list", void 0, format);
-      this.pCompClear = rp(this.postModule, "vsFull", "fsComposite", "triangle-list", void 0, format, { MICRO_SUSPENSION: 0 });
+      this.pComp = rp(this.postModule, "vsComp", "fsComposite", "triangle-list", void 0, format);
+      this.pCompClear = rp(this.postModule, "vsComp", "fsComposite", "triangle-list", void 0, format, { MICRO_SUSPENSION: 0 });
       this.pCompLean = null;
       this.pCompClearLean = null;
       const leanP = (constants) => d.createRenderPipelineAsync({
         layout: "auto",
         label: "fsComposite",
         primitive: { topology: "triangle-list" },
-        vertex: { module: this.postModule, entryPoint: "vsFull" },
+        vertex: { module: this.postModule, entryPoint: "vsComp" },
         fragment: { module: this.postModule, entryPoint: "fsComposite", targets: [{ format }], constants: { LEAN: 1, ...constants } }
       });
       this._leanP = () => Promise.all([leanP({}), leanP({ MICRO_SUSPENSION: 0 })]).then(([a, c]) => {
@@ -21726,6 +21813,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.main = {
         point: rpLive(this.drawModule, "vsPoint", "fsPointLive", "triangle-strip", trail, true),
         splat: rpLive(this.drawModule, "vsFade", "fsSplat", "triangle-list", trail, true),
+        small: rpLive(this.drawModule, "vsPointSmall", "fsPointSmall", "triangle-strip", trail, true),
         line: rpLive(this.drawModule, "vsLine", "fsLine", "line-list", trail, false),
         bridge: rpLive(this.drawModule, "vsBridge", "fsBridge", "triangle-strip", trail, false),
         reproj: rpLive(this.postModule, "vsFull", "fsReproj", "triangle-list", void 0, false),
@@ -21848,6 +21936,8 @@ ${e.message}` : String(e?.message || e));
       b.ledger = d.createBuffer({ size: (META_CLAIM + n + SPL_WORDS + HAND_WORDS + NOTE_WORDS + 2 * MAX_CELLS + 4) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
       b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
       b.quads = d.createBuffer({ size: (4 + n) * 4, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
+      b.smallArgs = d.createBuffer({ size: 16, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
+      b.small = d.createBuffer({ size: n * 32, usage: U.STORAGE });
       const res = {
         0: { buffer: b.sim },
         1: { buffer: b.parts },
@@ -22019,7 +22109,7 @@ ${e.message}` : String(e?.message || e));
         layout: "auto",
         label: "fsComposite",
         primitive: { topology: "triangle-list" },
-        vertex: { module: mod, entryPoint: "vsFull" },
+        vertex: { module: mod, entryPoint: "vsComp" },
         fragment: { module: mod, entryPoint: "fsComposite", targets: [{ format: this.format }], constants }
       });
       this.pComp = rp({});
@@ -22098,12 +22188,14 @@ ${e.message}` : String(e?.message || e));
       this.downBG = [];
       for (let i = 1; i < BLOOM_LEVELS; i++) this.downBG[i] = sbg(this.pDown, this.bloomViews[i - 1]);
       this.down0BG = sbg(this.pDown, this.sceneView);
-      this.litBG = this.accumViews.map((v) => d.createBindGroup({ layout: this.pStoneLit.getBindGroupLayout(0), entries: [
+      const litBG = (pipe2) => this.accumViews.map((v) => d.createBindGroup({ layout: pipe2.getBindGroupLayout(0), entries: [
         { binding: 0, resource: this.sampler },
         { binding: 1, resource: v },
         { binding: 16, resource: this.stoneCacheView },
         { binding: 17, resource: { buffer: this.b.stoneXf } }
       ] }));
+      this.litBG = litBG(this.pStoneLit);
+      this.litSceneBG = litBG(this.pStoneLitScene);
       this.upBG = [];
       for (let i = BLOOM_LEVELS - 1; i > 0; i--) this.upBG.push({ target: i - 1, bg: sbg(this.pUp, this.bloomViews[i]) });
       const compBG = (pipe2) => d.createBindGroup({ layout: pipe2.getBindGroupLayout(0), entries: [
@@ -22150,6 +22242,8 @@ ${e.message}` : String(e?.message || e));
       if (!b.splat || !b.parts) return;
       this.splatBG = d.createBindGroup({ layout: this.cpSplat.getBindGroupLayout(0), entries: [[0, b.view], [1, b.parts], [2, b.genomes], [3, b.intent], [5, b.focus], [9, b.sway], [11, b.thermal], [13, b.splat], [15, b.quads]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
       this.splatDrawBG = d.createBindGroup({ layout: this.main.splat.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: b.view } }, { binding: 14, resource: { buffer: b.splat } }] });
+      this.listBG = d.createBindGroup({ layout: this.cpList.getBindGroupLayout(0), entries: [[0, b.view], [1, b.parts], [2, b.genomes], [3, b.intent], [5, b.focus], [9, b.sway], [11, b.thermal], [15, b.quads], [18, b.smallArgs], [19, b.small]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
+      this.smallBG = d.createBindGroup({ layout: this.main.small.getBindGroupLayout(0), entries: [[0, b.view], [20, b.small]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
     }
     _ensureLoupeTex(L) {
       if (this.loupeTex && this.loupeSize === L) return;
@@ -23930,7 +24024,7 @@ ${e.message}` : String(e?.message || e));
       const v = new Float32Array(data);
       const detail = new Uint32Array(data)[20] === 1;
       const culled = new Uint32Array(data)[21] === 1 ? this.cull[k].args : null;
-      const quads = v[22] > 0 ? this.b.quads : null;
+      const quads = v[22] !== 0 ? this.b.quads : null;
       if (this.settings.links) {
         if (v[7] < 30 || !detail) {
           pass.setPipeline(pl.line);
@@ -23946,6 +24040,11 @@ ${e.message}` : String(e?.message || e));
         }
       }
       if (this.settings.nodes) {
+        if (v[22] < 0) {
+          pass.setPipeline(pl.small);
+          pass.setBindGroup(0, this.smallBG);
+          pass.drawIndirect(this.b.smallArgs, 0);
+        }
         pass.setPipeline(pl.point);
         pass.setBindGroup(0, bgPoint);
         if (culled) pass.drawIndirect(culled, 0);
@@ -24082,7 +24181,17 @@ ${e.message}` : String(e?.message || e));
       const lod = this.settings.lod, loupeLod = !!loupe && lod, specLod = !!specimen && (lod || !specimen.live);
       const ps = Math.max(1.1 * dpr, 0.085 * cam.ppu);
       const splat = !culled[0] && this.settings.nodes && ps <= SPLAT_PX && this.count >= W * H2 / 4 ? SPLAT_PX : 0;
-      this._writeView(this.b.view, this.viewData, cam, W, H2, dpr, time, selId, lod, culled[0], splat, true);
+      const listed = !splat && !culled[0] && this.settings.nodes && !!this.cpList;
+      this._writeView(this.b.view, this.viewData, cam, W, H2, dpr, time, selId, lod, culled[0], listed ? -1 : splat, true);
+      if (listed) {
+        d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0]));
+        d.queue.writeBuffer(this.b.smallArgs, 0, new Uint32Array([4, 0, 0, 0]));
+        const pass2 = enc.beginComputePass({ timestampWrites: tsBegin() });
+        pass2.setPipeline(this.cpList);
+        pass2.setBindGroup(0, this.listBG);
+        pass2.dispatchWorkgroups(Math.ceil(this.count / 256));
+        pass2.end();
+      }
       if (splat) {
         d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0]));
         enc.clearBuffer(this.b.splat, 0, W * H2 * 20);
@@ -24240,9 +24349,10 @@ ${e.message}` : String(e?.message || e));
         const c = this.stoneCam, [cw, ch] = this.stoneSize, [dx, dy] = this._fromStone(cam);
         const sx = W * c.ppu / (cam.ppu * cw), sy = H2 * c.ppu / (cam.ppu * ch);
         d.queue.writeBuffer(this.b.stoneXf, 0, new Float32Array([sx, sy, 0.5 - 0.5 * sx + dx * c.ppu / cw, 0.5 - 0.5 * sy + dy * c.ppu / ch]));
-        const pass2 = enc.beginRenderPass({ colorAttachments: [this.sceneView, this.orderView].map((view) => ({ view, loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" })) });
-        pass2.setPipeline(this.pStoneLit);
-        pass2.setBindGroup(0, this.litBG[cur]);
+        const pile = cam.ppu > 0.9 * Math.max(80, 2 * Math.max(W / this.grid[0], H2 / this.grid[1]));
+        const pass2 = enc.beginRenderPass({ colorAttachments: (pile ? [this.sceneView, this.orderView] : [this.sceneView]).map((view) => ({ view, loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" })) });
+        pass2.setPipeline(pile ? this.pStoneLit : this.pStoneLitScene);
+        pass2.setBindGroup(0, (pile ? this.litBG : this.litSceneBG)[cur]);
         pass2.draw(3);
         pass2.end();
       }
@@ -38156,9 +38266,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "db3da968f66d925b") return;
+      if (localStorage.getItem(key) === "a0cc43c52e50b418") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "db3da968f66d925b");
+      if (res) localStorage.setItem(key, "a0cc43c52e50b418");
     } catch {
     }
   }
