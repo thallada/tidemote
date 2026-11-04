@@ -896,7 +896,7 @@ class Engine {
   _stoneStale(cam, W, H, selId, realT) {
     const c = this.stoneCam, [cw, ch] = this.stoneSize;
     const key = [selId >>> 0, this.focusVer, this.settings.exposure, this.settings.lod, this.worldGeneration].join();
-    let stale = !c || key !== this.stoneKey || (this.tick !== this.stoneTick && Math.abs(realT - this.stoneT) > STONE_EVERY);
+    let stale = !c || key !== this.stoneKey;
     if (!stale) {
       // what it holds: no farther from where it was drawn than its edge, nor than half the world (each grain is drawn
       // once, nearest that point, so past the wrap it holds nothing); a pixel's slack
@@ -904,8 +904,10 @@ class Engine {
       const hx = Math.min(cw / (2 * c.ppu), gx / 2) + px, hy = Math.min(ch / (2 * c.ppu), gy / 2) + px;
       stale = r > STONE_ZOOM || r < 1 / STONE_ZOOM || Math.abs(dx) + W / (2 * cam.ppu) > hx || Math.abs(dy) + H / (2 * cam.ppu) > hy;
     }
-    if (stale) Object.assign(this, { stoneCam: { x: cam.x, y: cam.y, ppu: cam.ppu }, stoneKey: key, stoneTick: this.tick, stoneT: realT });
-    return stale;
+    if (stale) { Object.assign(this, { stoneCam: { x: cam.x, y: cam.y, ppu: cam.ppu }, stoneKey: key, stoneTick: this.tick, stoneT: realT }); return 2; }
+    // while the world runs (grains wear away and reefs grow), every so often lit again where it is (1: over frames)
+    if (this.tick !== this.stoneTick && Math.abs(realT - this.stoneT) > STONE_EVERY) { Object.assign(this, { stoneTick: this.tick, stoneT: realT }); return 1; }
+    return 0;
   }
 
   // how far the view's camera lies from the stone cache's, across the world's wrap
@@ -2428,17 +2430,22 @@ class Engine {
   }
 
   // the stone field for one view: every grain of stone adds its kernel (see vsStone)
-  _drawStone(enc, views, bg) {
+  // part: 0 the whole; 1 the top two bands (clearing the targets), 2 the rest and the edges, a frame later (a timed
+  // relighting spread over frames, _render)
+  _drawStone(enc, views, bg, part = 0) {
+    const first = part !== 2, last = part !== 1;
     const pass = enc.beginRenderPass({
-      colorAttachments: views.slice(0, 2).map((view) => ({ view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' })),
-      depthStencilAttachment: { view: views[2], depthClearValue: 0, depthLoadOp: 'clear', depthStoreOp: 'discard' } });
+      colorAttachments: views.slice(0, 2).map((view) => ({ view, loadOp: first ? 'clear' : 'load', clearValue: [0, 0, 0, 0], storeOp: 'store' })),
+      depthStencilAttachment: { view: views[2], depthClearValue: 0, depthLoadOp: first ? 'clear' : 'load', depthStoreOp: last ? 'discard' : 'store' } });
     pass.setPipeline(this.pStone);
     // (a band at a time from the top of the pile down: what lies under a grain already drawn fails its depth test
     // before it is shaded, so each pixel is shaded about once, not once for every grain whose quad covers it)
-    for (const band of bg[0]) { pass.setBindGroup(0, band); pass.drawIndirect(this.b.frameCtr, 32); }
-    pass.setPipeline(this.pStoneEdge);
-    pass.setBindGroup(0, bg[1]);
-    pass.drawIndirect(this.b.frameCtr, 32);
+    for (const band of part === 1 ? bg[0].slice(0, 2) : part === 2 ? bg[0].slice(2) : bg[0]) { pass.setBindGroup(0, band); pass.drawIndirect(this.b.frameCtr, 32); }
+    if (last) {
+      pass.setPipeline(this.pStoneEdge);
+      pass.setBindGroup(0, bg[1]);
+      pass.drawIndirect(this.b.frameCtr, 32);
+    }
     pass.end();
   }
 
@@ -2727,11 +2734,20 @@ class Engine {
       if (this.tubeN) { pass.setPipeline(this.main.tube); pass.setBindGroup(0, this.tubeBG); pass.draw(4, this.tubeN); }
       pass.end();
     }
-    if (this._stoneStale(cam, W, H, selId, realT)) {
-      const [cw, ch] = this.stoneSize;
-      this._writeView(this.b.viewC, this.viewDataC, this.stoneCam, cw, ch, dpr, time, selId, lod);
-      this._drawStone(enc, this.stoneView, this.bgStone);
-      this._lightStone(enc, this.stoneCacheView, this.pStoneCache, this.cacheBG);
+    // The stone cache: lit at once when the view or a setting leaves it stale; lit again where it is every so often
+    // while the world runs, over three frames (the top bands, the rest and the edges, then the light), which the view
+    // reads only once lit: at once, an M1 spent about 1.8 ms more on that frame twice a second (now 1.2, then less)
+    const stale = this._stoneStale(cam, W, H, selId, realT);
+    if (stale === 2) this._stonePart = 0;
+    else if (stale === 1 && !this._stonePart) this._stonePart = 1;
+    if (stale === 2 || this._stonePart) {
+      const [cw, ch] = this.stoneSize, part = stale === 2 ? 0 : this._stonePart;
+      if (part < 3) {
+        this._writeView(this.b.viewC, this.viewDataC, this.stoneCam, cw, ch, dpr, time, selId, lod);
+        this._drawStone(enc, this.stoneView, this.bgStone, part);
+      }
+      if (part === 0 || part === 3) this._lightStone(enc, this.stoneCacheView, this.pStoneCache, this.cacheBG);
+      this._stonePart = part === 0 || part === 3 ? 0 : part + 1;
     }
     this.lastCam = { x: cam.x, y: cam.y, ppu: cam.ppu, w: W, h: H, t: realT };
     const cur = this.accIdx;
