@@ -7479,7 +7479,8 @@ fn lookScene(hdrIn: vec3f, uv: vec2f, bl: vec3f, ppu: f32, res: vec2f, sun: f32)
     hdr += L0.w * near * (max(-fl, 0.0) * vec3f(0.55, 0.12, 1.0) + max(fl, 0.0) * vec3f(0.3, 0.55, 0.0)) * 1.5;
     // rainbow rims (Rheinberg's sector colors): each edge takes a hue from the side it faces, by its own light, so
     // the dark field stays dark
-    let ang = atan2(grad.y, grad.x);
+    // (a flat inside's grad is zero, and atan2(0, 0) is NaN on Metal: mixed in at none, it still drew black)
+    let ang = atan2(grad.y, select(grad.x, 1.0, all(grad == vec2f(0.0))));
     let sector = 0.5 + 0.5 * vec3f(cos(ang), cos(ang - 2.094), cos(ang + 2.094));
     hdr = mix(hdr, vec3f(lookL(hdr)) * sector * 2.24, L0.x * smoothstep(0.05, 0.6, length(grad) / norm) * near);
   }

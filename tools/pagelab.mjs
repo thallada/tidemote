@@ -1,12 +1,15 @@
-// The built page in Windows Chrome on the GPU, for the tools that photograph it (tools/shot.mjs, tools/looklab.mjs;
-// docs/catastrophes.md): a world of n particles grown at Max to `mature` simulated seconds, the page's own chrome
-// hidden, then held still. Run them under tools/gpu-node.sh.
+// The built page in Chrome on the GPU (Windows, or macOS on Metal), for the tools that photograph it (tools/shot.mjs,
+// tools/looklab.mjs; docs/catastrophes.md): a world of n particles grown at Max to `mature` simulated seconds, the
+// page's own chrome hidden, then held still. Run them under tools/gpu-node.sh in WSL, with plain node on a Mac.
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http'; import os from 'node:os';
 import { chromium } from 'playwright-core';
 import { vkOn, vkLaunch, retryAdapter } from './vk.mjs';
 
 /** --name value pairs (a bare --name is '1'). */
 export const cliArgs = () => Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith('--') ? [...a, [x.slice(2), all[i + 1] && !all[i + 1].startsWith('--') ? all[i + 1] : '1']] : a), []));
+
+const CHROME = process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+  : 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 
 export async function openPage({ html = 'dist/tidemote.html', k = '{}', n = 262144, w = 1280, h = 800, mature = 120, tmp = 'page-' }) {
   const file = path.resolve(html);
@@ -18,7 +21,7 @@ export async function openPage({ html = 'dist/tidemote.html', k = '{}', n = 2621
   const profile = fs.mkdtempSync(path.join(process.env.TEMP || os.tmpdir(), tmp));
   const ctx = await chromium.launchPersistentContext(profile, vkOn
     ? { ...vkLaunch([...flags, '--enable-unsafe-webgpu']), viewport: { width: +w, height: +h } }
-    : { executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', headless: false, viewport: null, args: flags });
+    : { executablePath: CHROME, headless: false, viewport: null, args: flags });
   const page = ctx.pages()[0];
   if (vkOn) await page.addInitScript(retryAdapter);
   page.setDefaultTimeout(0);
