@@ -30069,10 +30069,8 @@ ${e.message}` : String(e?.message || e));
       v.temps[k] = f32[NOTE_TEMPS + k];
       v.ice[k] = f32[NOTE_TEMPS + G + k];
       v.stone[k] = u32[NOTE_STONE + k];
-      let dx = grid2[0] + (k % NOTE_TG + 0.5) * s - cx, dy = grid2[1] + (Math.floor(k / NOTE_TG) + 0.5) * s - cy;
-      dx -= W * Math.round(dx / W);
-      dy -= H2 * Math.round(dy / H2);
-      v.sqIn[k] = Math.abs(dx) < (rect[2] + s) / 2 && Math.abs(dy) < (rect[3] + s) / 2 ? 1 : 0;
+      const dx = grid2[0] + (k % NOTE_TG + 0.5) * s - cx, dy = grid2[1] + (Math.floor(k / NOTE_TG) + 0.5) * s - cy;
+      v.sqIn[k] = Math.abs(dx) < Math.min((rect[2] + s) / 2, W / 2) && Math.abs(dy) < Math.min((rect[3] + s) / 2, H2 / 2) ? 1 : 0;
     }
     for (let i = 0; i < n; i++) {
       const o = NOTE_HEAD + i * NOTE_REC, w = u32[o + 3];
@@ -30097,9 +30095,9 @@ ${e.message}` : String(e?.message || e));
     return v;
   }
   function squareOf(v, x, y, world) {
-    const [W, H2] = world, [ox, oy, s] = v.grid;
-    const i = Math.floor(((x - ox) % W + W) % W / s), j = Math.floor(((y - oy) % H2 + H2) % H2 / s);
-    return i < NOTE_TG && j < NOTE_TG ? j * NOTE_TG + i : -1;
+    const [W, H2] = world, [ox, oy, s] = v.grid, cx = v.rect[0] + v.rect[2] / 2, cy = v.rect[1] + v.rect[3] / 2;
+    const i = Math.floor((cx + x - cx - W * Math.round((x - cx) / W) - ox) / s), j = Math.floor((cy + y - cy - H2 * Math.round((y - cy) / H2) - oy) / s);
+    return i >= 0 && j >= 0 && i < NOTE_TG && j < NOTE_TG ? j * NOTE_TG + i : -1;
   }
   function readRing(ring2, last, tick, stepTime) {
     const count = ring2[0] >>> 0;
@@ -31248,7 +31246,8 @@ ${e.message}` : String(e?.message || e));
         anchor: v.id[anchor],
         band,
         // (its cells' places, for its outline: drawn once as found)
-        pts: rows.slice(0, 1500).map((i) => [near(v.x[i], cx, W), near(v.y[i], cy, H2)])
+        pts: rows.slice(0, 1500).map((i) => [near(v.x[i], cx, W), near(v.y[i], cy, H2)]),
+        ids: rows.slice(0, 1500).map((i) => v.id[i])
       };
     }
     // the nearest hunter closing on a cell of the species it last ate: within reach, moving toward it
@@ -32671,6 +32670,30 @@ ${e.message}` : String(e?.message || e));
       }
       return contours(arr, nx, ny, level).map((L) => smooth3(L, 2).map(([x, y]) => [(x + i0) * c, (y + j0) * c]));
     }
+    function ride(st, rows, kind, R2, { freeze = false, rel = 0 } = {}) {
+      const F = curF, v = F.model.view;
+      if (st.view !== v && rows.length) {
+        st.view = v;
+        const pts = rows.map((i) => nearView(F, v.x[i], v.y[i]));
+        let mx = 0, my = 0, vx = 0, vy = 0;
+        rows.forEach((i, q) => {
+          mx += pts[q][0];
+          my += pts[q][1];
+          vx += v.vx[i];
+          vy += v.vy[i];
+        });
+        const n = rows.length;
+        st.o = st.o ? here2(st, kind) : [mx / n, my / n];
+        st.t = v.simTime;
+        st.vm = [vx / n, vy / n];
+        if (!freeze || !st.loops) st.loops = crowdLoops(pts.map(([x, y]) => [x - st.o[0], y - st.o[1]]), R2, freeze ? null : st.crowd ||= {}, rel);
+      }
+      return st.loops ? { loops: st.loops, at: () => here2(st, kind) } : null;
+    }
+    function here2(st, kind) {
+      const p = curF.project({ x: st.o[0], y: st.o[1], vx: st.vm[0], vy: st.vm[1], t: st.t }, kind);
+      return p ? curF.toWorld(p) : st.o;
+    }
     function nearView(F, x, y) {
       const [W, H2] = F.world, r = F.model.view.rect, cx = r[0] + r[2] / 2, cy = r[1] + r[3] / 2;
       let dx = x - cx, dy = y - cy;
@@ -32682,9 +32705,9 @@ ${e.message}` : String(e?.message || e));
       if (!loops.length) return null;
       const P = new Path2D(), a = g.globalAlpha;
       let top = null, n = 0;
-      const [W, H2] = F.world, c0 = F.toWorld([(F.open.l + F.open.r) / 2, (F.open.t + F.open.b) / 2]);
+      const [W, H2] = F.world, c0 = F.toWorld([(F.open.l + F.open.r) / 2, (F.open.t + F.open.b) / 2]), o0 = o.at ? o.at() : [0, 0];
       for (const L of loops) {
-        const sx = -W * Math.round((L[0][0] - c0[0]) / W), sy = -H2 * Math.round((L[0][1] - c0[1]) / H2);
+        const sx = o0[0] - W * Math.round((L[0][0] + o0[0] - c0[0]) / W), sy = o0[1] - H2 * Math.round((L[0][1] + o0[1] - c0[1]) / H2);
         L.forEach((w, i) => {
           const p = F.toScreen([w[0] + sx, w[1] + sy]);
           if (i) P.lineTo(p[0], p[1]);
@@ -32701,9 +32724,9 @@ ${e.message}` : String(e?.message || e));
         g.fill(P, "evenodd");
       }
       if (o.hatch) {
-        const o0 = F.toScreen([0, 0]), px = clamp9(6 * (F.ppu / (o.ppu0 || F.ppu)), 4.5, 9);
+        const o02 = F.toScreen([0, 0]), px = clamp9(6 * (F.ppu / (o.ppu0 || F.ppu)), 4.5, 9);
         g.globalAlpha = a * fIn * (o.hatchA ?? 0.7);
-        g.fillStyle = hatchAt(tone, o0[0], o0[1], px);
+        g.fillStyle = hatchAt(tone, o02[0], o02[1], px);
         g.fill(P, "evenodd");
       }
       g.globalAlpha = a * fIn;
@@ -33036,15 +33059,8 @@ ${e.message}` : String(e?.message || e));
           const loops = S.loops;
           P.draws.push((t2) => blob(loops, HOT, t2, F, { hatch: true, ppu0: S.ppu0 }));
         } else {
-          if (S.heatView !== M.view) {
-            S.heatView = M.view;
-            const v = M.view, R2 = clamp9(F.radius(d.kind) * 2.4, 16, 90) / F.ppu, [W, H2] = F.world;
-            const ref2 = S.ref ||= [v.rect[0] + v.rect[2] / 2, v.rect[1] + v.rect[3] / 2];
-            const near = (x, y) => [ref2[0] + (x - ref2[0]) - W * Math.round((x - ref2[0]) / W), ref2[1] + (y - ref2[1]) - H2 * Math.round((y - ref2[1]) / H2)];
-            S.loops = crowdLoops(rows.map((i) => near(v.x[i], v.y[i])), R2, S.crowd ||= {});
-          }
-          const loops = S.loops;
-          P.draws.push((t2) => blob(loops, HOT, t2, F, { hatch: true, ppu0: S.ppu0 }));
+          const sh = ride(S.ride ||= {}, rows, d.kind, clamp9(F.radius(d.kind) * 2.4, 16, 90) / F.ppu);
+          if (sh) P.draws.push((t2) => blob(sh.loops, HOT, t2, F, { hatch: true, ppu0: S.ppu0, at: sh.at }));
           P.draws.push((t2) => census(pts, "square", HOT, t2 - 0.2, an, glyphOf(d.kind)));
         }
         const deaths = recent("scalded", d.kind, 10);
@@ -33211,9 +33227,13 @@ ${e.message}` : String(e?.message || e));
         };
         for (const G of groups) P.keys.push({ glyph: G.glyph, text: nm(G.k), tone: INK4 });
       } else if (d.type === "clump") {
-        S.loops ||= crowdLoops(d.pts, d.b * 1.4, null, 0.2);
-        const loops = S.loops;
-        P.draws.push((t2) => blob(loops, LINE, t2, F, { width: 1.4, fill: ["rgba(150,222,230,1)", 0.05] }));
+        const v = M.view, rows = [];
+        for (const id of d.ids || []) {
+          const i = v.at.get(id);
+          if (i !== void 0) rows.push(i);
+        }
+        const sh = ride(S.ride ||= {}, rows, d.shares[0]?.kind ?? -2, d.b * 1.4, { freeze: true, rel: 0.2 });
+        if (sh) P.draws.push((t2) => blob(sh.loops, LINE, t2, F, { width: 1.4, fill: ["rgba(150,222,230,1)", 0.05], at: sh.at }));
         const an = hang(0, [], -2, d.anchor);
         if (!an) return null;
         P.anchor = an;
@@ -33341,12 +33361,8 @@ ${e.message}` : String(e?.message || e));
         const loops = S.loops, v = M.view, W2 = F.world, rows = [];
         for (let i = 0; i < v.n; i++) {
           if (!(v.kind[i] >= 5) || F.species(v.kind[i])?.guild === "predator") continue;
-          const [ox, oy, gs] = d.grid;
-          let dx = v.x[i] - ox, dy = v.y[i] - oy;
-          dx -= W2[0] * Math.floor(dx / W2[0]);
-          dy -= W2[1] * Math.floor(dy / W2[1]);
-          const a = Math.floor(dx / gs), b = Math.floor(dy / gs);
-          if (a < NOTE_TG && b < NOTE_TG && d.stone[b * NOTE_TG + a] >= 6) rows.push(i);
+          const k = squareOf(v, v.x[i], v.y[i], W2);
+          if (k >= 0 && d.stone[k] >= 6) rows.push(i);
         }
         const pts = group("s", rows), an = hang(0, pts, -2);
         if (!an) return null;
@@ -33441,14 +33457,10 @@ ${e.message}` : String(e?.message || e));
         for (let i = 0; i < v.n; i++) if (v.dry[i] && v.kind[i] >= 5) rows.push(i);
         const pts = group("d", rows), an = hang(0, pts, -2);
         if (!an) return null;
-        if (S.dryView !== v) {
-          S.dryView = v;
-          S.loops = crowdLoops(rows.map((i) => nearView(F, v.x[i], v.y[i])), clamp9(F.radius(d.kind) * 3, 18, 100) / F.ppu, S.crowd ||= {});
-        }
-        const loops = S.loops;
+        const sh = ride(S.ride ||= {}, rows, -2, clamp9(F.radius(d.kind) * 3, 18, 100) / F.ppu);
         S.ppu0 ||= F.ppu;
         P.tone = SAND;
-        P.draws.push((t2) => blob(loops, SAND, t2, F, { hatch: true, ppu0: S.ppu0, hatchA: 0.45, dash: [4, 3] }));
+        if (sh) P.draws.push((t2) => blob(sh.loops, SAND, t2, F, { hatch: true, ppu0: S.ppu0, hatchA: 0.45, dash: [4, 3], at: sh.at }));
         P.draws.push((t2) => census(pts, "ring", SAND, t2, an, 3.5));
         pips(recent("dried", null, 10), HOT, 0.4);
         P.anchor = an;
@@ -33469,12 +33481,8 @@ ${e.message}` : String(e?.message || e));
         const v = M.view, W2 = F.world, rows = [];
         for (let i = 0; i < v.n; i++) {
           if (!(v.kind[i] >= 5) || !v.torpid[i]) continue;
-          const [ox, oy, gs] = v.grid;
-          let dx = v.x[i] - ox, dy = v.y[i] - oy;
-          dx -= W2[0] * Math.floor(dx / W2[0]);
-          dy -= W2[1] * Math.floor(dy / W2[1]);
-          const a = Math.floor(dx / gs), b = Math.floor(dy / gs);
-          if (a < NOTE_TG && b < NOTE_TG && v.ice[b * NOTE_TG + a] > 0.5) rows.push(i);
+          const k = squareOf(v, v.x[i], v.y[i], W2);
+          if (k >= 0 && v.ice[k] > 0.5) rows.push(i);
         }
         const pts = group("i", rows), an = hang(0, pts, -2);
         if (!an) return null;
@@ -33914,11 +33922,15 @@ ${e.message}` : String(e?.message || e));
             st.fix = [st.dir > 0 ? clamp9(st.fix[0], F.open.l + 6, F.open.r - size.w - 6) : clamp9(st.fix[0], F.open.l + size.w + 6, F.open.r - 6), clamp9(st.fix[1], F.open.t + 14, F.open.b - size.h)];
           }
           const lx = st.fix[0], ly = st.fix[1], box = boxAt(lx, ly, st.dir, size);
+          let intoLens = false;
           if (F.lens && Math.hypot(an[0] - F.lens.x, an[1] - F.lens.y) < F.lens.r) {
             LM = F.lens;
             const m = mp(an);
             LM = null;
-            if (Math.hypot(m[0] - F.lens.x, m[1] - F.lens.y) < F.lens.r - 4) an = m;
+            if (Math.hypot(m[0] - F.lens.x, m[1] - F.lens.y) < F.lens.r - 4) {
+              an = m;
+              intoLens = true;
+            }
           }
           const near = st.dir > 0 ? an[0] <= lx + size.w / 2 : an[0] >= lx - size.w / 2;
           const ex = near ? lx - st.dir * 4 : lx + st.dir * (size.w + 4);
@@ -33963,7 +33975,19 @@ ${e.message}` : String(e?.message || e));
             g.globalAlpha = alpha;
             owner = `L${id}`;
             if (A) A.screen("label", id, lx, ly);
-            if (!frozen) leader(an[0], an[1], ex, ly + 7, L.tone || INK4, t2 - 0.15 - k * 0.5);
+            if (!frozen) {
+              const under2 = F.lens && !intoLens;
+              if (under2) {
+                g.save();
+                g.beginPath();
+                g.rect(-1e4, -1e4, 2e4, 2e4);
+                g.moveTo(F.lens.x + F.lens.r, F.lens.y);
+                g.arc(F.lens.x, F.lens.y, F.lens.r, 0, TAU3);
+                g.clip("evenodd");
+              }
+              leader(an[0], an[1], ex, ly + 7, L.tone || INK4, t2 - 0.15 - k * 0.5);
+              if (under2) g.restore();
+            }
             label3(L, lx, ly, st.dir, t2 - 0.25 - k * 0.5);
             A = a0;
           }
