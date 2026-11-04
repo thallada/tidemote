@@ -291,13 +291,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   // ------------------------------------------------------------ sizing
   let renderScale = state.perf.scale === 'auto' ? 1 : state.perf.scale;
-  // Auto pixel density drops the scene to 1 device pixel per CSS pixel before anything else is
-  // lowered, the render scale or the frame rate (adaptQuality): above 1 the extra pixels are the
-  // cheapest sharpness to give up.
-  let densityCap = Infinity;
+  // Auto pixel density draws the scene at 1 device pixel per CSS pixel and rises to 1.5 only once the
+  // view has held its frame rate at full scale with room for 2.25 times the pixels (adaptQuality); behind,
+  // it drops back to 1 before anything else is lowered, the render scale or the frame rate: above 1 the
+  // extra pixels are the cheapest sharpness to give up (an M1 at 1.5× spent 18 ms a frame drawing).
+  let densityCap = 1;
   const density = () => Math.min(devicePixelRatio || 1, 2, state.perf.density === 'auto' ? Math.min(1.5, densityCap) : state.perf.density);
   let dpr = 1;
-  // The scene renders at no more than state.perf.density (Auto: 1.5) device pixels per CSS pixel:
+  // The scene renders at no more than state.perf.density (Auto: 1, rising to 1.5) device pixels per CSS pixel:
   // its per-pixel shading is heavy, and a 2x display would quadruple it for little visible gain.
   // Overlay text and lines stay native.
   function fit() {
@@ -3699,7 +3700,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function resetAdapt() {
     perf.frameDt.length = 0; perf.goodWindows = 0; perf.ceiling = 1; perf.ceilingUntil = 0; perf.lastAdjust = performance.now();
     perf.slow = 1; perf.why = ''; perf.denseUntil = 0; perf.raisedAt = 0; perf.hold = 0;
-    densityCap = Infinity;
+    densityCap = 1;
   }
   // where the browser reports it (Compute Pressure), a device under serious pressure, hot or busy,
   // backs off before its frames start to miss
@@ -3784,9 +3785,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const next = auto && [...SCALES].reverse().find((s) => s > renderScale + 0.01 && s <= cap + 0.001);
     const full = !auto || renderScale >= 1;
     if (next) { renderScale = next; perf.goodWindows = 0; perf.raisedAt = now; resizeDue = true; }
-    // the full pixel density back last, once the full scale has held for three windows more
-    else if (full && autoD && densityCap < Infinity && now >= perf.denseUntil && !held) { densityCap = Infinity; perf.goodWindows = 0; perf.raisedAt = now; resizeDue = true; }
-    if (full && densityCap === Infinity) perf.why = '';
+    // the higher pixel density last, once the full scale has held for three windows more and the frame
+    // would still fit with its drawing scaled by the pixels (2.25 times at 1.5×)
+    else if (full && autoD && densityCap < Infinity && now >= perf.denseUntil && !held) {
+      const d = density(), up = Math.min(devicePixelRatio || 1, 2, 1.5), px = (up / d) ** 2;
+      const est = hasTS && perf.renderR ? perf.gpu + perf.renderR * (px - 1) : perf.gpu * px;
+      if (up > d + 0.01 && est < T * 0.75) { densityCap = Infinity; perf.goodWindows = 0; perf.raisedAt = now; resizeDue = true; }
+    }
+    if (full) perf.why = '';
   }
   /** The least render scale at which the canvas holds the film's frame (at pixel density d), 0 when not filming. */
   function filmScale(d = density()) {
