@@ -8844,12 +8844,26 @@ fn keepInside(d: vec2f, room: f32) -> vec2f {
   let lim = 0.6 * max(room, 0.0);
   return d * (lim / max(lim, length(d) + 1e-6));
 }
-// The same at the frame's edge (room: how far that is), eased in across band: kept within room alone, the last few
-// pixels by the edge showed what lay under a fraction of them, stretched along it into streaks; eased over the band,
-// the view stretches there by at most about 1.5 |d| / band, and keepInside still holds it within the frame.
-fn keepInFrame(d: vec2f, room: f32, band: f32) -> vec2f { return keepInside(d * smoothstep(0.0, band, room), room); }
-// how far a pixel of the main view lies from its frame's nearest edge (its band there is a tenth of its height)
-fn frameRoom(pos: vec2f) -> f32 { return min(min(pos.x, post.res.x - pos.x), min(pos.y, post.res.y - pos.y)); }
+// The same at the frame's edge, for a point lo from its low edges and hi from its high ones (per axis): only the part
+// of d that reaches toward an edge eases, in across band or KEEP_REACH times its own length if longer, so a bend
+// along the edge or inward passes untouched. Eased over a fixed band, the whole bend went from nothing at the edge to
+// all of it a band in, which itself stretched the view there by about 1.5 |d| / band: a storm's waves passing made
+// the frame's edges stretch and squeeze. Eased over a width that grows with the reach, the view stretches there by at
+// most about 1.5 / KEEP_REACH however high the sea, and stays within the frame (the eased reach is under room / 4).
+// The two directions are told apart softly (by about a hundredth of band), so the easing leaves no crease where the
+// bend turns.
+const KEEP_REACH = 6.0;
+fn keepAxis(d: f32, lo: f32, hi: f32, band: f32) -> f32 {
+  let e = 0.01 * band;
+  let up = 0.5 * (d + sqrt(d * d + e * e));
+  let dn = up - d;
+  return up * smoothstep(0.0, max(band, KEEP_REACH * up), hi) - dn * smoothstep(0.0, max(band, KEEP_REACH * dn), lo);
+}
+fn keepInFrame(d: vec2f, lo: vec2f, hi: vec2f, band: f32) -> vec2f {
+  return vec2f(keepAxis(d.x, max(lo.x, 0.0), max(hi.x, 0.0), band), keepAxis(d.y, max(lo.y, 0.0), max(hi.y, 0.0), band));
+}
+// a pixel of the main view kept within its frame (its band there is a tenth of its height)
+fn keepInView(d: vec2f, pos: vec2f) -> vec2f { return keepInFrame(d, pos, post.res - pos, 0.1 * post.res.y); }
 // The water's surface at wp, seen at ppu pixels a unit from a view centered where the sea is c0 (seaAt there): the sea, gently swaying in calm
 // water and heaving in a storm, and the rings raindrops send across it (on open water only: dry mud and ice have no
 // surface to wave).
@@ -8909,7 +8923,7 @@ fn seaFieldAt(pos: vec2f) -> Surface {
   let px = (vec2f(g.xy) + 0.5) / vec2f(${SHIFT_W}.0, ${SHIFT_H}.0) * post.res;
   let wp = post.cam + (px - post.res * 0.5) / post.ppu;
   let surf = surfaceAt(wp, post.ppu, seaAt(post.cam, post.ppu));
-  shiftMap[g.y * ${SHIFT_W}u + g.x] = keepInFrame(surf.shift * post.ppu, frameRoom(px), 0.1 * post.res.y);
+  shiftMap[g.y * ${SHIFT_W}u + g.x] = keepInView(surf.shift * post.ppu, px);
 }
 // Schlieren, in pixels: with the heat map on Shimmer, warm water bends the light passing through it like the
 // air over a hot road, faintly, wherever warmth changes (around colonies and framboids, at fronts), the
@@ -9303,7 +9317,7 @@ struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location
     uv += shimmer(wp, water) / post.res;
     bend += bubbleBend(wp, water);
   }
-  uv += keepInFrame(bend * post.ppu, frameRoom(i.pos.xy), 0.1 * post.res.y) / post.res;
+  uv += keepInView(bend * post.ppu, i.pos.xy) / post.res;
   uv += toolBend(wp) / post.res;
   // Cells lie over what is beneath them: where the living cover a pixel they show alone, not averaged
   // with the grains they sit on, and cells and grains both hide the stone under them (fsStoneLit).
@@ -9393,7 +9407,7 @@ fn loupeScene(r: vec2f) -> vec3f {
     r += shimmer(wp, water) / loupe.ppu * toR;
     bend += bubbleBend(wp, water);
   }
-  r += keepInFrame(bend * toR, 1.0 - max(abs(r0.x), abs(r0.y)), 0.2);
+  r += keepInFrame(bend * toR, 1.0 + r0, 1.0 - r0, 0.2);
   let ca = r * d2 * d2 * 0.015 * k;
   var hdr = vec3f(loupeScene(r + ca).r, loupeScene(r).g, loupeScene(r - ca).b);
   let soft = d2 * d2 * k;

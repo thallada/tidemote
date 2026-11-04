@@ -152,9 +152,12 @@ wrap puts them and show no seam at the world's edges. Raindrop ripples bend the 
   multiply the scene's light on open water only, so they are in the pool rather than over it, which is what sank the
   first try at caustics), and tilts a faint sheen. Where the bending would reach past the image's edge, it eases to nothing
   (`keepInside`): the image repeats its last pixels there, and a shift into them smeared streaks along the edges. At the
-  frame's edge it eases in across a tenth of the view's height first (`keepInFrame`; the loupe across a fifth of its
-  radius): held only within the room to the edge, the last few pixels showed what lay under less than half of them,
-  stretched along the edge into streaks.
+  frame's edge only the part of the bend that reaches toward the edge eases, in across a tenth of the view's height
+  or six times its own reach if longer (`keepInFrame`; the loupe across a fifth of its radius); along the edge and
+  inward it passes untouched. Held only within the room to the edge, the last few pixels showed what lay under less
+  than half of them, stretched along the edge into streaks; the whole bend eased across a fixed band instead made the
+  band itself stretch and squeeze as a storm's waves passed (about 1.5 times the bend over the band's width), where
+  now it stretches by at most a quarter however high the sea.
   The same easing keeps it within the room to the water's edge (`waterRoom`, the shore's and the ice's): faded over
   a fixed width instead, a storm's bending smeared the shallows by a low shore into bands. And where the bending
   would stretch the view past about a half (its depth times the slope's divergence, at a storm's sharp crests), it

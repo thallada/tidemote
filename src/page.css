@@ -69,8 +69,6 @@ body.cursor-off, body.cursor-off * { cursor: none !important; }
 }
 h1, h2, h3 { margin: 0; font-weight: 400; }
 .sec-h h2 span, .lab-head h2 span { color: var(--ink-3); }
-/* a panel's shortcut key, boxed like the light table's index letters */
-kbd.key { display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 3px; margin-right: 8px; background: var(--cyan-deep); border: 1px solid var(--line-2); color: var(--cyan); font-size: 11px; letter-spacing: 0; vertical-align: 1px; }
 b { font-weight: 500; }
 .num { font-variant-numeric: tabular-nums; }
 .term { text-decoration: underline dotted rgba(163, 189, 190, 0.55); text-underline-offset: 3px; cursor: help; }
@@ -953,7 +951,6 @@ body.lab-wide.spec-open .lab { width: min(620px, calc(100% - var(--spec-pw))); }
 .lab.closed .lab-head { border-bottom: 0; }
 .lab.closed .lab-title { flex-direction: column; gap: var(--s3); min-height: 0; padding: var(--s1) 0 var(--s3); cursor: pointer; }
 .lab.closed .lab-title h2, .lab.closed .world-sum { writing-mode: vertical-rl; transform: rotate(180deg); }
-.lab.closed .lab-title h2 kbd.key { margin: 8px 0 0; }
 .lab.closed .lab-fold { order: -1; margin: 0; }
 .lab.closed:hover { border-color: var(--line-2); }
 /* the fold points the way the column goes: left to fold it away, right to bring it back */
