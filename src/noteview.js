@@ -18,6 +18,8 @@ import { contours, smooth } from './contour.js';
 
 const FONT = 'Saira, Bahnschrift, "DIN Alternate", "Segoe UI", system-ui, sans-serif';
 const INK = '226,241,240', INK2 = '163,189,190', INK3 = '111,138,140', LINE = '150,222,230', HOT = '255,95,58', CYAN = '127,214,223', SUN = '255,204,92';
+// (dry land's sand, duckweed's moss)
+const SAND = '214,178,124', MOSS = '142,196,110';
 const SHADE = 'rgba(4,7,8,0.85)', HALO = 'rgba(0,0,0,0.55)', PLATE = 'rgba(4,7,8,0.8)';
 const rgba = (c, a) => `rgba(${c},${a})`;
 const SCRAMBLE = '0123456789ABCDEFHKLMNPRSTVXZ/·-';
@@ -299,13 +301,13 @@ export function createNoteView(g) {
   //   ├──[█████]──┤            a range bar: a band of comfort on a scale, the reading as a tick
   //      14    28              the band's ends
   // Each row has its own band of height, so nothing in one reaches into another; the block sits on a faint plate.
-  const RANGE_W = 120, SPLIT_W = 170, TABLE_W = 230;
+  const RANGE_W = 120, SPLIT_W = 170, TABLE_W = 230, TABLE_ROW = 18;
   function labelSize(L) {
     L = norm(L);
     const head = (L.eye ? width('eye', L.eye) : 0) + (L.tag ? width('tag', L.tag) + 10 + (L.eye ? 8 : 0) : 0);
     const row = (L.num ? width('num', L.num) + 8 : 0) + (L.main ? width('main', L.main) : 0) + (L.kind != null ? 14 : 0);
     const data = Math.max(0, ...(L.data || []).map((d, i) => width('data', d) + (L.dataKinds?.[i] != null ? 13 : 0)));
-    const table = L.table ? TABLE_W : 0;
+    const table = L.table ? Math.max(TABLE_W, ...(L.why || []).map((w2) => width('data', w2)), L.why ? width('micro', 'WHY IT HOLDS TOGETHER') : 0) : 0;
     const w = Math.max(head, row, data, table, L.range ? RANGE_W + 8 : 0, L.split || L.stack || L.wave ? SPLIT_W : 0);
     let h = 0;
     if (L.eye || L.tag) h += 13;
@@ -314,7 +316,7 @@ export function createNoteView(g) {
     if (L.range) h += 42;
     if (L.split) h += 24;
     if (L.stack) h += 16;
-    if (L.table) h += 8 + L.table.length * 15 + (L.why ? 14 + L.why.length * 14 : 0);
+    if (L.table) h += 10 + L.table.length * TABLE_ROW + (L.why ? 20 + L.why.length * 16 : 0) + 4;
     if (L.wave) h += 26;
     return { w, h: h + 4 };
   }
@@ -363,24 +365,25 @@ export function createNoteView(g) {
     });
     if (L.table) {
       // a table of species: each its glyph, its name, its figure right, a bar of its share beneath
-      yy += 8;
-      const x0 = dir > 0 ? x : x - TABLE_W, max = Math.max(...L.table.map((r) => r.share || 0), 1e-9);
+      yy += 10;
+      const TW = Math.max(TABLE_W, w), x0 = dir > 0 ? x : x - TW, max = Math.max(...L.table.map((r) => r.share || 0), 1e-9);
       L.table.forEach((r, i) => {
-        yy += 15;
+        yy += TABLE_ROW;
         if (t > 0.2 + i * 0.05) spGlyph(r.kind, x0 + 4, yy - 4, 3.8);
-        const nm2 = fit('data', r.name, TABLE_W - 62);
+        const nm2 = fit('data', r.name, TW - 62);
         text('data', nm2, x0 + 14, yy, rgba(INK, 0.96), 'left', nm2);
-        text('data', r.value, x0 + TABLE_W, yy, rgba(INK, 0.96), 'right', r.value);
+        text('data', r.value, x0 + TW, yy, rgba(INK, 0.96), 'right', r.value);
         g.fillStyle = curF?.species(r.kind)?.col || rgba(INK2, 0.6);
         const a0 = g.globalAlpha; g.globalAlpha = a0 * 0.55;
-        g.fillRect(x0 + 14, yy + 3, (TABLE_W - 14) * ((r.share || 0) / max) * (reduced ? 1 : clamp((t - 0.3 - i * 0.05) / 0.4, 0, 1)), 1.5);
+        g.fillRect(x0 + 14, yy + 4, (TW - 14) * ((r.share || 0) / max) * (reduced ? 1 : clamp((t - 0.3 - i * 0.05) / 0.4, 0, 1)), 1.5);
         g.globalAlpha = a0;
       });
       if (L.why) {
-        yy += 14;
+        yy += 20;
         text('micro', 'WHY IT HOLDS TOGETHER', x0, yy, rgba(INK3, 1), 'left');
-        for (const w2 of L.why) { yy += 14; text('data', decoded(w2, t - 0.3), x0, yy, rgba(INK2, 0.95), 'left', w2); }
+        for (const w2 of L.why) { yy += 16; text('data', decoded(w2, t - 0.3), x0, yy, rgba(INK2, 0.95), 'left', w2); }
       }
+      yy += 4;
     }
     if (L.wave) { yy += 16; wave(L.wave, dir > 0 ? x : x - SPLIT_W, yy, t - 0.25); yy += 10; }
     if (L.range) { yy += 22; range(L.range, dir > 0 ? x : x - RANGE_W, yy, t - 0.25); yy += 20; }
@@ -736,8 +739,9 @@ export function createNoteView(g) {
     let f = field;
     if (st) {
       if (st.c !== c) { st.c = c; st.f = new Map(); }
-      for (const [k, w] of st.f) { const nw = w * 0.67 + (field.get(k) || 0) * 0.33; if (nw < 0.02) st.f.delete(k); else st.f.set(k, nw); }
-      for (const [k, w] of field) if (!st.f.has(k)) st.f.set(k, w * 0.33);
+      // (each look counts for a sixth: a shape that grows and shrinks over about a second, never flickering)
+      for (const [k, w] of st.f) { const nw = w * 0.83 + (field.get(k) || 0) * 0.17; if (nw < 0.02) st.f.delete(k); else st.f.set(k, nw); }
+      for (const [k, w] of field) if (!st.f.has(k)) st.f.set(k, w * 0.17);
       f = st.f;
     }
     if (!f.size) return [];
@@ -763,8 +767,12 @@ export function createNoteView(g) {
     if (!loops.length) return null;
     const P = new Path2D(), a = g.globalAlpha;
     let top = null, n = 0;
+    // (each loop moved, whole, by the world's size to lie on the side of its wrap the view is on: a shape found about
+    // one side of the seam shows whole wherever the camera is)
+    const [W, H] = F.world, c0 = F.toWorld([(F.open.l + F.open.r) / 2, (F.open.t + F.open.b) / 2]);
     for (const L of loops) {
-      L.forEach((w, i) => { const p = F.toScreen(w); if (i) P.lineTo(p[0], p[1]); else P.moveTo(p[0], p[1]); if (!top || p[1] < top[1]) top = p; });
+      const sx = -W * Math.round((L[0][0] - c0[0]) / W), sy = -H * Math.round((L[0][1] - c0[1]) / H);
+      L.forEach((w, i) => { const p = F.toScreen([w[0] + sx, w[1] + sy]); if (i) P.lineTo(p[0], p[1]); else P.moveTo(p[0], p[1]); if (!top || p[1] < top[1]) top = p; });
       P.closePath();
       n += L.length;
     }
@@ -1049,11 +1057,14 @@ export function createNoteView(g) {
         const loops = S.loops;
         P.draws.push((t) => blob(loops, HOT, t, F, { hatch: true, ppu0: S.ppu0 }));
       } else {
-        // its too-warm cells' ground: a shape about them, eased from look to look
+        // its too-warm cells' ground: a shape about them, eased from look to look; its frame held to one side of the
+        // world's wrap (the first view's middle), so the field carries over however the camera wraps
         if (S.heatView !== M.view) {
           S.heatView = M.view;
-          const v = M.view, R = clamp(F.radius(d.kind) * 2.4, 16, 90) / F.ppu;
-          S.loops = crowdLoops(rows.map((i) => nearView(F, v.x[i], v.y[i])), R, (S.crowd ||= {}));
+          const v = M.view, R = clamp(F.radius(d.kind) * 2.4, 16, 90) / F.ppu, [W, H] = F.world;
+          const ref = (S.ref ||= [v.rect[0] + v.rect[2] / 2, v.rect[1] + v.rect[3] / 2]);
+          const near = (x, y) => [ref[0] + (x - ref[0]) - W * Math.round((x - ref[0]) / W), ref[1] + (y - ref[1]) - H * Math.round((y - ref[1]) / H)];
+          S.loops = crowdLoops(rows.map((i) => near(v.x[i], v.y[i])), R, (S.crowd ||= {}));
         }
         const loops = S.loops;
         P.draws.push((t) => blob(loops, HOT, t, F, { hatch: true, ppu0: S.ppu0 }));
@@ -1358,6 +1369,94 @@ export function createNoteView(g) {
       const top = Object.entries(d.causes).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c, k]) => `${CAUSE[c]} ${k}`).join(' · ');
       P.label = { tone: HOT, tag: 'Killing ground', num: String(d.died), main: 'DIED HERE IN 30 S', data: [top, `${Math.round((d.died / d.all) * 100)}% OF ALL THE DEATHS IN VIEW`] };
       P.keys.push({ glyph: 'square', text: 'WHERE MOST DIED', tone: HOT });
+    } else if (d.type === 'stranded') {
+      // stranded on dry land: the cells there, a shape about them, the cause
+      const v = M.view, rows = [];
+      for (let i = 0; i < v.n; i++) if (v.dry[i] && v.kind[i] >= 5) rows.push(i);
+      const pts = group('d', rows), an = hang(0, pts, -2);
+      if (!an) return null;
+      if (S.dryView !== v) { S.dryView = v; S.loops = crowdLoops(rows.map((i) => nearView(F, v.x[i], v.y[i])), clamp(F.radius(d.kind) * 3, 18, 100) / F.ppu, (S.crowd ||= {})); }
+      const loops = S.loops;
+      S.ppu0 ||= F.ppu;
+      P.tone = SAND;
+      P.draws.push((t) => blob(loops, SAND, t, F, { hatch: true, ppu0: S.ppu0, hatchA: 0.45, dash: [4, 3] }));
+      P.draws.push((t) => census(pts, 'ring', SAND, t, an, 3.5));
+      pips(recent('dried', null, 10), HOT, 0.4);
+      P.anchor = an;
+      P.pts = pts;
+      P.label = { tone: SAND, tag: 'Stranded', num: String(d.cells), main: 'CELLS ON DRY LAND',
+        data: ['THE WATER WITHDREW AND LEFT THEM: THEY CANNOT SWIM', d.cysts ? `${d.cysts} RESTING AS CYSTS AND SPORES TO WAIT IT OUT` : 'THE DRYING FILM PULLS THEM BACK TOWARD THE WATER',
+          ...(d.dried ? [`${d.dried} DRIED TO DEATH IN 30 S`] : [])] };
+      P.keys.push({ glyph: 'ring', text: 'ON DRY LAND', tone: SAND });
+    } else if (d.type === 'frozen') {
+      // locked in the ice: the ice where it lies, rings on the cells stilled in it
+      const v = M.view, W2 = F.world, rows = [];
+      for (let i = 0; i < v.n; i++) {
+        if (!(v.kind[i] >= 5) || !v.torpid[i]) continue;
+        const [ox, oy, gs] = v.grid;
+        let dx = v.x[i] - ox, dy = v.y[i] - oy;
+        dx -= W2[0] * Math.floor(dx / W2[0]); dy -= W2[1] * Math.floor(dy / W2[1]);
+        const a = Math.floor(dx / gs), b = Math.floor(dy / gs);
+        if (a < NOTE_TG && b < NOTE_TG && v.ice[b * NOTE_TG + a] > 0.5) rows.push(i);
+      }
+      const pts = group('i', rows), an = hang(0, pts, -2);
+      if (!an) return null;
+      S.ppu0 ||= F.ppu;
+      if (S.iceView !== v) { S.iceView = v; S.loops = gridLoops(v.ice, v.grid, 0.5, v.sqIn); }
+      const loops = S.loops;
+      P.tone = CYAN;
+      P.draws.push((t) => blob(loops, CYAN, t, F, { hatch: true, ppu0: S.ppu0 }));
+      P.draws.push((t) => census(pts, 'ring', CYAN, t, an, 3.5));
+      pips(recent('froze', null, 10), HOT, 0.4);
+      P.anchor = an;
+      P.pts = pts;
+      P.label = { tone: CYAN, tag: 'Locked in ice', num: String(d.cells), main: 'CELLS FROZEN STILL',
+        data: [`ICE OVER ${Math.round(d.share * 100)}% OF THE WATER IN VIEW`, 'TORPID: THEY WAIT FOR THE THAW', ...(d.froze ? [`${d.froze} FROZE TO DEATH IN 30 S`] : [])] };
+      P.keys.push({ glyph: 'ring', text: 'STILLED IN THE ICE', tone: CYAN });
+    } else if (d.type === 'shade') {
+      // under duckweed: its shade where it falls dark, the producers in it
+      if (!F.shade) return null;
+      const v = M.view, rows = [];
+      for (let i = 0; i < v.n; i++) if (v.kind[i] >= 5 && F.species(v.kind[i])?.guild === 'producer' && F.shade(v.x[i], v.y[i]) > 0.4) rows.push(i);
+      const pts = group('u', rows), an = hang(0, pts, -2);
+      if (!an) return null;
+      if (S.shadeView !== v) {
+        S.shadeView = v;
+        const f = new Float32Array(NOTE_TG * NOTE_TG), [ox, oy, gs] = v.grid;
+        for (let k = 0; k < f.length; k++) f[k] = F.shade(ox + ((k % NOTE_TG) + 0.5) * gs, oy + (Math.floor(k / NOTE_TG) + 0.5) * gs);
+        S.loops = gridLoops(f, v.grid, 0.4, v.sqIn);
+      }
+      const loops = S.loops;
+      S.ppu0 ||= F.ppu;
+      P.tone = MOSS;
+      P.draws.push((t) => blob(loops, MOSS, t, F, { hatch: true, ppu0: S.ppu0, hatchA: 0.6, fill: ['rgba(2,4,3,1)', 0.25] }));
+      P.draws.push((t) => census(pts, 'plus', MOSS, t, an, 3.5));
+      P.anchor = an;
+      P.pts = pts;
+      const pct = (x) => `${Math.round(x * 100)}%`;
+      P.label = { tone: MOSS, tag: 'Under duckweed', num: String(d.cells), main: 'PRODUCERS IN ITS SHADE',
+        data: [`THE FRONDS TAKE UP TO ${pct(d.deep)} OF THE LIGHT`, d.fedO != null && d.fedO > 0 ? `${pct(1 - d.fedU / d.fedO)} LESS FED THAN THOSE IN THE LIGHT` : 'NO LIGHT, NO FOOD FOR A PRODUCER',
+          ...(d.starved ? [`${d.starved} STARVED IN VIEW IN 30 S`] : [])] };
+      P.keys.push({ glyph: 'plus', text: 'A PRODUCER IN THE SHADE', tone: MOSS });
+    } else if (d.type === 'rain') {
+      // a raindrop: where it fell, its ring wave spreading out from there
+      const c = F.project({ x: d.x, y: d.y, vx: 0, vy: 0, t: 0 }, -1);
+      if (!c) return null;
+      P.tone = CYAN;
+      const R = d.size * F.ppu;
+      P.draws.push((t) => {
+        const a = g.globalAlpha;
+        for (let q = 0; q < 3; q++) {
+          const u = ((t * 0.6 + q / 3) % 1);
+          g.globalAlpha = a * (1 - u) * 0.9;
+          stroke(() => { g.beginPath(); g.arc(c[0], c[1], 6 + u * R, 0, TAU); }, rgba(CYAN, 0.9), 1.2);
+        }
+        g.globalAlpha = a;
+        stroke(() => { g.beginPath(); g.moveTo(c[0] - 7, c[1]); g.lineTo(c[0] + 7, c[1]); g.moveTo(c[0], c[1] - 7); g.lineTo(c[0], c[1] + 7); }, rgba(INK, 0.95), 1.2);
+      });
+      P.boxes.push({ l: c[0] - R, t: c[1] - R, r: c[0] + R, b: c[1] + R });
+      P.anchor = [c[0], c[1] - 8];
+      P.label = { tone: CYAN, tag: 'Raindrop', main: 'A RING WAVE SPREADS', data: [`${fmtLen(d.size)} ACROSS · IT PUSHES THE CELLS OUTWARD`, `${d.drops} DROPS IN VIEW AND ABOUT IN 30 S`] };
     } else if (d.type === 'old') {
       const evs = recent('old', d.kind, 20), pts = [];
       for (const e of evs.slice(0, 40)) {
@@ -1503,6 +1602,13 @@ export function createNoteView(g) {
     }
     const taken = F.avoid.map((r) => ({ ...r, hard: true }));
     g.save();
+    // the loupe shows its own view: nothing of the annotations is drawn over it, no label is set on it, nothing under
+    // it is pointed at (F.lens: its middle and radius on the screen)
+    if (F.lens) {
+      const { x, y, r } = F.lens;
+      g.beginPath(); g.rect(-1e4, -1e4, 2e4, 2e4); g.moveTo(x + r + 2, y); g.arc(x, y, r + 2, 0, TAU); g.clip('evenodd');
+      taken.push({ l: x - r - 6, t: y - r - 6, r: x + r + 6, b: y + r + 6, hard: true });
+    }
     const active = new Set();
     for (const n of F.notes) for (const k of [n.data.kind, n.data.akind, n.data.census, n.data.fine?.kind]) if (k != null && k >= 0) active.add(k);
     isActive = (k) => active.has(k);
@@ -1521,7 +1627,10 @@ export function createNoteView(g) {
     const webNote = !F.phone && F.notes.find((n) => n.type === 'web');
     const panelArea = { l: F.open.l + 14, t: F.open.t + 34, r: F.open.l + 14 + WEB_W, b: F.open.t + 42 + (webNote ? webH(webNote.data, F) : 200) };
     const panelOn = !!webNote;
-    F.block = F.phone ? [] : [rosterBox, gaugeArea, { l: F.open.l, t: F.open.b - 120, r: F.open.l + KEY_W, b: F.open.b }, panelOn ? panelArea : null].filter(Boolean);
+    F.block = [...(F.phone ? [] : [rosterBox, gaugeArea, { l: F.open.l, t: F.open.b - 120, r: F.open.l + KEY_W, b: F.open.b }, panelOn ? panelArea : null]),
+      F.lens ? { l: F.lens.x - F.lens.r, t: F.lens.y - F.lens.r, r: F.lens.x + F.lens.r, b: F.lens.y + F.lens.r } : null,
+      // (the mode's tag at the top: a link's verb keeps off it too)
+      modeAt ? { l: modeAt[0] - width('head', F.mode) / 2 - 12, t: modeAt[1] - 13, r: modeAt[0] + width('head', F.mode) / 2 + 12, b: modeAt[1] + 7 } : null].filter(Boolean);
     F.verbs = [];
     const T0 = performance.now();
     for (const n of F.notes) {
@@ -1657,7 +1766,8 @@ export function createNoteView(g) {
         // hides, and shows again only once clear for a moment
         // (against another label, the newer gives way once it has been read a moment and a half, past a blink)
         const over = taken.filter((r) => r.hard && area(box, r) > 4), blocked = over.length > 0;
-        const staying = st.seenAt != null && F.now - st.seenAt < (over.some((r) => r.label) ? 1.6 : STEADY.minShow);
+        // (covered, it stays a moment and a half once read, past a blink, then gives way)
+        const staying = st.seenAt != null && F.now - st.seenAt < 1.6;
         if (st.vis == null) { st.vis = blocked ? 0 : 1; st.hide = blocked; }
         // (a note already ending that was never read is never begun: it would only show to go)
         if (n.exitAt != null && st.seenAt == null) { st.hide = true; st.gone = true; }
@@ -1671,7 +1781,9 @@ export function createNoteView(g) {
           // (the notes end one whose label finds no room for a while: n.hiddenAt)
           if (st.vis < 0.05) n.hiddenAt ??= F.now; else n.hiddenAt = null;
         }
-        const alpha = out * st.a * st.vis;
+        // (once readable, readable a moment and a half at least, whatever has become of its note: never a blink)
+        const held = st.readFrom != null && F.now - st.readFrom < 1.6;
+        const alpha = held ? Math.max(out * st.a * st.vis, 0.6) : out * st.a * st.vis;
         // (when it first could be read, and for the audit any shown for less than a moment and a half)
         if (alpha >= 0.5) { if (st.seenAt == null) st.seenAt = F.now; st.readFrom ??= F.now; if (k === 0) n.readAt ??= F.now; }
         else if (st.readFrom != null) { if (A && F.now - st.readFrom < 1.5) A.blink(`${n.type}: ${L.main || L.eye || L.tag}`, F.now - st.readFrom); st.readFrom = null; }

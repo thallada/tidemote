@@ -33,7 +33,7 @@ function scan(cells, { simTime = 10, tick = 600, rect = [0, 0, 100, 100], grid =
   cells.forEach((c, i) => {
     const o = NOTE_HEAD + i * NOTE_REC;
     u[o] = c.id; f[o + 1] = c.x; f[o + 2] = c.y;
-    u[o + 3] = c.kind | ((c.cause ?? 9) << 10) | ((c.img ?? 0) << 16) | ((c.torpid ? 1 : 0) << 27);
+    u[o + 3] = c.kind | ((c.cause ?? 9) << 10) | ((c.img ?? 0) << 16) | ((c.torpid ? 1 : 0) << 27) | ((c.dry ? 1 : 0) << 28);
     u[o + 4] = halfOf(c.vx ?? 0) | (halfOf(c.vy ?? 0) << 16);
     u[o + 5] = halfOf(c.fed ?? 0.5) | (halfOf(c.tx ?? 0) << 16);
     u[o + 6] = c.p1 ?? NONE; u[o + 7] = c.p2 ?? NONE;
@@ -365,4 +365,47 @@ test('once shown a note stays its least, and the same kind of story about the sa
   N.ingest(scan(chain(8, Wd, 60, 60, 0, 0, 500), { simTime: 11 }));
   told(N, n.born + TUNE.minLife + TUNE.gap + 1);
   assert.ok(!N.notes.some((m) => m !== n && m.exitAt == null && m.type === 'body'));
+});
+
+test('a note keeps the cells it points at while they live: a later bite by another grazer does not move it', () => {
+  const N = notes();
+  const cells = [];
+  for (let k = 0; k < 5; k++) cells.push({ id: 10 + k, x: 30 + k, y: 30, kind: P }, { id: 20 + k, x: 30 + k, y: 31, kind: Wd });
+  N.ingest(scan(cells));
+  const bite = (aid, id, tick) => ({ ev: 'bite', kind: Wd, akind: P, id, aid, x: 30, y: 31, tick });
+  N.ingest(scan(cells, { simTime: 10.2, tick: 612, ring: ring(Array.from({ length: 6 }, (_, k) => bite(10, 20, 600 + k)), 6) }));
+  told(N, 100);
+  const n = N.notes[0];
+  assert.equal(n.data.actor, 10);
+  // the newest bite now by grazer 14 on plant 24: the note still points at 10
+  N.ingest(scan(cells, { simTime: 10.6, tick: 636, ring: ring([bite(14, 24, 635)], 7) }));
+  N.update(ctx(101 + TUNE.detectEvery));
+  assert.equal(n.data.actor, 10);
+  assert.ok(n.data.bites >= 7);
+});
+
+test('cells stranded on dry land are told as stranded', () => {
+  const N = notes();
+  const cells = Array.from({ length: 8 }, (_, k) => ({ id: k + 1, x: 10 + k, y: 10, kind: Wd, dry: k < 6, cause: k < 2 ? CYST : 9 }));
+  N.ingest(scan(cells));
+  N.ingest(scan(cells, { simTime: 10.2 }));
+  N.update(ctx(100));
+  const c = N.cands.find((x) => x.type === 'stranded');
+  assert.equal(c.cells, 6);
+  assert.equal(c.cysts, 2);
+});
+
+test('the auto camera flying on keeps a note about cells that will show where it goes, and takes the rest', () => {
+  const N = notes();
+  N.ingest(scan(chain(8, Wd, 20, 20)));
+  N.ingest(scan(chain(8, Wd, 20, 20), { simTime: 10.2 }));
+  told(N, 100);
+  const n = N.notes[0];
+  n.readAt = n.born;
+  // flying to a view about the body: it stays
+  N.update(ctx(101, { leaving: true, dest: { x: 21, y: 20, w: 20, h: 12 } }));
+  assert.equal(n.exitAt, null);
+  // flying elsewhere: it goes
+  N.update(ctx(102, { leaving: true, dest: { x: 70, y: 70, w: 20, h: 12 } }));
+  assert.notEqual(n.exitAt, null);
 });

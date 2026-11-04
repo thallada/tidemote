@@ -3951,7 +3951,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     if (R) drawReticle(R);
     drawSongMarks(now, L);
-    if (notesShown) drawNotes(dt);
+    if (notesShown) drawNotes(dt, L);
   }
   // The will as drawn, from the ridden cell (world units), eased toward where it is steered as the specimen's compass
   // eases its arrows: a new way turns to over a moment, the shorter way round, and its length follows, never snapping.
@@ -4505,6 +4505,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const noteRadius = (kind) => { const g = kind >= FIRST_LIFE ? genomeFor(kind) : null; return Math.max(6, cellRadius({ role: 0 }, g, cssPPU()) * 1.25 + 2); };
   function noteVisible(x, y, m = 12) {
     const [sx, sy] = toScreen(x, y), o = noteOpen;
+    if (noteLens && Math.hypot(sx - noteLens.x, sy - noteLens.y) < noteLens.r + m) return false;
     return sx > o.l + m && sx < o.r - m && sy > o.t + m && sy < o.b - m;
   }
   // well inside the view: what a new note points at, so it stays in view long enough to read
@@ -4514,9 +4515,27 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const noteLight = (x, y) => { const [W, H] = eng.grid; return (eng.ambient + (1 - eng.ambient) * tideAt(x, y, W, H, eng.simTime, eng.tide, eng.tidePh) * eng.season) * eng.sky * (1 - duckShade(x, y, eng.duck, W, H)); };
   // the camera as the notes see it: flying to another shot, or panned or zoomed fast; and since when it has held still
   const noteCam = { x: 0, y: 0, zoom: 1, stillAt: 0 };
+  // the duckweed's shade at a world point (0..1), when there is any
+  const noteShade = (x, y) => { const [W, H] = eng.grid; return eng.duck[3] > 0 || eng.duck[7] > 0 ? duckShade(x, y, eng.duck, W, H) : 0; };
+  // raindrops fallen in the last moment and a half (eng.drops: x, y, when, size, four at a time), and how many in 30 s
+  const noteDropsSeen = new Map();
+  const noteDrops = () => {
+    const out = [], t = eng.simTime;
+    for (let k = 0; k < 4; k++) {
+      const x = eng.drops[k * 4], y = eng.drops[k * 4 + 1], at = eng.drops[k * 4 + 2], sz = eng.drops[k * 4 + 3];
+      if (!(sz > 0) || t - at < 0 || t - at > 1.5) continue;
+      noteDropsSeen.set(at, t);
+      out.push({ x, y, t: at, s: sz });
+    }
+    for (const [at] of noteDropsSeen) if (t - at > 30) noteDropsSeen.delete(at);
+    return out;
+  };
   let noteCap = null;
   const NOTE_MODE = { follow: 'FOLLOW', linger: 'LINGER', scene: 'SURVEY', wide: 'WIDE', event: 'EVENT' };
-  function drawNotes(dtMs) {
+  // the loupe on the screen while it shows (the annotations keep out from under it: its view is its own)
+  let noteLens = null;
+  function drawNotes(dtMs, L) {
+    noteLens = L ? { x: L.sx, y: L.sy, r: L.R } : null;
     const now = performance.now() / 1000, t0 = performance.now();
     noteOpen = openArea();
     const speed = state.paused ? 0 : state.speed === Infinity ? perf.rate || 16 : state.speed;
@@ -4526,7 +4545,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     C.x = cam.x; C.y = cam.y; C.zoom = cam.zoom;
     if (flying || pan > 220 || zoomRate > 0.15) C.stillAt = now;
     const list = notes.update({ now, speed, ppu: cssPPU(), phone: phone(), pool: eng.tbg, visible: noteVisible, inner: noteInner,
-      still: now - C.stillAt, leaving: flying, flow: noteFlow, light: noteLight, ahead: shot ? shot.dur - shot.t : Infinity });
+      still: now - C.stillAt, leaving: flying, flow: noteFlow, light: noteLight, shade: noteShade, drops: noteDrops, dropsIn30: () => noteDropsSeen.size,
+      ahead: shot ? shot.dur - shot.t : Infinity,
+      // (where the auto camera is flying to: the world it will show)
+      dest: flying && shot.target ? { x: shot.target.x, y: shot.target.y, w: shot.target.w, h: shot.target.w * (noteOpen.b - noteOpen.t) / Math.max(1, noteOpen.r - noteOpen.l) } : null });
     const avoid = [];
     // (the caption's place, while it shows and while it is between one caption and the next)
     const cr = capEl.classList.contains('on') ? capEl.getBoundingClientRect() : null;
@@ -4535,7 +4557,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (plateRect) avoid.push(plateRect);
     const sh = director.active ? director.shot : null;
     const mode = director.active ? NOTE_MODE[sh && sh.why && sh.why.kind] || 'AUTO' : 'OBSERVE';
-    noteView.draw({ now, dt: dtMs / 1000, ppu: cssPPU(), world: eng.grid, flow: noteFlow, light: noteLight, notes: list, model: notes, species: noteSp, project: noteProject, radius: noteRadius,
+    noteView.draw({ now, dt: dtMs / 1000, ppu: cssPPU(), world: eng.grid, flow: noteFlow, light: noteLight, shade: noteShade, lens: noteLens, notes: list, model: notes, species: noteSp, project: noteProject, radius: noteRadius,
       open: noteOpen, avoid, mode, pool: eng.tbg, phone: phone(), roster: true, since: notesSince, cap: cssPPU() >= notes.T.close ? 400 : 220 });
     const ms = performance.now() - t0;
     notes.ms.draw += ms;

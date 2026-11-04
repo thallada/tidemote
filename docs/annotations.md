@@ -80,6 +80,11 @@ Each story is found from the events and the view, every 0.35 s at most, as a can
 | front | the two most numerous, each 15%+, holding ground side by side | both ranges in their colors; a table of the two |
 | barren | a quarter of the view or more nearly empty (a tenth of the view's mean or less a square) | the empty water dotted; what it lacks (ice, stone, light, warmth, or nothing yet settled) |
 | deaths | 30+ deaths in 30 s, half in a fifth of the view or less | where they died, hatched; of what |
+| stranded | 5+ living cells on dry ground (the scan's flag: the water's level below the floor there, as `pondWith` has it) | a sandy shape about them, rings on them; how many rest as cysts; how many dried |
+| frozen | 5+ torpid cells where the water has frozen (its squares' ice past half), two squares or more iced | the ice hatched, rings on the cells in it; how many froze |
+| shade | 8+ producers in duckweed's shade (the page's `duckShade` past 0.4) | the shade's shape, hatched in moss green; how much light the fronds take; how much less fed the shaded are |
+| rain | a raindrop fallen in view in the last moment and a half (`eng.drops`) | its ring wave as rings spreading from where it fell; how many fell in 30 s |
+| clump | | (stricter: three times the view's mean a square, every square counted; compact, filling 55% of the box about it; no more than a fifth of the view; 2.5× as dense as a ring of squares about it) |
 
 
 By zoom: from 50 CSS px a world unit, cells are pointed at one by one; below 18 the view is wide and tells only the
@@ -88,23 +93,28 @@ killing grounds), drawn on the grid's squares, with only those events written to
 bites and births would crowd it; its deaths are written, for its killing grounds). Past 4× speed a single moment (a kill, a spark) passes too fast to follow and is
 not told.
 
-The budget (`TUNE`, real seconds, so a note reads the same at any speed): at most three notes at once (two on a phone,
-one in a wide view), one arriving at a time 4.5 s apart, each held at least 6 s and at most 16 (a single moment 9);
+The budget (`TUNE`, real seconds, so a note reads the same at any speed): at most two notes at once (one on a phone or
+in a wide view), told one after another rather than together, one arriving at a time 6 s apart, each held at least 6 s and at most 16 (a single moment 9);
 the same story not again within 60 s nor the same kind within 18. A much stronger story may take the place of the
 weakest that has been read. The design study measured 4.3–8.6 new notes a minute with rules like these.
 
 A kind of story told in the last two minutes counts against another of its kind (its score divided by 1 + 0.5 for
 each), so the view's other stories get their turn.
 
-So that nothing shows only to vanish: no note begins while the camera moves (the auto camera flying to another shot,
-or the view panned faster than 220 px or zoomed faster than 15% a second) nor until it has held still 0.8 s, nor with
+So that nothing shows only to vanish: no note begins while the view is moved by hand (panned faster than 220 px or
+zoomed faster than 15% a second) nor until it has held still 0.8 s; while the auto camera flies to its next shot, only
+a note about cells that show now and will show well inside where it goes (`ctx.dest`, the shot's target), and those
+already up about such cells stay with it, the rest fading as it leaves; nor with
 less than 5 s of the shot left (a single moment, 3 s); a story must have held 0.7 s (a single moment is told at
 once); what it points at must lie well inside the view (90 px or 12% of it in from the edges) and, at the pace its
 cells move, still be in view two seconds on. The auto camera setting off for another shot takes the notes with it,
 fading (slowly, over 1.2 s, when it has been up less than 3 s). Once shown, a note stays at least 3 s whatever
 becomes of what it marks: a note whose cell has left the view keeps its label where it was last seen in the world
 (its marks and leader gone) until then, and goes after 0.6 s more; one whose label has found no room goes after 0.6 s.
-The same kind of story about the same species (another of its cells, another pair it grazes) waits 60 s. Zooming out ends a cell's note only well past the wide step (three quarters of it). `notes.debug()`
+The same kind of story about the same species (another of its cells, another pair it grazes) waits 60 s. A note
+keeps whom it is about: as its story is found again, its figures follow it, but the cells it points at (its doer,
+its quarry, the cell it hangs on, a body's members) stay as first told while they live, and it keeps the zoom band it
+was found in. Zooming out ends a cell's note only well past the wide step (three quarters of it). `notes.debug()`
 counts what was shown, how long, and why any went within 2.5 s.
 
 ### Ideas not built yet
@@ -171,6 +181,10 @@ The marks ride the scene as what they mark does, however the auto camera pans an
   too), so it never shows only to vanish; once shown it stays at least 3 s even if something comes to cover it; after
   that, covered, it hides for good and its note ends: nothing blinks on and off. The audit counts any label readable
   for under 1.5 s (`blinks`, with what it said): there should be none.
+- The loupe shows its own view: nothing of the annotations is drawn over it (a hole in their clip), no label is set
+  on it, and nothing under it is pointed at or begun.
+- Once a label can be read it stays readable at least 1.6 s whatever becomes of its note (the notes keep a note so
+  read until then), so nothing blinks.
 - No two pieces of text overlap: anything that is text (labels, the frame's panels, the links' verbs, the page's
   caption and nameplate) is a hard obstacle, and a label with no free place fades out until one frees. A link's verb
   under the page's text, a panel or another verb fades out until it is clear; the marks keep out from under the
