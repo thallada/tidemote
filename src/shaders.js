@@ -8219,13 +8219,14 @@ fn bubWall(sd: f32, sdn: f32) -> f32 { return max(sd, 0.5 * (sd - sdn)); }
 // grows again. Their sizes spread as nucleation leaves them (log-normal): most small, a few large. a: the bubble, b
 // and c: those it touches (vapor: the specks it left); n how many; reach how far from a's center they all lie;
 // flash a collapse's ring (x its radius, y how bright).
+const GAS_FROM = 42.0; // (dissolved air comes out of water warmer than this: bubSet)
 struct BubSet { n: u32, a: Bub, b: Bub, c: Bub, reach: f32, flash: vec2f }
 fn bubSet(cell: vec2f, sp: f32, vapor: bool) -> BubSet {
   var o: BubSet;
   let seed = select(0.0, 41.0, vapor);
   let ctr = (cell + 0.25 + 0.5 * vec2f(hash12(cell + seed + 7.7), hash12(cell + seed + 9.9))) * sp;
   let T = waterAt(ctr - post.world * floor(ctr / post.world)).x;
-  let gas = smoothstep(42.0, 85.0, T) * smoothstep(5.0, 15.0, T - post.heat.x);
+  let gas = smoothstep(GAS_FROM, 85.0, T) * smoothstep(5.0, 15.0, T - post.heat.x);
   let h = hash12(cell + seed);
   if (h >= select(0.6 * gas, 0.7 * boilAt(T), vapor)) { return o; }
   let g = hash12(cell + seed + 3.1) + hash12(cell + seed + 4.2) + hash12(cell + seed + 5.3) - 1.5;
@@ -8274,6 +8275,14 @@ fn bubOf(s: BubSet, k: u32) -> Bub {
   if (k == 2u) { return s.c; }
   return s.a;
 }
+// Whether any bubble's set (bubSet) near a point of water (waterAt: its temperature and slope) can hold one: air
+// (x) from GAS_FROM and 5° over the open water, vapor (y) near a boil, judged by the warmest water the sets around it
+// can be centered on (within 2.5 of their spacing; the slope carried that far, and 3° to spare). Cooler water, as a
+// warm colony's often is, skips their search: 18 sets of hashes and heat reads a pixel, each finding nothing.
+fn bubblesNear(water: vec3f) -> vec2<bool> {
+  let up = length(water.yz) * 2.5;
+  return vec2<bool>(water.x + up * 0.7 + 3.0 > max(GAS_FROM, post.heat.x + 5.0), water.x + up * 1.8 + 3.0 > ${f(BOIL)} - 9.0);
+}
 fn bubbles(cIn: vec3f, wp: vec2f, ppu: f32, sp: f32, vapor: bool) -> vec3f {
   let px = 1.0 / max(ppu, 1e-3);
   let c0 = floor(wp / sp);
@@ -8300,15 +8309,17 @@ fn bubbles(cIn: vec3f, wp: vec2f, ppu: f32, sp: f32, vapor: bool) -> vec3f {
   return c;
 }
 // Through a bubble what lies beyond it shows smaller (a lens of air in water diverges the light), the more toward its
-// rim: the shift of the view at wp (world units) for fsComposite and the loupe to add before they sample. T: the
-// water's temperature at wp (none below 30°, as extremes).
-fn bubbleBend(wpIn: vec2f, T: f32) -> vec2f {
-  if (T < 30.0) { return vec2f(0.0); }
+// rim: the shift of the view at wp (world units) for fsComposite and the loupe to add before they sample.
+// water: waterAt(wp), its temperature and slope (none but where bubblesNear finds some may be, as extremes).
+fn bubbleBend(wpIn: vec2f, water: vec3f) -> vec2f {
+  let near = bubblesNear(water);
+  if (!near.x && !near.y) { return vec2f(0.0); }
   let wp = wpIn - post.world * floor(wpIn / post.world);
   var o = vec2f(0.0);
   var best = 0.0;
   for (var f = 0; f < 2; f++) {
     let vapor = f == 1;
+    if (!near[f]) { continue; }
     let sp = select(0.7, 1.8, vapor);
     let c0 = floor(wp / sp);
     for (var j = -1; j <= 1; j++) {
@@ -8341,16 +8352,15 @@ fn bubbleBend(wpIn: vec2f, T: f32) -> vec2f {
 // temperature at wp and its slope.
 fn extremes(c: vec3f, wpIn: vec2f, ppu: f32, water: vec3f, behind: f32) -> vec3f {
   let T = water.x;
-  if (T > 4.0 && T < 30.0) { return c; }
+  let near = bubblesNear(water);
+  if (T > 4.0 && !near.x && !near.y) { return c; }
   let wp = wpIn - post.world * floor(wpIn / post.world);
   let k = 0.35 + 0.65 * behind;
   var o = c;
   // (the ice the probe freezes is the water's, drawn with the frost's by poolOver)
   o += vec3f(0.012, 0.016, 0.02) * probeCold(T) * k;
-  if (T >= 30.0) {
-    o = bubbles(o, wp, ppu, 0.7, false);
-    o = bubbles(o, wp, ppu, 1.8, true) + vec3f(0.012, 0.007, 0.003) * boilAt(T) * k;
-  }
+  if (near.x) { o = bubbles(o, wp, ppu, 0.7, false); }
+  if (near.y) { o = bubbles(o, wp, ppu, 1.8, true) + vec3f(0.012, 0.007, 0.003) * boilAt(T) * k; }
   return o;
 }
 // How plainly water at T is the cold probe's ice (0..1): near freezing, and well below the open water (none where the
@@ -9080,7 +9090,7 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f,
   if (post.heatVis >= 0.0) {
     water = waterAt(wp - post.world * floor(wp / post.world));
     uv += shimmer(wp, water) / post.res;
-    bend += bubbleBend(wp, water.x);
+    bend += bubbleBend(wp, water);
   }
   uv += keepInFrame(bend * post.ppu, frameRoom(i.pos.xy), 0.1 * post.res.y) / post.res;
   uv += toolBend(wp) / post.res;
@@ -9180,7 +9190,7 @@ fn loupeScene(r: vec2f) -> vec3f {
   if (post.heatVis >= 0.0) {
     water = waterAt(wp - post.world * floor(wp / post.world));
     r += shimmer(wp, water) / loupe.ppu * toR;
-    bend += bubbleBend(wp, water.x);
+    bend += bubbleBend(wp, water);
   }
   r += keepInFrame(bend * toR, 1.0 - max(abs(r0.x), abs(r0.y)), 0.2);
   let ca = r * d2 * d2 * 0.015 * k;
