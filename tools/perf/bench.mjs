@@ -71,7 +71,8 @@ const userDir = fs.mkdtempSync(path.join(process.env.TEMP || process.env.TMPDIR 
 // the flags that keep a page in the background from being throttled, for Chrome and the desktop app alike
 const UNTHROTTLED = ['--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows'];
 const args = [`--window-size=${W},${H}`, '--window-position=0,0', '--enable-webgpu-developer-features', '--autoplay-policy=no-user-gesture-required',
-  ...UNTHROTTLED, '--no-first-run', '--no-default-browser-check'];
+  // (silent: a run's soundtrack still plays through the audio thread, unheard)
+  '--mute-audio', ...UNTHROTTLED, '--no-first-run', '--no-default-browser-check'];
 let ctx = null, desk = null;
 async function launch() {
   if (v.electron) {
