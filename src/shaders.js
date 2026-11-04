@@ -7403,6 +7403,11 @@ struct LitOut { @location(0) scene: vec4f, @location(1) pile: vec4f };
   let pile = textureLoad(stoneCacheTex, vec2i(clamp(cuv * cs, vec2f(0.0), cs - 1.0)), 0).a;
   return LitOut(underCells(textureLoad(src, vec2i(i.pos.xy), 0), textureSampleLevel(stoneCacheTex, samp, cuv, 0.0).rgb), vec4f(0.0, 0.0, 0.0, pile));
 }
+// (the scene alone, where the composite reads no pile: its focus deep in a pile is for views past lensScene's start)
+@fragment fn fsStoneLitScene(i: VO) -> @location(0) vec4f {
+  let cuv = i.uv * stoneXf.xy + stoneXf.zw;
+  return underCells(textureLoad(src, vec2i(i.pos.xy), 0), textureSampleLevel(stoneCacheTex, samp, cuv, 0.0).rgb);
+}
 // (the loupe's and the close-up's, lit as they are drawn, at their own scale)
 @fragment fn fsStoneLitMicro(i: VO) -> @location(0) vec4f {
   return underCells(textureLoad(src, vec2i(i.pos.xy), 0), boulder(i.uv, microView.cam + (i.pos.xy - microView.res * 0.5) / microView.ppu, microView.ppu));

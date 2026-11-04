@@ -423,6 +423,7 @@ class Engine {
     this.pStoneLit = rPipe({ layout: 'auto', label: 'fsStoneLit', primitive: { topology: 'triangle-list' },
       vertex: { module: this.postModule, entryPoint: 'vsFull' },
       fragment: { module: this.postModule, entryPoint: 'fsStoneLit', targets: [{ format: HDR }, { format: HDR }] } });
+    this.pStoneLitScene = rp(this.postModule, 'vsFull', 'fsStoneLitScene', 'triangle-list', undefined);
     this.pStoneLitM = rp(this.postModule, 'vsFull', 'fsStoneLitMicro', 'triangle-list', undefined);
     this.pUp = rp(this.postModule, 'vsFull', 'fsUp', 'triangle-list', additive);
     this.pMurk = rp(this.postModule, 'vsFull', 'fsMurk', 'triangle-list', undefined);
@@ -759,9 +760,11 @@ class Engine {
     this.downBG = [];
     for (let i = 1; i < BLOOM_LEVELS; i++) this.downBG[i] = sbg(this.pDown, this.bloomViews[i - 1]);
     this.down0BG = sbg(this.pDown, this.sceneView);
-    this.litBG = this.accumViews.map((v) => d.createBindGroup({ layout: this.pStoneLit.getBindGroupLayout(0), entries: [
+    const litBG = (pipe) => this.accumViews.map((v) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: v },
       { binding: 16, resource: this.stoneCacheView }, { binding: 17, resource: { buffer: this.b.stoneXf } }] }));
+    this.litBG = litBG(this.pStoneLit);
+    this.litSceneBG = litBG(this.pStoneLitScene);
     this.upBG = [];
     for (let i = BLOOM_LEVELS - 1; i > 0; i--) this.upBG.push({ target: i - 1, bg: sbg(this.pUp, this.bloomViews[i]) });
     const compBG = (pipe) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
@@ -2663,8 +2666,11 @@ class Engine {
       const c = this.stoneCam, [cw, ch] = this.stoneSize, [dx, dy] = this._fromStone(cam);
       const sx = (W * c.ppu) / (cam.ppu * cw), sy = (H * c.ppu) / (cam.ppu * ch);
       d.queue.writeBuffer(this.b.stoneXf, 0, new Float32Array([sx, sy, 0.5 - 0.5 * sx + (dx * c.ppu) / cw, 0.5 - 0.5 * sy + (dy * c.ppu) / ch]));
-      const pass = enc.beginRenderPass({ colorAttachments: [this.sceneView, this.orderView].map((view) => ({ view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' })) });
-      pass.setPipeline(this.pStoneLit); pass.setBindGroup(0, this.litBG[cur]); pass.draw(3); pass.end();
+      // each pixel's place in the pile only where the composite reads it (lensScene, past its start): a target
+      // the size of the view written and stored for nothing cost an M1 most of this pass
+      const pile = cam.ppu > 0.9 * Math.max(80, 2 * Math.max(W / this.grid[0], H / this.grid[1]));
+      const pass = enc.beginRenderPass({ colorAttachments: (pile ? [this.sceneView, this.orderView] : [this.sceneView]).map((view) => ({ view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' })) });
+      pass.setPipeline(pile ? this.pStoneLit : this.pStoneLitScene); pass.setBindGroup(0, (pile ? this.litBG : this.litSceneBG)[cur]); pass.draw(3); pass.end();
     }
 
     if (loupe) {
