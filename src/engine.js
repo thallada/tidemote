@@ -376,6 +376,7 @@ class Engine {
     // the water's bend over the main view, read back for the page's overlays (seaShiftMap; seaShift)
     this.cpShift = cp(this.postModule, 'seaShiftMap');
     this.cpSeaField = cp(this.postModule, 'seaFieldMain');
+    this.cpOptics = cp(this.postModule, 'opticsMain');
     b.shiftMap = d.createBuffer({ size: SHIFT_W * SHIFT_H * 8, usage: U.STORAGE | U.COPY_SRC });
     this.shiftRead = [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: SHIFT_W * SHIFT_H * 8, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST }), busy: false }));
     // the last two grids read back: { data (pixels of the view drawn then), cam: { x, y, ppu, w, h }, at (ms) }
@@ -794,6 +795,12 @@ class Engine {
     this.bloom = [];
     for (let i = 0; i < BLOOM_LEVELS; i++) this.bloom.push(tex(w >> (i + 1), h >> (i + 1)));
     this.murkTex = tex(w >> 2, h >> 2);
+    // the eyepiece's field stop and dust for each pixel of the view (opticsMain, worked out again when they change: _optics)
+    this.opticsTex?.destroy();
+    this.opticsTex = d.createTexture({ size: [w, h], format: 'rgba32float', usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING });
+    this.opticsBG = d.createBindGroup({ layout: this.cpOptics.getBindGroupLayout(0), entries: [
+      { binding: 2, resource: { buffer: this.b.post } }, { binding: 25, resource: this.opticsTex.createView() }] });
+    this.opticsKey = null;
     // the sea's surface every 4 pixels of the view, for the composite from close up (seaFieldMain)
     this.seaFieldTex?.forEach((t) => t.destroy());
     this.seaFieldTex = [0, 1].map(() => d.createTexture({ size: [Math.ceil(w / 4) + 1, Math.ceil(h / 4) + 1], format: 'rgba16float', usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING }));
@@ -830,7 +837,8 @@ class Engine {
       { binding: 7, resource: this.orderView }, { binding: 9, resource: this.murkView },
       { binding: 10, resource: this.microView }, { binding: 11, resource: { buffer: this.b.thermal } }, { binding: 12, resource: this.liveView },
       { binding: 13, resource: this.seaView }, { binding: 14, resource: this.seaSampler },
-      { binding: 23, resource: this.seaFieldTex[0].createView() }, { binding: 24, resource: this.seaFieldTex[1].createView() }] });
+      { binding: 23, resource: this.seaFieldTex[0].createView() }, { binding: 24, resource: this.seaFieldTex[1].createView() },
+      { binding: 26, resource: this.opticsTex.createView() }] });
     this.compBG = compBG(this.pComp);
     this.compClearBG = compBG(this.pCompClear);
     if (this.pCompLean) { this.compLeanBG = compBG(this.pCompLean); this.compClearLeanBG = compBG(this.pCompClearLean); }
@@ -2790,6 +2798,14 @@ class Engine {
 
     const micro = this.settings.specks && cam.ppu > Math.max(80, 2 * Math.max(W / this.grid[0], H / this.grid[1]));
     if (micro) this._drawSpecks(enc, cam, W, H);
+    // the eyepiece's field stop and dust, when the frame's size, the optics or the look's iris changed
+    const opticsKey = [W, H, pd[14], pd[POST_LOOK + 13]].join();
+    if (opticsKey !== this.opticsKey) {
+      this.opticsKey = opticsKey;
+      const cp = enc.beginComputePass();
+      cp.setPipeline(this.cpOptics); cp.setBindGroup(0, this.opticsBG);
+      cp.dispatchWorkgroups(Math.ceil(this.opticsTex.width / 8), Math.ceil(this.opticsTex.height / 8)); cp.end();
+    }
     if (this._seaField) {
       const cp = enc.beginComputePass();
       cp.setPipeline(this.cpSeaField); cp.setBindGroup(0, this.seaFieldBG);

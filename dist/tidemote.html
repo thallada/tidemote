@@ -9524,6 +9524,32 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32) -> vec3f {
   return c;
 }
 
+// What the eyepiece does to each pixel of the main view, which only the frame's size, the optics (post.optics) and the
+// look's iris change, so it is worked out only when they do (Engine._optics), not every frame at every pixel (the dust's
+// nine cells and the iris's angle cost an M1 0.4 ms of the composite): x the iris's faint blue rim, y how much light the
+// round field stop passes (clipping the camera frame's corners), z the dust on the optics.
+@group(0) @binding(25) var opticsW: texture_storage_2d<rgba32float, write>;
+@group(0) @binding(26) var opticsTex: texture_2d<f32>;
+@compute @workgroup_size(8, 8) fn opticsMain(@builtin(global_invocation_id) g: vec3u) {
+  if (any(g.xy >= textureDimensions(opticsW))) { return; }
+  let k = post.optics;
+  let q = (vec2f(g.xy) + 0.5 - post.res * 0.5) / (post.res.y * 0.5);
+  let corner = length(vec2f(post.res.x / post.res.y, 1.0));
+  var fq = length(q);
+  let iris = post.look[3].y;
+  var rim = 0.0;
+  if (iris > 0.0) {
+    // a field diaphragm of nine blades, closed a little, its edge in focus: a polygon with a faint blue rim
+    let seg = TAU / 9.0;
+    let th = atan2(q.y, q.x) + 0.31;
+    fq = mix(fq, fq / (cos(seg * 0.5) / cos(th - seg * (floor(th / seg) + 0.5))) / mix(1.0, 0.86, iris), iris);
+    rim = iris * k * exp(-sqr((fq - corner * 0.84) * 30.0));
+  }
+  let stop = mix(1.0, 1.0 - 0.85 * smoothstep(corner * 0.78, corner * 1.02, fq), k);
+  var dust = 0.0;
+  if (k > 0.0) { dust = opticDust(q) * k; }
+  textureStore(opticsW, g.xy, vec4f(rim, stop, dust, 0.0));
+}
 // Dust on the optics, far out of focus: soft discs, each with a brighter diffraction rim.
 fn opticDust(q: vec2f) -> f32 {
   // only out toward the edge of the field, where the eyepiece's dust is in the light path
@@ -9657,8 +9683,11 @@ fn lookScene(hdrIn: vec3f, uv: vec2f, bl: vec3f, ppu: f32, res: vec2f, sun: f32)
     // rainbow rims (Rheinberg's sector colors): each edge takes a hue from the side it faces, by its own light, so
     // the dark field stays dark
     // (a flat inside's grad is zero, and atan2(0, 0) is NaN on Metal: mixed in at none, it still drew black)
-    let ang = atan2(grad.y, select(grad.x, 1.0, all(grad == vec2f(0.0))));
-    let sector = 0.5 + 0.5 * vec3f(cos(ang), cos(ang - 2.094), cos(ang + 2.094));
+    // (the angle's cosine and sine from grad itself, each sector's by the difference of angles: no atan2 nor cos a pixel)
+    let gl = length(grad);
+    let cs = select(grad / max(gl, 1e-30), vec2f(1.0, 0.0), all(grad == vec2f(0.0)));
+    let c2 = ${f(Math.cos(2.094))}; let s2 = ${f(Math.sin(2.094))};
+    let sector = 0.5 + 0.5 * vec3f(cs.x, cs.x * c2 + cs.y * s2, cs.x * c2 - cs.y * s2);
     hdr = mix(hdr, vec3f(lookL(hdr)) * sector * 2.24, L0.x * smoothstep(0.05, 0.6, length(grad) / norm) * near);
   }
   // halation (warm, as light scattered back from a film's base) and veiling flare (the lamp's); in the world's light
@@ -11200,21 +11229,11 @@ struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location
   c = poolOver(c, wp, post.ppu, k, behind, surf.slope, litGain(lit, 0.0));
   c = extremes(c, wp, post.ppu, water, behind);
   c = instrument(c, wp, post.ppu);
-  // the round field stop of the eyepiece clips the corners of the camera's frame
-  let corner = length(vec2f(post.res.x / post.res.y, 1.0));
-  var fq = length(q);
-  let iris = post.look[3].y;
-  if (iris > 0.0) {
-    // a field diaphragm of nine blades, closed a little, its edge in focus: a polygon with a faint blue rim
-    let seg = TAU / 9.0;
-    let th = atan2(q.y, q.x) + 0.31;
-    fq = mix(fq, fq / (cos(seg * 0.5) / cos(th - seg * (floor(th / seg) + 0.5))) / mix(1.0, 0.86, iris), iris);
-    c += vec3f(0.0, 0.002, 0.008) * iris * k * exp(-sqr((fq - corner * 0.84) * 30.0));
-  }
-  c *= mix(1.0, 1.0 - 0.85 * smoothstep(corner * 0.78, corner * 1.02, fq), k);
-  var dust = 0.0;
-  if (k > 0.0) { dust = opticDust(q) * k; }
-  c = c * (1.0 - 0.12 * dust) + vec3f(0.003, 0.0031, 0.0036) * dust;
+  // the eyepiece's field stop and the dust on its optics (opticsMain, as the frame's size and the look leave them)
+  let op = textureLoad(opticsTex, vec2i(i.pos.xy), 0);
+  c += vec3f(0.0, 0.002, 0.008) * op.x;
+  c *= op.y;
+  c = c * (1.0 - 0.12 * op.z) + vec3f(0.003, 0.0031, 0.0036) * op.z;
   c = lookDisplay(pow(max(c, vec3f(0.0)), vec3f(1.0 / 2.2)), i.pos.xy);
   c += (hash12(i.pos.xy + fract(post.time) * 91.7) - 0.5) / 255.0 * 2.0;
   return vec4f(sensor(c, i.pos.xy, k), 1.0);
@@ -21804,6 +21823,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       const seaModule = d.createShaderModule({ code: SEA_WGSL, label: "sea" });
       this.cpShift = cp(this.postModule, "seaShiftMap");
       this.cpSeaField = cp(this.postModule, "seaFieldMain");
+      this.cpOptics = cp(this.postModule, "opticsMain");
       b.shiftMap = d.createBuffer({ size: SHIFT_W * SHIFT_H * 8, usage: U.STORAGE | U.COPY_SRC });
       this.shiftRead = [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: SHIFT_W * SHIFT_H * 8, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST }), busy: false }));
       this.seaShifts = [];
@@ -22328,6 +22348,13 @@ ${e.message}` : String(e?.message || e));
       this.bloom = [];
       for (let i = 0; i < BLOOM_LEVELS; i++) this.bloom.push(tex(w >> i + 1, h >> i + 1));
       this.murkTex = tex(w >> 2, h >> 2);
+      this.opticsTex?.destroy();
+      this.opticsTex = d.createTexture({ size: [w, h], format: "rgba32float", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING });
+      this.opticsBG = d.createBindGroup({ layout: this.cpOptics.getBindGroupLayout(0), entries: [
+        { binding: 2, resource: { buffer: this.b.post } },
+        { binding: 25, resource: this.opticsTex.createView() }
+      ] });
+      this.opticsKey = null;
       this.seaFieldTex?.forEach((t2) => t2.destroy());
       this.seaFieldTex = [0, 1].map(() => d.createTexture({ size: [Math.ceil(w / 4) + 1, Math.ceil(h / 4) + 1], format: "rgba16float", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING }));
       this.seaFieldBG = d.createBindGroup({ layout: this.cpSeaField.getBindGroupLayout(0), entries: [
@@ -22383,7 +22410,8 @@ ${e.message}` : String(e?.message || e));
         { binding: 13, resource: this.seaView },
         { binding: 14, resource: this.seaSampler },
         { binding: 23, resource: this.seaFieldTex[0].createView() },
-        { binding: 24, resource: this.seaFieldTex[1].createView() }
+        { binding: 24, resource: this.seaFieldTex[1].createView() },
+        { binding: 26, resource: this.opticsTex.createView() }
       ] });
       this.compBG = compBG(this.pComp);
       this.compClearBG = compBG(this.pCompClear);
@@ -24599,6 +24627,15 @@ ${e.message}` : String(e?.message || e));
       }
       const micro = this.settings.specks && cam.ppu > Math.max(80, 2 * Math.max(W / this.grid[0], H2 / this.grid[1]));
       if (micro) this._drawSpecks(enc, cam, W, H2);
+      const opticsKey = [W, H2, pd[14], pd[POST_LOOK + 13]].join();
+      if (opticsKey !== this.opticsKey) {
+        this.opticsKey = opticsKey;
+        const cp = enc.beginComputePass();
+        cp.setPipeline(this.cpOptics);
+        cp.setBindGroup(0, this.opticsBG);
+        cp.dispatchWorkgroups(Math.ceil(this.opticsTex.width / 8), Math.ceil(this.opticsTex.height / 8));
+        cp.end();
+      }
       if (this._seaField) {
         const cp = enc.beginComputePass();
         cp.setPipeline(this.cpSeaField);
@@ -38506,9 +38543,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "8550f69a2e72cfd7") return;
+      if (localStorage.getItem(key) === "aea7909cbaf1f9ee") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "8550f69a2e72cfd7");
+      if (res) localStorage.setItem(key, "aea7909cbaf1f9ee");
     } catch {
     }
   }
