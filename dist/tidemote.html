@@ -171,7 +171,7 @@ input[type="range"] { accent-color: var(--cyan); cursor: pointer; }
 .panel {
   background: radial-gradient(circle, rgba(130, 205, 214, 0.075) 1px, transparent 1.3px) 0 0 / 12px 12px, var(--panel);
   pointer-events: auto;
-  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  /* (frosted: the engine blurs the view under each translucent panel, src/glass.js; backdrop-filter cost an M1 1.5 ms a frame) */
 }
 /* floating panels (settings, help) get a frame with brighter corner brackets */
 .panel.float {
@@ -11274,6 +11274,36 @@ fn loupeScene(r: vec2f) -> vec3f {
   compArgs[4] = select(0u, 3u, lean); compArgs[5] = 1u; compArgs[6] = 0u; compArgs[7] = 0u;
 }
 `;
+  var GLASS_WGSL = (
+    /* wgsl */
+    `
+@group(0) @binding(0) var src: texture_2d<f32>;
+@group(0) @binding(1) var samp: sampler;
+// (the axis, in pixels: (1, 0) or (0, 1)), sigma (pixels)
+@group(0) @binding(2) var<uniform> gu: vec4f;
+@vertex fn vsGlass(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
+  let uv = vec2f(f32((vi << 1u) & 2u), f32(vi & 2u));
+  return vec4f(uv * 2.0 - 1.0, 0.0, 1.0);
+}
+@fragment fn fsGlass(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+  let size = vec2f(textureDimensions(src));
+  let sigma = max(gu.z, 0.5);
+  let k = -0.5 / (sigma * sigma);
+  var c = textureSampleLevel(src, samp, pos.xy / size, 0.0).rgb;
+  var w = 1.0;
+  let reach = ceil(3.0 * sigma);
+  for (var t = 1.0; t <= reach; t += 2.0) {
+    let w1 = exp(t * t * k);
+    let w2 = exp((t + 1.0) * (t + 1.0) * k);
+    let o = gu.xy * (t + w2 / (w1 + w2)) / size;
+    let at = pos.xy / size;
+    c += (textureSampleLevel(src, samp, at + o, 0.0).rgb + textureSampleLevel(src, samp, at - o, 0.0).rgb) * (w1 + w2);
+    w += 2.0 * (w1 + w2);
+  }
+  return vec4f(c / w, 1.0);
+}
+`
+  );
   var SEA_WGSL = (
     /* wgsl */
     `
@@ -21825,6 +21855,17 @@ registerProcessor("tidemote-sound", TidemoteSound);
       };
       b.holdU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
       this.pHold = rp(this.postModule, "vsFull", "fsReproj", "triangle-list", void 0, format);
+      const glassMod = d.createShaderModule({ code: GLASS_WGSL, label: "glass" });
+      const glassP = (blend) => rPipe({
+        layout: "auto",
+        label: "fsGlass",
+        primitive: { topology: "triangle-list" },
+        vertex: { module: glassMod, entryPoint: "vsGlass" },
+        fragment: { module: glassMod, entryPoint: "fsGlass", targets: [{ format, blend }] }
+      });
+      this.pGlass = [glassP(void 0), glassP({ color: { srcFactor: "constant", dstFactor: "one-minus-constant", operation: "add" }, alpha: { srcFactor: "zero", dstFactor: "one", operation: "add" } })];
+      this.glassU = [0, 1].map(() => d.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
+      this.glass = [];
       this.microModule = d.createShaderModule({ code: MICRO_WGSL, label: "micro" });
       this.cpMicro = cPipe({ layout: "auto", compute: { module: this.microModule, entryPoint: "microSpecks" }, label: "microSpecks" });
       this.pSpeck = rp(this.microModule, "vsSpeck", "fsSpeck", "triangle-strip", additive);
@@ -22123,6 +22164,60 @@ ${e.message}` : String(e?.message || e));
       this._compHot = true;
       this.pCompLean = this.pCompClearLean = null;
       return mod.getCompilationInfo().then((i) => i.messages.filter((m) => m.type === "error").map((m) => `${m.lineNum}:${m.linePos} ${m.message}`));
+    }
+    /**
+     * The page's translucent panels, in the view's pixels: [{ x, y, w, h, o }] (o: the panel's opacity), and sigma (view
+     * pixels): the view under each is blurred as CSS's backdrop-filter: blur() would, drawn into targetTex after the
+     * frame (GLASS_WGSL, _glass); [] for none.
+     */
+    setGlass(list, sigma = 6) {
+      this.glass = list;
+      this.glassSigma = sigma;
+    }
+    // each panel's strip of the view (with the blur's reach about it) copied out, blurred across into glassTex[1] (the
+    // rows the blur down will read), then down into the view under the panel
+    _glass(enc, tex, view) {
+      const d = this.device, W = tex.width, H2 = tex.height;
+      if (!this.glassTex || this.glassTex[0].width !== W || this.glassTex[0].height !== H2) {
+        this.glassTex?.forEach((t2) => t2.destroy());
+        const U2 = GPUTextureUsage;
+        this.glassTex = [U2.COPY_DST, U2.RENDER_ATTACHMENT].map((u) => d.createTexture({ size: [W, H2], format: this.format, usage: U2.TEXTURE_BINDING | u }));
+        this.glassBG = [0, 1].map((k) => d.createBindGroup({ layout: this.pGlass[k].getBindGroupLayout(0), entries: [
+          { binding: 0, resource: this.glassTex[k].createView() },
+          { binding: 1, resource: this.sampler },
+          { binding: 2, resource: { buffer: this.glassU[k] } }
+        ] }));
+      }
+      const sigma = this.glassSigma, m = Math.ceil(3 * sigma) + 2;
+      d.queue.writeBuffer(this.glassU[0], 0, new Float32Array([1, 0, sigma, 0]));
+      d.queue.writeBuffer(this.glassU[1], 0, new Float32Array([0, 1, sigma, 0]));
+      const rects = [];
+      for (const g of this.glass) {
+        const x = Math.max(0, Math.floor(g.x)), y = Math.max(0, Math.floor(g.y));
+        const x1 = Math.min(W, Math.ceil(g.x + g.w)), y1 = Math.min(H2, Math.ceil(g.y + g.h));
+        if (x1 <= x || y1 <= y || !(g.o > 0)) continue;
+        const r = { x, y, x1, y1, o: Math.min(1, g.o), ox: Math.max(0, x - m), oy: Math.max(0, y - m), ox1: Math.min(W, x1 + m), oy1: Math.min(H2, y1 + m) };
+        enc.copyTextureToTexture({ texture: tex, origin: [r.ox, r.oy] }, { texture: this.glassTex[0], origin: [r.ox, r.oy] }, [r.ox1 - r.ox, r.oy1 - r.oy]);
+        rects.push(r);
+      }
+      if (!rects.length) return;
+      let pass = enc.beginRenderPass({ colorAttachments: [{ view: this.glassTex[1].createView(), loadOp: "clear", clearValue: [0, 0, 0, 1], storeOp: "store" }] });
+      pass.setPipeline(this.pGlass[0]);
+      pass.setBindGroup(0, this.glassBG[0]);
+      for (const r of rects) {
+        pass.setScissorRect(r.x, r.oy, r.x1 - r.x, r.oy1 - r.oy);
+        pass.draw(3);
+      }
+      pass.end();
+      pass = enc.beginRenderPass({ colorAttachments: [{ view, loadOp: "load", storeOp: "store" }] });
+      pass.setPipeline(this.pGlass[1]);
+      pass.setBindGroup(0, this.glassBG[1]);
+      for (const r of rects) {
+        pass.setBlendConstant([r.o, r.o, r.o, r.o]);
+        pass.setScissorRect(r.x, r.y, r.x1 - r.x, r.y1 - r.y);
+        pass.draw(3);
+      }
+      pass.end();
     }
     resize(w, h) {
       w = Math.max(1, w | 0);
@@ -23355,12 +23450,13 @@ ${e.message}` : String(e?.message || e));
       });
     }
     /**
-     * One rendered frame after `steps` simulation steps. target: GPUTextureView or null (simulate only).
+     * One rendered frame after `steps` simulation steps. target: GPUTextureView or null (simulate only); targetTex: its
+     * texture, where the panels' glass is to be drawn (setGlass; it needs COPY_SRC).
      * cam: {x,y,ppu}; loupe: {x,y,r (canvas px), ppu, cx, cy (world)} or null.
      * hold (Max and coarse speeds): true draws the world into the held image, false only carries the held
      * image with the camera (a fullscreen blit), so most of the GPU stays on the simulation.
      */
-    frame({ target: target2 = null, cam = { x: 0, y: 0, ppu: 1 }, paused = false, simDt = 1 / 60, steps = 1, time = 0, dpr = 1, selId = 4294967295, loupe = null, specimen = null, hold = null }) {
+    frame({ target: target2 = null, targetTex = null, cam = { x: 0, y: 0, ppu: 1 }, paused = false, simDt = 1 / 60, steps = 1, time = 0, dpr = 1, selId = 4294967295, loupe = null, specimen = null, hold = null }) {
       const d = this.device;
       const generation = this.worldGeneration;
       const b = this.b;
@@ -23563,6 +23659,7 @@ ${e.message}` : String(e?.message || e));
         pass.draw(3);
         pass.end();
       }
+      if (target2 && targetTex && this.glass.length) this._glass(enc, targetTex, target2);
       const timed = slot && (stepping || target2);
       if (timed) {
         enc.resolveQuerySet(tm.qs, 0, 3, tm.resolve, 0);
@@ -38215,6 +38312,56 @@ ${e.message}` : String(e?.message || e));
   }
   var encodeBytes = async (src, type, quality, size) => new Uint8Array(await (await encodeImages(src, [{ type, quality, size }])).files[0].arrayBuffer());
 
+  // src/glass.js
+  var GLASS_BLUR = 6;
+  function trackGlass(panels, canvas2) {
+    let dirty = true;
+    let moving = 0;
+    const mark = () => {
+      dirty = true;
+    };
+    const ro = new ResizeObserver(mark);
+    const mo = new MutationObserver(mark);
+    ro.observe(canvas2);
+    mo.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+    for (const el2 of panels) {
+      ro.observe(el2);
+      mo.observe(el2, { attributes: true, attributeFilter: ["class", "hidden", "style", "data-tab"] });
+      el2.addEventListener("transitionrun", (e) => {
+        if (e.target === el2) moving++;
+      });
+      const done = (e) => {
+        if (e.target === el2) {
+          moving = Math.max(0, moving - 1);
+          dirty = true;
+        }
+      };
+      el2.addEventListener("transitionend", done);
+      el2.addEventListener("transitioncancel", done);
+    }
+    addEventListener("resize", mark);
+    return {
+      poll() {
+        if (!dirty && !moving) return null;
+        dirty = false;
+        const view = canvas2.getBoundingClientRect();
+        if (!view.width || !view.height) return { rects: [], sigma: 0 };
+        const sx = canvas2.width / view.width, sy = canvas2.height / view.height;
+        const rects = [];
+        for (const el2 of panels) {
+          if (!el2.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
+          const o = +getComputedStyle(el2).opacity;
+          const r = el2.getBoundingClientRect();
+          if (!(o > 0) || !r.width || !r.height) continue;
+          rects.push({ x: (r.left - view.left) * sx, y: (r.top - view.top) * sy, w: r.width * sx, h: r.height * sy, o });
+        }
+        return { rects, sigma: GLASS_BLUR * sx };
+      },
+      /** Read the layout again at the next poll (a film starting or stopping). */
+      mark
+    };
+  }
+
   // src/main.js
   var $2 = (id) => document.getElementById(id);
   var canvas = $2("stage");
@@ -38271,9 +38418,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "06045457cd0731f4") return;
+      if (localStorage.getItem(key) === "44f4409498fad641") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "06045457cd0731f4");
+      if (res) localStorage.setItem(key, "44f4409498fad641");
     } catch {
     }
   }
@@ -38306,7 +38453,7 @@ ${e.message}` : String(e?.message || e));
     device.addEventListener("uncapturederror", (e) => console.error("[tidemote]", e.error.message));
     const format = navigator.gpu.getPreferredCanvasFormat();
     const ctx = canvas.getContext("webgpu");
-    ctx.configure({ device, format, alphaMode: "opaque" });
+    ctx.configure({ device, format, alphaMode: "opaque", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
     const specCtx = $2("specimen").getContext("webgpu");
     specCtx.configure({ device, format, alphaMode: "opaque" });
     let K = {};
@@ -43411,6 +43558,8 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
       },
       onError: (m) => flash(m)
     });
+    const glass = trackGlass(["lab", "spec", "bench", "held"].map($2), canvas);
+    let glassFilming = false;
     let filmArmedShot = null;
     function filmAct(how = director.active ? "scene" : "now") {
       if (!film.supported) {
@@ -43710,8 +43859,17 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
         specimen.mindTick(now);
         const hold = (state.speed === Infinity || perf.held) && !state.paused && state.phase === "running" ? !!step.world : null;
         if (hold !== false) perf.worldFrames++;
+        const filming = film.state === "recording";
+        if (filming !== glassFilming) {
+          glassFilming = filming;
+          glass.mark();
+        }
+        const g = glass.poll();
+        if (g) eng.setGlass(filming ? [] : g.rects, g.sigma);
+        const frameTex = ctx.getCurrentTexture();
         eng.frame({
-          target: ctx.getCurrentTexture().createView(),
+          target: frameTex.createView(),
+          targetTex: frameTex,
           cam: { x: cam.x, y: cam.y, ppu: ppu() },
           paused: state.paused || !step.steps,
           simDt: step.dt,

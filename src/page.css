@@ -115,7 +115,7 @@ input[type="range"] { accent-color: var(--cyan); cursor: pointer; }
 .panel {
   background: radial-gradient(circle, rgba(130, 205, 214, 0.075) 1px, transparent 1.3px) 0 0 / 12px 12px, var(--panel);
   pointer-events: auto;
-  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  /* (frosted: the engine blurs the view under each translucent panel, src/glass.js; backdrop-filter cost an M1 1.5 ms a frame) */
 }
 /* floating panels (settings, help) get a frame with brighter corner brackets */
 .panel.float {

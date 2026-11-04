@@ -1,5 +1,5 @@
 import {
-  simWGSL, SIM_CLOCK, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, LERP_WGSL, POST_WGSL, SEA_WGSL, SHIFT_W, SHIFT_H, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
+  simWGSL, SIM_CLOCK, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, LERP_WGSL, POST_WGSL, GLASS_WGSL, SEA_WGSL, SHIFT_W, SHIFT_H, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
   MAXK, FIRST_LIFE, MAX_CELLS, THERMAL_WORDS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, NOTE_WORDS, NOTE_WGSL, NOTE_HEAD, NOTE_REC, PIPE_MAX, PIPE_TAKE, PIPE_TAKE_W, PIPE_SP, PIPE_IDS, H_TAKEN, H_CUTS, H_IN, H_SP, H_CELLS, H_IDS, H_LINKS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES, TUBE_N, TUBE_K, STUDIO_N,
 } from './shaders.js';
 import {
@@ -485,6 +485,13 @@ class Engine {
     // Max and coarse speeds: the last drawn world, carried with the camera onto the display frames between draws
     b.holdU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
     this.pHold = rp(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined, format);
+    // the panels' frosted glass (setGlass): blurred across into glassTmp, then down into the view, faded as its panel
+    const glassMod = d.createShaderModule({ code: GLASS_WGSL, label: 'glass' });
+    const glassP = (blend) => rPipe({ layout: 'auto', label: 'fsGlass', primitive: { topology: 'triangle-list' },
+      vertex: { module: glassMod, entryPoint: 'vsGlass' }, fragment: { module: glassMod, entryPoint: 'fsGlass', targets: [{ format, blend }] } });
+    this.pGlass = [glassP(undefined), glassP({ color: { srcFactor: 'constant', dstFactor: 'one-minus-constant', operation: 'add' }, alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' } })];
+    this.glassU = [0, 1].map(() => d.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
+    this.glass = [];
 
     // the main view's micro-suspension: specks found per frame, then drawn as quads (MICRO_WGSL)
     this.microModule = d.createShaderModule({ code: MICRO_WGSL, label: 'micro' });
@@ -700,6 +707,47 @@ class Engine {
     // (the lean composite is the old shader's: the full one draws from now on)
     this._compHot = true; this.pCompLean = this.pCompClearLean = null;
     return mod.getCompilationInfo().then((i) => i.messages.filter((m) => m.type === 'error').map((m) => `${m.lineNum}:${m.linePos} ${m.message}`));
+  }
+
+  /**
+   * The page's translucent panels, in the view's pixels: [{ x, y, w, h, o }] (o: the panel's opacity), and sigma (view
+   * pixels): the view under each is blurred as CSS's backdrop-filter: blur() would, drawn into targetTex after the
+   * frame (GLASS_WGSL, _glass); [] for none.
+   */
+  setGlass(list, sigma = 6) { this.glass = list; this.glassSigma = sigma; }
+
+  // each panel's strip of the view (with the blur's reach about it) copied out, blurred across into glassTex[1] (the
+  // rows the blur down will read), then down into the view under the panel
+  _glass(enc, tex, view) {
+    const d = this.device, W = tex.width, H = tex.height;
+    if (!this.glassTex || this.glassTex[0].width !== W || this.glassTex[0].height !== H) {
+      this.glassTex?.forEach((t) => t.destroy());
+      const U = GPUTextureUsage;
+      this.glassTex = [U.COPY_DST, U.RENDER_ATTACHMENT].map((u) => d.createTexture({ size: [W, H], format: this.format, usage: U.TEXTURE_BINDING | u }));
+      this.glassBG = [0, 1].map((k) => d.createBindGroup({ layout: this.pGlass[k].getBindGroupLayout(0), entries: [
+        { binding: 0, resource: this.glassTex[k].createView() }, { binding: 1, resource: this.sampler }, { binding: 2, resource: { buffer: this.glassU[k] } }] }));
+    }
+    const sigma = this.glassSigma, m = Math.ceil(3 * sigma) + 2;
+    d.queue.writeBuffer(this.glassU[0], 0, new Float32Array([1, 0, sigma, 0]));
+    d.queue.writeBuffer(this.glassU[1], 0, new Float32Array([0, 1, sigma, 0]));
+    const rects = [];
+    for (const g of this.glass) {
+      const x = Math.max(0, Math.floor(g.x)), y = Math.max(0, Math.floor(g.y));
+      const x1 = Math.min(W, Math.ceil(g.x + g.w)), y1 = Math.min(H, Math.ceil(g.y + g.h));
+      if (x1 <= x || y1 <= y || !(g.o > 0)) continue;
+      const r = { x, y, x1, y1, o: Math.min(1, g.o), ox: Math.max(0, x - m), oy: Math.max(0, y - m), ox1: Math.min(W, x1 + m), oy1: Math.min(H, y1 + m) };
+      enc.copyTextureToTexture({ texture: tex, origin: [r.ox, r.oy] }, { texture: this.glassTex[0], origin: [r.ox, r.oy] }, [r.ox1 - r.ox, r.oy1 - r.oy]);
+      rects.push(r);
+    }
+    if (!rects.length) return;
+    let pass = enc.beginRenderPass({ colorAttachments: [{ view: this.glassTex[1].createView(), loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }] });
+    pass.setPipeline(this.pGlass[0]); pass.setBindGroup(0, this.glassBG[0]);
+    for (const r of rects) { pass.setScissorRect(r.x, r.oy, r.x1 - r.x, r.oy1 - r.oy); pass.draw(3); }
+    pass.end();
+    pass = enc.beginRenderPass({ colorAttachments: [{ view, loadOp: 'load', storeOp: 'store' }] });
+    pass.setPipeline(this.pGlass[1]); pass.setBindGroup(0, this.glassBG[1]);
+    for (const r of rects) { pass.setBlendConstant([r.o, r.o, r.o, r.o]); pass.setScissorRect(r.x, r.y, r.x1 - r.x, r.y1 - r.y); pass.draw(3); }
+    pass.end();
   }
 
   resize(w, h) {
@@ -1790,12 +1838,13 @@ class Engine {
   }
 
   /**
-   * One rendered frame after `steps` simulation steps. target: GPUTextureView or null (simulate only).
+   * One rendered frame after `steps` simulation steps. target: GPUTextureView or null (simulate only); targetTex: its
+   * texture, where the panels' glass is to be drawn (setGlass; it needs COPY_SRC).
    * cam: {x,y,ppu}; loupe: {x,y,r (canvas px), ppu, cx, cy (world)} or null.
    * hold (Max and coarse speeds): true draws the world into the held image, false only carries the held
    * image with the camera (a fullscreen blit), so most of the GPU stays on the simulation.
    */
-  frame({ target = null, cam = { x: 0, y: 0, ppu: 1 }, paused = false, simDt = 1 / 60, steps = 1, time = 0, dpr = 1, selId = 0xffffffff, loupe = null, specimen = null, hold = null }) {
+  frame({ target = null, targetTex = null, cam = { x: 0, y: 0, ppu: 1 }, paused = false, simDt = 1 / 60, steps = 1, time = 0, dpr = 1, selId = 0xffffffff, loupe = null, specimen = null, hold = null }) {
     const d = this.device;
     const generation = this.worldGeneration;
     const b = this.b;
@@ -1980,6 +2029,7 @@ class Engine {
       const pass = enc.beginRenderPass({ colorAttachments: [{ view: target, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }], timestampWrites: tw });
       pass.setPipeline(this.pHold); pass.setBindGroup(0, this.holdBG); pass.draw(3); pass.end();
     }
+    if (target && targetTex && this.glass.length) this._glass(enc, targetTex, target);
 
     const timed = slot && (stepping || target);
     if (timed) {

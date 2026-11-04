@@ -9368,6 +9368,38 @@ fn loupeScene(r: vec2f) -> vec3f {
 // surface's slope (i k h) and its sideways displacement (-i k/|k| h) as two complex fields, fftRows and fftCols invert
 // them (radix-2 in workgroup memory, a row or column a workgroup), the last writing the cascade's layer of the sea
 // texture (slope x, y; displacement x, y), and seaMip averages it into its mipmaps.
+// The page's translucent panels' frosted glass (Engine.setGlass, src/glass.js): the view under each panel blurred, a
+// Gaussian of sigma pixels taken along one axis a pass, its taps in pairs read between pixels (one bilinear read
+// weighs both). Chrome's backdrop-filter did this at the screen's resolution and redrew it every frame: on an M1 1.5 ms
+// of the compositor's work a frame for one panel.
+export const GLASS_WGSL = /* wgsl */ `
+@group(0) @binding(0) var src: texture_2d<f32>;
+@group(0) @binding(1) var samp: sampler;
+// (the axis, in pixels: (1, 0) or (0, 1)), sigma (pixels)
+@group(0) @binding(2) var<uniform> gu: vec4f;
+@vertex fn vsGlass(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
+  let uv = vec2f(f32((vi << 1u) & 2u), f32(vi & 2u));
+  return vec4f(uv * 2.0 - 1.0, 0.0, 1.0);
+}
+@fragment fn fsGlass(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+  let size = vec2f(textureDimensions(src));
+  let sigma = max(gu.z, 0.5);
+  let k = -0.5 / (sigma * sigma);
+  var c = textureSampleLevel(src, samp, pos.xy / size, 0.0).rgb;
+  var w = 1.0;
+  let reach = ceil(3.0 * sigma);
+  for (var t = 1.0; t <= reach; t += 2.0) {
+    let w1 = exp(t * t * k);
+    let w2 = exp((t + 1.0) * (t + 1.0) * k);
+    let o = gu.xy * (t + w2 / (w1 + w2)) / size;
+    let at = pos.xy / size;
+    c += (textureSampleLevel(src, samp, at + o, 0.0).rgb + textureSampleLevel(src, samp, at - o, 0.0).rgb) * (w1 + w2);
+    w += 2.0 * (w1 + w2);
+  }
+  return vec4f(c / w, 1.0);
+}
+`;
+
 export const SEA_WGSL = /* wgsl */ `
 const N = ${SEA_N}u;
 const BITS = ${Math.log2(SEA_N)}u;

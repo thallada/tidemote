@@ -37,6 +37,7 @@ import { createPipette, setDownJob, mergeJobs, bodiesOf, PIPE_LIMIT } from './pi
 import { miniCard, setThumb, hasThumb, dropThumb } from './minicard.js';
 import { layOut, frameCells, records } from './studio.js';
 import { encodeImages, encodeBytes } from './encode.js';
+import { trackGlass } from './glass.js';
 import { createCabinetStore, encodeCard, decodeCard, cardLink, cardFromHash, cardFromPng, cardIntoPng } from './cabinet.js';
 import { fmt, fmtClock, fmtDur, kfmt, when, esc, cssCol, clamp, term, spLink, saveFile, ROLE, MATTER, LIVING_CSS, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
 
@@ -137,7 +138,8 @@ async function boot(tries = 4) {
 
   const format = navigator.gpu.getPreferredCanvasFormat();
   const ctx = canvas.getContext('webgpu');
-  ctx.configure({ device, format, alphaMode: 'opaque' });
+  // (the panels' glass is blurred from a copy of the frame: Engine.setGlass)
+  ctx.configure({ device, format, alphaMode: 'opaque', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
   const specCtx = $('specimen').getContext('webgpu');
   specCtx.configure({ device, format, alphaMode: 'opaque' });
   // #k={"shade":0.1} opens the page with tunables overridden (DEFAULT_K), to watch a variant live
@@ -4644,6 +4646,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     },
     onError: (m) => flash(m),
   });
+  // the panels whose glass shows the view through it (the floating ones are opaque)
+  const glass = trackGlass(['lab', 'spec', 'bench', 'held'].map($), canvas);
+  let glassFilming = false;
   let filmArmedShot = null;
   // record now, or (the auto camera on) from the start of its next shot; again: stop
   function filmAct(how = director.active ? 'scene' : 'now') {
@@ -4950,8 +4955,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
       // Max and coarse speeds draw the world only when due (step.world), carrying it with the camera between
       const hold = (state.speed === Infinity || perf.held) && !state.paused && state.phase === 'running' ? !!step.world : null;
       if (hold !== false) perf.worldFrames++;
+      // the translucent panels' frosted glass (src/glass.js), none in a film, which copies the view without the panels
+      const filming = film.state === 'recording';
+      if (filming !== glassFilming) { glassFilming = filming; glass.mark(); }
+      const g = glass.poll();
+      if (g) eng.setGlass(filming ? [] : g.rects, g.sigma);
+      const frameTex = ctx.getCurrentTexture();
       eng.frame({
-        target: ctx.getCurrentTexture().createView(),
+        target: frameTex.createView(),
+        targetTex: frameTex,
         cam: { x: cam.x, y: cam.y, ppu: ppu() },
         paused: state.paused || !step.steps,
         simDt: step.dt,
