@@ -35,3 +35,21 @@ export async function open(env, { viewport = { width: 1280, height: 800 }, mobil
   await page.keyboard.press('Shift');
   return page;
 }
+
+/** Hand the page a saved world's records (tools/lineage/capture.mjs; rel, a path from the repo's root) in place of its own, paused. */
+export const loadRecords = (page, rel) => page.evaluate(async (url) => {
+  const T = globalThis.__tidemote, snap = await (await fetch(url)).json();
+  T.state.paused = true;
+  await new Promise((r) => setTimeout(r, 300));
+  const life = T.life();
+  // a capture keeps only each genome's color: the rest from one of the page's own, so the census can read it
+  const like = [...life.reg.values()].find((s) => s.genome)?.genome;
+  for (const s of snap.reg) s.genome = { ...like, ...s.genome };
+  life.reg = new Map(snap.reg.map((s) => [s.serial, s]));
+  // captures from before species kept their own records: rebuild them from the history
+  const bare = new Map(snap.reg.filter((s) => !s.series).map((s) => [s.serial, (s.series = { t: [], v: [] })]));
+  for (const h of snap.history) for (const [k, v] of h.sp) { const r = bare.get(k); if (r) { r.t.push(h.t); r.v.push(v); } }
+  life.history = snap.history;
+  T.climate().history = snap.eras;
+  T.eng.simTime = snap.simTime;
+}, `/${rel}`);

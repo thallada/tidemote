@@ -380,7 +380,9 @@ export function chartPointer(plate, onPick) {
       const pw = plate.offsetWidth, ph = plate.offsetHeight, touch = e.pointerType !== 'mouse';
       let x = e.clientX + 14;
       if (x + pw > innerWidth - 8) x = touch ? innerWidth - pw - 8 : e.clientX - 14 - pw;
-      const y = touch ? e.clientY - ph - 28 : cv._ch.rows ? e.clientY - ph / 2 : e.clientY - 26;
+      let y = touch ? e.clientY - ph - 28 : cv._ch.rows ? e.clientY - ph / 2 : e.clientY - 26;
+      // (a chart may hang it from what it names instead: hit.plateAt, in the canvas's px, so it never covers it)
+      if (hit.plateAt && !touch) { x = Math.min(r.left + hit.plateAt[0], innerWidth - pw - 8); y = r.top + hit.plateAt[1]; }
       plate.style.left = `${Math.round(Math.max(8, x))}px`;
       plate.style.top = `${Math.round(Math.max(8, Math.min(innerHeight - ph - 8, y)))}px`;
     } else plate.hidden = true;

@@ -86,3 +86,52 @@ test('tidy blocks keep each subtree below its root and never overlap', () => {
   for (const it of items) if (it.parent) assert.ok(it.lane > it.parent.lane, 'a child sits below its parent');
   assert.ok(lanes < items.length);
 });
+
+test('the path above an explored lineage is its ancestry, each crumb a step up', async () => {
+  const { ancestry, strandName } = await import('../src/lineage/nav.js');
+  const m = fresh();
+  let deep = 0;
+  for (const st of m.strands) {
+    const path = ancestry(st);
+    assert.equal(path[0].parent, null, 'the path starts at a root');
+    assert.equal(path.at(-1), st);
+    for (let i = 1; i < path.length; i++) assert.equal(path[i].parent, path[i - 1]);
+    deep = Math.max(deep, path.length);
+    // every crumb's clade holds the one below it: exploring a crumb keeps the lineage below in it
+    for (let i = 1; i < path.length; i++) assert.ok(path[i - 1].kids.includes(path[i]));
+    const name = strandName(st);
+    if (!st.alive) assert.equal(name, st.nodes[0].name);
+    else assert.ok(st.nodes.some((n) => n.alive && n.name === name), 'a living lineage is named for a living species');
+  }
+  assert.ok(deep >= 3, 'the synthetic world has lineages a few levels deep');
+});
+
+test('the way back remembers each place once, the latest first, and only so many', async () => {
+  const { history, sameLoc } = await import('../src/lineage/nav.js');
+  const h = history(3);
+  assert.equal(h.back(), null);
+  h.go({ root: null, span: 'all' });
+  h.go({ root: null, span: 'all' });
+  h.go({ root: 7, span: 'all' });
+  assert.ok(sameLoc(h.back(), { root: 7, span: 'all' }));
+  assert.ok(sameLoc(h.back(), { root: null, span: 'all' }));
+  assert.equal(h.back(), null, 'the same place twice in a row is one step');
+  h.go({ root: null, span: 'all' });
+  h.go({ root: 7, span: 'all' });
+  h.go({ root: 7, span: [10, 20] });
+  h.go({ root: 9, span: [10, 20] });
+  assert.ok(sameLoc(h.back(), { root: 9, span: [10, 20] }));
+  assert.ok(sameLoc(h.back(), { root: 7, span: [10, 20] }));
+  assert.ok(sameLoc(h.back(), { root: 7, span: 'all' }));
+  assert.equal(h.back(), null, 'the oldest fell off past the limit');
+  assert.ok(!sameLoc({ root: 1, span: [1, 2] }, { root: 1, span: [1, 3] }));
+});
+
+test('breadcrumbs that do not fit fold into an ellipsis, keeping the world, the parent and the lineage', async () => {
+  const { fitCrumbs } = await import('../src/lineage/nav.js');
+  assert.deepEqual(fitCrumbs([80, 100, 100], 400, 20), [0, 1, 2]);
+  assert.deepEqual(fitCrumbs([80, 100], 50, 20), [0, 1], 'two crumbs are never folded');
+  assert.deepEqual(fitCrumbs([80, 100, 100, 100, 120], 340, 20), [0, -1, 3, 4], 'the parent kept before those above it');
+  assert.deepEqual(fitCrumbs([80, 100, 100, 100, 120], 430, 20), [0, -1, 2, 3, 4]);
+  assert.deepEqual(fitCrumbs([80, 100, 100, 100, 120], 150, 20), [0, -1, 4], 'the lineage itself always stays');
+});

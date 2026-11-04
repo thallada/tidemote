@@ -3205,10 +3205,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (sel || spView != null) deselect();
       else if (focus.key) clearFocus();
       else if (mapsOn().length) clearMaps();
+      else if (lab.back()) {} // the Lineage view back the way it came, before the Lab goes back to its census
       else if (lab.isWide() && !phone()) lab.narrow();
       else if (lab.isOpen() && phone()) lab.close();
       else handled = false;
     }
+    else if (k === 'Backspace' && lab.back()) {}
     else if (k === ' ') togglePause();
     else if (k === ',') stepSpeed(-1);
     else if (k === '.') stepSpeed(1);

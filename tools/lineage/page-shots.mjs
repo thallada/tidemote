@@ -4,7 +4,7 @@
 //   node tools/lineage/page-shots.mjs --out runs/lineage/page runs/lineage/wB/t00678m.json ...
 import fs from 'node:fs';
 import path from 'node:path';
-import { root, start, open as openPage } from './browser.mjs';
+import { root, start, open as openPage, loadRecords } from './browser.mjs';
 
 const args = process.argv.slice(2);
 const arg = (k, d) => { const i = args.indexOf(`--${k}`); if (i < 0) return d; const v = args[i + 1]; args.splice(i, 2); return v; };
@@ -17,20 +17,7 @@ const open = async (viewport, mobile = false) => {
   await page.waitForTimeout(500);
   return page;
 };
-// hand the page a saved world's records, paused
-const load = (page, rel) => page.evaluate(async (url) => {
-  const T = globalThis.__tidemote, snap = await (await fetch(url)).json();
-  T.state.paused = true;
-  await new Promise((r) => setTimeout(r, 300));
-  const life = T.life();
-  life.reg = new Map(snap.reg.map((s) => [s.serial, s]));
-  // captures from before species kept their own records: rebuild them from the history
-  const bare = new Map(snap.reg.filter((s) => !s.series).map((s) => [s.serial, (s.series = { t: [], v: [] })]));
-  for (const h of snap.history) for (const [k, v] of h.sp) { const r = bare.get(k); if (r) { r.t.push(h.t); r.v.push(v); } }
-  life.history = snap.history;
-  T.climate().history = snap.eras;
-  T.eng.simTime = snap.simTime;
-}, `/${rel}`);
+const load = loadRecords;
 async function lineage(page) {
   if (!(await page.evaluate(() => document.body.classList.contains('lab-open')))) await page.keyboard.press('k');
   await page.waitForTimeout(300);
@@ -54,27 +41,27 @@ for (const s of args) {
   await page.mouse.move(10, 10);
   await shot(page, `${tag}--1-default`);
   if (only === 'default') { await page.close(); continue; }
-  // the pointer on the plot, then on a lineage's pill
+  // the pointer on the plot, then on a lineage's row
   const m = await page.locator('#lin-muller').boundingBox();
   await page.mouse.move(m.x + m.width * 0.55, m.y + m.height * 0.6);
   await page.waitForTimeout(150);
   await page.screenshot({ path: path.join(out, `${tag}--2-hover-muller.png`), clip: { x: 0, y: 0, width: 760, height: 1000 } });
   const tree = await page.locator('canvas.lin-tree').boundingBox();
-  const pill = await page.evaluate(() => {
+  const row = await page.evaluate(() => {
     const cv = document.querySelector('canvas.lin-tree');
-    // the first row whose pill follows a lineage
-    for (let y = 10; y < 600; y += 6) for (let x = 20; x < cv.clientWidth; x += 8) { const h = cv._ch.at(x, y); if (h && h.follow) return [x, y]; }
+    // the first row a click explores
+    for (let y = 10; y < 600; y += 6) for (let x = 20; x < cv.clientWidth; x += 8) { const h = cv._ch.at(x, y); if (h && h.explore) return [x, y]; }
     return null;
   });
-  if (pill) {
-    await page.mouse.move(tree.x + pill[0], tree.y + pill[1]);
+  if (row) {
+    await page.mouse.move(tree.x + row[0], tree.y + row[1]);
     await page.waitForTimeout(150);
-    await page.screenshot({ path: path.join(out, `${tag}--3-hover-pill.png`), clip: { x: 0, y: 0, width: 760, height: 1000 } });
-    await page.mouse.click(tree.x + pill[0], tree.y + pill[1]);
+    await page.screenshot({ path: path.join(out, `${tag}--3-hover-row.png`), clip: { x: 0, y: 0, width: 760, height: 1000 } });
+    await page.mouse.click(tree.x + row[0], tree.y + row[1]);
     await page.waitForTimeout(300);
     await page.mouse.move(10, 10);
     await shot(page, `${tag}--4-followed`);
-    await page.click('#lin-back');
+    await page.click('#lin-crumbs [data-root=""]');
     await page.waitForTimeout(200);
   }
   // drag across the last fifth of the plot
@@ -87,7 +74,7 @@ for (const s of args) {
   await page.waitForTimeout(300);
   await page.mouse.move(10, 10);
   await shot(page, `${tag}--6-zoomed`);
-  await page.click('#lin-back');
+  await page.click('#lin-span');
   await page.click('[data-k="linAll"][data-v="false"]');
   await page.waitForTimeout(200);
   await shot(page, `${tag}--7-living`);

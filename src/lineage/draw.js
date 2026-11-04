@@ -3,15 +3,21 @@
 // the whole stack falling) and the tree of the same lineages below it, one row each, sharing its
 // time axis. Both are canvas charts in charts.js's manner: they answer the pointer through cv._ch.
 import { fit, plotBox, grid, clock, linearTicks, shortNum, timeTicks, namePlate } from '../charts.js';
-import { memberAt, valAt, packBlocks } from './model.js';
+import { memberAt, packBlocks } from './model.js';
+import { strandName, strandLead } from './nav.js';
 import { fmt, fmtClock } from '../fmt.js';
 
 const OTHER = [0.42, 0.5, 0.52];
-const PANEL = '#070b0c', INK = '#e2f1f0', INK2 = '#a3bdbe', INK3 = '#6f8a8c';
+const PANEL = '#070b0c', INK = '#e2f1f0', INK2 = '#a3bdbe', INK3 = '#6f8a8c', CYAN = '#7fd6df', SUN = '#f1e3a0';
 const GRID = 'rgba(130,205,214,0.07)', ERA = 'rgba(241,227,160,0.28)';
-const LABEL = '500 11px Saira, system-ui, sans-serif', SMALL = '500 10px Saira, system-ui, sans-serif';
+const LABEL = '500 11px Saira, system-ui, sans-serif';
 const rgba = (c, a = 1, k = 1) => `rgba(${Math.round(c[0] * k * 255)},${Math.round(c[1] * k * 255)},${Math.round(c[2] * k * 255)},${a})`;
 const unitKey = (c, u) => (u.other ? 'other' : c.units.indexOf(u));
+
+// a row of the tree, named as the breadcrumbs name its lineage (nav.js strandName)
+const rowName = (u) => (u.other ? 'Other lineages' : strandName(u.strand));
+// a click on a lineage explores it, unless it is the one explored already (or the rest, folded together)
+const explorable = (u, root) => !u.other && u.strand !== root;
 
 /** What the unit is called: the species of its strand most numerous at t (or its latest). */
 function unitName(u, t) {
@@ -71,7 +77,7 @@ function fillRuns(g, X, top, bot, a, b, col, alpha, k) {
 /**
  * The Muller plot of cut c on canvas cv (sized by CSS): cells on the left axis, the clock below.
  * opts: { hot (unit key to bring forward), minLeft (px kept for the value labels), onHot(key) (the
- * pointer moved to another lineage) }.
+ * pointer moved to another lineage), root (the strand explored: a click on it explores nothing new) }.
  * Returns the plot box, so the tree below can share its time axis.
  */
 export function drawMuller(cv, c, eras, opts = {}) {
@@ -150,10 +156,13 @@ export function drawMuller(cv, c, eras, opts = {}) {
       const find = (list) => { for (const u of list) { const y0 = Y.get(u)[i], y1 = y0 + C.get(u)[i] * perCell; if (py >= y0 && py < y1) return find(u.kids) || u; } return null; };
       const u = find(roots);
       if (!u) return null;
-      return { key: unitKey(c, u), u, node: u.other ? null : memberAt(u, ts[i]), t: ts[i], pop: u.vals[i] };
+      return { key: unitKey(c, u), u, node: u.other ? null : memberAt(u, ts[i]), t: ts[i], pop: u.vals[i], explore: explorable(u, opts.root) };
     },
-    plate: (hit) => namePlate(hit.node ? hit.node.s.genome.col : 0xff8c8070, hit.node ? hit.node.name : 'Other lineages',
-      `${fmt(Math.round(hit.pop))} in its lineage · ${fmtClock(hit.t)}${hit.u.count > 1 ? ` · ${fmt(hit.u.count)} species` : ''}`),
+    plate(hit) {
+      const k = hit.u.other ? 0 : clade(hit.u).count;
+      return namePlate(hit.node ? hit.node.s.genome.col : 0xff8c8070, hit.node ? hit.node.name : 'Other lineages',
+        `${fmt(Math.round(hit.pop))} cells in its lineage · ${fmtClock(hit.t)}${k > 1 ? ` · lineage of ${fmt(k)} species` : ''}${hit.explore ? ' · click to explore it' : ''}`);
+    },
   };
   return box;
 }
@@ -164,14 +173,15 @@ const measure = (text, font) => { mg ||= document.createElement('canvas').getCon
 
 /**
  * Rows for the tree of cut c across [l, r] px: { items, lanes, h, rh }. A row keeps its lane until its
- * name and pill have room, so names never run into the next row's.
+ * name, its tag and its reticle have room, so names never run into the next row's.
  */
 export function layoutTree(c, l, r, rh = 30) {
   const units = c.other ? [c.other, ...c.units] : c.units;
   const perPx = (c.t1 - c.t0) / Math.max(1, r - l);
   const items = units.map((u) => {
     const born = Math.max(c.t0, u.born), end = Math.min(c.t1, u.end);
-    const px = measure(unitName(u, u.alive ? c.t1 : null), LABEL) + measure(pillText(u), SMALL) + 26;
+    const tag = rowTag(u);
+    const px = measure(rowName(u), LABEL) + (tag ? TAG_GAP + measure(tag, TAG) : 0) + RET_W + 14;
     // a name that would run off the right edge is drawn back from it
     return { u, parent: null, born, end, from: Math.min(born, c.t1 - px * perPx), reach: born + px * perPx };
   });
@@ -180,13 +190,53 @@ export function layoutTree(c, l, r, rh = 30) {
   const lanes = packBlocks(items, 12 * perPx);
   return { items, lanes, h: lanes * rh + 8, rh };
 }
-const pillText = (u) => `${u.alive ? '' : '† '}${fmt(u.count)} sp`;
+// a row's whole lineage, its own and the rows that branched from it: how many species in the span, and
+// whether any still lives (so a row counts what exploring it shows, and is gone only if all of it is)
+function clade(u) {
+  if (u.clade) return u.clade;
+  let count = u.count, alive = u.alive;
+  for (const k of u.kids) { const q = clade(k); count += q.count; alive ||= q.alive; }
+  return (u.clade = { count, alive });
+}
+// what a row's reticle shows in the water: the species it is named for while that lives, else the most numerous
+// living species of its lineage (its rows and theirs), else (all of it gone) the record of the one it is named for
+export function target(u) {
+  const ld = strandLead(u.strand);
+  if (ld.alive) return ld;
+  let best = null;
+  const walk = (v) => { for (const n of v.members) if (n.alive && (!best || n.pop > best.pop)) best = n; v.kids.forEach(walk); };
+  walk(u);
+  return best || ld;
+}
+// what a row says after its name: how many species its lineage holds (when more than one) and whether it is gone
+const rowTag = (u) => { const q = clade(u); return [q.count > 1 ? `${fmt(q.count)} species` : '', q.alive ? '' : 'extinct'].filter(Boolean).join(' · ').toUpperCase(); };
+const TAG = '500 10px Saira, system-ui, sans-serif', TAG_GAP = 8;
+const RET_W = 24; // the reticle's target, px across (as tall as its row)
+// HUD corner brackets around a box
+function brackets(g, x, y, w, h, k = 5) {
+  g.beginPath();
+  g.moveTo(x, y + k); g.lineTo(x, y); g.lineTo(x + k, y);
+  g.moveTo(x + w - k, y); g.lineTo(x + w, y); g.lineTo(x + w, y + k);
+  g.moveTo(x + w, y + h - k); g.lineTo(x + w, y + h); g.lineTo(x + w - k, y + h);
+  g.moveTo(x + k, y + h); g.lineTo(x, y + h); g.lineTo(x, y + h - k);
+  g.stroke();
+}
+// a reticle: a ring, four ticks reaching in, a dot when it is pressed toward
+function reticle(g, cx, cy, on) {
+  g.beginPath(); g.arc(cx, cy, 5.5, 0, Math.PI * 2);
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { g.moveTo(cx + dx * 8.5, cy + dy * 8.5); g.lineTo(cx + dx * 3.5, cy + dy * 3.5); }
+  g.stroke();
+  if (on) { g.beginPath(); g.arc(cx, cy, 1.6, 0, Math.PI * 2); g.fill(); }
+}
 
 /**
  * The tree of cut c on cv (its CSS height set to lay.h): each lineage a band as thick as its cells,
  * in the color of its most numerous species, with a tick where its strand passed from one species
- * to the next, hung from the lineage it branched from. A pill after each name counts the species it
- * holds and follows the lineage (hit.follow). opts: { hot, l, r (the Muller's plot box edges), onHot }.
+ * to the next, hung from the lineage it branched from. After each name its tag says how many species
+ * it holds and whether it is gone. The row the pointer is on is bracketed (a click on it explores the
+ * lineage: hit.explore), with a reticle after its tag (a click there shows its species in the water:
+ * hit.locate). opts: { hot, locating (the pointer is on the hot row's reticle), l, r (the Muller's
+ * plot box edges), onHot, root (the strand explored, which a click leaves where it is) }.
  */
 export function drawTree(cv, c, lay, eras, opts = {}) {
   const f = fit(cv);
@@ -231,49 +281,64 @@ export function drawTree(cv, c, lay, eras, opts = {}) {
     g.fillStyle = `rgba(226,241,240,${0.45 * a})`;
     for (const nd of u.members.slice(1)) if (nd.born > c.t0 && nd.born < c.t1) g.fillRect(Math.round(X(nd.born)), y + 4, 1, 3);
   }
-  // names, and the pill that follows each lineage
+  // names and their tags; the row pointed at bracketed, with its reticle
   for (const it of items) {
     const u = it.u, y = Y(it.lane) - 8, a = lit(it) ? 1 : 0.45;
-    const name = unitName(u, u.alive ? c.t1 : null);
+    const name = rowName(u), tag = rowTag(u);
+    it.explore = explorable(u, opts.root);
     g.font = LABEL;
     const tw = g.measureText(name).width;
-    const pill = pillText(u);
-    g.font = SMALL;
-    const pw = g.measureText(pill).width + 10;
-    const x = Math.max(2, Math.min(X(it.born) + 3, w - tw - pw - 10));
+    g.font = TAG;
+    const gw = tag ? TAG_GAP + g.measureText(tag).width : 0;
+    const x = Math.max(6, Math.min(X(it.born) + 3, w - tw - gw - RET_W - 8));
+    const row = hot === unitKey(c, u);
     g.font = LABEL;
     g.lineJoin = 'round'; g.lineWidth = 3; g.strokeStyle = PANEL; g.strokeText(name, x, y);
-    g.globalAlpha = a; g.fillStyle = u.alive ? INK : INK2; g.fillText(name, x, y); g.globalAlpha = 1;
+    g.globalAlpha = a; g.fillStyle = (row && it.explore) || u.alive ? INK : INK2; g.fillText(name, x, y); g.globalAlpha = 1;
     // a line the viewer rode (docs/hand.md), underlined in the sun color
     if (opts.rode && u.members.some((m) => opts.rode.has(m.serial))) { g.fillStyle = 'rgba(241,227,160,0.9)'; g.fillRect(x, y + 3, tw, 1); }
-    it.pill = [x + tw + 6, y - 10, pw, 14];
-    const follow = !u.other && (u.hidden > 0 || u.kids.length > 0 || u.members.length > 1);
-    it.follow = follow;
-    g.fillStyle = PANEL; g.fillRect(...it.pill);
-    if (follow) { g.strokeStyle = hot === unitKey(c, u) && opts.hotPill ? 'rgba(150,222,230,0.9)' : 'rgba(130,205,214,0.35)'; g.lineWidth = 1; g.strokeRect(it.pill[0] + 0.5, it.pill[1] + 0.5, it.pill[2] - 1, it.pill[3] - 1); }
-    g.font = SMALL; g.fillStyle = follow ? (u.alive ? INK2 : INK3) : INK3;
-    g.globalAlpha = a; g.fillText(pill, it.pill[0] + 5, y); g.globalAlpha = 1;
+    if (tag) {
+      g.font = TAG; g.lineWidth = 3; g.strokeStyle = PANEL; g.strokeText(tag, x + tw + TAG_GAP, y);
+      g.globalAlpha = a; g.fillStyle = row ? INK2 : INK3; g.fillText(tag, x + tw + TAG_GAP, y); g.globalAlpha = 1;
+    }
+    // the reticle's place, just after the tag
+    it.ret = u.other ? null : x + tw + gw + 6 + RET_W / 2;
+    it.label = [x - 6, y - 13, tw + gw + 12 + (it.ret ? RET_W : 0), 20];
+    if (!row || u.other) continue;
+    const [bx, by, bw, bh] = it.label;
+    g.strokeStyle = CYAN; g.lineWidth = 1;
+    if (it.explore) brackets(g, bx + 0.5, by + 0.5, bw - 1 - RET_W, bh - 1);
+    g.fillStyle = PANEL; g.beginPath(); g.arc(it.ret, y - 3, 9.5, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = opts.locating ? SUN : 'rgba(150,222,230,0.75)'; g.fillStyle = SUN;
+    reticle(g, it.ret, y - 3, opts.locating);
   }
   cv._ch = {
-    redraw: () => { const hot = cv._hot ? cv._hot.key : null; drawTree(cv, c, lay, eras, { ...opts, hot, hotPill: cv._hot && cv._hot.follow }); opts.onHot?.(hot); },
+    redraw: () => { const hot = cv._hot ? cv._hot.key : null; drawTree(cv, c, lay, eras, { ...opts, hot, locating: !!cv._hot?.locate }); opts.onHot?.(hot); },
     at(px, py) {
       const lane = Math.floor((py - 4) / rh);
-      const it = items.find((q) => q.lane === lane && px >= X(q.born) - 4 && px <= Math.max(X(q.end), q.pill[0] + q.pill[2]) + 4);
+      const it = items.find((q) => q.lane === lane && px >= Math.min(X(q.born), q.label[0]) - 4 && px <= Math.max(X(q.end), q.label[0] + q.label[2]) + 4);
       if (!it) return null;
-      const u = it.u, p = it.pill;
-      const onPill = px >= p[0] - 2 && px <= p[0] + p[2] + 2 && py >= p[1] - 3 && py <= p[1] + p[3] + 3;
+      const u = it.u;
+      // the reticle answers across its row's whole height, RET_W across
       const tt = Math.max(it.born, Math.min(it.end, c.t0 + ((px - l) / (r - l)) * (c.t1 - c.t0)));
       const sp = u.other ? null : memberAt(u, tt) || u.members.findLast((nd) => nd.born <= tt) || u.members[0];
       const i = Math.max(0, Math.min(n - 1, Math.round(((tt - c.t0) / (c.t1 - c.t0)) * (n - 1))));
-      if (onPill && it.follow) return { key: unitKey(c, u), u, follow: true, t: tt };
-      return { key: unitKey(c, u), u, node: sp, t: tt, pop: u.vals[i] };
+      const locate = it.ret != null && Math.abs(px - it.ret) <= RET_W / 2;
+      return { key: unitKey(c, u), u, node: sp, t: tt, pop: u.vals[i], explore: it.explore, locate, lead: u.other ? null : strandLead(u.strand), target: u.other ? null : target(u),
+        plateAt: [Math.max(0, it.label[0]), 4 + (lane + 1) * rh + 2] }; // (the plate hangs below the row it names)
     },
     plate(hit) {
       const u = hit.u;
-      if (hit.follow) return namePlate(u.members[0].s.genome.col, `Follow ${unitName(u, null)}`, `its lineage: ${fmt(u.count)} species · arose ${fmtClock(u.born)}${u.alive ? '' : ` · gone ${fmtClock(u.end)}`}`);
+      if (hit.locate) {
+        const tg = hit.target;
+        if (!tg.alive) return namePlate(tg.s.genome.col, tg.name, `open its record · extinct ${fmtClock(tg.end)}`);
+        return namePlate(tg.s.genome.col, tg.name, `${tg === hit.lead ? 'show it' : `its lineage’s most numerous living species: show it`} in the water · ${fmt(tg.pop)} cells`);
+      }
       if (!hit.node) return namePlate(0xff8c8070, 'Other lineages', `${fmt(u.count)} species whose ancestors are not shown`);
-      const nd = hit.node;
-      return namePlate(nd.s.genome.col, nd.name, `${fmt(Math.round(valAt(nd, hit.t)))} · ${fmtClock(hit.t)} · arose ${fmtClock(nd.born)}${nd.alive ? '' : ` · extinct ${fmtClock(nd.end)}`}`);
+      // the row's lineage, and the species leading it where the pointer is when that is another
+      const ld = hit.lead, nd = hit.node, q = clade(u);
+      const then = nd && nd !== ld ? ` · ${nd.name} at ${fmtClock(hit.t)}` : '';
+      return namePlate(ld.s.genome.col, ld.name, `${q.count > 1 ? `lineage of ${fmt(q.count)} species · ` : ''}arose ${fmtClock(u.born)}${q.alive ? '' : ' · extinct'}${then}${hit.explore ? ' · click to explore it' : ''}`);
     },
   };
 }
