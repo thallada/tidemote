@@ -1024,7 +1024,6 @@ body.lab-wide .lab-head .tabs button { padding: 0 10px; letter-spacing: .16em; }
 .pane-ctl { padding: var(--s3) 16px; display: flex; flex-direction: column; gap: var(--s3); border-bottom: 1px solid var(--line); }
 .qrow { display: flex; gap: 6px; }
 .qrow .filt { display: none; height: 34px; flex: none; }
-#lin-filt { display: none; height: 28px; }
 .filters { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 12px; align-items: center; }
 .filters > .lbl { color: var(--ink-3); }
 /* a segmented control: joined chips sharing their borders */
@@ -1057,7 +1056,60 @@ body.lab-wide .lab-head .tabs button { padding: 0 10px; letter-spacing: .16em; }
 .spnum b { font-weight: 400; font-size: 13px; }
 .spnum span { color: var(--ink-3); font-size: 11px; }
 
-.lin-muller { position: relative; margin: 0 -4px; }
+.lin-muller { position: relative; margin: 0 -4px; overflow: hidden; }
+.lin-muller canvas { transform-origin: 0 0; }
+.lin-ghost { position: absolute; left: 0; top: 0; width: 100%; height: 170px; pointer-events: none; }
+/* where the Lineage view is: breadcrumbs up the explored lineage's ancestry, and the span it is narrowed to */
+/* The Lineage view as an instrument (the page's HUD: hairlines, corner ticks, small capitals, light numerals).
+   Where it is: breadcrumbs up the explored lineage's ancestry, the span it is narrowed to, its options folded */
+.lineage .pane-ctl { gap: var(--s2); }
+.lin-nav { display: flex; align-items: center; gap: var(--s2); min-height: 30px; }
+.lineage #lin-filt { display: inline-flex; height: 28px; flex: none; }
+.lineage .pane-ctl:not(.open) .filters { display: none; }
+.lineage .filters { padding: var(--s1) 0; }
+.crumbs { flex: 1; min-width: 0; overflow: hidden; }
+.crumbs ol { list-style: none; margin: 0; padding: 0; display: flex; align-items: center; white-space: nowrap; }
+.crumbs.full ol { flex-wrap: wrap; row-gap: 2px; }
+.crumbs.full li.fold { display: flex; }
+.crumbs.full .ell-li { display: none; }
+.crumbs li { display: flex; align-items: center; flex: none; }
+/* (only where the view is gives way, to an ellipsis; the rest keep their width, so folding can measure them) */
+.crumbs li:last-child { flex: 0 1 auto; min-width: 0; }
+.crumbs li.fold { display: none; }
+.crumbs li + li::before { content: ''; flex: none; width: 1px; height: 12px; margin: 0 9px 0 7px; background: var(--ink-3); transform: skewX(-24deg); }
+.crumb { display: block; height: 28px; line-height: 28px; padding: 0 2px; border: 0; background: none; font-size: 11px; letter-spacing: .16em; text-transform: uppercase; font-weight: 500; font-stretch: 108%; color: var(--cyan); white-space: nowrap; }
+.crumb i { display: inline-block; width: 6px; height: 6px; margin-right: 7px; vertical-align: 1px; }
+button.crumb:hover, button.crumb:focus-visible { color: var(--ink); outline: none; box-shadow: inset 0 -1px var(--line-2); }
+/* where the view is: its name between corner ticks */
+.crumb.cur { position: relative; color: var(--ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; padding: 0 8px; }
+.crumb.cur::before, .crumb.cur::after { content: ''; position: absolute; top: 5px; bottom: 5px; width: 4px; border: 1px solid var(--line-2); }
+.crumb.cur::before { left: 0; border-right: 0; }
+.crumb.cur::after { right: 0; border-left: 0; }
+.crumb.ell { padding: 0 6px; }
+.chip.lin-span { flex: none; height: 28px; padding: 0 6px 0 10px; color: var(--sun); background: none; border-color: rgba(241, 227, 160, 0.45); letter-spacing: .1em; }
+.chip.lin-span:hover { color: var(--ink); border-color: var(--sun); }
+.chip.lin-span svg { width: 14px; height: 14px; }
+/* what is shown, read out like the specimen's vitals; always four cells, so nothing below moves */
+.readout.lin-read { margin-top: 0; }
+.lin-read div { padding: 6px var(--s2); }
+.lin-read b { font-size: 15px; }
+.lin-read span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ret-i { width: 12px; height: 12px; vertical-align: -2px; color: var(--sun); }
+@media (hover: none) { .sub-a .hov { display: none; } }
+@media (hover: hover) { .sub-a .tch { display: none; } }
+.lineage .scroll > .sub-h { margin-bottom: var(--s1); }
+/* an explored lineage's line of descent: the species it passed through, each a link into the water */
+.lin-descent { margin-top: var(--s4); }
+.lin-chain { list-style: none; margin: var(--s2) 0 0; padding: 0; counter-reset: gen; }
+.lin-chain li { display: grid; grid-template-columns: 2.2em 8px minmax(0, 1fr) auto 7.5em; gap: 10px; align-items: center; min-height: 30px; border-bottom: 1px solid rgba(130, 205, 214, 0.08); font-size: 13px; counter-increment: gen; }
+.lin-chain li::before { content: counter(gen, decimal-leading-zero); color: var(--ink-3); font-size: 11px; letter-spacing: .12em; }
+.lin-chain li i { width: 7px; height: 7px; }
+.lin-chain li a.sp { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none; }
+.lin-chain li a.sp:hover, .lin-chain li a.sp:focus-visible { text-decoration: underline solid var(--sun); }
+.lin-chain li span { color: var(--ink-3); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; text-align: right; }
+.lin-chain li.gone a.sp { color: var(--ink-2); }
+.lin-chain li.more { display: block; color: var(--ink-3); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; padding: 6px 0 6px 3em; counter-increment: none; }
+.lin-chain li.more::before { content: none; }
 .lin-muller canvas { display: block; width: 100%; height: 170px; touch-action: pan-y; cursor: crosshair; }
 .lin-brush { position: absolute; pointer-events: none; background: rgba(127, 214, 223, 0.14); border: 1px solid var(--line-2); border-width: 0 1px; }
 canvas.lin-tree { display: block; width: calc(100% + 8px); margin: 0 -4px; cursor: pointer; }
@@ -1338,9 +1390,17 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .pane-ctl { padding: 10px 12px 8px; }
   .scroll { padding: 4px 12px 24px; }
   .splist li { grid-template-columns: 24px minmax(0, 1fr) 4.8em; }
-  .qrow .filt, #lin-filt { display: inline-flex; }
+  .qrow .filt { display: inline-flex; }
   .pane-ctl:not(.open) .filters { display: none; }
   .lin-key { display: none; }
+  .crumb { height: 40px; line-height: 40px; }
+  .chip.lin-span, .lineage #lin-filt { height: 36px; }
+  .lin-chain li { grid-template-columns: 2em 8px minmax(0, 1fr) 6.5em; min-height: 40px; }
+  .readout.lin-read { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .lin-read div { padding: 5px 6px; }
+  .lin-read b { font-size: 13px; }
+  .lin-read span { letter-spacing: .06em; }
+  .lin-chain li span:nth-of-type(1) { display: none; }
   .splist .spark { display: none; }
   .barrow { grid-template-columns: 7.5em minmax(24px, 1fr) 7ch 5.4ch; font-size: 12px; }
   .settings { left: 0; right: 0; width: auto; bottom: var(--bot); max-height: calc(100% - var(--top) - var(--bot)); }
@@ -1433,6 +1493,7 @@ svg.niche .n-dot { fill: var(--cyan); }
   <symbol id="i-minus" viewBox="0 0 20 20"><path d="M4 10h12" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-down" viewBox="0 0 20 20"><path d="M10 4v9m-4-4 4 4 4-4M5 16h10" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-share" viewBox="0 0 20 20"><path d="M10 13V4M6 8l4-4 4 4M4 11v5h12v-5" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+  <symbol id="i-ret" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="10" cy="10" r="5.5"/><path d="M10 1.5v5M10 13.5v5M1.5 10h5M13.5 10h5"/></g></symbol>
   <symbol id="i-chev" viewBox="0 0 20 20"><path d="m5 12.5 5-5 5 5" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
   <!-- the bench's tools (src/hand.js), and the bench -->
   <symbol id="i-t-loupe" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="8.5" cy="8.5" r="5"/><path d="m12.2 12.2 4.8 4.8"/></g></symbol>
@@ -1647,6 +1708,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     <dt>Enter · Tab</dt><dd>Ride the specimen (a held click or the arrows steer it) · on to its newest kin</dd>
     <dt>Esc</dt><dd>Close, then clear the highlight, then the map</dd>
     <dt>K</dt><dd>Fold or open the Field Lab</dd>
+    <dt>Esc · ⌫</dt><dd>In the Lab’s Lineage view: back the way you came</dd>
     <dt>V</dt><dd>Settings</dd>
     <dt>S · − =</dt><dd>Sound · volume</dd>
     <dt>T</dt><dd>Trails</dd>
@@ -12170,9 +12232,9 @@ struct SV {
     }
     return out;
   }
-  function keepFor(inView, wallWindow, target = LISTEN.target) {
+  function keepFor(inView, wallWindow, target2 = LISTEN.target) {
     const keep = new Array(9);
-    for (let t2 = 0; t2 < 9; t2++) keep[t2] = Math.min(1, target[t2] * wallWindow / Math.max(1, inView[t2]));
+    for (let t2 = 0; t2 < 9; t2++) keep[t2] = Math.min(1, target2[t2] * wallWindow / Math.max(1, inView[t2]));
     return keep;
   }
   var D_REF = 1.2;
@@ -21909,8 +21971,8 @@ ${e.message}` : String(e?.message || e));
         { binding: 8, resource: stone[1] }
       ] });
     }
-    _lightStone(enc, target, pipe2, bg) {
-      const pass = enc.beginRenderPass({ colorAttachments: [{ view: target, loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" }] });
+    _lightStone(enc, target2, pipe2, bg) {
+      const pass = enc.beginRenderPass({ colorAttachments: [{ view: target2, loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" }] });
       pass.setPipeline(pipe2);
       pass.setBindGroup(0, bg);
       pass.draw(3);
@@ -22958,7 +23020,7 @@ ${e.message}` : String(e?.message || e));
      * hold (Max and coarse speeds): true draws the world into the held image, false only carries the held
      * image with the camera (a fullscreen blit), so most of the GPU stays on the simulation.
      */
-    frame({ target = null, cam = { x: 0, y: 0, ppu: 1 }, paused = false, simDt = 1 / 60, steps = 1, time = 0, dpr = 1, selId = 4294967295, loupe = null, specimen = null, hold = null }) {
+    frame({ target: target2 = null, cam = { x: 0, y: 0, ppu: 1 }, paused = false, simDt = 1 / 60, steps = 1, time = 0, dpr = 1, selId = 4294967295, loupe = null, specimen = null, hold = null }) {
       const d = this.device;
       const generation = this.worldGeneration;
       const b = this.b;
@@ -22981,7 +23043,7 @@ ${e.message}` : String(e?.message || e));
       };
       const enc = d.createCommandEncoder();
       const prof = this.passProfile ? this._profileEncoder(enc) : null;
-      const lerpN = this.lerp != null && this._lerpOk && target && (hold == null || hold) && N > 0 ? N : 0;
+      const lerpN = this.lerp != null && this._lerpOk && target2 && (hold == null || hold) && N > 0 ? N : 0;
       if (this._lerpN || lerpN) {
         if (this._lerpBG?.parts !== b.parts) {
           const bg = (pipe2) => d.createBindGroup({ layout: pipe2.getBindGroupLayout(0), entries: [
@@ -23012,7 +23074,7 @@ ${e.message}` : String(e?.message || e));
       const setDown = N > 0 && this.setDownJob && !this.setDownJob.sent ? this._setDown(enc, this.setDownJob) : null;
       for (let s = 0; s < nSteps; s++) {
         const last = s === nSteps - 1;
-        const endTs = last && slot ? { querySet: tm.qs, endOfPassWriteIndex: target ? 2 : 1 } : void 0;
+        const endTs = last && slot ? { querySet: tm.qs, endOfPassWriteIndex: target2 ? 2 : 1 } : void 0;
         const begin = tsBegin();
         this._step(enc, simDt, begin || endTs ? { ...begin || {}, ...endTs || {} } : void 0, nSteps > 1 ? s : -1);
         const job = this._censusCopy(enc);
@@ -23141,9 +23203,9 @@ ${e.message}` : String(e?.message || e));
         }
       }
       const tsEndAt1 = slot ? { querySet: tm.qs, endOfPassWriteIndex: 1 } : void 0;
-      const drew = !!target && (hold == null || hold || !this.holdCam);
-      if (target && hold == null) this._render(enc, { target, cam, time, dpr, selId, loupe, specimen, tsBegin, tsEnd: tsEndAt1 });
-      else if (target) {
+      const drew = !!target2 && (hold == null || hold || !this.holdCam);
+      if (target2 && hold == null) this._render(enc, { target: target2, cam, time, dpr, selId, loupe, specimen, tsBegin, tsEnd: tsEndAt1 });
+      else if (target2) {
         if (drew) {
           this._render(enc, { target: this.holdView, cam, time, dpr, selId, loupe, specimen, tsBegin, tsEnd: tsEndAt1 });
           this.holdCam = { x: cam.x, y: cam.y, ppu: cam.ppu };
@@ -23154,13 +23216,13 @@ ${e.message}` : String(e?.message || e));
         d.queue.writeBuffer(b.holdU, 0, new Float32Array([ratio, ratio, wx * lc.ppu / W, wy * lc.ppu / H2, 1, 0, 0, 0]));
         const begin = tsBegin();
         const tw = drew ? void 0 : begin || tsEndAt1 ? { ...begin || {}, ...tsEndAt1 || {} } : void 0;
-        const pass = enc.beginRenderPass({ colorAttachments: [{ view: target, loadOp: "clear", clearValue: [0, 0, 0, 1], storeOp: "store" }], timestampWrites: tw });
+        const pass = enc.beginRenderPass({ colorAttachments: [{ view: target2, loadOp: "clear", clearValue: [0, 0, 0, 1], storeOp: "store" }], timestampWrites: tw });
         pass.setPipeline(this.pHold);
         pass.setBindGroup(0, this.holdBG);
         pass.draw(3);
         pass.end();
       }
-      const timed = slot && (stepping || target);
+      const timed = slot && (stepping || target2);
       if (timed) {
         enc.resolveQuerySet(tm.qs, 0, 3, tm.resolve, 0);
         enc.copyBufferToBuffer(tm.resolve, 0, slot.buf, 0, 24);
@@ -23194,14 +23256,14 @@ ${e.message}` : String(e?.message || e));
         slot.buf.mapAsync(GPUMapMode.READ).then(() => {
           const t2 = new BigUint64Array(slot.buf.getMappedRange());
           const ms = Number(t2[1] - t2[0]) / 1e6;
-          const simMs = !nSteps ? 0 : target ? Number(t2[2] - t2[0]) / 1e6 : ms;
+          const simMs = !nSteps ? 0 : target2 ? Number(t2[2] - t2[0]) / 1e6 : ms;
           slot.buf.unmap();
           slot.busy = false;
           if (generation === this.worldGeneration && ms > 0 && ms < 5e3 && this.onGpuTime) this.onGpuTime(ms, N, nSteps, simMs > 0 && simMs <= ms ? simMs : null, drew);
         }).catch(() => {
           slot.busy = false;
         });
-      } else if (!tm && this.onGpuTime && (stepping || target)) {
+      } else if (!tm && this.onGpuTime && (stepping || target2)) {
         d.queue.onSubmittedWorkDone().then(() => {
           if (generation === this.worldGeneration && this.onGpuTime) this.onGpuTime(performance.now() - t0, N, nSteps, null, drew);
         });
@@ -23685,7 +23747,7 @@ ${e.message}` : String(e?.message || e));
       }
       return this._murk.o.flatMap(([ox, oy]) => [wrap2(cam.x + ox, gw), wrap2(cam.y + oy, gh)]).concat([0, 0]);
     }
-    _render(enc, { target, cam, time: realT, dpr, selId, loupe, specimen, tsBegin, tsEnd }) {
+    _render(enc, { target: target2, cam, time: realT, dpr, selId, loupe, specimen, tsBegin, tsEnd }) {
       const d = this.device;
       const time = realT % REAL_WRAP;
       const [W, H2] = this.size;
@@ -23932,7 +23994,7 @@ ${e.message}` : String(e?.message || e));
       const micro = this.settings.specks && cam.ppu > Math.max(80, 2 * Math.max(W / this.grid[0], H2 / this.grid[1]));
       if (micro) this._drawSpecks(enc, cam, W, H2);
       const pass = enc.beginRenderPass({
-        colorAttachments: [{ view: target, loadOp: "clear", clearValue: [0, 0, 0, 1], storeOp: "store" }],
+        colorAttachments: [{ view: target2, loadOp: "clear", clearValue: [0, 0, 0, 1], storeOp: "store" }],
         timestampWrites: tsEnd
       });
       pass.setPipeline(micro ? this.pComp : this.pCompClear);
@@ -24529,7 +24591,7 @@ ${e.message}` : String(e?.message || e));
       html: `<ul>
 <li><b>Specimen</b> (click or tap a particle): a live close-up, its energy and age, then one scroll of sections (the bar above them jumps between them): its behavior, its body and record (its organism traced through its bonds, highlighted and followed as a whole, even after the cell you picked dies), its species and its full genome. Species names everywhere are links.</li>
 <li><b>Lab → Species</b>: every species, filtered by status, diet, movement and body. <b>Highlight these</b> dims everything outside the filter.</li>
-<li><b>Lab → Lineage</b>: the lineages that held the most life, as a plot of their cells over time (each nested inside the lineage it branched from, so a die-off shows as the whole stack falling) over a tree of the same lineages. A lineage follows a population through species after species; every other species counts with its nearest shown ancestor, and its pill says how many species it holds. Drag across the plot to zoom into a stretch of time, or click a pill to follow that lineage: finer lineages appear as you narrow in, down to single species.</li>
+<li><b>Lab → Lineage</b>: the lineages that held the most life, as a plot of their cells over time (each nested inside the lineage it branched from, so a die-off shows as the whole stack falling) over a tree of the same lineages. A lineage follows a population through species after species; every other species counts with its nearest shown ancestor, and each row says how many species its lineage holds. Click a lineage’s row or its band in the plot to explore it, or drag across the plot to zoom into a stretch of time: finer lineages appear as you narrow in, down to single species. The reticle on the row you point at shows its species in the water, as does each name in an explored lineage’s line of descent. The path above the plot runs from all lineages down through the explored lineage’s ancestors, each a click to go up to; a narrowed span shows beside it, with × to widen it again; Esc or Backspace goes back the way you came.</li>
 <li><b>Lab → Census</b> (the Lab's first section, the column on the left; fold it away from its header or with K): the world broken down by matter, diet, movement, body, cell type and condition, the chart of living cells by species, and the latest log entries. Choose a row to highlight it.</li>
 <li><b>Lab → Charts</b>: population, diversity, births, deaths, meals and climate over time, and the eras so far. Point at a chart (or tap it) to read every line at that moment; point at a dot in Thermal niches to name its species, and click it to open it.</li>
 <li><b>Lab → Log</b>: every logged event, searchable. The ${t("chronicler", "chronicler")}’s stories, written now and then when something notable has happened, show in a warmer color; Chronicler shows them alone.</li>
@@ -25295,7 +25357,11 @@ ${e.message}` : String(e?.message || e));
         const pw = plate.offsetWidth, ph = plate.offsetHeight, touch = e.pointerType !== "mouse";
         let x = e.clientX + 14;
         if (x + pw > innerWidth - 8) x = touch ? innerWidth - pw - 8 : e.clientX - 14 - pw;
-        const y = touch ? e.clientY - ph - 28 : cv._ch.rows ? e.clientY - ph / 2 : e.clientY - 26;
+        let y = touch ? e.clientY - ph - 28 : cv._ch.rows ? e.clientY - ph / 2 : e.clientY - 26;
+        if (hit.plateAt && !touch) {
+          x = Math.min(r.left + hit.plateAt[0], innerWidth - pw - 8);
+          y = r.top + hit.plateAt[1];
+        }
         plate.style.left = `${Math.round(Math.max(8, x))}px`;
         plate.style.top = `${Math.round(Math.max(8, Math.min(innerHeight - ph - 8, y)))}px`;
       } else plate.hidden = true;
@@ -25595,18 +25661,55 @@ ${e.message}` : String(e?.message || e));
     return all.length;
   }
 
+  // src/lineage/nav.js
+  function ancestry(st) {
+    const path = [];
+    for (let s = st; s; s = s.parent) path.push(s);
+    return path.reverse();
+  }
+  function strandLead(st) {
+    const n = st.alive ? memberAt({ members: st.nodes }, st.end) || st.nodes.findLast((x) => x.alive) : null;
+    return n || st.nodes[0];
+  }
+  var strandName = (st) => strandLead(st).name;
+  var sameSpan = (a, b) => Array.isArray(a) && Array.isArray(b) ? a[0] === b[0] && a[1] === b[1] : a === b;
+  var sameLoc = (a, b) => a.root === b.root && sameSpan(a.span, b.span);
+  function history2(limit = 40) {
+    const past = [];
+    return {
+      go(from) {
+        if (!past.length || !sameLoc(past.at(-1), from)) past.push(from);
+        if (past.length > limit) past.shift();
+      },
+      back: () => past.pop() || null
+    };
+  }
+  function fitCrumbs(widths, room, ell) {
+    const n = widths.length, sum = (a) => a.reduce((s, i) => s + widths[i], 0);
+    if (n <= 2 || sum(widths.map((_, i) => i)) <= room) return widths.map((_, i) => i);
+    const keep = [n - 1];
+    for (let i = n - 2; i >= 1; i--) {
+      if (sum([0, i, ...keep]) + ell > room) break;
+      keep.unshift(i);
+    }
+    return [0, -1, ...keep];
+  }
+
   // src/lineage/draw.js
   var OTHER = [0.42, 0.5, 0.52];
   var PANEL = "#070b0c";
   var INK = "#e2f1f0";
   var INK2 = "#a3bdbe";
   var INK3 = "#6f8a8c";
+  var CYAN = "#7fd6df";
+  var SUN = "#f1e3a0";
   var GRID2 = "rgba(130,205,214,0.07)";
   var ERA2 = "rgba(241,227,160,0.28)";
   var LABEL = "500 11px Saira, system-ui, sans-serif";
-  var SMALL = "500 10px Saira, system-ui, sans-serif";
   var rgba = (c, a = 1, k = 1) => `rgba(${Math.round(c[0] * k * 255)},${Math.round(c[1] * k * 255)},${Math.round(c[2] * k * 255)},${a})`;
   var unitKey = (c, u) => u.other ? "other" : c.units.indexOf(u);
+  var rowName = (u) => u.other ? "Other lineages" : strandName(u.strand);
+  var explorable = (u, root) => !u.other && u.strand !== root;
   function unitName(u, t2) {
     if (u.other) return "Other lineages";
     const n = t2 != null && memberAt(u, t2);
@@ -25672,10 +25775,10 @@ ${e.message}` : String(e?.message || e));
     const { ts } = c, n = ts.length;
     const roots = c.other ? [c.other, ...c.roots] : c.roots;
     const C3 = /* @__PURE__ */ new Map();
-    const clade = (u) => {
+    const clade2 = (u) => {
       const a = u.vals.slice();
       for (const k of u.kids) {
-        const b = clade(k);
+        const b = clade2(k);
         for (let i = 0; i < n; i++) a[i] += b[i];
       }
       C3.set(u, a);
@@ -25683,7 +25786,7 @@ ${e.message}` : String(e?.message || e));
     };
     const tot = new Float32Array(n);
     for (const r of roots) {
-      const a = clade(r);
+      const a = clade2(r);
       for (let i = 0; i < n; i++) tot[i] += a[i];
     }
     let max = 1;
@@ -25795,13 +25898,16 @@ ${e.message}` : String(e?.message || e));
         };
         const u = find(roots);
         if (!u) return null;
-        return { key: unitKey(c, u), u, node: u.other ? null : memberAt(u, ts[i]), t: ts[i], pop: u.vals[i] };
+        return { key: unitKey(c, u), u, node: u.other ? null : memberAt(u, ts[i]), t: ts[i], pop: u.vals[i], explore: explorable(u, opts.root) };
       },
-      plate: (hit) => namePlate(
-        hit.node ? hit.node.s.genome.col : 4287398e3,
-        hit.node ? hit.node.name : "Other lineages",
-        `${fmt(Math.round(hit.pop))} in its lineage · ${fmtClock(hit.t)}${hit.u.count > 1 ? ` · ${fmt(hit.u.count)} species` : ""}`
-      )
+      plate(hit) {
+        const k = hit.u.other ? 0 : clade2(hit.u).count;
+        return namePlate(
+          hit.node ? hit.node.s.genome.col : 4287398e3,
+          hit.node ? hit.node.name : "Other lineages",
+          `${fmt(Math.round(hit.pop))} cells in its lineage · ${fmtClock(hit.t)}${k > 1 ? ` · lineage of ${fmt(k)} species` : ""}${hit.explore ? " · click to explore it" : ""}`
+        );
+      }
     };
     return box;
   }
@@ -25816,7 +25922,8 @@ ${e.message}` : String(e?.message || e));
     const perPx = (c.t1 - c.t0) / Math.max(1, r - l);
     const items = units.map((u) => {
       const born = Math.max(c.t0, u.born), end = Math.min(c.t1, u.end);
-      const px = measure(unitName(u, u.alive ? c.t1 : null), LABEL) + measure(pillText(u), SMALL) + 26;
+      const tag = rowTag(u);
+      const px = measure(rowName(u), LABEL) + (tag ? TAG_GAP + measure(tag, TAG) : 0) + RET_W + 14;
       return { u, parent: null, born, end, from: Math.min(born, c.t1 - px * perPx), reach: born + px * perPx };
     });
     const of = new Map(items.map((it) => [it.u, it]));
@@ -25824,7 +25931,64 @@ ${e.message}` : String(e?.message || e));
     const lanes = packBlocks(items, 12 * perPx);
     return { items, lanes, h: lanes * rh + 8, rh };
   }
-  var pillText = (u) => `${u.alive ? "" : "† "}${fmt(u.count)} sp`;
+  function clade(u) {
+    if (u.clade) return u.clade;
+    let count = u.count, alive = u.alive;
+    for (const k of u.kids) {
+      const q = clade(k);
+      count += q.count;
+      alive ||= q.alive;
+    }
+    return u.clade = { count, alive };
+  }
+  function target(u) {
+    const ld = strandLead(u.strand);
+    if (ld.alive) return ld;
+    let best = null;
+    const walk = (v) => {
+      for (const n of v.members) if (n.alive && (!best || n.pop > best.pop)) best = n;
+      v.kids.forEach(walk);
+    };
+    walk(u);
+    return best || ld;
+  }
+  var rowTag = (u) => {
+    const q = clade(u);
+    return [q.count > 1 ? `${fmt(q.count)} species` : "", q.alive ? "" : "extinct"].filter(Boolean).join(" · ").toUpperCase();
+  };
+  var TAG = "500 10px Saira, system-ui, sans-serif";
+  var TAG_GAP = 8;
+  var RET_W = 24;
+  function brackets(g, x, y, w, h, k = 5) {
+    g.beginPath();
+    g.moveTo(x, y + k);
+    g.lineTo(x, y);
+    g.lineTo(x + k, y);
+    g.moveTo(x + w - k, y);
+    g.lineTo(x + w, y);
+    g.lineTo(x + w, y + k);
+    g.moveTo(x + w, y + h - k);
+    g.lineTo(x + w, y + h);
+    g.lineTo(x + w - k, y + h);
+    g.moveTo(x + k, y + h);
+    g.lineTo(x, y + h);
+    g.lineTo(x, y + h - k);
+    g.stroke();
+  }
+  function reticle(g, cx, cy, on) {
+    g.beginPath();
+    g.arc(cx, cy, 5.5, 0, Math.PI * 2);
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      g.moveTo(cx + dx * 8.5, cy + dy * 8.5);
+      g.lineTo(cx + dx * 3.5, cy + dy * 3.5);
+    }
+    g.stroke();
+    if (on) {
+      g.beginPath();
+      g.arc(cx, cy, 1.6, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
   function drawTree(cv, c, lay, eras, opts = {}) {
     const f2 = fit(cv);
     if (!f2) return;
@@ -25881,66 +26045,91 @@ ${e.message}` : String(e?.message || e));
     }
     for (const it of items) {
       const u = it.u, y = Y(it.lane) - 8, a = lit(it) ? 1 : 0.45;
-      const name = unitName(u, u.alive ? c.t1 : null);
+      const name = rowName(u), tag = rowTag(u);
+      it.explore = explorable(u, opts.root);
       g.font = LABEL;
       const tw = g.measureText(name).width;
-      const pill = pillText(u);
-      g.font = SMALL;
-      const pw = g.measureText(pill).width + 10;
-      const x = Math.max(2, Math.min(X(it.born) + 3, w - tw - pw - 10));
+      g.font = TAG;
+      const gw = tag ? TAG_GAP + g.measureText(tag).width : 0;
+      const x = Math.max(6, Math.min(X(it.born) + 3, w - tw - gw - RET_W - 8));
+      const row = hot === unitKey(c, u);
       g.font = LABEL;
       g.lineJoin = "round";
       g.lineWidth = 3;
       g.strokeStyle = PANEL;
       g.strokeText(name, x, y);
       g.globalAlpha = a;
-      g.fillStyle = u.alive ? INK : INK2;
+      g.fillStyle = row && it.explore || u.alive ? INK : INK2;
       g.fillText(name, x, y);
       g.globalAlpha = 1;
       if (opts.rode && u.members.some((m) => opts.rode.has(m.serial))) {
         g.fillStyle = "rgba(241,227,160,0.9)";
         g.fillRect(x, y + 3, tw, 1);
       }
-      it.pill = [x + tw + 6, y - 10, pw, 14];
-      const follow = !u.other && (u.hidden > 0 || u.kids.length > 0 || u.members.length > 1);
-      it.follow = follow;
-      g.fillStyle = PANEL;
-      g.fillRect(...it.pill);
-      if (follow) {
-        g.strokeStyle = hot === unitKey(c, u) && opts.hotPill ? "rgba(150,222,230,0.9)" : "rgba(130,205,214,0.35)";
-        g.lineWidth = 1;
-        g.strokeRect(it.pill[0] + 0.5, it.pill[1] + 0.5, it.pill[2] - 1, it.pill[3] - 1);
+      if (tag) {
+        g.font = TAG;
+        g.lineWidth = 3;
+        g.strokeStyle = PANEL;
+        g.strokeText(tag, x + tw + TAG_GAP, y);
+        g.globalAlpha = a;
+        g.fillStyle = row ? INK2 : INK3;
+        g.fillText(tag, x + tw + TAG_GAP, y);
+        g.globalAlpha = 1;
       }
-      g.font = SMALL;
-      g.fillStyle = follow ? u.alive ? INK2 : INK3 : INK3;
-      g.globalAlpha = a;
-      g.fillText(pill, it.pill[0] + 5, y);
-      g.globalAlpha = 1;
+      it.ret = u.other ? null : x + tw + gw + 6 + RET_W / 2;
+      it.label = [x - 6, y - 13, tw + gw + 12 + (it.ret ? RET_W : 0), 20];
+      if (!row || u.other) continue;
+      const [bx, by, bw, bh] = it.label;
+      g.strokeStyle = CYAN;
+      g.lineWidth = 1;
+      if (it.explore) brackets(g, bx + 0.5, by + 0.5, bw - 1 - RET_W, bh - 1);
+      g.fillStyle = PANEL;
+      g.beginPath();
+      g.arc(it.ret, y - 3, 9.5, 0, Math.PI * 2);
+      g.fill();
+      g.strokeStyle = opts.locating ? SUN : "rgba(150,222,230,0.75)";
+      g.fillStyle = SUN;
+      reticle(g, it.ret, y - 3, opts.locating);
     }
     cv._ch = {
       redraw: () => {
         const hot2 = cv._hot ? cv._hot.key : null;
-        drawTree(cv, c, lay, eras, { ...opts, hot: hot2, hotPill: cv._hot && cv._hot.follow });
+        drawTree(cv, c, lay, eras, { ...opts, hot: hot2, locating: !!cv._hot?.locate });
         opts.onHot?.(hot2);
       },
       at(px, py) {
         const lane = Math.floor((py - 4) / rh);
-        const it = items.find((q) => q.lane === lane && px >= X(q.born) - 4 && px <= Math.max(X(q.end), q.pill[0] + q.pill[2]) + 4);
+        const it = items.find((q) => q.lane === lane && px >= Math.min(X(q.born), q.label[0]) - 4 && px <= Math.max(X(q.end), q.label[0] + q.label[2]) + 4);
         if (!it) return null;
-        const u = it.u, p = it.pill;
-        const onPill = px >= p[0] - 2 && px <= p[0] + p[2] + 2 && py >= p[1] - 3 && py <= p[1] + p[3] + 3;
+        const u = it.u;
         const tt = Math.max(it.born, Math.min(it.end, c.t0 + (px - l) / (r - l) * (c.t1 - c.t0)));
         const sp = u.other ? null : memberAt(u, tt) || u.members.findLast((nd) => nd.born <= tt) || u.members[0];
         const i = Math.max(0, Math.min(n - 1, Math.round((tt - c.t0) / (c.t1 - c.t0) * (n - 1))));
-        if (onPill && it.follow) return { key: unitKey(c, u), u, follow: true, t: tt };
-        return { key: unitKey(c, u), u, node: sp, t: tt, pop: u.vals[i] };
+        const locate = it.ret != null && Math.abs(px - it.ret) <= RET_W / 2;
+        return {
+          key: unitKey(c, u),
+          u,
+          node: sp,
+          t: tt,
+          pop: u.vals[i],
+          explore: it.explore,
+          locate,
+          lead: u.other ? null : strandLead(u.strand),
+          target: u.other ? null : target(u),
+          plateAt: [Math.max(0, it.label[0]), 4 + (lane + 1) * rh + 2]
+        };
       },
       plate(hit) {
         const u = hit.u;
-        if (hit.follow) return namePlate(u.members[0].s.genome.col, `Follow ${unitName(u, null)}`, `its lineage: ${fmt(u.count)} species · arose ${fmtClock(u.born)}${u.alive ? "" : ` · gone ${fmtClock(u.end)}`}`);
+        if (hit.locate) {
+          const tg = hit.target;
+          if (!tg.alive) return namePlate(tg.s.genome.col, tg.name, `open its record · extinct ${fmtClock(tg.end)}`);
+          return namePlate(tg.s.genome.col, tg.name, `${tg === hit.lead ? "show it" : `its lineage’s most numerous living species: show it`} in the water · ${fmt(tg.pop)} cells`);
+        }
         if (!hit.node) return namePlate(4287398e3, "Other lineages", `${fmt(u.count)} species whose ancestors are not shown`);
-        const nd = hit.node;
-        return namePlate(nd.s.genome.col, nd.name, `${fmt(Math.round(valAt(nd, hit.t)))} · ${fmtClock(hit.t)} · arose ${fmtClock(nd.born)}${nd.alive ? "" : ` · extinct ${fmtClock(nd.end)}`}`);
+        const ld = hit.lead, nd = hit.node, q = clade(u);
+        const then = nd && nd !== ld ? ` · ${nd.name} at ${fmtClock(hit.t)}` : "";
+        return namePlate(ld.s.genome.col, ld.name, `${q.count > 1 ? `lineage of ${fmt(q.count)} species · ` : ""}arose ${fmtClock(u.born)}${q.alive ? "" : " · extinct"}${then}${hit.explore ? " · click to explore it" : ""}`);
       }
     };
   }
@@ -26838,14 +27027,26 @@ ${e.message}` : String(e?.message || e));
       }
       return { ...p, update };
     }
+    let lineageBack = () => false;
     function buildLineage() {
       const seg2 = (label3, key, opts) => `<span class="lbl">${label3}</span><div class="segs" role="group" aria-label="${label3}">${chips(key, opts, String(st[key]))}</div>`;
-      const p = pane(`<div class="filters">
+      const read = (k) => `<div><span data-r="${k}l"></span><b data-r="${k}"></b></div>`;
+      const SPANS = [["all", "All time"], ["3600", "Last hour"], ["600", "Last 10 min"]];
+      const p = pane(`<div class="lin-nav"><nav class="crumbs" id="lin-crumbs" aria-label="Where you are in the lineages"><ol></ol></nav><button type="button" class="chip lin-span" id="lin-span" hidden data-hint="Back to all time"><span></span><svg aria-hidden="true"><use href="#i-close"/></svg></button><button type="button" class="chip filt" id="lin-filt" aria-expanded="false" aria-controls="lin-opts">Options</button></div>
+      <div class="filters" id="lin-opts">
       ${seg2("Show", "linAll", [["true", "Every lineage"], ["false", "Living lineages"]])}
-      ${seg2("Span", "linSpan", [["all", "Whole world"], ["3600", "Last hour"], ["600", "Last 10 min"]])}
+      ${seg2("Span", "linSpan", SPANS)}
       ${seg2("Rows", "linK", [["15", "15"], ["30", "30"], ["60", "60"]])}</div>
-      <div class="sum"><span><span id="lin-sum"></span><button type="button" class="link" id="lin-back" hidden>All lineages</button></span><span class="lbl lin-key">Height: cells · drag to zoom</span><button type="button" class="chip filt" id="lin-filt" aria-expanded="false">Options</button></div>
+      <div class="readout lin-read" id="lin-read">${read("a")}${read("b")}${read("c")}${read("d")}</div>
+      ${subHead("Cells by lineage", '<span class="lin-key">drag across to zoom</span>')}
       <div class="lin-muller"><canvas id="lin-muller" aria-label="Cells by lineage over time"></canvas><div class="lin-brush" hidden></div></div>`, "lineage");
+      const treeHead = document.createElement("div");
+      treeHead.innerHTML = subHead("Lineages", '<span class="hov">click one to explore it · its <svg class="ret-i" aria-hidden="true"><use href="#i-ret"/></svg> shows it in the water</span><span class="tch">tap one to explore it</span>');
+      const descent = document.createElement("div");
+      descent.className = "lin-descent";
+      descent.hidden = true;
+      descent.innerHTML = block("Line of descent", '<ol class="lin-chain"></ol>', { aside: "a name shows it in the water" });
+      const chainOl = descent.querySelector("ol");
       const treeCv = document.createElement("canvas");
       treeCv.className = "lin-tree";
       treeCv.id = "lin-tree";
@@ -26855,15 +27056,45 @@ ${e.message}` : String(e?.message || e));
       const empty = document.createElement("p");
       empty.className = "note";
       empty.textContent = "Lineages appear here once species become established.";
-      p.scroll.append(empty, treeCv, list);
+      p.scroll.append(empty, treeHead.firstElementChild, treeCv, descent, list);
       const mCv = p.ctl.querySelector("#lin-muller"), brush = p.ctl.querySelector(".lin-brush");
+      const crumbsEl = p.ctl.querySelector("#lin-crumbs"), crumbOl = crumbsEl.firstElementChild, spanBtn = p.ctl.querySelector("#lin-span");
       let model = null, modelKey = "", c = null, box = null, lay = null, eras = [], lastAt = 0, lastKey = "";
       const press = (k) => p.ctl.querySelectorAll(`[data-k="${k}"]`).forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === String(st[k]))));
+      const past = history2();
+      const here2 = () => ({ root: st.linRoot, span: st.linSpan });
+      let zoom = null;
+      function go(to) {
+        const from = here2();
+        if (sameLoc(to, from)) return;
+        past.go(from);
+        move(to);
+      }
+      function move(to) {
+        if (c && box) zoom = { t0: c.t0, t1: c.t1, box: { ...box } };
+        mCv._hot = treeCv._hot = null;
+        st.linRoot = to.root;
+        st.linSpan = to.span;
+        press("linSpan");
+        p.scroll.scrollTop = 0;
+        update(true);
+      }
+      lineageBack = () => {
+        if (st.tab !== "lineage" || !st.open) return false;
+        const to = past.back();
+        if (!to) return false;
+        move(to);
+        return true;
+      };
       p.ctl.addEventListener("click", (e) => {
         const b = e.target.closest("[data-k]");
         if (b) {
           const k = b.dataset.k;
-          st[k] = k === "linAll" ? b.dataset.v === "true" : k === "linK" ? +b.dataset.v : b.dataset.v;
+          if (k === "linSpan") {
+            go({ root: st.linRoot, span: b.dataset.v });
+            return;
+          }
+          st[k] = k === "linAll" ? b.dataset.v === "true" : +b.dataset.v;
           press(k);
           update(true);
           return;
@@ -26875,12 +27106,16 @@ ${e.message}` : String(e?.message || e));
           ft.setAttribute("aria-expanded", String(on));
           return;
         }
-        if (e.target.closest("#lin-back")) {
-          st.linRoot = null;
-          st.linSpan = "all";
-          press("linSpan");
-          update(true);
+        const cr = e.target.closest("[data-root]");
+        if (cr) {
+          go({ root: cr.dataset.root ? +cr.dataset.root : null, span: st.linSpan });
+          return;
         }
+        if (e.target.closest(".crumb.ell")) {
+          crumbsEl.classList.add("full");
+          return;
+        }
+        if (e.target.closest("#lin-span")) go({ root: st.linRoot, span: "all" });
       });
       function span2(T) {
         if (Array.isArray(st.linSpan)) return st.linSpan;
@@ -26918,50 +27153,131 @@ ${e.message}` : String(e?.message || e));
         brush.hidden = true;
         if (d.moved && e.type === "pointerup") {
           const t0 = tAt(Math.min(d.x, e.offsetX)), t1 = tAt(Math.max(d.x, e.offsetX));
-          if (t1 - t0 > 5) {
-            st.linSpan = [t0, t1];
-            press("linSpan");
-            update(true);
-          }
+          if (t1 - t0 > 5) go({ root: st.linRoot, span: [t0, t1] });
         }
       };
       mCv.addEventListener("pointerup", endDrag);
       mCv.addEventListener("pointercancel", endDrag);
       let lastTap = null;
-      const tapped = (cv, e, act) => {
-        if (!cv._ch) return;
-        const r = cv.getBoundingClientRect(), hit = cv._ch.at(e.clientX - r.left, e.clientY - r.top);
-        const k = hit && `${cv.id}:${hit.key}:${!!hit.follow}`;
-        const go = hit && (e.pointerType === "mouse" || lastTap === k);
-        lastTap = go ? null : k;
-        if (go) act(hit);
+      const at = (cv, e) => {
+        const r = cv.getBoundingClientRect();
+        return cv._ch ? cv._ch.at(e.clientX - r.left, e.clientY - r.top) : null;
       };
-      onTap(mCv, (e) => tapped(mCv, e, (hit) => {
-        if (hit.node) api.openSpecies(hit.node.serial);
-      }));
-      onTap(treeCv, (e) => tapped(treeCv, e, (hit) => {
-        if (hit.follow) follow(hit.u);
-        else if (hit.node) api.openSpecies(hit.node.serial);
-      }));
-      function follow(u) {
-        st.linRoot = u.members[0].serial;
-        st.linSpan = "all";
-        press("linSpan");
-        p.scroll.scrollTop = 0;
-        update(true);
-      }
+      onTap(mCv, (e) => {
+        const hit = at(mCv, e), k = hit && hit.key, mouse = e.pointerType === "mouse";
+        const now = hit && hit.explore && (mouse || lastTap === k);
+        lastTap = now ? null : k;
+        if (now) explore(hit.u);
+      });
+      onTap(treeCv, (e) => {
+        const hit = at(treeCv, e);
+        if (!hit) return;
+        if (hit.locate && e.pointerType === "mouse") api.openSpecies(hit.target.serial);
+        else if (hit.explore) explore(hit.u);
+      });
+      treeCv.addEventListener("pointermove", (e) => {
+        const hit = e.pointerType === "mouse" && at(treeCv, e);
+        treeCv.style.cursor = hit && (hit.explore || hit.locate) ? "pointer" : "default";
+      });
+      const explore = (u) => go({ root: u.strand.first.serial, span: st.linSpan });
       list.addEventListener("click", (e) => {
         const b = e.target.closest("button");
         if (!b || !c) return;
         const u = c.units[+b.dataset.u];
-        if (b.dataset.do === "follow") follow(u);
+        if (b.dataset.do === "explore") explore(u);
         else api.openSpecies(+b.dataset.sp);
       });
+      let crumbKey = "";
+      function crumbs(r, T) {
+        const path = r ? ancestry(r) : [];
+        const key = `${path.map((x) => x.first.serial).join(",")}:${Math.floor(T / 30)}:${crumbsEl.clientWidth}`;
+        if (key === crumbKey) return;
+        crumbKey = key;
+        crumbsEl.classList.remove("full");
+        const items = [{ name: "All lineages", root: "" }, ...path.map((x) => {
+          const n = strandLead(x);
+          return { name: n.name, root: x.first.serial, col: cssCol(n.s.genome.col) };
+        })];
+        setHTML(crumbOl, items.map((it, i) => {
+          const dot = it.col ? `<i style="background:${it.col}"></i>` : "";
+          return i === items.length - 1 ? `<li><span class="crumb cur" aria-current="location">${dot}${esc(it.name)}</span></li>` : `${i === 1 ? '<li class="ell-li" hidden><button type="button" class="crumb ell" aria-label="Show the whole path">…</button></li>' : ""}<li><button type="button" class="crumb" data-root="${it.root}">${dot}${esc(it.name)}</button></li>`;
+        }).join(""));
+        const lis = [...crumbOl.children].filter((li) => !li.classList.contains("ell-li")), ell = crumbOl.querySelector(".ell-li");
+        if (!ell) return;
+        ell.hidden = false;
+        const ew = ell.offsetWidth;
+        ell.hidden = true;
+        const keep = fitCrumbs(lis.map((li) => li.offsetWidth), crumbsEl.clientWidth, ew);
+        lis.forEach((li, i) => li.classList.toggle("fold", !keep.includes(i)));
+        ell.hidden = !keep.includes(-1);
+      }
+      function zoomFrom(z) {
+        if (!z || !box || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        const W = (b) => b.r - b.l, place = (t2, t0, t1, b) => b.l + (t2 - t0) / (t1 - t0) * W(b);
+        const oa = place(z.t0, c.t0, c.t1, box), ob = place(z.t1, c.t0, c.t1, box);
+        const na = place(c.t0, z.t0, z.t1, z.box), nb = place(c.t1, z.t0, z.t1, z.box);
+        if (Math.abs(oa - box.l) < 2 && Math.abs(ob - box.r) < 2) return;
+        const tf = (a, b, from) => {
+          const k = (b - a) / W(from);
+          return `translateX(${a - from.l * k}px) scaleX(${k})`;
+        };
+        const ghost = z.img;
+        ghost.className = "lin-ghost";
+        mCv.parentElement.append(ghost);
+        const o = { duration: 380, easing: "cubic-bezier(.3,.7,.2,1)" };
+        ghost.animate([{ transform: "none", opacity: 1 }, { transform: tf(oa, ob, z.box), opacity: 0 }], o).finished.then(() => ghost.remove(), () => ghost.remove());
+        mCv.animate([{ transform: tf(na, nb, box), opacity: 0 }, { transform: "none", opacity: 1 }], o);
+        treeCv.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 260, easing: "ease-out" });
+      }
+      const rd = Object.fromEntries([...p.ctl.querySelectorAll("[data-r]")].map((x) => [x.dataset.r, x]));
+      const put = (k, label3, value) => {
+        setText(rd[`${k}l`], label3);
+        setText(rd[k], value);
+      };
+      function readout(r) {
+        if (!r) {
+          put("a", "Lineages", fmt(c.lineages));
+          put("b", "Species", fmt(c.species));
+          put("c", "Living", fmt(model.nodes.reduce((a, n) => a + (n.alive ? 1 : 0), 0)));
+          put("d", "Time shown", `${fmtClock(c.t0)}–${fmtClock(c.t1)}`);
+          return;
+        }
+        let peak = 0, now = 0, end = 0;
+        for (let i = 0; i < c.ts.length; i++) {
+          let v = 0;
+          for (const u of c.units) v += u.vals[i];
+          if (v > peak) peak = v;
+        }
+        const walk = (st2) => {
+          if (st2.end > end) end = st2.end;
+          for (const n of st2.nodes) if (n.alive) now += n.pop;
+          st2.kids.forEach(walk);
+        };
+        walk(r);
+        put("a", "Arose", fmtClock(r.born));
+        put("b", "Species", fmt(c.species));
+        put("c", "Peak cells", fmt(Math.round(peak)));
+        if (r.live) put("d", "Cells now", fmt(now));
+        else put("d", "Extinct", fmtClock(end));
+      }
+      let chainKey = "";
+      function chain(r) {
+        descent.hidden = !r;
+        if (!r) {
+          chainKey = "";
+          return;
+        }
+        const key = r.nodes.map((n) => `${n.serial}:${n.alive ? n.pop : "x"}`).join(",");
+        if (key === chainKey) return;
+        chainKey = key;
+        const MAX = 12, nodes = r.nodes.length > MAX ? [...r.nodes.slice(0, MAX - 1), r.nodes.at(-1)] : r.nodes;
+        setHTML(chainOl, nodes.map((n, i) => `${i === MAX - 1 && r.nodes.length > MAX ? `<li class="more">${fmt(r.nodes.length - MAX)} more</li>` : ""}<li${n.alive ? "" : ' class="gone"'}><i style="background:${cssCol(n.s.genome.col)}"></i>${spLink(n.serial, n.name)}<span>arose ${fmtClock(n.born)}</span><span>${n.alive ? `${fmt(n.pop)} cells` : `extinct ${fmtClock(n.end)}`}</span></li>`).join(""));
+      }
       const drawM = (hot) => {
-        box = drawMuller(mCv, c, eras, { hot, minLeft: 30, onHot: drawT });
+        box = drawMuller(mCv, c, eras, { hot, minLeft: 30, onHot: drawT, root: rootStrand() });
       };
       const drawT = (hot) => {
-        if (box) drawTree(treeCv, c, lay, eras, { hot, l: box.l, r: box.r, onHot: drawM, rode: new Set(api.life().rode || []) });
+        if (box) drawTree(treeCv, c, lay, eras, { hot, l: box.l, r: box.r, onHot: drawM, root: rootStrand(), rode: new Set(api.life().rode || []) });
       };
       function update(force) {
         const now = performance.now();
@@ -26982,25 +27298,46 @@ ${e.message}` : String(e?.message || e));
         eras = api.climate().history.slice(1);
         const r = rootStrand();
         c = cut(model, { t0, t1, k: st.linK, live: !st.linAll, root: r, n: Math.min(320, Math.round(W / 2)) });
-        setText($3("lin-sum"), `${r ? `${r.first.name}'s line · ` : ""}${fmt(c.units.length)} of ${fmt(c.lineages)} lineages · ${fmt(c.species)} species`);
-        const back = $3("lin-back");
-        back.hidden = !r && !Array.isArray(st.linSpan);
-        setText(back, r ? "← All lineages" : "← Whole world");
+        crumbs(r, T);
+        readout(r);
+        chain(r);
+        const sp = st.linSpan !== "all";
+        spanBtn.hidden = !sp;
+        if (sp) {
+          const text2 = Array.isArray(st.linSpan) ? `${fmtClock(st.linSpan[0])}–${fmtClock(st.linSpan[1])}` : SPANS.find(([v]) => v === st.linSpan)[1];
+          setText(spanBtn.firstElementChild, text2);
+          spanBtn.setAttribute("aria-label", `Showing ${text2}: back to all time`);
+        }
         const any = !!(c.units.length || c.other);
         empty.hidden = any;
         mCv.parentElement.hidden = treeCv.hidden = !any;
         if (!any) {
           setHTML(list, "");
+          zoom = null;
           return;
         }
+        if (zoom) {
+          const img = document.createElement("canvas");
+          img.width = mCv.width;
+          img.height = mCv.height;
+          img.getContext("2d").drawImage(mCv, 0, 0);
+          zoom.img = img;
+        }
         drawM(null);
-        if (!box) return;
+        if (!box) {
+          zoom = null;
+          return;
+        }
         lay = layoutTree(c, box.l, box.r);
         treeCv.style.height = `${lay.h}px`;
         drawT(null);
+        if (zoom) {
+          zoomFrom(zoom);
+          zoom = null;
+        }
         setHTML(list, c.units.map((u, i) => {
-          const n = u.members.findLast((x) => x.alive) || u.members.at(-1);
-          return `<li><button type="button" data-u="${i}" data-sp="${n.serial}">${esc(n.name)}: ${fmt(u.count)} species, ${u.alive ? "living" : "extinct"}</button><button type="button" data-u="${i}" data-do="follow">Follow its lineage</button></li>`;
+          const n = strandLead(u.strand), tg = target(u);
+          return `<li>${u.strand !== r ? `<button type="button" data-u="${i}" data-do="explore">Explore ${esc(n.name)}’s lineage: ${fmt(u.count)} species, ${u.alive ? "living" : "extinct"}</button>` : ""}<button type="button" data-u="${i}" data-sp="${tg.serial}">Show ${esc(tg.name)} in the water</button></li>`;
         }).join(""));
       }
       return { ...p, update };
@@ -27262,7 +27599,9 @@ ${e.message}` : String(e?.message || e));
           apply();
           show();
         }
-      }
+      },
+      // the Lineage view back the way it came (Esc, Backspace): false if it is not on show or has nowhere to go
+      back: () => lineageBack()
     };
   }
 
@@ -28455,7 +28794,7 @@ ${e.message}` : String(e?.message || e));
       g.stroke();
       const sel = api.sel();
       const pxPerCell = h / api.state.specCells;
-      const brackets2 = (l, t2, r2, b, c2) => {
+      const brackets3 = (l, t2, r2, b, c2) => {
         g.beginPath();
         for (const [x, y, dx, dy] of [[l, t2, 1, 1], [r2, t2, -1, 1], [l, b, 1, -1], [r2, b, -1, -1]]) {
           g.moveTo(x, y + dy * c2);
@@ -28471,12 +28810,12 @@ ${e.message}` : String(e?.message || e));
         const l = clamp6(w / 2 + box[0] * pxPerCell - pad3, e, w / 2 - R2 - 4), t2 = clamp6(h / 2 + box[1] * pxPerCell - pad3, e, h / 2 - R2 - 4);
         const r2 = clamp6(w / 2 + box[2] * pxPerCell + pad3, w / 2 + R2 + 4, w - e), b = clamp6(h / 2 + box[3] * pxPerCell + pad3, h / 2 + R2 + 4, h - e);
         g.strokeStyle = "rgba(255,95,58,0.9)";
-        brackets2(l, t2, r2, b, Math.min(10, (r2 - l) / 3, (b - t2) / 3));
+        brackets3(l, t2, r2, b, Math.min(10, (r2 - l) / 3, (b - t2) / 3));
         g.strokeStyle = "rgba(241,227,160,0.95)";
-        brackets2(w / 2 - R2, h / 2 - R2, w / 2 + R2, h / 2 + R2, c2);
+        brackets3(w / 2 - R2, h / 2 - R2, w / 2 + R2, h / 2 + R2, c2);
       } else {
         g.strokeStyle = sel && sel.lost ? "rgba(255,255,255,0.3)" : "rgba(255,95,58,0.9)";
-        brackets2(w / 2 - 9, h / 2 - 9, w / 2 + 9, h / 2 + 9, 4);
+        brackets3(w / 2 - 9, h / 2 - 9, w / 2 + 9, h / 2 + 9, 4);
       }
       g.lineWidth = 1;
       const um = [...NICE_UM].reverse().find((u) => u / UM_PER_UNIT * pxPerCell <= w * 0.34) || 1;
@@ -28563,10 +28902,10 @@ ${e.message}` : String(e?.message || e));
       owner = null;
       tip.hidden = true;
     }
-    const target = (e) => e.target.closest && e.target.closest("[data-tip],[data-hint]");
+    const target2 = (e) => e.target.closest && e.target.closest("[data-tip],[data-hint]");
     document.addEventListener("pointerover", (e) => {
       if (e.pointerType !== "mouse") return;
-      const el2 = target(e);
+      const el2 = target2(e);
       if (el2 && el2 !== owner) show(el2, "hover");
       else if (!el2 && owner && via === "hover") hide();
     });
@@ -28586,7 +28925,7 @@ ${e.message}` : String(e?.message || e));
       if (owner) hide();
     }, true);
     document.addEventListener("focusin", (e) => {
-      const el2 = target(e);
+      const el2 = target2(e);
       if (el2 && el2.matches(":focus-visible")) show(el2, "focus");
     });
     document.addEventListener("focusout", () => {
@@ -28826,7 +29165,7 @@ ${e.message}` : String(e?.message || e));
     ctx.lineTo(x1, y1);
     ctx.stroke();
   }
-  function brackets(ctx, x, y, w, h, len2, color) {
+  function brackets2(ctx, x, y, w, h, len2, color) {
     ctx.strokeStyle = color;
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -28837,7 +29176,7 @@ ${e.message}` : String(e?.message || e));
     }
     ctx.stroke();
   }
-  function reticle(W, H2, ctx) {
+  function reticle2(W, H2, ctx) {
     const wide = W >= 2 * (H2 / 2 - 16) + 220;
     font(ctx);
     const colW = Math.max(...["acquiring", "specimen", "cells 00", "grazer", "000 µm", "field 01", "lux 00%", "00.0°"].map((x) => ctx.measureText(x.toUpperCase()).width));
@@ -29003,7 +29342,7 @@ ${e.message}` : String(e?.message || e));
           y1 = Math.max(y1, q.y);
         }
         const k = clamp7((t2 - lockAt) / 0.5, 0, 1), m = 4 + (1 - k) * 14;
-        brackets(ctx, x0 - m, y0 - m, x1 - x0 + 2 * m, y1 - y0 + 2 * m, 4, C.sun);
+        brackets2(ctx, x0 - m, y0 - m, x1 - x0 + 2 * m, y1 - y0 + 2 * m, 4, C.sun);
         const ex = x1 + m, ey = (y0 + y1) / 2, bx = cx + R2 + 12;
         ctx.strokeStyle = C.sunLine;
         ctx.beginPath();
@@ -29037,7 +29376,7 @@ ${e.message}` : String(e?.message || e));
       canvas2.width = Math.max(1, Math.round(W * dpr));
       canvas2.height = Math.max(1, Math.round(H2 * dpr));
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      draw = reticle(W, H2, ctx);
+      draw = reticle2(W, H2, ctx);
       return true;
     };
     const frame = (now) => {
@@ -29368,8 +29707,8 @@ ${e.message}` : String(e?.message || e));
       const from = this.lastRig || this.view();
       const [wMin, wMax] = this.io.widths();
       const [W, H2] = this.io.world();
-      const target = { x: from.x + wrapD(to.x - from.x, W), y: from.y + wrapD(to.y - from.y, H2), w: clamp8(to.w, wMin, wMax) };
-      const path = zoomPath(from, target);
+      const target2 = { x: from.x + wrapD(to.x - from.x, W), y: from.y + wrapD(to.y - from.y, H2), w: clamp8(to.w, wMin, wMax) };
+      const path = zoomPath(from, target2);
       const flight = fly ? flightTime(path.S) : 0;
       const a = this.rng() * Math.PI * 2;
       return {
@@ -29378,7 +29717,7 @@ ${e.message}` : String(e?.message || e));
         whyVer: 0,
         type,
         path,
-        target,
+        target: target2,
         flight,
         dur: flight + hold,
         t: 0,
@@ -31266,7 +31605,7 @@ ${e.message}` : String(e?.message || e));
   var PORTRAIT_BOX = { x: 30, y: 118, w: 600, h: 340 };
   var PORTRAIT_SHOWN = 0.78;
   var share = (v, lo, hi, log = false) => Math.max(0, Math.min(1, log ? Math.log(v / lo) / Math.log(hi / lo) : (v - lo) / (hi - lo)));
-  function cardData(sp, { reg, K, story = null, simTime = 0, founders = 0, relations = null, history: history2 = null }) {
+  function cardData(sp, { reg, K, story = null, simTime = 0, founders = 0, relations = null, history: history3 = null }) {
     const g = sp.genome, f2 = facets2(g, K), th = thermalGuild(g);
     const lineage = [];
     let a = sp.ancestor && reg.get(sp.ancestor);
@@ -31293,9 +31632,9 @@ ${e.message}` : String(e?.message || e));
       sp.alive ? ["Arose", fmtClock(sp.born || 0)] : ["Extinct at", fmtClock(sp.extinct ?? 0)]
     ];
     let series = null;
-    if (history2 && history2.length) {
+    if (history3 && history3.length) {
       const t0 = sp.born || 0, t1 = sp.alive ? Infinity : sp.extinct ?? Infinity;
-      const pts = history2.filter((h) => h.t >= t0 && h.t <= t1).map((h) => [h.t, (h.sp.find((x) => x[0] === sp.serial) || [0, 0])[1]]);
+      const pts = history3.filter((h) => h.t >= t0 && h.t <= t1).map((h) => [h.t, (h.sp.find((x) => x[0] === sp.serial) || [0, 0])[1]]);
       if (pts.length > 1) series = { t: pts.map((x) => x[0]), v: pts.map((x) => x[1]) };
     }
     if (!series && sp.series && sp.series.t && sp.series.t.length > 1) series = { t: Array.from(sp.series.t), v: Array.from(sp.series.v) };
@@ -33947,7 +34286,7 @@ ${e.message}` : String(e?.message || e));
         return n2;
       }
       armCut();
-      const target = (!hasTS ? 9 : 10) * (throttles ? 0.55 : 1);
+      const target2 = (!hasTS ? 9 : 10) * (throttles ? 0.55 : 1);
       const clampN = (x) => clamp6(Math.round(x / 4096) * 4096, Math.min(16384, maxN), maxN);
       let n = await allocDown(Math.min(isCoarse ? 131072 : 262144, maxN));
       seedWorld(n);
@@ -33955,7 +34294,7 @@ ${e.message}` : String(e?.message || e));
       calStep(`Measuring the GPU · ${fmt(n)} particles`, 0.6);
       let t2 = await measure2();
       if (calibCut) return n;
-      let next = clampN(n * target / t2);
+      let next = clampN(n * target2 / t2);
       if (next > n * 1.2) {
         next = await allocDown(next);
         seedWorld(next);
@@ -33965,7 +34304,7 @@ ${e.message}` : String(e?.message || e));
         if (calibCut) return next;
         n = next;
         t2 = t22;
-        next = clampN(n * target / t2);
+        next = clampN(n * target2 / t2);
         if (next > n) next = Math.min(next, clampN(n * 1.3));
       }
       const final = next === n ? n : await allocDown(next);
@@ -35454,8 +35793,8 @@ ${e.message}` : String(e?.message || e));
         { transform: `translate(calc(-50% + ${tx - innerWidth / 2}px), calc(-50% + ${ty - innerHeight / 2}px)) scale(0.08)`, opacity: 0.4 }
       ], { duration: 1500, easing: "cubic-bezier(.4,0,.2,1)" }).finished.then(() => {
         img.remove();
-        const target = lab.isOpen() ? document.querySelector('#lab-tabs [data-tab="cabinet"]') : $2("lab-open");
-        target?.animate([{ boxShadow: "inset 0 -2px 0 #f1e3a0", color: "#f1e3a0" }, { boxShadow: "none" }], { duration: 900 });
+        const target2 = lab.isOpen() ? document.querySelector('#lab-tabs [data-tab="cabinet"]') : $2("lab-open");
+        target2?.animate([{ boxShadow: "inset 0 -2px 0 #f1e3a0", color: "#f1e3a0" }, { boxShadow: "none" }], { duration: 900 });
       });
     }
     function showInCabinet(card) {
@@ -36985,9 +37324,11 @@ ${e.message}` : String(e?.message || e));
         else if (sel || spView != null) deselect();
         else if (focus.key) clearFocus();
         else if (mapsOn().length) clearMaps();
-        else if (lab.isWide() && !phone()) lab.narrow();
+        else if (lab.back()) {
+        } else if (lab.isWide() && !phone()) lab.narrow();
         else if (lab.isOpen() && phone()) lab.close();
         else handled = false;
+      } else if (k === "Backspace" && lab.back()) {
       } else if (k === " ") togglePause();
       else if (k === ",") stepSpeed(-1);
       else if (k === ".") stepSpeed(1);
@@ -37962,7 +38303,7 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
       }
       octx.globalAlpha = 1;
     }
-    function brackets2(g, l, t2, r, b, col, minC = 2.5, frac = 0.16) {
+    function brackets3(g, l, t2, r, b, col, minC = 2.5, frac = 0.16) {
       const m = Math.min(r - l, b - t2);
       const c = Math.min(clamp6(m * frac, minC, 64), (r - l) / 3, (b - t2) / 3);
       const w = 1.25 + 1.25 * clamp6((m - 120) / 480, 0, 1);
@@ -37999,8 +38340,8 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
         r = Math.max(r, sx + sel.boxD[2] * p2 + pad3);
         b = Math.max(b, sy + sel.boxD[3] * p2 + pad3);
       } else sel.boxD = null;
-      brackets2(octx, l, t2, r, b, lost ? "rgba(255,255,255,0.35)" : "rgba(255,95,58,0.95)", 10);
-      if (sel.boxD && !lost) brackets2(octx, sx - cr, sy - cr, sx + cr, sy + cr, CELL_MARK, 2.5, 0.225);
+      brackets3(octx, l, t2, r, b, lost ? "rgba(255,255,255,0.35)" : "rgba(255,95,58,0.95)", 10);
+      if (sel.boxD && !lost) brackets3(octx, sx - cr, sy - cr, sx + cr, sy + cr, CELL_MARK, 2.5, 0.225);
       if (inLens || lost) return true;
       const p = sel.particle;
       const g = p.kind >= FIRST_LIFE ? genomeFor(p.kind) : null;
