@@ -62,6 +62,29 @@ Drawing (2026-10-26, a frame's GPU time less the step's): the 4M world seen whol
 world seen whole about 2.9 ms. Zoomed in, the cost is the resolved cells' fragment work, which the render
 scale reduces faster than linearly (the level of detail is set in framebuffer pixels).
 
+## Apple GPUs (an M1 MacBook, 2026-11-04)
+
+Measured in Chrome 156 on Metal (`bench.mjs --chrome "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"`
+under plain node), on a 78k world (`slow-mac-world.tidemote`, 32k living) in a 1440×900 window at 1.5×.
+
+- **Per-pass timestamps mislead here.** A tiled GPU overlaps render passes, so each pass's span takes in others'
+  (the composite's read 35 ms of a 43 ms frame, the bloom's 33). Trust the frame's total and compare builds: a
+  plan's world takes `page`, a variant build in `runs/perf/pages/`, and early returns in a shader show what its
+  parts cost.
+- **The bubbles' search** (`bubbleBend`, `extremes`) ran wherever the water was 30° or more, though air comes out
+  only from 42° (`GAS_FROM`) and vapor near a boil: 18 sets of hashes and heat reads a pixel, finding nothing. The
+  world's colonies had warmed half its water past 30° (to 40°), and the search cost 20 ms of the frame. `bubblesNear`
+  now looks only where water hot enough lies within reach (the slope carried 2.5 spacings, 3° to spare): 43 → 23 ms.
+- **The step:** `lifeMain` costs about 110 ns a living cell (3.2 on the RTX 4070 Ti, which has about 15 times the
+  compute). In workgroups of 256 instead of 128 it is a quarter faster (3.8 → 2.8 ms; coarse 4-tick steps
+  5.6 → 4.3; 64 and 32 between), so Apple's adapters build the living-list passes at 256 (`lifeWG`, simWGSL).
+  The kernel is register-bound, which Apple's GPUs feel more: the place to look next.
+- **Sizing.** Auto's measure is a frame of a world with nothing living yet (the step without `lifeMain`'s cost)
+  and a fresh world's heavier drawing: 262k measured 3.3 ms of step and 16–22 ms of drawing, which sized the world
+  at 139k, where a mature world (21k living) takes 3.7 and 13 ms at 1×. On the RTX 4070 Ti the two errors about cancel;
+  here the drawing alone fills more than the 10 ms aimed for, and the view must lower its scale at any count.
+  Timing the step alone was tried and dropped: it sized the world at 442k, 30 fps at half scale once life filled it.
+
 ## Starting up (compiling the shaders)
 
 "Starting the GPU" is the shaders' compile: 49 pipelines, from which `lifeMain` and `mindMain` (each

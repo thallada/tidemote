@@ -276,7 +276,10 @@ class Engine {
     const cPipe = (desc) => track(d.createComputePipelineAsync(desc), desc.label);
     const rPipe = (desc) => track(d.createRenderPipelineAsync(desc), desc.label);
     const dp4a = !!globalThis.navigator?.gpu?.wgslLanguageFeatures?.has('packed_4x8_integer_dot_product');
-    this.simModule = d.createShaderModule({ code: simWGSL(K, { dp4a }), label: 'sim' });
+    // Apple's GPUs run lifeMain, register-bound, a quarter faster in workgroups of 256 than of 128 (an M1,
+    // 2026-11-04: 3.8 → 2.9 ms in a 78k world; 64 and 32 between; docs/performance.md, Apple)
+    const lifeWG = d.adapterInfo?.vendor === 'apple' ? 256 : 128;
+    this.simModule = d.createShaderModule({ code: simWGSL(K, { dp4a, lifeWG }), label: 'sim' });
     this.pickModule = d.createShaderModule({ code: PICK_WGSL, label: 'pick' });
     this.listenModule = d.createShaderModule({ code: LISTEN_WGSL, label: 'listen' });
     this.watchModule = d.createShaderModule({ code: WATCH_WGSL, label: 'watch' });

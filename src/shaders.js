@@ -1339,8 +1339,9 @@ ${w ? `  if (sub) { bondF += bendOn(i, gr) * ${f(K.growStiff)}; mSwim = select(n
     * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) + heatMaking + willCost;`;
 }
 
-// dp4a: the WGSL language feature packed_4x8_integer_dot_product is available
-export function simWGSL(K, { dp4a = false } = {}) {
+// dp4a: the WGSL language feature packed_4x8_integer_dot_product is available; lifeWG: the workgroup size of
+// the passes over the living list (contactMain, bondBackMain, lifeMain, bodyTick), which the list is padded to
+export function simWGSL(K, { dp4a = false, lifeWG = 128 } = {}) {
   // reef stone's neighborhood: a disc of the square's area (side 2 regionR + 1), in cells, and its reach
   const REGION_DISC = (2 * (K.regionR | 0) + 1) / Math.sqrt(Math.PI);
   const REGION_REACH = Math.ceil(REGION_DISC + 0.5);
@@ -1348,6 +1349,7 @@ export function simWGSL(K, { dp4a = false } = {}) {
 // Coarse steps (sim.ticks > 1) run lifeMain and mindMain as pipelines of their own (lifeMainCoarse):
 // a 1/60 s step's leaves out everything only a coarse step needs, which saves it registers.
 override COARSE = false;
+const LIFE_WG = ${lifeWG}u;
 // bodyTick's pipeline: tree functions read where its substeps have moved the cells (treePos, treeVel)
 override SUBSTEP = false;
 struct Sim {
@@ -2467,10 +2469,10 @@ fn censusMain(@builtin(global_invocation_id) gid: vec3u) {
       atomicAdd(&ledger[8], 1u);
     }
   }
-  let padded = (n + 127u) / 128u * 128u;
-  if (s < 128u && n + s < padded) { livingList[n + s] = NONE; }
+  let padded = (n + LIFE_WG - 1u) / LIFE_WG * LIFE_WG;
+  if (s < LIFE_WG && n + s < padded) { livingList[n + s] = NONE; }
   if (s == 0u) {
-    atomicStore(&frameCtr[1], (n + 127u) / 128u);
+    atomicStore(&frameCtr[1], (n + LIFE_WG - 1u) / LIFE_WG);
     atomicStore(&frameCtr[2], 1u);
     atomicStore(&frameCtr[3], 1u);
     atomicStore(&frameCtr[4], 4u);
@@ -2967,7 +2969,7 @@ fn bondTo(j: u32, p: Particle) -> vec2f {
   return d;
 }
 
-@compute @workgroup_size(128)
+@compute @workgroup_size(LIFE_WG)
 fn bondBackMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = livingList[gid.x];
   if (i == NONE) { return; }
@@ -2991,7 +2993,7 @@ fn bondBackMain(@builtin(global_invocation_id) gid: vec3u) {
 // by velocity, far enough to undo bodyHold of the overlap a tick, averaged over the contacts (so many
 // pressing at once cannot overshoot), and are pushed apart by bodyPush besides. And cells that touch drag
 // on each other (crowdVisc): a crowd moves as a thick fluid.
-@compute @workgroup_size(128)
+@compute @workgroup_size(LIFE_WG)
 fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = livingList[gid.x];
   if (i == NONE) { return; }
@@ -3224,7 +3226,7 @@ fn handCut(i: u32, kept: vec2u, at: vec2f) {
   if (n > 0u) { atomicAdd(&ledger[handAt() + H_CUTS], n); }
 }
 
-@compute @workgroup_size(128)
+@compute @workgroup_size(LIFE_WG)
 fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = livingList[gid.x];
   if (i == NONE) { return; }
@@ -3498,8 +3500,8 @@ fn handOver(i: u32, v0: vec2f, push0: vec2f, swim: f32, will: vec2f, willOn: boo
 @group(0) @binding(26) var<storage, read_write> subL: array<atomic<u32>>;
 @group(0) @binding(27) var<storage, read_write> subArgs: array<u32, 3>;
 @compute @workgroup_size(1)
-fn bodyArgs() { subArgs = array<u32, 3>((atomicLoad(&subL[0]) + 127u) / 128u, 1u, 1u); }
-@compute @workgroup_size(128)
+fn bodyArgs() { subArgs = array<u32, 3>((atomicLoad(&subL[0]) + LIFE_WG - 1u) / LIFE_WG, 1u, 1u); }
+@compute @workgroup_size(LIFE_WG)
 fn bodyTick(@builtin(global_invocation_id) gid: vec3u) {
   var i = NONE;
   if (subTick == 0u) {
