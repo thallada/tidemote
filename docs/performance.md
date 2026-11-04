@@ -121,6 +121,22 @@ under plain node), on a 78k world (`slow-mac-world.tidemote`, 32k living) in a 1
   sim, so a copy had every field the kernel uses loaded at its start and held; read where used, 5% faster (2.86 →
   2.72 ms, coarse 4.23 → 3.99). The neighbor scan is three quarters of the kernel (2.4 of 3 ms skipped at run time);
   the mutation path and the hand's and stranding's paths are not where its registers peak.
+- **Close up (slow-mac-world at 71 pixels a unit), the next round.** The composite read the sea from a field from
+  about 32 pixels a unit (`seaFieldMain`, 4.0 → 3.3 ms) and the eyepiece's iris and dust from a texture worked out only
+  when they change (`opticsMain`; the rainbow rims' sectors without `atan2`; 3.37 → 2.98 ms); it is ALU-bound now (the
+  ALU limiter 82%). The stone cache was lit every half second with 2-5 ms of vertex work spent coloring grains of other
+  depth bands (`vsStone` tests its band first now), and its relighting is spread over three frames. A cell drawn without
+  its interior skips its partners' outlines and its seams where it is covered whatever they do (3.43 → 3.12 ms). The save
+  holds 58-60 fps at 1× (from 41) and Max runs at 9.4× (from 6.7×). At 1× a frame over budget makes the next one take
+  two steps to keep time, so a world just over the budget sinks to about 54 fps.
+- **Tried and dropped, `lifeMain`'s scan** (exact restructurings, none faster): reading neighbors through a pointer;
+  the scan as a kernel of its own (its cost and the rest's only add up); gathering the neighbors in reach 4, 8 or 16 at
+  a time before weighing them (40-55% slower); fetching the next neighbor ahead (3% slower); a grid cell to a
+  workgroup, its neighborhood's positions in workgroup memory (4× slower: a grid cell holds about 5 living cells, so
+  its workgroup sat mostly idle). The counters show `lifeMain` at 9.5% compute occupancy: its registers, not memory or
+  ALU, are its limit. Also dropped: a checksum of the stone to skip unchanged relightings (stone wears and grows a few
+  grains a second in a living world), and halving the gather arrays of `contactGather` (0.66 → 0.55 ms, but crowded
+  cells would flatten against fewer neighbors).
 - **After all this,** the 139k world at fit draws its frame in 10.6 ms (from 16.5), at 40 pixels a unit in 12.8. Still
   heavy: `lifeMain` (1.9 ms of a 3.3 ms step at fit; its rare paths, the hand and stranding, cost nothing measurable
   when left out: its core is the neighbor scan), the composite (3.6 ms: the water's surface about 0.8, the scene's
