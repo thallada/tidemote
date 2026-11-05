@@ -2169,10 +2169,15 @@ fn noteBy(ev: u32, p: Particle, a: u32) {
 }
 var<workgroup> hist: array<atomic<u32>, MAXK>;
 var<workgroup> roleHist: array<atomic<u32>, 3>;
+// the matter kinds' counts, each spread over 32 copies by thread: nearly every particle is matter (silt most), and
+// a workgroup's threads adding to one word queued for it (a Pixel 11 Pro's resolveCount 1.8 → 1.3 ms in a grown 16k world)
+const MATTER_COPIES = 32u;
+var<workgroup> matterHist: array<atomic<u32>, FIRST_LIFE * MATTER_COPIES>;
 
 @compute @workgroup_size(256)
 fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) l: u32) {
   for (var k = l; k < MAXK; k += 256u) { atomicStore(&hist[k], 0u); }
+  if (l < FIRST_LIFE * MATTER_COPIES) { atomicStore(&matterHist[l], 0u); }
   if (l < 3u) { atomicStore(&roleHist[l], 0u); }
   workgroupBarrier();
   let i = gid.x;
@@ -2332,12 +2337,13 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
     // husks per grid cell: where they pile up and rot, framboids form (matterMain)
     if (p.kind == HUSK && HEAT_ON) { atomicAdd(&ledger[heatAccAt() + MAX_CELLS + cell], 1u); }
     if (p.kind == HUSK && (p.info & LITTER) != 0u) { atomicAdd(&ledger[META_DEATH + 60u], 1u); }
-    atomicAdd(&hist[p.kind % MAXK], 1u);
-    if (p.kind >= FIRST_LIFE) { atomicAdd(&roleHist[roleOf(p.info)], 1u); }
+    if (p.kind >= FIRST_LIFE) { atomicAdd(&hist[p.kind % MAXK], 1u); atomicAdd(&roleHist[roleOf(p.info)], 1u); }
+    else { atomicAdd(&matterHist[p.kind * MATTER_COPIES + l % MATTER_COPIES], 1u); }
   }
   workgroupBarrier();
   for (var k = l; k < MAXK; k += 256u) {
-    let v = atomicLoad(&hist[k]);
+    var v = atomicLoad(&hist[k]);
+    if (k < FIRST_LIFE) { for (var c = 0u; c < MATTER_COPIES; c++) { v += atomicLoad(&matterHist[k * MATTER_COPIES + c]); } }
     if (v > 0u) { atomicAdd(&ledger[META_POP + k], v); }
   }
   if (l < 3u) {
