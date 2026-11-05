@@ -10,6 +10,9 @@ export const FIRST_LIFE = 5;
 export const MAX_CELLS = 1 << 19;
 // the heat field's words (b.thermal): four blocks of MAX_CELLS (temperature, floor, freeze order, ice), then ICE_N and HOT_N
 export const THERMAL_WORDS = 4 * MAX_CELLS + 4;
+// The water seen in tiles (TILES × TILES of them over the world, a word a row and a bit a column): which hold ice and
+// which water warm enough that bubbles may show near it, ice's rows then hot water's (b.heatTiles; heatMain, compPick)
+export const TILES = 32;
 export const META_SLOT = 16;
 export const META_POP = META_SLOT + MAXK;
 export const META_DEATH = META_POP + MAXK;
@@ -1513,8 +1516,9 @@ fn drawn(id: u32) -> bool {
 // After it, what a step adds up into the heat field (the step's own scratch, never saved): heat deposited this
 // step per grid cell (HEAT_FIX per degree), then husks per grid cell. In the ledger, which every kernel that
 // adds to them binds already, rather than a buffer of their own (the per-stage limit on storage buffers).
-// (deposits and husks per cell, then the cells heatMain leaves holding ice, copied to the heat field's ICE_N)
-const HEAT_ACC_WORDS = 2u * MAX_CELLS + 4u;
+// (deposits and husks per cell, then the cells heatMain leaves holding ice and hot water, copied to the heat field's
+// ICE_N and HOT_N, then the tiles that hold them, copied to b.heatTiles)
+const HEAT_ACC_WORDS = 2u * MAX_CELLS + 4u + ${2 * TILES}u;
 fn heatAccAt() -> u32 { return arrayLength(&ledger) - HEAT_ACC_WORDS; }
 // one of species k's events: 0 born, 1 starved, 2 died old, 3 eaten, 4 scalded, 5 stranded (dried or frozen), 6 encysted, 7 woke
 fn splCause(k: u32, c: u32) { atomicAdd(&ledger[splBase() + SPL_CAUSE + k * SPL_NC + c], 1u); }
@@ -2673,12 +2677,15 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
 // freezes (thermal block 3, docs/catastrophes.md).
 var<workgroup> iceCells: atomic<u32>;
 var<workgroup> hotCells: atomic<u32>;
+var<workgroup> heatTileBits: array<atomic<u32>, ${2 * TILES}>;
 @compute @workgroup_size(64)
 fn heatMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) li: u32) {
   if (gid.x < sim.grid.x * sim.grid.y) {
     let h = heatStep(gid.x);
-    if (h.x) { atomicAdd(&iceCells, 1u); }
-    if (h.y) { atomicAdd(&hotCells, 1u); }
+    // (and the tile it lies in: compPick asks only of the tiles in view)
+    let t = min(vec2u((vec2f(f32(gid.x % sim.grid.x), f32(gid.x / sim.grid.x)) + 0.5) * ${f(TILES)} / vec2f(sim.grid)), vec2u(${TILES - 1}u));
+    if (h.x) { atomicAdd(&iceCells, 1u); atomicOr(&heatTileBits[t.y], 1u << t.x); }
+    if (h.y) { atomicAdd(&hotCells, 1u); atomicOr(&heatTileBits[${TILES}u + t.y], 1u << t.x); }
   }
   // how many cells hold ice, and how many water warm enough that bubbles may show near them, for the next step to read
   // (ICE_N, HOT_N): none of either, and the composite draws without them (compPick)
@@ -2687,6 +2694,8 @@ fn heatMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
   if (li == 0u && n > 0u) { atomicAdd(&ledger[heatAccAt() + 2u * MAX_CELLS], n); }
   let hot = atomicLoad(&hotCells);
   if (li == 0u && hot > 0u) { atomicAdd(&ledger[heatAccAt() + 2u * MAX_CELLS + 1u], hot); }
+  let bits = atomicLoad(&heatTileBits[li]);
+  if (bits != 0u) { atomicOr(&ledger[heatAccAt() + 2u * MAX_CELLS + 4u + li], bits); }
 }
 // One grid cell's next temperature and ice (heatNext's two blocks); whether it holds any ice, and whether bubbles may
 // show near it (bubblesNear: air from GAS_FROM and 5° over the open water)
@@ -2731,9 +2740,12 @@ fn heatStep(c: u32) -> vec2<bool> {
   }
   heatNext[c] = min(t, ${f(BOIL)});
   heatNext[MAX_CELLS + c] = ice;
-  // (bubblesNear's test, per cell: its water and slope carried as far, with a degree more to spare for the cells' blend)
+  // (bubbles show where a nucleus sits on water past GAS_FROM and 5° over the open water: the warmest a nucleus near
+  // this cell can sit on is its water with its slope carried as far as bubblesNear looks, and a degree for the cells'
+  // blend. Not bubblesNear's own 3° to spare, which is for its search: a colony warming its water to 38-40° would
+  // have kept the full composite drawn)
   let slope = 0.5 * length(vec2f(hr - hl, hu - hd));
-  return vec2<bool>(ice > 0.0, t + 1.75 * slope + 4.0 > max(${f(GAS_FROM)}, sim.tbg + 5.0));
+  return vec2<bool>(ice > 0.0, t + 1.75 * slope + 1.0 > max(${f(GAS_FROM)}, sim.tbg + 5.0));
 }
 
 // --------------------------------------------------------------------- life
@@ -4744,7 +4756,10 @@ struct View {
   tightFrom: f32,
   // the pool (docs/catastrophes.md): its water level, to show cells stranded
   // lit: 1 where the world's light shows (the main view, the loupe), 0 in views shown unlit (the close-up, the stone cache)
-  level: f32, lit: u32, pad2: u32, pad3: u32,
+  level: f32, lit: u32,
+  // the radius in pixels from which listMain gives a cell the full pipeline, its insides drawn (12; past any cell's
+  // when the tuner leaves insides out, Engine.fx.interiors, a new species' sparkle still drawn full)
+  interiorFrom: f32, pad3: u32,
   // the world's light as the composite shows it (sceneLit), for silt's sparkle: the Tide's waves and phases, x the
   // season, y the open water's light, z the sky's, w the light's clock; the hand's lamp
   tide: array<vec4f, 4>,
@@ -5427,7 +5442,7 @@ fn listMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
           ra = vec4f(d, sp.px * footprint, footprint);
           rb = vec4u(bitcast<vec3u>(sp.col), (sp.shape & 255u) | select(0u, 256u, p.kind >= FIRST_LIFE));
           small = atomicAdd(&smallN, 1u);
-        } else if (sp.px < 12.0 && sp.anim.novel <= 0.0) {
+        } else if (sp.px < view.interiorFrom && sp.anim.novel <= 0.0) {
           // (as cellColor's interiorLOD and pointColor's sparkle find it: the lean pipeline, INTERIOR false)
           lean = atomicAdd(&leanN, 1u);
         } else {
@@ -9532,10 +9547,29 @@ fn loupeScene(r: vec2f) -> vec3f {
 }
 
 // Which composite draws this frame (the draws' arguments, full then lean), run only where the engine's uniforms allow
-// the lean one: it, unless water is frozen (which only the GPU knows).
+// the lean one: it, unless water in view is frozen or warm enough for bubbles (which only the GPU knows). In view, not
+// anywhere: a few hot cells off screen had the full composite drawn in every pixel. The tiles the view covers, with a
+// margin past what the ice's dendrites and the bubbles reach and the water's bending moves, wrapping round the world.
 @group(0) @binding(20) var<storage, read_write> compArgs: array<u32>;
+@group(0) @binding(27) var<storage, read> heatTiles: array<u32>;
 @compute @workgroup_size(1) fn compPick() {
-  let lean = !iceAny() && !hotAny();
+  let half = post.res * 0.5 / max(post.ppu, 1e-6) + 3.0;
+  let t0 = vec2i(floor((post.cam - half) * ${f(TILES)} / post.world));
+  let t1 = vec2i(floor((post.cam + half) * ${f(TILES)} / post.world));
+  var cols = 0xffffffffu;
+  if (t1.x - t0.x < ${TILES - 1}) {
+    cols = 0u;
+    for (var t = t0.x; t <= t1.x; t++) { cols |= 1u << u32(((t % ${TILES}) + ${TILES}) % ${TILES}); }
+  }
+  var seen = 0u;
+  for (var r = 0; r <= min(t1.y - t0.y, ${TILES - 1}); r++) {
+    let w = u32((((t0.y + r) % ${TILES}) + ${TILES}) % ${TILES});
+    seen |= (heatTiles[w] | heatTiles[${TILES}u + w]) & cols;
+  }
+  // (ice or hot water counted with no tile marked: a world just loaded, not yet stepped, whose tiles are not saved)
+  var marked = 0u;
+  for (var w = 0u; w < ${2 * TILES}u; w++) { marked |= heatTiles[w]; }
+  let lean = seen == 0u && (marked != 0u || (!iceAny() && !hotAny()));
   compArgs[0] = select(3u, 0u, lean); compArgs[1] = 1u; compArgs[2] = 0u; compArgs[3] = 0u;
   compArgs[4] = select(0u, 3u, lean); compArgs[5] = 1u; compArgs[6] = 0u; compArgs[7] = 0u;
 }

@@ -1,6 +1,6 @@
 import {
   simWGSL, SIM_CLOCK, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, LERP_WGSL, POST_WGSL, GLASS_WGSL, SEA_WGSL, SHIFT_W, SHIFT_H, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
-  MAXK, FIRST_LIFE, MAX_CELLS, THERMAL_WORDS, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, NOTE_WORDS, NOTE_WGSL, NOTE_HEAD, NOTE_REC, PIPE_MAX, PIPE_TAKE, PIPE_TAKE_W, PIPE_SP, PIPE_IDS, H_TAKEN, H_CUTS, H_RIDE, RIDE_MAX, H_IN, H_SP, H_CELLS, H_IDS, H_LINKS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES, TUBE_N, TUBE_K, STUDIO_N,
+  MAXK, FIRST_LIFE, MAX_CELLS, THERMAL_WORDS, TILES, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, NOTE_WORDS, NOTE_WGSL, NOTE_HEAD, NOTE_REC, PIPE_MAX, PIPE_TAKE, PIPE_TAKE_W, PIPE_SP, PIPE_IDS, H_TAKEN, H_CUTS, H_RIDE, RIDE_MAX, H_IN, H_SP, H_CELLS, H_IDS, H_LINKS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES, TUBE_N, TUBE_K, STUDIO_N,
 } from './shaders.js';
 import {
   archetypeGenome, randomGenome, writeGenome, parseParticle,
@@ -112,6 +112,17 @@ class Engine {
     this.seedValue = 1;
     this.censusEvery = 20;
     this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 0, heat: 1, bands: 0, optics: 1, specks: true, lod: true };
+    // The dressing the page's tuner picks (src/tuner.js; Settings → Performance), on top of the viewer's settings,
+    // never saved into them: how often the sea is turned (frames between, 0: no sea),
+    // bloom and specks allowed, and how often the stone is lit again while the world runs (seconds).
+    // finish: the composite's (2 all of it; 1 without the heat map's shimmer; 0 without the optics and the
+    // microscope's look either, about half the composite's cost)
+    // interiors: cells drawn large in the main view show their insides (false: the lean pipeline for every cell,
+    // outlines, walls and tissue kept)
+    this.fx = { seaEvery: 1, bloom: true, specks: true, stoneEvery: STONE_EVERY, finish: 2, interiors: true };
+    // (bloom, the sea and the finish's optics and look fade in and out over a second or so as fx turns them, never
+    // flipping: _fadeFx)
+    this.fxFade = { bloom: 1, sea: 1, finish: 1, t: null };
     this.simData = new ArrayBuffer(880);
     // the viewer's hand (docs/hand.md; the page's src/hand.js sets it): Hand in simWGSL, its words as floats and
     // as ids. Zero, its ids NONE, in every headless run.
@@ -181,6 +192,9 @@ class Engine {
     // src/geography.js), the order a frost freezes it in, its ice, how many cells hold ice (THERMAL_WORDS,
     // shaders.js); and heatMain's next temperatures and ice
     b.thermal = d.createBuffer({ size: THERMAL_WORDS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+    // the tiles of the water holding ice and hot water after the last step (TILES; heatMain, compPick): never saved, a
+    // step makes them again
+    b.heatTiles = d.createBuffer({ size: 2 * TILES * 4, usage: U.STORAGE | U.COPY_DST });
     b.heatNext = d.createBuffer({ size: 2 * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_SRC });
     b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
     this.ringData = new ArrayBuffer(SIM_STRIDE * MAX_STEPS);
@@ -559,7 +573,8 @@ class Engine {
       { binding: 2, resource: { buffer: b.post } }, { binding: 11, resource: { buffer: b.thermal } },
       { binding: 13, resource: this.seaView }, { binding: 14, resource: this.seaSampler }, { binding: 15, resource: { buffer: b.shiftMap } }] });
     this.compPickBG = d.createBindGroup({ layout: this.cpCompPick.getBindGroupLayout(0), entries: [
-      { binding: 11, resource: { buffer: b.thermal } }, { binding: 20, resource: { buffer: b.compArgs } }] });
+      { binding: 2, resource: { buffer: b.post } }, { binding: 11, resource: { buffer: b.thermal } }, { binding: 20, resource: { buffer: b.compArgs } },
+      { binding: 27, resource: { buffer: b.heatTiles } }] });
     this._leanP();
     this._rebindLate();
   }
@@ -669,7 +684,7 @@ class Engine {
     b.stoneList = d.createBuffer({ size: n * 4, usage: U.STORAGE });
     // the claims, then the species ledger (observational), the hand's words (the pipette's, PIPE_* in shaders.js),
     // the annotations' ring of events (NOTE_*, observational), then the step's heat deposits and husk piles (heatAccAt in SIM_WGSL); only the head and the claims are saved
-    b.ledger = d.createBuffer({ size: (META_CLAIM + n + SPL_WORDS + HAND_WORDS + NOTE_WORDS + 2 * MAX_CELLS + 4) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+    b.ledger = d.createBuffer({ size: (META_CLAIM + n + SPL_WORDS + HAND_WORDS + NOTE_WORDS + 2 * MAX_CELLS + 4 + 2 * TILES) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
     // the particles too large to splat (splatMain): the points' draw arguments, then their indices
     b.quads = d.createBuffer({ size: (8 + n) * 4, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
@@ -784,6 +799,18 @@ class Engine {
    * frame (GLASS_WGSL, _glass); [] for none.
    */
   setGlass(list, sigma = 6) { this.glass = list; this.glassSigma = sigma; }
+
+  // A clear of size bytes at off in buf. A Pixel 3 (Adreno 630, Chrome 156) leaves untouched any clear whose offset is a
+  // non-zero multiple of 64 KiB and whose size is under 64 KiB (runs/phone/cleartest.mjs): the living half of the
+  // counts (at 2 MiB) was never cleared, each step's sort left gaps that kept the last step's particles, and within a
+  // second every particle was a copy of a few, piled in one grid cell. Such clears copy from a buffer of zeros instead,
+  // which clears there as anywhere.
+  _clear(enc, buf, off, size) {
+    if (off > 0 && off % 65536 === 0 && size < 65536) {
+      this._zeros ||= this.device.createBuffer({ size: 65536, usage: GPUBufferUsage.COPY_SRC, label: 'zeros' });
+      enc.copyBufferToBuffer(this._zeros, 0, buf, off, size);
+    } else enc.clearBuffer(buf, off, size);
+  }
 
   // each panel's strip of the view (with the blur's reach about it) copied out, blurred across into glassTex[1] (the
   // rows the blur down will read), then down into the view under the panel
@@ -976,7 +1003,7 @@ class Engine {
     }
     if (stale) { Object.assign(this, { stoneCam: { x: cam.x, y: cam.y, ppu: cam.ppu }, stoneKey: key, stoneTick: this.tick, stoneT: realT }); return 2; }
     // while the world runs (grains wear away and reefs grow), every so often lit again where it is (1: over frames)
-    if (this.tick !== this.stoneTick && Math.abs(realT - this.stoneT) > STONE_EVERY) { Object.assign(this, { stoneTick: this.tick, stoneT: realT }); return 1; }
+    if (this.tick !== this.stoneTick && Math.abs(realT - this.stoneT) > this.fx.stoneEvery) { Object.assign(this, { stoneTick: this.tick, stoneT: realT }); return 1; }
     return 0;
   }
 
@@ -1149,12 +1176,13 @@ class Engine {
     d.queue.writeBuffer(this.b.thermal, 2 * MAX_CELLS * 4, (this.iceOrder = makeIceOrder(this.grid[0], this.grid[1], this.seedValue, this.relief)));
     this.level = 1; this.rain = 0; this.sky = 1; this.evap = 0; this.turb = 1; this.frost = 0; this.freezing = 0; this.frostNight = 0; this.mudRain = 0; this.parch = 0; this.duck.fill(0); this.drops.fill(0);
     const enc = d.createCommandEncoder();
-    enc.clearBuffer(this.b.ledger, this._heatAccAt(), cells * 4);
+    this._clear(enc, this.b.ledger, this._heatAccAt(), cells * 4);
     // no ice
-    enc.clearBuffer(this.b.thermal, 3 * MAX_CELLS * 4, (THERMAL_WORDS - 3 * MAX_CELLS) * 4);
+    this._clear(enc, this.b.thermal, 3 * MAX_CELLS * 4, (THERMAL_WORDS - 3 * MAX_CELLS) * 4);
+    enc.clearBuffer(this.b.heatTiles);
     enc.clearBuffer(this.b.counts);
-    enc.clearBuffer(this.b.ledger, LEDGER_HEAD, n * 4);
-    enc.clearBuffer(this.b.ledger, this._splAt(), SPL_WORDS * 4);
+    this._clear(enc, this.b.ledger, LEDGER_HEAD, n * 4);
+    this._clear(enc, this.b.ledger, this._splAt(), SPL_WORDS * 4);
     enc.clearBuffer(this.b.frameCtr);
     const pass = enc.beginComputePass();
     pass.setPipeline(this.cp.seedMain.pipe);
@@ -1342,8 +1370,8 @@ class Engine {
   // summed frame by frame so a change of pace never jumps its phase, and kept modulo the period it loops over, in f64.
   _sea(enc) {
     const d = this.device, P = this.seaPipes, N = SEA_N;
-    // no sea (Water surface off): no passes, and its clock held still
-    if (this.seaTune.view === 3) { this._seaLast = this.simTime; this._seaReal = performance.now(); return; }
+    // no sea (Water surface off, or the tuner's): no passes, and its clock held still
+    if (!this._seaShown()) { this._seaOn = false; this._seaLast = this.simTime; this._seaReal = performance.now(); return; }
     if (!this.seaBG) this._seaBuffers();
     const f = new Float32Array(this.seaData), u = new Uint32Array(this.seaData);
     const key = `${this.grid.join('x')}:${this.seedValue}:${this._seaRoll ?? 0}`;
@@ -1384,6 +1412,11 @@ class Engine {
     }
     // (turned half a circle: a wave of wavenumber k runs toward -k here, h0 e^{iwt} across e^{ik.x}, so the spread
     // favors the wavenumbers against the wind for the waves to run with it)
+    // turned only when its clock moved (not paused), and turned less often by the tuner only every seaEvery frames (the
+    // clock runs on between, so the waves keep their pace, in steps)
+    this._seaSkip = (this._seaSkip ?? 0) + 1;
+    if (!fresh && (dt <= 0 || this._seaSkip < (this.fx.seaEvery || 4))) return;
+    this._seaSkip = 0;
     f[this._seaWindAt] = this._seaWind + Math.PI;
     f[this._seaClock] = this._seaT;
     d.queue.writeBuffer(this.b.seaU, 0, this.seaData);
@@ -1402,13 +1435,25 @@ class Engine {
   // (a share of a storm's in calm water: seaTune.calm); and each cascade's patch, how far it carries the water toward
   // its crests (a storm's choppy waves, none in calm water's gentle swell), and whether it holds any waves (a cascade
   // whose band lies past the damping holds next to none).
+  _bloom() { return this.settings.bloom * this.fxFade.bloom; }
+  _seaShown() { return this.seaTune.view !== 3 && (this.fx.seaEvery > 0 || this.fxFade.sea > 0); }
+  // bloom, the sea and the finish eased toward what fx asks (their passes run until faded out)
+  _fadeFx(realT) {
+    const f = this.fxFade, dt = f.t == null ? 0 : Math.min(0.1, Math.max(0, realT - f.t));
+    f.t = realT;
+    const ease = (v, to, rate) => (to > v ? Math.min(to, v + rate * dt) : Math.max(to, v - rate * dt));
+    f.bloom = ease(f.bloom, this.fx.bloom ? 1 : 0, 2);
+    f.sea = ease(f.sea, this.fx.seaEvery > 0 ? 1 : 0, 1.5);
+    f.finish = ease(f.finish, this.fx.finish >= 1 ? 1 : 0, 1.5);
+  }
+
   _seaPost(pd) {
     pd.fill(0, 92);
     if (!this._seaOn) return;
-    const t = this.seaTune, r = this.seaRough, a = (t.calm + (1 - t.calm) * r) * t.height;
-    pd[92] = t.tilt * a; pd[93] = t.refract * a; pd[94] = t.view === 3 ? 0 : 1; pd[95] = t.caustic * a;
+    const t = this.seaTune, r = this.seaRough, a = (t.calm + (1 - t.calm) * r) * t.height * this.fxFade.sea;
+    pd[92] = t.tilt * a; pd[93] = t.refract * a; pd[94] = this._seaShown() ? 1 : 0; pd[95] = t.caustic * a;
     const kc = (2 * Math.PI) / this.seaSpec.lmin;
-    seaLayout(this.grid, this.seaSpec).forEach((c, i) => pd.set([c.L[0], c.L[1], t.chop * r * t.height, c.k0 < 2.5 * kc ? 1 : 0], 96 + i * 4));
+    seaLayout(this.grid, this.seaSpec).forEach((c, i) => pd.set([c.L[0], c.L[1], t.chop * r * t.height * this.fxFade.sea, c.k0 < 2.5 * kc ? 1 : 0], 96 + i * 4));
     // how the caustics' focus is softened and capped, and what is drawn (seaTune.view); and the composite reads the
     // sea from its field (seaFieldMain, a point every 4 pixels) where the shortest waves left (lmin, damped past it:
     // the light's focus, from the surface's curvature, holds them to about half of it) span 128 pixels or more,
@@ -1478,20 +1523,20 @@ class Engine {
     }
     const cells = this.grid[0] * this.grid[1];
     this.sorted = true;
-    enc.clearBuffer(b.counts, 0, cells * 4);
-    enc.clearBuffer(b.counts, MAX_CELLS * 4, cells * 4);
-    enc.clearBuffer(b.stoneGrid, 0, cells * 4);
+    this._clear(enc, b.counts, 0, cells * 4);
+    this._clear(enc, b.counts, MAX_CELLS * 4, cells * 4);
+    this._clear(enc, b.stoneGrid, 0, cells * 4);
     if (this.K.heat) {
-      enc.clearBuffer(b.ledger, this._heatAccAt() + MAX_CELLS * 4, cells * 4);
-      enc.clearBuffer(b.ledger, this._heatAccAt() + 2 * MAX_CELLS * 4, 8);
+      this._clear(enc, b.ledger, this._heatAccAt() + MAX_CELLS * 4, cells * 4);
+      this._clear(enc, b.ledger, this._heatAccAt() + 2 * MAX_CELLS * 4, (4 + 2 * TILES) * 4);
     }
-    enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
+    this._clear(enc, b.ledger, META_POP * 4, MAXK * 4);
     // litter on the ground (META_DEATH + 60) and cysts per guild (57-59, 61, 62), counted afresh each step
-    enc.clearBuffer(b.ledger, (META_DEATH + 57) * 4, 6 * 4);
-    enc.clearBuffer(b.frameCtr, 0, 4);
-    enc.clearBuffer(b.subL, 0, 4);
-    enc.clearBuffer(b.frameCtr, 36, 4);
-    enc.clearBuffer(b.ledger, 48, 12);
+    this._clear(enc, b.ledger, (META_DEATH + 57) * 4, 6 * 4);
+    this._clear(enc, b.frameCtr, 0, 4);
+    this._clear(enc, b.subL, 0, 4);
+    this._clear(enc, b.frameCtr, 36, 4);
+    this._clear(enc, b.ledger, 48, 12);
     let pass = prof ? null : enc.beginComputePass({ timestampWrites });
     const run = (name, n) => {
       const q = prof ? prof.names.push(name) * 2 - 2 : 0;
@@ -1533,6 +1578,7 @@ class Engine {
       enc.copyBufferToBuffer(b.heatNext, 0, b.thermal, 0, cells * 4);
       enc.copyBufferToBuffer(b.heatNext, MAX_CELLS * 4, b.thermal, 3 * MAX_CELLS * 4, cells * 4);
       enc.copyBufferToBuffer(b.ledger, this._heatAccAt() + 2 * MAX_CELLS * 4, b.thermal, 4 * MAX_CELLS * 4, 8);
+      enc.copyBufferToBuffer(b.ledger, this._heatAccAt() + (2 * MAX_CELLS + 4) * 4, b.heatTiles, 0, 2 * TILES * 4);
     }
   }
 
@@ -1633,7 +1679,7 @@ class Engine {
     for (const [k, data] of Object.entries(gpu)) this.device.queue.writeBuffer(this.b[k], 0, data);
     // the species ledger starts afresh with the world put in place
     const enc = this.device.createCommandEncoder();
-    enc.clearBuffer(this.b.ledger, this._splAt(), SPL_WORDS * 4);
+    this._clear(enc, this.b.ledger, this._splAt(), SPL_WORDS * 4);
     this.device.queue.submit([enc.finish()]);
     this.restore({ gpu: {}, cpu });
     this.count = cpu.count; this.grid = [...cpu.grid];
@@ -1829,7 +1875,7 @@ class Engine {
     if (n) q.writeBuffer(this.b.ledger, L + H_CELLS * 4, cells);
     q.writeBuffer(this.b.ledger, L + H_IDS * 4, ids);
     if (links.length) q.writeBuffer(this.b.ledger, L + H_LINKS * 4, links);
-    enc.clearBuffer(this.b.ledger, L + H_OUT * 4, 4);
+    this._clear(enc, this.b.ledger, L + H_OUT * 4, 4);
     const pass = enc.beginComputePass();
     for (const [name, wg] of [['injectSlots', 1], ['injectCells', Math.ceil(this.count / 256)], ['injectBonds', Math.ceil(links.length / 64)]]) {
       if (!wg) continue;
@@ -1861,8 +1907,8 @@ class Engine {
     const at = this._handAt() + H_TAKEN * 4, cuts = this._handAt() + H_CUTS * 4;
     enc.copyBufferToBuffer(this.b.ledger, at, st.buf, 0, (1 + PIPE_TAKE * PIPE_TAKE_W) * 4);
     enc.copyBufferToBuffer(this.b.ledger, cuts, st.buf, (1 + PIPE_TAKE * PIPE_TAKE_W) * 4, 4);
-    enc.clearBuffer(this.b.ledger, at, 4);
-    enc.clearBuffer(this.b.ledger, cuts, 4);
+    this._clear(enc, this.b.ledger, at, 4);
+    this._clear(enc, this.b.ledger, cuts, 4);
     return st;
   }
   _takenRead(st, generation) {
@@ -1908,7 +1954,7 @@ class Engine {
     if (spl) {
       const base = this._splAt();
       // where each species is: sampled afresh (rangeMain)
-      enc.clearBuffer(this.b.ledger, base + SPL_RANGE * 4, (SPL_WORDS - SPL_RANGE) * 4);
+      this._clear(enc, this.b.ledger, base + SPL_RANGE * 4, (SPL_WORDS - SPL_RANGE) * 4);
       const pass = enc.beginComputePass();
       pass.setPipeline(range.pipe);
       pass.setBindGroup(0, range.bg);
@@ -2039,7 +2085,7 @@ class Engine {
       }
       pf[2] = 0; pv[3] = id; pv[4] = 0; pv[5] = N; pf[6] = this.grid[0]; pf[7] = this.grid[1]; pv[8] = 0xffffffff;
       d.queue.writeBuffer(b.trackU[k], 0, pu);
-      enc.clearBuffer(b.trackOut[k], 0, 56);
+      this._clear(enc, b.trackOut[k], 0, 56);
       const pass = enc.beginComputePass();
       if (seen) {
         pass.setPipeline(this.cpTrackNear);
@@ -2073,7 +2119,7 @@ class Engine {
           wf[4 + WATCH_MAX + k * 4 + a] = ((((a ? c.y : c.x) + (a ? c.vy : c.vx) * (shownTime - c.t)) % g) + g) % g;
         } });
         d.queue.writeBuffer(b.watchU, 0, wu);
-        enc.clearBuffer(b.watchOut, 0, WATCH_MAX * 20);
+        this._clear(enc, b.watchOut, 0, WATCH_MAX * 20);
         const pass = enc.beginComputePass();
         if (this.sorted) {
           pass.setPipeline(this.cpWatchNear);
@@ -2102,7 +2148,7 @@ class Engine {
         pf[0] = pickJob.req.center[0]; pf[1] = pickJob.req.center[1]; pf[2] = pickJob.req.radius;
         pv[3] = pickJob.req.selId; pv[4] = pickJob.req.maxOut; pv[5] = N; pf[6] = this.grid[0]; pf[7] = this.grid[1]; pv[8] = pickJob.req.kind;
         d.queue.writeBuffer(b.pickU, 0, pu);
-        enc.clearBuffer(b.pickOut, 0, 56);
+        this._clear(enc, b.pickOut, 0, 56);
         const pass = enc.beginComputePass();
         pass.setPipeline(this.cpPick.pipe);
         pass.setBindGroup(0, this.cpPick.bg);
@@ -2306,7 +2352,7 @@ class Engine {
     st.busy = true;
     const b = this.b;
     this.device.queue.writeBuffer(b.mind, 0, new Uint32Array([this.mindId]));
-    enc.clearBuffer(b.mind, 4, 4);
+    this._clear(enc, b.mind, 4, 4);
     const pass = enc.beginComputePass();
     pass.setPipeline(mind.pipe);
     pass.setBindGroup(0, mind.bg);
@@ -2349,7 +2395,7 @@ class Engine {
     const u = new ArrayBuffer(64), f = new Float32Array(u), w = new Uint32Array(u);
     f.set(R, 0); f[4] = this.grid[0]; f[5] = this.grid[1]; w[6] = N; w[7] = cap; f[8] = keep; f[10] = this.level; f.set(this.noteGrid, 12);
     this.device.queue.writeBuffer(b.noteU, 0, u);
-    enc.clearBuffer(b.noteOut, 0, NOTE_HEAD * 4);
+    this._clear(enc, b.noteOut, 0, NOTE_HEAD * 4);
     const pass = enc.beginComputePass();
     pass.setPipeline(this.cpNote.pipe);
     pass.setBindGroup(0, this.cpNote.bg);
@@ -2406,7 +2452,7 @@ class Engine {
     f[5] = this._clock().t; f[6] = window; f[7] = this.K.adhMin;
     this.device.queue.writeBuffer(b.surveyU, 0, u);
     const bytes = tiles[0] * tiles[1] * SURVEY_WORDS * 4;
-    enc.clearBuffer(b.survey, 0, bytes);
+    this._clear(enc, b.survey, 0, bytes);
     const pass = enc.beginComputePass();
     pass.setPipeline(this.cpSurvey.pipe);
     pass.setBindGroup(0, this.cpSurvey.bg);
@@ -2448,7 +2494,7 @@ class Engine {
     f[8] = this._clock().t; f[9] = window; f[10] = L.vscale || 1; w[11] = L.selKind ?? 0xffffffff;
     for (let t = 0; t < 9; t++) f[12 + t] = L.keep ? L.keep[t] : t === 8 ? 0.05 : 1;
     this.device.queue.writeBuffer(b.listenU, 0, u);
-    enc.clearBuffer(b.listen, 0, LISTEN_HEAD * 4);
+    this._clear(enc, b.listen, 0, LISTEN_HEAD * 4);
     const pass = enc.beginComputePass();
     pass.setPipeline(this.cpListen.pipe);
     pass.setBindGroup(0, this.cpListen.bg);
@@ -2502,6 +2548,8 @@ class Engine {
     v[24] = K.pond ? this.level : 1;
     // the world's light, as the composite shows it, for silt's sparkle (sunAt); none in views shown unlit
     vu[25] = lit ? 1 : 0;
+    // the radius from which listMain gives cells their insides (none when the tuner leaves them out)
+    v[26] = this.fx.interiors ? 12 : 1e9;
     const clk = this._clock();
     v.set(this.tide, 28); v.set(clk.tidePh, 44);
     v[48] = this.season; v[49] = this.ambient; v[50] = K.pond ? this.sky : 1; v[51] = clk.t;
@@ -2662,6 +2710,7 @@ class Engine {
   }
   _render(enc, { target, cam, time: realT, dpr, selId, loupe, specimen, tsBegin, tsEnd }) {
     const d = this.device;
+    this._fadeFx(realT);
     // real time as the GPU holds it: modulo REAL_WRAP, as an f32 of days of seconds steps by 1/32 s or more
     const time = realT % REAL_WRAP;
     const [W, H] = this.size;
@@ -2699,7 +2748,7 @@ class Engine {
     }
     if (splat) {
       d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0, 4, 0, 0, 0]));
-      enc.clearBuffer(this.b.splat, 0, W * H * 20);
+      this._clear(enc, this.b.splat, 0, W * H * 20);
       const pass = enc.beginComputePass({ timestampWrites: tsBegin() });
       pass.setPipeline(this.cpSplat); pass.setBindGroup(0, this.splatBG); pass.dispatchWorkgroups(Math.ceil(this.count / 256));
       pass.end();
@@ -2711,11 +2760,13 @@ class Engine {
     }
 
     const pd = this.postData;
-    pd[0] = W; pd[1] = H; pd[2] = this.settings.bloom; pd[3] = 1.0;
+    pd[0] = W; pd[1] = H; pd[2] = this._bloom(); pd[3] = 1.0;
     pd[4] = time; pd[5] = this.season; pd[6] = this.settings.tide; pd[7] = cam.ppu;
     pd[8] = cam.x; pd[9] = cam.y; pd[10] = this.grid[0]; pd[11] = this.grid[1];
     const clk = this._clock();
-    pd[12] = clk.t; pd[13] = this.ambient; pd[14] = this.settings.optics; pd[15] = this.K.heat ? this.settings.heat : -1;
+    pd[12] = clk.t; pd[13] = this.ambient; pd[14] = this.settings.optics * this.fxFade.finish;
+    // (the heat map's shimmer, its default, left out at a lower finish: boiling water still roils)
+    pd[15] = this.K.heat ? (this.settings.heat === 1 && this.fx.finish < 2 ? 0 : this.settings.heat) : -1;
     pd.set(this.tide, 16);
     pd.set(clk.tidePh, 32);
     pd.set(this.waves, 36);
@@ -2732,7 +2783,8 @@ class Engine {
     pd.set(this.hand.subarray(0, 4), POST_LAMP);
     pd.set(this.lens, POST_LAMP + 4);
     pd.set(this.tool, POST_LAMP + 8);
-    pd.set(this.look, POST_LOOK);
+    if (this.fxFade.finish < 1) pd.set(this.look.map((v) => v * this.fxFade.finish), POST_LOOK);
+    else pd.set(this.look, POST_LOOK);
     pd.set(this._murkCam(cam, W, H), POST_MURK);
     d.queue.writeBuffer(this.b.post, 0, pd);
     // the water's bend on a coarse grid of the main view, for the page's overlays (read back after the submit)
@@ -2880,7 +2932,7 @@ class Engine {
       pass.setPipeline(this.pPlain); pass.setBindGroup(0, this.specBG); pass.draw(3); pass.end();
     }
 
-    if (this.settings.bloom > 0) {
+    if (this._bloom() > 0) {
       for (let i = 0; i < BLOOM_LEVELS; i++) {
         const pass = enc.beginRenderPass({ colorAttachments: [{ view: this.bloomViews[i], loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
         pass.setPipeline(this.pDown); pass.setBindGroup(0, i === 0 ? this.down0BG : this.downBG[i]); pass.draw(3); pass.end();
@@ -2894,12 +2946,13 @@ class Engine {
       pass.end();
     }
 
-    if (this.settings.optics > 0) {
+    // (the murk shows only through the optics: none at the tuner's plainest finish)
+    if (pd[14] > 0) {
       const pass = enc.beginRenderPass({ colorAttachments: [{ view: this.murkView, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
       pass.setPipeline(this.pMurk); pass.setBindGroup(0, this.murkBG); pass.draw(3); pass.end();
     }
 
-    const micro = this.settings.specks && this.cpMicroBG && this.speckBG && cam.ppu > Math.max(80, 2 * Math.max(W / this.grid[0], H / this.grid[1]));
+    const micro = this.settings.specks && this.fx.specks && this.cpMicroBG && this.speckBG && cam.ppu > Math.max(80, 2 * Math.max(W / this.grid[0], H / this.grid[1]));
     if (micro) this._drawSpecks(enc, cam, W, H);
     // the eyepiece's field stop and dust, when the frame's size, the optics or the look's iris changed
     const opticsKey = [W, H, pd[14], pd[POST_LOOK + 13]].join();

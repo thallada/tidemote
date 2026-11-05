@@ -37,6 +37,7 @@ import { createPipette, setDownJob, mergeJobs, bodiesOf, PIPE_LIMIT } from './pi
 import { miniCard, setThumb, hasThumb, dropThumb } from './minicard.js';
 import { layOut, frameCells, records } from './studio.js';
 import { encodeImages, encodeBytes } from './encode.js';
+import { KNOBS, decide, costOf } from './tuner.js';
 import { trackGlass } from './glass.js';
 import { isRideKey, keyWay, pointerWay, createThrottle, stepThrottle, throttleGrip, createRideCam, stepRideCam, willSpeed } from './ride.js';
 import { createCabinetStore, encodeCard, decodeCard, cardLink, cardFromHash, cardFromPng, cardIntoPng } from './cabinet.js';
@@ -53,6 +54,10 @@ const touchOnly = !matchMedia('(any-hover: hover)').matches;
 // A phone or tablet: its GPU slows by a third or more once it has run hot for a few minutes (thermal
 // throttling), and shares the GPU with the screen's compositor.
 const throttles = navigator.userAgentData?.mobile ?? (/Android|iPhone|iPad|Mobile/.test(navigator.userAgent) || (isCoarse && !matchMedia('(any-pointer: fine)').matches));
+// the tuner's knobs as Settings → Performance names them, and each level's name (cheapest first, as KNOBS' ladders)
+const TUNE_TITLES = { sea: 'Water motion', bloom: 'Bloom', specks: 'Specks', stone: 'Stone light', finish: 'Finish', interiors: 'Cell insides' };
+const TUNE_NAMES = { sea: ['Off', 'Quarter', 'Half', 'Every frame'], bloom: ['Off', 'On'], specks: ['Off', 'On'], stone: ['Every 2 s', 'Every 1 s', 'Every ½ s'],
+  finish: ['Plain', 'No shimmer', 'Full'], interiors: ['Off', 'On'] };
 const NONE = 0xffffffff;
 const TAU = Math.PI * 2;
 const genomeOfWords = (w) => { const u = Uint32Array.from(w); return readGenome(u, new Float32Array(u.buffer), 0); };
@@ -175,6 +180,7 @@ async function boot(tries = 4) {
 // offered only up to what the GPU can sustain (sustainable()).
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4, 8, 16, 32, 64, 128, 256, 512, Infinity];
 const MAX_FRAME_MS = 30; // GPU time a frame may take when running fast (about 30 fps)
+const MAX_STEP_MS = 40; // GPU time one step may take at Max (its ticks chosen to fit: updateTicks)
 // A fast speed the GPU can't reach in 1/60 s steps takes coarse steps instead, of up to MAX_TICKS/60 s:
 // as many steps a second, each covering more time (docs/fast-forward.md: to 6 they keep the ecology;
 // at 8 beating bodies tear).
@@ -194,7 +200,10 @@ const fmtStop = (v) => (v === 'fast' ? 'Fast' : v === Infinity ? 'Max' : `×${v}
 // smoothly), with a notice saying why, then real time. Choosing a speed with the time controls ends the warm-up
 // (Max to hurry it, real time to skip it); a pause only holds it. A loaded world never warms up.
 const WARM_UNTIL = 120;
-const PARTICLE_SIZES = [16384, 32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304, 8388608];
+// The fewest particles a world is made with (Auto's measure and Settings' smallest): 8k for the weakest phones (4k
+// worlds collapse, docs/performance.md)
+const MIN_PARTICLES = 8192;
+const PARTICLE_SIZES = [8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304, 8388608].filter((n) => n >= MIN_PARTICLES);
 // the pool's events as a fresh page has them (Settings → Climate): all on
 const EVENTS_ON = () => ({ on: true, ...Object.fromEntries(EVENT_TYPES.map((x) => [x, true])) });
 
@@ -231,7 +240,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // prefs saved before v4 with the old default 60 or before v2; 0: the display's), and a fixed
     // particle count
     perf: { scale: prefs.scale ?? 'auto', floor: prefs.floor ?? 0.5, density: !(prefs.v >= 3) && prefs.density === 1.5 ? 'auto' : prefs.density ?? 'auto',
-      fps: prefs.v >= 4 || (prefs.v >= 2 && prefs.fps !== 60) ? prefs.fps ?? 'auto' : 'auto', particles: prefs.particles ?? null, scan: prefs.scan ?? null },
+      fps: prefs.v >= 4 || (prefs.v >= 2 && prefs.fps !== 60) ? prefs.fps ?? 'auto' : 'auto', particles: prefs.particles ?? null, scan: prefs.scan ?? null,
+      // the tuner's knobs (src/tuner.js): each 'auto' or a level of its own (an index into its ladder)
+      tune: Object.fromEntries(Object.entries(KNOBS).filter(([id]) => id in TUNE_TITLES).map(([id, k]) => [id, Number.isInteger(prefs.tune?.[id]) && prefs.tune[id] >= 0 && prefs.tune[id] < k.levels.length ? prefs.tune[id] : 'auto'])) },
   };
   // the viewer's hand (hand.js, docs/hand.md): the tool in hand and what it does to the world; its record of acts is
   // the world's (life.hand), kept in saves
@@ -296,6 +307,19 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   // ------------------------------------------------------------ sizing
   let renderScale = state.perf.scale === 'auto' ? 1 : state.perf.scale;
+  // the tuner's knobs (src/tuner.js): each one's level (an index into its ladder, cheapest first; Auto's start at their
+  // best), what it cost at that level and at its best when last measured (tuneProfile), and until when a climb that
+  // just failed is not tried again
+  const tune = Object.fromEntries(Object.entries(KNOBS).map(([id, k]) => [id, { level: k.levels.length - 1, cost: null, full: null, hold: 0 }]));
+  // (the neighbors are on Auto while Settings → Neighbors is left at its default, and have their own row there)
+  const tuneAuto = (id) => (id === 'neighbors' ? state.perf.scan == null : state.perf.tune[id] === 'auto');
+  function applyTune() {
+    for (const id of Object.keys(tune)) if (!tuneAuto(id) && id !== 'neighbors') tune[id].level = state.perf.tune[id];
+    const at = (id) => KNOBS[id].levels[tune[id].level];
+    Object.assign(eng.fx, { seaEvery: at('sea'), bloom: at('bloom'), specks: at('specks'), stoneEvery: at('stone'), finish: at('finish'), interiors: at('interiors') });
+    eng.maxScan = tuneAuto('neighbors') ? at('neighbors') : state.perf.scan;
+  }
+  applyTune();
   // Auto pixel density draws the scene at 1 device pixel per CSS pixel, always: above 1 the extra pixels are the
   // costliest sharpness the page could give (an M1 at 1.5× spent 18 ms a frame drawing), so only a density chosen
   // in Settings draws more. The one exception is a film begun with Auto (filmRaise): its frames are the screen's
@@ -397,25 +421,63 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // ------------------------------------------------------------ perf
   const perf = { samples: [], gpu: 0, fps: 0, frames: 0, worldFps: 0, worldFrames: 0, fpsT: performance.now(), frameDt: [], lastSubmit: 0, rafMs: 0, rafLonger: 0, mainMs: 0, goodWindows: 0, ceiling: 1, ceilingUntil: 0, lastAdjust: performance.now(),
     stepMs: 0, simS: 0, renderR: 0, presentR: 0, worldAt: 0, stepCredit: 0, ticks: 1, held: false, ticksAt: 0, rate: 1, rateT: performance.now(), rateSim: 0, stepsS: 0, rateSteps: 0,
-    slow: 1, slowCeiling: 0, why: '', raisedAt: 0, hold: 0 };
+    slow: 1, slowCeiling: 0, why: '', raisedAt: 0, hold: 0, raised: null, profAt: performance.now(), calmUntil: 0 };
   let calibWait = null;
   const frameWaiters = [];
   const ema = (a, v, k) => (a ? a + (v - a) * k : v);
   eng.onGpuTime = (ms, n, steps, simMs, drew) => {
-    // Per-step cost, render included (an overestimate that shrinks as more steps share one render).
-    if (steps > 0 && drew) perf.stepMs = ema(perf.stepMs, ms / steps, 0.15);
+    // Per-step cost, render included (an overestimate that shrinks as more steps share one render). Each rises at once
+    // toward a dearer step and falls slowly: what plans fast speeds' steps (stepCost) must never run low, or a frame
+    // packs more steps than its budget (on a slow phone, the kind of frame its driver judges a hung GPU)
+    const rise = (a, v, k) => ema(a, v, v > a ? 0.5 : k);
+    if (steps > 0 && drew) perf.stepMs = rise(perf.stepMs, ms / steps, 0.15);
     // with GPU timestamps, the cost of a step and of drawing a frame (or, at Max between draws, of
     // carrying the held image), apart
     if (steps > 0 && simMs != null) {
-      perf.simS = ema(perf.simS, simMs / steps, 0.1);
+      perf.simS = rise(perf.simS, simMs / steps, 0.1);
+      // and the dearest step lately (fading 3% a frame): a step's cost swings with what lives, which an average follows
+      // too late for planning fast speeds (fastCost)
+      perf.stepPeak = Math.max((perf.stepPeak || 0) * 0.97, simMs / steps);
       if (drew) perf.renderR = ema(perf.renderR, ms - simMs, 0.1);
       else perf.presentR = ema(perf.presentR, ms - simMs, 0.1);
     }
     perf.gpu = perf.gpu ? perf.gpu * 0.9 + ms * 0.1 : ms;
+    if (drew) overload(ms);
     perf.samples.push(ms);
     if (perf.samples.length > 240) perf.samples.shift();
     if (calibWait && perf.samples.length >= calibWait.need) { const w = calibWait; calibWait = null; w.res(median(perf.samples)); }
   };
+  // Frames far over budget at once, not judged every two seconds (adaptQuality): a GPU kept on frames of 80 ms or more
+  // can be judged hung by its driver and its context lost (a Pixel 3's Adreno 630). Three drawn frames running over
+  // max(50 ms, three intervals) take Auto's knobs to their floors and its render scale down by the overrun at once, and
+  // hold them there a minute. With nothing left above the floors, the render scale goes below its floor, a step at a
+  // time to a quarter: a soft view rather than a lost one.
+  let overN = 0;
+  function overload(ms) {
+    const T = frameTarget();
+    // (not in the first seconds of a world, which its loading's frames take: resetAdapt marks them; nor at fast speeds,
+    // whose frames are full of steps on purpose, held to their budget by the steps' planning, fastCost, not by pixels)
+    if (!(ms > Math.max(50, 3 * T)) || state.phase !== 'running' || state.speed > 1 || performance.now() < perf.calmUntil) { overN = 0; return; }
+    if (++overN < 3) return;
+    overN = 0;
+    const now = performance.now();
+    const spent = Object.keys(tune).every((id) => !tuneAuto(id) || tune[id].level === 0);
+    for (const id of Object.keys(tune)) if (tuneAuto(id)) { if (tune[id].level) tune[id].since = now; tune[id].level = 0; tune[id].hold = now + 60000; }
+    applyTune();
+    if (state.perf.scale === 'auto') {
+      const floor = Math.max(state.perf.floor, filmScale());
+      const want = renderScale * clamp(Math.sqrt(T / ms), 0.35, 0.9);
+      const next = Math.max(floor, SCALES.find((s) => s <= want + 0.01) ?? floor);
+      if (next < renderScale - 0.01) { renderScale = next; resizeDue = true; }
+      else if (spent) {
+        const below = SCALES.find((s) => s < renderScale - 0.01);
+        if (below != null && below >= filmScale()) { renderScale = below; resizeDue = true; }
+      }
+    }
+    if (filmDense) { filmDense = false; resizeDue = true; }
+    perf.why = 'GPU overloaded'; perf.goodWindows = 0; perf.lastAdjust = now; perf.frameDt.length = 0;
+    perf.hold = 60000; perf.ceiling = renderScale; perf.ceilingUntil = now + perf.hold;
+  }
   const waitFrames = (n) => new Promise((res) => frameWaiters.push({ n, res }));
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // The menu cuts the measuring short when a count or a saved world is chosen while it runs (calibrate
@@ -551,6 +613,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   function seedWorld(n) {
     eng.seed(n, { aspect: innerWidth / Math.max(1, innerHeight) });
+    // (its first frames are its seeding's, not the GPU's measure: overload waits them out)
+    perf.calmUntil = performance.now() + 2000;
     const g = eng.grid;
     cam.x = g[0] / 2; cam.y = g[1] / 2; cam.zoom = cam.zoomTarget = 1; cam.anchor = null;
     resetDirector();
@@ -570,8 +634,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   async function allocDown(n) {
     state.busy = true;
     await device.queue.onSubmittedWorkDone();
-    n = Math.max(16384, Math.floor(n / 4096) * 4096);
-    while (n >= 16384) {
+    n = Math.max(MIN_PARTICLES, Math.floor(n / 4096) * 4096);
+    while (n >= MIN_PARTICLES) {
       if (await eng.allocate(n)) return n;
       n = Math.floor((n * 0.75) / 4096) * 4096;
     }
@@ -628,7 +692,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // throttles. Without timestamps the measure overstates.
     armCut();
     const target = (!hasTS ? 9 : 10) * (throttles ? 0.55 : 1);
-    const clampN = (x) => clamp(Math.round(x / 4096) * 4096, Math.min(16384, maxN), maxN);
+    const clampN = (x) => clamp(Math.round(x / 4096) * 4096, Math.min(MIN_PARTICLES, maxN), maxN);
     let n = await allocDown(Math.min(isCoarse ? 131072 : 262144, maxN));
     seedWorld(n);
     state.busy = false;
@@ -2290,6 +2354,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (id === 'fps') { const f = Math.round(1000 / frameTarget()); return { text: String(f), pick: String([30, 60].find((v) => Math.abs(v - f) <= 3) ?? '') }; }
       if (id === 'scale') return { text: `${Math.round(renderScale * 100)}%`, pick: String(+renderScale.toFixed(2)) };
       if (id === 'density') { const d = +density().toFixed(2); return { text: `${d}×`, pick: String(d) }; }
+      if (id.startsWith('tune-')) { const k = id.slice(5), l = tune[k].level; return { text: TUNE_NAMES[k][l], pick: String(l) }; }
       if (id === 'n' && !state.perf.particles) return { text: kfmt(eng.count), pick: String(eng.count) };
       return null;
     }
@@ -2354,7 +2419,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       return group('res', 'Resolution', choice('scale', 'Render scale', '', [['auto', 'Auto'], [1, '100%'], [0.75, '75%'], [0.5, '50%'], [0.35, '35%']], P.scale, 'renderscale')
         + (P.scale === 'auto' ? choice('floor', 'Auto lowest', '', [[0.75, '75%'], [0.5, '50%'], [0.35, '35%'], [0.25, '25%']], P.floor, 'autofloor') : '')
         + choice('density', 'Pixel density', '', [['auto', 'Auto'], [1, '1×'], [1.5, '1.5×', dev < 1.5], [2, '2×', dev < 2]], P.density, 'density')
-        + choice('fps', 'Target fps', '', [['auto', 'Auto'], [30, '30'], [60, '60'], [0, 'Display']], P.fps, 'targetfps'))
+        + choice('fps', 'Target fps', '', [['auto', 'Auto'], [30, '30'], [60, '60'], [0, 'Display']], P.fps, 'targetfps')
+        + Object.keys(TUNE_TITLES).map((k) => choice(`tune-${k}`, TUNE_TITLES[k], '', [['auto', 'Auto'], ...TUNE_NAMES[k].map((n, i) => [i, n]).reverse()], P.tune[k], `tune${k}`)).join(''))
         + group('world', 'World', choice('n', 'Particles', '', [['auto', 'Auto'], ...sizes.map((n) => [n, kfmt(n)])], nowN, 'particles')
         + choice('scan', 'Neighbors', '', scanChoices().map((n) => [n, n === K.maxScan ? `${n} <span class="chip-note">default</span>` : String(n)]), eng.maxScan, 'neighbors')
         + (pendingN != null && String(pendingN) !== String(P.particles || 'auto')
@@ -2525,7 +2591,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         sound.setMix(defaultMix());
       } else {
         Object.assign(P, { scale: 'auto', floor: 0.5, density: 'auto', fps: 'auto', scan: null });
-        eng.maxScan = K.maxScan;
+        for (const k of Object.keys(tune)) { if (k in P.tune) P.tune[k] = 'auto'; tune[k].level = KNOBS[k].levels.length - 1; tune[k].hold = 0; }
+        applyTune();
         renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit();
         pendingN = P.particles ? 'auto' : null;
       }
@@ -2620,6 +2687,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'floor') { P.floor = +v; renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit(); }
       else if (id === 'density') { P.density = v === 'auto' ? 'auto' : +v; resetAdapt(); fit(); }
       else if (id === 'fps') { P.fps = v === 'auto' ? 'auto' : +v; resetAdapt(); }
+      else if (id.startsWith('tune-')) { const k = id.slice(5); P.tune[k] = v === 'auto' ? 'auto' : +v; if (v === 'auto') tune[k].level = KNOBS[k].levels.length - 1; applyTune(); resetAdapt(); }
       else if (id === 'scan') { P.scan = +v === K.maxScan ? null : +v; eng.maxScan = +v; }
       else if (id === 'n') pendingN = v === 'auto' ? 'auto' : +v;
       else if (id === 'apply') { const n = pendingN; pendingN = null; setParticles(n); }
@@ -2663,10 +2731,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
     flash('Profiling for three seconds');
     const passes = {};
     let frames = 0, gpu = 0;
+    // (beside any other listener, the tuner's own profile, handed back as found)
+    const other = eng.onPassTimes, was = eng.passProfile;
+    const mine = (times, f) => { if (other) other(times, f); frames++; gpu += f.ms; for (const [k, ms] of times) passes[k] = (passes[k] || 0) + ms; };
     eng.passProfile = true;
-    eng.onPassTimes = (times, f) => { frames++; gpu += f.ms; for (const [k, ms] of times) passes[k] = (passes[k] || 0) + ms; };
+    eng.onPassTimes = mine;
     await sleep(3000);
-    eng.passProfile = false; eng.onPassTimes = null;
+    if (eng.onPassTimes === mine) { eng.onPassTimes = other; eng.passProfile = was; }
     const per = (x) => +(x / Math.max(1, frames)).toFixed(3);
     const step = Object.fromEntries((await eng.profileStep(1 / 60)).map(([k, ms]) => [k, +ms.toFixed(3)]));
     const a = device.adapterInfo || {};
@@ -2678,6 +2749,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
       event: ev ? { type: ev.type, phase: climate.phase, since: Math.round(eng.simTime - ev.t) } : null };
     const json = JSON.stringify({ ua: navigator.userAgent, gpu: [a.vendor, a.architecture, a.description].filter(Boolean).join(' / '),
       canvas: [canvas.width, canvas.height], dpr: devicePixelRatio, scale: renderScale, particles: eng.count, neighbors: eng.maxScan, living: life.counts[3],
+      // the tuner's knobs: each one's level, Auto or fixed, and what it has learned of its cost on this device
+      tune: Object.fromEntries(Object.entries(tune).map(([id, k]) => [id, { level: k.level, auto: tuneAuto(id), cost: k.cost == null ? null : +k.cost.toFixed(3),
+        ...(k.rel ? { rel: k.rel.map((r) => (r == null ? null : +r.toFixed(3))) } : {}), ...(k.ratio ? { ratio: +k.ratio.toFixed(3) } : {}) }])),
       cssPPU: +cssPPU().toFixed(1), speed: state.speed, boot: bootTimes, fps: +perf.fps.toFixed(1), aim: Math.round(1000 / frameTarget()), why: perf.why, audio: sound.load,
       world, frameMs: per(gpu), passes: Object.fromEntries(Object.entries(passes).sort((x, y) => y[1] - x[1]).map(([k, x]) => [k, per(x)])), step });
     try { await navigator.clipboard.writeText(json); flash('Profile copied'); } catch { prompt('The profile, to copy:', json); }
@@ -3443,6 +3517,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
   $('warm-end').addEventListener('click', () => setSpeed(1));
   // A step's GPU cost (a coarse step costs about what a 1/60 s one does: one scan of the neighbors)
   const stepCost = () => perf.simS || perf.stepMs;
+  // what fast speeds plan a step at: no less than most of the dearest step lately, so a swing up in a step's cost never
+  // packs a frame with more steps than its budget
+  const fastCost = () => Math.max(stepCost() || 0, 0.8 * (perf.stepPeak || 0)) || stepCost();
   // GPU ms a second of real time takes at speed s in steps of m ticks: the steps, plus drawing the
   // world every display frame, or (held) about every MAX_FRAME_MS, carrying the image between.
   function gpuLoad(s, m, held = true) {
@@ -3466,7 +3543,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
     perf.ticksAt = now;
     const s = state.speed;
     if (!(s > 1) || !stepCost()) { perf.ticks = 1; perf.held = false; return; }
-    if (s === Infinity) { perf.ticks = MAX_TICKS; perf.held = true; return; }
+    if (s === Infinity) {
+      // the coarsest step that still fits MAX_STEP_MS of the GPU (a step of m ticks costs about 1 + 0.45 (m - 1) of a
+      // 1/60 s one): a slow phone's 6-tick steps make frames like those its driver judges a hung GPU
+      const S1 = fastCost() / (1 + 0.45 * (perf.ticks - 1));
+      let m = MAX_TICKS;
+      while (m > 1 && S1 * (1 + 0.45 * (m - 1)) > MAX_STEP_MS) m--;
+      perf.ticks = m; perf.held = true; return;
+    }
     const ways = [[1, false]];
     // coarse steps with the world drawn every frame, in between steps (LERP_WGSL), before holding it
     for (let m = 2; m <= MAX_TICKS; m++) ways.push([m, false]);
@@ -3809,7 +3893,17 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const displayMs = () => perf.rafMs || 16.7;
   // (Fast speeds fill whatever time a frame has with steps: they keep the full rate.)
   const aimFps = () => (state.perf.fps === 'auto' ? 60 : state.perf.fps);
-  const frameEvery = () => Math.max(1, Math.round((aimFps() ? 1000 / aimFps() : 0) / displayMs())) * (state.speed > 1 ? 1 : perf.slow);
+  // (rounded with a bias of 0.15 of a frame toward the faster rate: a display near 150 Hz sits on the edge between every
+  // second frame and every third, 2.5, and the interval measured there, 6.6 to 7 ms with the load, flipped the target
+  // between 75 fps and 50 and back; the adaptation, judging frames against a target that had just halved, found them
+  // late and halved the frame rate itself, an RTX 4070 Ti at 36 fps with its GPU busy 4 ms a frame. 60, 120, 144,
+  // 165, 175 and 240 Hz keep their rates; the bias only where the faster rate stays within 1.3 times the aim, so a 90 Hz
+  // display keeps every second frame, 45 fps, rather than doubling its work)
+  const displayFrames = () => {
+    const x = (aimFps() ? 1000 / aimFps() : 0) / displayMs(), fast = Math.max(1, Math.round(x - 0.15));
+    return !aimFps() || 1000 / (fast * displayMs()) <= 1.3 * aimFps() ? fast : Math.max(1, Math.round(x));
+  };
+  const frameEvery = () => displayFrames() * (state.speed > 1 ? 1 : perf.slow);
   const frameTarget = () => frameEvery() * displayMs();
   // At real time or slower a step covers up to one frame of the rate aimed for, in whole 1/60 s ticks
   // (at most MAX_TICKS): below about 45 fps the world takes coarse steps, which cost far less than the
@@ -3820,7 +3914,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const SCALES = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
   function resetAdapt() {
     perf.frameDt.length = 0; perf.goodWindows = 0; perf.ceiling = 1; perf.ceilingUntil = 0; perf.lastAdjust = performance.now();
-    perf.slow = 1; perf.why = ''; perf.raisedAt = 0; perf.hold = 0;
+    perf.slow = 1; perf.why = ''; perf.raisedAt = 0; perf.hold = 0; perf.raised = null; perf.calmUntil = performance.now() + 2000;
+    for (const k of Object.values(tune)) k.hold = 0;
   }
   // where the browser reports it (Compute Pressure), a device under serious pressure, hot or busy,
   // backs off before its frames start to miss
@@ -3838,6 +3933,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // fast speeds are never judged, so their frames are not kept (a day held at ×64 kept millions)
     if (state.phase !== 'running' || state.speed > 1) { perf.frameDt.length = 0; return; }
     if (now - perf.lastAdjust < 2000 || perf.frameDt.length < 6) return;
+    // (a world's first seconds are its loading's: resetAdapt and seedWorld mark them)
+    if (now < perf.calmUntil) { perf.frameDt.length = 0; perf.lastAdjust = now; return; }
     // Judged by the interval between submitted frames, not requestAnimationFrame's: while the GPU
     // lags, rAF keeps its cadence and the frames are skipped (inflight), so rAF alone looks smooth.
     // The mean, not the median: on a 60 Hz display each interval is 16.7 or 33.3 ms, and the median
@@ -3870,13 +3967,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (pace) { if (autoF && perf.slow < 4) { perf.slowCeiling = perf.slow; perf.slow = Math.min(4, perf.slow + 1); } }
       else if (autoD && density() > 1.01 && !(film.state === 'recording' && filmScale(1) > renderScale)) {
         filmDense = false; resizeDue = true;
-      } else if (renderScale > floor + 0.01 && !(autoF && simBound && perf.slow < 4)) {
-        perf.ceiling = renderScale;
-        // the further behind, the larger the step: pixel cost scales with the square of the scale
-        const want = renderScale * clamp(Math.sqrt(T / m), 0.55, 0.9);
-        renderScale = Math.max(floor, SCALES.find((s) => s <= want + 0.01) ?? floor);
-        resizeDue = true;
-      } else if (autoF && perf.slow < 4) { perf.slowCeiling = perf.slow; perf.slow = Math.min(4, perf.slow + (m > 2 * T ? 2 : 1)); }
+      } else if (!(autoF && simBound && perf.slow < 4) && tuneSteps(true, now, T, floor, m > 2 * T ? 3 : m > 1.4 * T ? 2 : 1)) {
+        // (the tuner's: the steps that save the most for the least lost to the eye, src/tuner.js; a climb just made
+        // and failed at once is held)
+      // (a lower frame rate only for frames actually late: a GPU busy a hair over 92% with frames on time, halved to 30
+      // fps, took coarser and dearer steps for nothing)
+      } else if (autoF && perf.slow < 4 && (m > T * 1.125 || stressed())) { perf.slowCeiling = perf.slow; perf.slow = Math.min(4, perf.slow + (m > 2 * T ? 2 : 1)); }
       return;
     }
     // A frame rate or scale cut is won back by frames on time; frames a little late (the browser's pace, as
@@ -3899,10 +3995,98 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (perf.slow === 1) perf.why = '';
       return;
     }
-    const cap = held ? perf.ceiling * 0.95 : 1;
-    const next = auto && [...SCALES].reverse().find((s) => s > renderScale + 0.01 && s <= cap + 0.001);
-    if (next) { renderScale = next; perf.goodWindows = 0; perf.raisedAt = now; resizeDue = true; }
-    if (!auto || renderScale >= 1) perf.why = '';
+    const best = Object.keys(tune).every((k) => !tuneAuto(k) || tune[k].level === KNOBS[k].levels.length - 1);
+    // the tuner's: the step that brings back the most for its cost, if it fits (src/tuner.js)
+    if (tuneSteps(false, now, T, auto ? state.perf.floor : renderScale, 1, held)) { perf.goodWindows = 0; perf.raisedAt = now; }
+    if ((!auto || renderScale >= 1) && best) perf.why = '';
+  }
+  // Up to n of the tuner's steps (src/tuner.js), behind or with room: render scale or a knob on Auto. Behind just after
+  // a climb (within 6 s), that climb's knob is held: not tried again for perf.hold.
+  function tuneSteps(behind, now, T, floor, n = 1, held = false) {
+    // the neighbors' cost: the step's, measured at each of their levels once it has settled there (three windows on),
+    // each against the top's what fewer save on this device (rel)
+    const nb = tune.neighbors;
+    if (perf.simS && now - (nb.since || 0) > 6000) {
+      (nb.at ||= [])[nb.level] = perf.simS;
+      nb.cost = perf.simS;
+      const top = nb.at[KNOBS.neighbors.levels.length - 1];
+      if (top) nb.rel = KNOBS.neighbors.levels.map((_, i) => (nb.at[i] ? clamp(nb.at[i] / top, 0.2, 1) : null));
+    }
+    if (behind && perf.raised && now - perf.raisedAt < 6000) { const k = perf.raised; if (tune[k]) tune[k].hold = now + perf.hold; perf.raised = null; }
+    let acted = false;
+    for (let i = 0; i < n; i++) {
+      const knobs = {};
+      for (const [id, k] of Object.entries(tune)) knobs[id] = { level: k.level, auto: tuneAuto(id), cost: k.cost, full: k.full, ratio: k.ratio, rel: k.rel };
+      const heldK = Object.fromEntries(Object.entries(tune).map(([id, k]) => [id, now < k.hold]));
+      heldK.scale = held;
+      const draw = hasTS && perf.renderR ? perf.renderR : perf.gpu * 0.6;
+      const d = decide({ behind, T, gpu: perf.gpu, draw, knobs, held: heldK,
+        scale: { cur: renderScale, ladder: SCALES, floor, auto: state.perf.scale === 'auto' } });
+      if (!d) break;
+      if (d.id === 'scale') {
+        if (behind) perf.ceiling = renderScale;
+        // (what the drawing costs follows the pixels, so the estimate holds for the next of these steps)
+        if (hasTS && perf.renderR) perf.renderR *= (d.to / renderScale) ** 2;
+        renderScale = d.to; resizeDue = true;
+      } else {
+        const k = tune[d.id];
+        if (k.cost != null) { const def = KNOBS[d.id], top = def.levels.at(-1); k.cost = (k.full ?? k.cost / Math.max(1e-6, def.share(top, def.levels[k.level]))) * def.share(top, def.levels[d.to]); }
+        k.level = d.to; k.since = now; applyTune();
+      }
+      perf.raised = behind ? null : d.id;
+      acted = true;
+    }
+    return acted;
+  }
+  // Every 10 s at real time or slower (with GPU timestamps), 20 frames timed pass by pass, for what each knob costs
+  // at its level (tuner.js costOf); sharing the engine's profile with any other listener (a bench, Copy profile)
+  let prof = null;
+  function tuneProfile(now) {
+    // (a window another listener cut off, as one taking the engine's callback alone would, is let go after 15 s)
+    if (prof && now - perf.profAt > 15000) prof = null;
+    if (!hasTS || prof || state.speed > 1 || state.phase !== 'running' || now - perf.profAt < 10000) return;
+    perf.profAt = now;
+    const other = eng.onPassTimes, was = eng.passProfile;
+    prof = { n: 0, passes: {} };
+    eng.passProfile = true;
+    const mine = (times, f) => {
+      if (other) other(times, f);
+      if (!f.drew) return;
+      for (const [k, ms] of times) prof.passes[k] = (prof.passes[k] || 0) + ms;
+      if (++prof.n < 20) return;
+      const c = costOf(Object.entries(prof.passes).map(([k, ms]) => [k, ms / prof.n]));
+      for (const [id, ms] of Object.entries(c)) {
+        // (the neighbors' cost is the step's, learned in tuneSteps: no pass is theirs alone)
+        if (!KNOBS[id].passes) continue;
+        const k = tune[id], def = KNOBS[id], share = def.share(def.levels.at(-1), def.levels[k.level]);
+        k.cost = ms;
+        if (share > 0) k.full = ms / share;
+      }
+      // the finish's cost: the composite's, per pixel at each of its levels once its fade has run (rel: against the top's)
+      const fin = tune.finish, comp = (prof.passes.fsComposite || 0) / prof.n;
+      if (comp > 0) {
+        fin.cost = comp;
+        if (performance.now() - (fin.since || 0) > 2500) {
+          (fin.at ||= [])[fin.level] = comp / (renderScale * renderScale);
+          const top = fin.at[KNOBS.finish.levels.length - 1];
+          if (top) fin.rel = KNOBS.finish.levels.map((_, i) => (fin.at[i] ? fin.at[i] / top : null));
+        }
+      }
+      // the insides' cost: the cells' pass, at each level at a like zoom (ratio: off against on, per pixel); nothing
+      // where cells are drawn too small for insides (under 6 pixels a unit of size)
+      const ins = tune.interiors, ps = new Float32Array(eng.viewData)[7];
+      const cells = Object.entries(prof.passes).reduce((a, [k, ms]) => a + (k.startsWith('fsReproj') ? ms : 0), 0) / prof.n;
+      ins.cost = ps > 6 ? cells : 0;
+      if (ps > 6 && cells > 0 && performance.now() - (ins.since || 0) > 1500) {
+        (ins.at ||= [])[ins.level] = { ms: cells / (renderScale * renderScale), ps };
+        const [a, b] = ins.at;
+        if (a && b && Math.abs(a.ps / b.ps - 1) < 0.25) ins.ratio = clamp(a.ms / b.ms, 0.2, 1);
+      }
+      // (handed back as found, unless another took it meanwhile: another's profile runs on)
+      if (eng.onPassTimes === mine) { eng.passProfile = was; eng.onPassTimes = other; }
+      prof = null;
+    };
+    eng.onPassTimes = mine;
   }
   /** The least render scale at which the canvas holds the film's frame (at pixel density d), 0 when not filming. */
   function filmScale(d = density()) {
@@ -4879,7 +5063,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function maxPlan(now, m) {
     const world = fastMode || now - perf.worldAt >= MAX_FRAME_MS;
     if (world) perf.worldAt = now;
-    const dt = m * H, S = stepCost();
+    const dt = m * H, S = fastCost();
     const cost = world ? perf.renderR : perf.presentR || 0.3;
     if (!S) return { steps: 4, dt, world };
     // whole steps only; the fraction left over carries to the next frame, so a step that costs a good
@@ -4894,7 +5078,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function coarsePlan(now, m) {
     const world = now - perf.worldAt >= MAX_FRAME_MS;
     if (world) perf.worldAt = now;
-    const dt = m * H, S = stepCost();
+    const dt = m * H, S = fastCost();
     // the frame's budget in steps, its fraction carried as at Max
     perf.stepCredit = S ? Math.min(perf.stepCredit + ((perf.budget || frameTarget()) - (world ? perf.renderR : perf.presentR || 0.3)) / S, MAX_STEPS) : 4;
     const cap = Math.max(1, Math.floor(perf.stepCredit));
@@ -5115,6 +5299,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (state.phase === 'running') updateHud(now);
     }
     adaptQuality(now);
+    tuneProfile(now);
     perf.mainMs += (performance.now() - t0 - perf.mainMs) * 0.1;
   }
   // An error in a frame used to end the loop without a word: the world froze and the music played on.
@@ -5156,6 +5341,19 @@ function run(eng, device, ctx, specCtx, hasTS) {
   globalThis.__tidemote = { state, cam, perf, eng, notes, noteView, sound, lab, life: () => life, climate: () => climate, renderScale: () => renderScale, maxZoom, setSpeed, findMember, deselect,
     chron, cards, film, filmAct, openSpecies, director, saveWorld, worlds: worldStore, boot: bootTimes, pruned,
     setScale(v) { state.perf.scale = v; if (v !== 'auto') renderScale = v; resetAdapt(); fit(); },
+    // the tuner's knobs' levels; setEffects('low' | 'high' | 'auto') fixes them all cheapest or best, or leaves them to Auto
+    effects: () => Object.entries(tune).map(([id, k]) => `${id}:${k.level}`).join(' '),
+    setEffects(v) {
+      // (the dressing's: the neighbors are Settings → Neighbors')
+      for (const id of Object.keys(TUNE_TITLES)) state.perf.tune[id] = v === 'auto' ? 'auto' : v === 'low' ? 0 : KNOBS[id].levels.length - 1;
+      for (const id of Object.keys(TUNE_TITLES)) if (v === 'auto') tune[id].level = KNOBS[id].levels.length - 1;
+      applyTune(); resetAdapt();
+    },
+    // knobs fixed at levels of their own ({ id: index | 'auto' }; the rest as they are)
+    setTune(o) {
+      for (const [id, v] of Object.entries(o)) { if (id in state.perf.tune) state.perf.tune[id] = v; if (v !== 'auto') tune[id].level = v; }
+      applyTune(); resetAdapt();
+    },
     // as the adaptive scale does it: applied when the next frame begins
     queueScale(v) { renderScale = v; resizeDue = true; },
     // a world saved by eng.readState(), in place of this one

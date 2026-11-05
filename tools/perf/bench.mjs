@@ -20,7 +20,12 @@
 //   prefs  more settings (eng.settings keys: bloom, optics, specks, lod, links, nodes, trails)
 //   look   the microscope's look (src/look.js) 'on' or 'off' (left as it was when unset)
 //   species  follow a cell of the named species (follow: false keeps it selected, the camera still)
+//   effects  the tuner's dressing (src/tuner.js): 'low' or 'high' fixes every knob cheapest or best, 'auto' leaves them
+//   tune   single knobs fixed after effects, { id: level index } (src/tuner.js KNOBS)
+//   frames every frame's passes kept, up to that many   thermalEvery  (--android) the phone's thermal state every N s
 //   lab    a Field Lab tab to hold open ('species', 'census', ...; closed by default); its updates are timed
+// --android runs Chrome on the phone adb is connected to (tools/android.mjs: on USB under WSL through gpu-node.sh), each
+// scenario with the phone's thermal state and battery beside it (`phone`).
 // --electron EXE runs the packaged desktop app (desktop/) instead, launched afresh for each world, its
 // page as it ships (app://tidemote/) and the window's content --width x --height: compare it with Chrome
 // at the same content size (Chrome's --width/--height are its window's, the report has its canvas).
@@ -30,6 +35,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import { vkLaunch } from '../vk.mjs';
+import { androidChrome, serve, phoneState } from '../android.mjs';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { chromium, _electron } from 'playwright-core';
@@ -38,7 +44,7 @@ const { values: v } = parseArgs({ options: {
   plan: { type: 'string' }, out: { type: 'string' }, only: { type: 'string' },
   width: { type: 'string', default: '2560' }, height: { type: 'string', default: '1440' },
   chrome: { type: 'string', default: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' },
-  dist: { type: 'string', default: 'dist' }, electron: { type: 'string' }, keep: { type: 'boolean' }, linux: { type: 'boolean' }, dpr: { type: 'string', default: '1' },
+  dist: { type: 'string', default: 'dist' }, electron: { type: 'string' }, keep: { type: 'boolean' }, linux: { type: 'boolean' }, android: { type: 'boolean' }, dpr: { type: 'string', default: '1' },
 } });
 const root = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const plan = JSON.parse(fs.readFileSync(v.plan, 'utf8'));
@@ -64,7 +70,8 @@ const server = http.createServer((req, res) => {
   fs.createReadStream(file).pipe(res);
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
-const base = `http://127.0.0.1:${server.address().port}`;
+const base = `http://${v.android ? 'localhost' : '127.0.0.1'}:${server.address().port}`;
+if (v.android) serve(server.address().port);
 
 const W = +v.width, H = +v.height;
 const userDir = fs.mkdtempSync(path.join(process.env.TEMP || process.env.TMPDIR || '/tmp', 'tidemote-perf-'));
@@ -75,6 +82,7 @@ const args = [`--window-size=${W},${H}`, '--window-position=0,0', '--enable-webg
   '--mute-audio', ...UNTHROTTLED, '--no-first-run', '--no-default-browser-check'];
 let ctx = null, desk = null;
 async function launch() {
+  if (v.android) { ctx ??= await androidChrome(); return; }
   if (v.electron) {
     desk = await _electron.launch({ executablePath: v.electron, args: UNTHROTTLED, env: { ...process.env, TIDEMOTE_STEAM_APPID: '' } });
     await desk.firstWindow();
@@ -112,7 +120,7 @@ async function openPage(n, extra = {}, k = null, init = null, html = null) {
   else await page.goto(`${base}/${html ? `pages/${html}.html` : 'tidemote.html'}${hash}`);
   await page.waitForFunction(() => globalThis.__tidemote && globalThis.__tidemote.state.phase === 'running', null, { polling: 250 });
   // without a user gesture the page holds the world on its intro: a key lets it begin
-  if (v.linux) await page.keyboard.press('Shift');
+  if (v.linux || v.android) await page.keyboard.press('Shift');
   // the intro gone (the page as it plays: the auto camera waits for it), before a world is loaded
   await page.waitForFunction(() => document.body.classList.contains('live'), null, { polling: 250 });
   report.browser ??= await page.evaluate(async () => {
@@ -249,6 +257,10 @@ async function measure(page, sc) {
     Object.assign(eng.settings, sc.prefs || {});
     // the look (src/look.js), on or off (a build without it ignores this)
     if (sc.look && T.look) { if (sc.look === 'off') T.look.off(); else T.look.set(); }
+    // the tuner's dressing ('auto', 'low', 'high'; a build without it ignores this)
+    if (sc.effects && T.setEffects) T.setEffects(sc.effects);
+    // single knobs fixed ({ id: level index }), after effects
+    if (sc.tune && T.setTune) T.setTune(sc.tune);
     if (sc.adapt !== 'keep') { state.perf.fps = sc.fps ?? 0; T.setScale(sc.scale ?? 'auto'); }
     // aim at the commonest species' densest patch (findMember follows it; unfollow unless selecting)
     // ('saved' keeps the camera a .tidemote world was saved with; at: a spot of its own)
@@ -284,6 +296,8 @@ async function measure(page, sc) {
     const origLab = T.lab?.render;
     if (T.lab) T.lab.render = (f) => { const t = performance.now(); origLab(f); const ms = performance.now() - t; if (ms > 0.05) rec.lab.push(ms); };
     rec.series = []; rec.spikes = [];
+    // frames: every frame's passes as they were, up to that many ({ names, rows: [ms since, frame ms, step ms, ...each name's ms] })
+    rec.frames = sc.frames ? { names: [], rows: [] } : null;
     let t0 = performance.now();
     eng.onPassTimes = (times, f) => {
       if (rec.series.length < (sc.series ? 2000 : 90)) rec.series.push([+(performance.now() - t0).toFixed(1), f.nSteps, +f.ms.toFixed(2)]);
@@ -292,12 +306,22 @@ async function measure(page, sc) {
       if (!(f.ms > 0 && f.ms < 1000)) return;
       rec.gpu.push(f.ms); rec.sim.push(f.simMs); rec.steps += f.nSteps; rec.passFrames++;
       for (const [name, ms] of times) rec.passes[name] = (rec.passes[name] || 0) + ms;
+      if (rec.frames && rec.frames.rows.length < sc.frames) {
+        const row = [+(performance.now() - t0).toFixed(1), +f.ms.toFixed(3), +f.simMs.toFixed(3)];
+        for (const [name, ms] of times) {
+          let k = rec.frames.names.indexOf(name);
+          if (k < 0) { k = rec.frames.names.length; rec.frames.names.push(name); }
+          row[3 + k] = +ms.toFixed(3);
+        }
+        rec.frames.rows.push(row);
+      }
     };
     const po = new PerformanceObserver((l) => { for (const e of l.getEntries()) { rec.long++; rec.longMs += e.duration; } });
     try { po.observe({ type: 'longtask', buffered: false }); } catch { /* unsupported */ }
-    // the adaptation every second: [s, frames aimed slower, render scale, why, GPU ms (ema), fps]
+    // the adaptation every second: [s, frames aimed slower, render scale, why, GPU ms (ema), fps, the tuner's knobs,
+    // neighbors weighed, step ms]
     rec.adapt = [];
-    const watch = setInterval(() => rec.adapt.push([Math.round((performance.now() - t0) / 1000), perf.slow, T.renderScale(), perf.why, +perf.gpu.toFixed(1), +perf.fps.toFixed(1)]), 1000);
+    const watch = setInterval(() => rec.adapt.push([Math.round((performance.now() - t0) / 1000), perf.slow, T.renderScale(), perf.why, +perf.gpu.toFixed(1), +perf.fps.toFixed(1), T.effects?.(), T.eng.maxScan, +(perf.simS ?? 0).toFixed(1)]), 1000);
     let on = true;
     const tick = (t) => { if (!on) return; rec.raf.push(t); rec.scale.push(T.renderScale()); rec.slow.push(perf.slow || 1); requestAnimationFrame(tick); };
     requestAnimationFrame(tick);
@@ -325,14 +349,14 @@ async function measure(page, sc) {
     const passes = Object.fromEntries(Object.entries(rec.passes).sort((a, b) => b[1] - a[1]).map(([k, x]) => [k, +(x / Math.max(1, rec.passFrames)).toFixed(3)]));
     return {
       name: sc.name, zoom: sc.zoom ?? 'fit', ppu: +(eng.lastCam ? eng.lastCam.ppu : 0).toFixed(1), canvas: [eng.size[0], eng.size[1]],
-      count: eng.count, living: T.life().counts[3], wall: +wall.toFixed(2), simRate: +simRate.toFixed(2),
+      count: eng.count, living: T.life().counts[3], effects: T.effects?.(), wall: +wall.toFixed(2), simRate: +simRate.toFixed(2),
       fps: +(sub.length / wall).toFixed(1), rafFps: +(raf.length / wall).toFixed(1),
       interval: { p50: q(sub, 0.5), p95: q(sub, 0.95), p99: q(sub, 0.99), max: q(sub, 1) },
       gpu: { mean: mean(rec.gpu), p50: q(rec.gpu, 0.5), p95: q(rec.gpu, 0.95), max: q(rec.gpu, 1) },
       sim: { mean: mean(rec.sim), stepsPerFrame: +(rec.steps / Math.max(1, rec.passFrames)).toFixed(2) },
       encodeMs: { mean: mean(rec.encode), p95: q(rec.encode, 0.95) },
       scale: { min: Math.min(...rec.scale), mean: mean(rec.scale), end: rec.scale.at(-1) }, slow: { mean: mean(rec.slow), end: rec.slow.at(-1), why: perf.why },
-      audio: T.sound.loadInfo, longTasks: rec.long, longMs: Math.round(rec.longMs), lab: rec.lab.length ? { n: rec.lab.length, mean: mean(rec.lab), max: q(rec.lab, 1) } : undefined, passes, dispatch, series: sc.then || sc.series ? rec.series : undefined, adapt: rec.adapt, spikes: rec.spikes, dts: rec.dts,
+      audio: T.sound.loadInfo, longTasks: rec.long, longMs: Math.round(rec.longMs), lab: rec.lab.length ? { n: rec.lab.length, mean: mean(rec.lab), max: q(rec.lab, 1) } : undefined, passes, dispatch, series: sc.then || sc.series ? rec.series : undefined, adapt: rec.adapt, spikes: rec.spikes, dts: rec.dts, frames: rec.frames || undefined,
     };
   }, sc);
 }
@@ -355,8 +379,13 @@ try {
           await page.waitForTimeout(16);
         }
       })();
+      // on a phone, its thermal state and battery every thermalEvery seconds while measuring
+      const thermal = [];
+      const sampler = v.android && sc.thermalEvery && setInterval(() => { try { thermal.push({ t: thermal.length * sc.thermalEvery, ...phoneState() }); } catch { /* adb busy */ } }, sc.thermalEvery * 1000);
       const r = await measure(page, sc);
+      if (sampler) { clearInterval(sampler); r.thermal = thermal; }
       moving = false; await mover;
+      if (v.android) r.phone = phoneState();
       report.scenarios.push({ world: w.name, ...r });
       if (sc.kind === 'growth') continue;
       if (sc.kind === 'warm') { console.log(`${w.name}/${r.name}: ${r.count} particles, ${r.wall} s to reach the time, ${Math.round(r.simShare * 100)}% of GPU time stepping`); continue; }

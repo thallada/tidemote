@@ -161,6 +161,54 @@ under plain node), on a 78k world (`slow-mac-world.tidemote`, 32k living) in a 1
   (about 2.6 ns there): it sizes 1.76-2.09M (five fresh worlds), and a 1.8M one four minutes in (640k living) draws in
   5.3-8 ms at every zoom. A GPU without that room (the M1) takes one measure, as before.
 
+## Phones (a Pixel 11 Pro, 2026-11-04)
+
+Measured on a Pixel 11 Pro (Tensor G6, PowerVR C-Series CXTP-48-1536, Android 17, Chrome 156, 120 Hz, 502×984 CSS
+pixels at 2.55 device pixels each) with `bench.mjs --android` (Tools, below) on a 16k world grown at Max for two minutes
+(`phone16k`, about 7.2k living). Its timestamps come in steps of 0.066 ms, so the smallest passes read as one step.
+Chrome reports its adapter's vendor (`img-tec`) but neither architecture nor description.
+
+- **Where the frame goes.** The step, 8 ms of a 60 fps frame once life fills the world (a fresh world's founders cost
+  2.6 ms; it blooms from 2% to 40% living in about two and a half minutes): `lifeMain` 5.1-5.4 ms (about 720 ns a living
+  cell, against 85 on an M1 and 3 on an RTX 4070 Ti), `contactMain` 1.8, `resolveCount` 1.3-1.8. Seen whole, drawing
+  8.6 ms: the sea's spectrum and inverse FFT 2.6, the composite 2.5, cells 1.2, bloom 0.3. Up close (80 pixels a unit)
+  14.4 ms: cells 4.2-5.5, `contactGather` 3.3, the sea 2.3, the composite 2.2. 43 fps at full scale there before.
+- **The tuner** (`src/tuner.js`, Settings → Performance: Water motion, Bloom, Specks, Stone light, Finish, Cell
+  insides, each Auto or fixed; the neighbors are Settings → Neighbors', Auto while left at the default): render scale and
+  seven knobs, moved one step at a time every two seconds by what each step costs this
+  device and what it shows. Finish: the heat map's shimmer (barely seen: 1 - SSIM 0.001-0.006), then the optics, their
+  murk and the microscope's look (0.10-0.13, the composite about halved); Cell insides: every cell in the main view
+  drawn by the lean point pipeline (0.007-0.012 up close); the neighbors 112, 88 or 64 (no ecological difference at 64
+  in 8k worlds, at 88 in 16k ones, `runs/lowend`). The finish's, the insides' and the neighbors' costs sit inside passes
+  shared with others (the composite, the cells' pass, the step), so each is learned from that pass at each of its
+  levels. `test/tuner.test.js` runs the tuner window after window against a Pixel 3, a Pixel 11 Pro and an RTX 4070 Ti
+  modeled from these measurements: each settles within its frame (the Pixel 3 at 30 fps, half scale, the plain finish,
+  88 neighbors, the sea at half rate; the Pixel 11 at 85% scale, the sea at a quarter; the RTX at its best).
+  Behind, the step that saves the most GPU time for the least lost to the eye; with room (the frame under 85% busy), the
+  one that brings back the most for its time; with no room, a rebalance (a cheap step given up to pay for one worth half
+  as much again for its time; only the dressing pays, the resolution falls only when frames are late). A knob's cost is
+  measured every 10 s, 20 frames pass by pass (`tuneProfile`), and guessed as a share of the drawing until then; the
+  neighbors' is the step itself, learned at each of their levels (`tuneSteps`). Their eye's weights were judged, then
+  the dressing's ordered by frozen frames scored against full quality (1 - SSIM, `runs/phone/ssim.py`): the sea gone
+  0.16-0.36, bloom 0.03-0.09, the specks 0.002-0.004. The sea turns every 1, 2 or 4 frames or not at all (2.6 → 1.3 →
+  0.7 ms on the Pixel 11), bloom and the sea fade over a second as they turn (`Engine._fadeFx`), the stone relights every
+  0.5, 1 or 2 s. On the Pixel 11 the sea goes to half and quarter rate before the resolution falls; on an RTX 4070 Ti,
+  where the dressing costs next to nothing, only the resolution would. A climb that is late again within 6 s is held
+  (`perf.hold`). An emergency (`overload`: three frames over max(50 ms, 3 frames)) takes every Auto knob to its floor
+  and the scale down at once, held for a minute, but never at fast speeds (their steps are planned to a budget,
+  `fastCost`) or in a world's first 2 s (its loading). The sea is no longer turned while paused, on any device. Leaving
+  out `contactGather` up close (3.3 ms) was tried and dropped: crowded cells lost the walls their tissue fills out to
+  and showed their bare body plans.
+- **`resolveCount`'s matter.** Nearly every particle is matter, silt most, and each thread added its kind into one
+  workgroup word, which a workgroup's threads queued for: spread over 32 copies by thread and summed once (exact: every
+  census sums to the count), 1.77 → 1.29 ms a step (three rounds each; a probe without the matter's counts at all, 1.46).
+- **Tried, no difference:** workgroups of 64, 128 or 256 for the living passes (`lifeWG`; `lifeMain` 5.1-5.5 ms in each),
+  and the genome read through a pointer (5.4). PowerVR keeps the defaults.
+- **The phone's freezes** (a frozen screen that needs the power key held; seen Oct 29 and 31 by the boot reasons, no
+  record left of what ran): not reproduced in an hour of runs, Max included (16k at Max: frames up to 31 ms, no stall;
+  a tab closed during a 65k world's run with no GPU process lost). The one restart in this session was Android's own
+  (`system_server`'s watchdog: its adb pairing thread deadlocked while pairing over Tailscale). Pair over the LAN.
+
 ## Where to look next (left off 2026-11-04, branch mac-perf merged)
 
 Where an M1's frame stood when this work paused, at 1×, the GPU about 96% busy (Instruments' encoder table; the
@@ -312,10 +360,57 @@ under Puppeteer Firefox's frames came unevenly from the start) and a portable Fi
 - It sometimes runs two callbacks 0.02 ms apart; taken for the display's interval they had the frame
   rate cut to 10 fps, so intervals under 2 ms are ignored.
 
+## A Pixel 3 (Adreno 630, 2026-11-05)
+
+The weakest GPU at hand (Android 12, Chrome, 393×786 CSS pixels at 2.75). Chrome reports `qualcomm` / `adreno-6xx`.
+
+- **Its clears skipped ranges, and every world collapsed.** It leaves untouched any `clearBuffer` whose offset is a
+  non-zero multiple of 64 KiB and whose size is under 64 KiB (`runs/phone/cleartest.mjs`: offsets of 64 KiB, 1, 2, 3
+  and 6 MiB not cleared; 4 bytes off either side, or 64 KiB of size and more, cleared; an RTX clears every one). The
+  living half of the per-cell counts sits at 2 MiB: never cleared, each step's counts grew, the scan left gaps in the
+  sorted particles that kept the last step's, and within 60 ticks 8188 of 8192 particles were copies of a few hundred,
+  piled in the bottom row. Every Pixel 3 world had collapsed so, in builds back to October, and every slow pass
+  measured on it before (cells 59-282 ms up close, `contactGather` 38, steps of 50 ms) was that pile. `Engine._clear`
+  copies such ranges from a buffer of zeros instead, and every offset clear goes through it: a fresh world now grows
+  as on a desktop (57 s: 1856 living, 167 species, at most 110 particles in a grid cell). Rewrites aimed at the pile's
+  slowness (`contactGather`'s contacts and `vsPoint`'s outputs in registers, the genome read by fixed indices, a
+  composite compiled without the plain finish's parts) were measured on no healthy world and left out.
+- **It crashes rather than stalls.** Frames of 80 ms or more held for seconds end in a KGSL "Protocol error" and a lost
+  device; Chrome then withholds WebGPU ("no adapter") until it is restarted (`am force-stop com.android.chrome`). So
+  late pipelines compile after the first frames, the emergency step-down (`overload`) acts within three frames, and
+  Max takes the coarsest step that fits 40 ms of GPU (`MAX_STEP_MS`).
+- **The tuner on a healthy 8k world** (from a cold start, `runs/phone/tuner-fixed.out.json`). Seen whole (683 living,
+  a young world): 58.6 fps at 60-70% scale, GPU 14 ms a frame (composite 7.7, step 4.1). Up close at 80 pixels a unit
+  as it blooms (2553 living): 34 fps falling to 14 over 40 s, GPU 16 → 53 ms. At 150 (3880 living): 9 fps, GPU 99
+  ms, a 4-tick step 52.6 and cells 34.6. The tuner took the finish to plain, the sea and bloom off, the neighbors to
+  64, the scale to its floor, then the frame rate down, as designed; no device lost. What limits it now is the step,
+  which grows with life (4 ms a tick at 700 living, about 22 at 3900, 64 neighbors), and heat: the phone went from
+  thermal state 0 to 3 within two minutes of load, and everything slows hot. More frames there would take a simpler
+  simulation, not cheaper dressing.
+- **The emergency's last rung.** With every Auto knob at its floor, a further emergency takes the render scale a step
+  below its floor, to a quarter at most: a soft view rather than a lost device. Cells drawn as their distant sprites
+  past that were tried and dropped: a sprite keeps its world size, so up close it fills as much as the cell.
+- **The frame target flipped on a 150 Hz display.** The aim (60) is rounded to whole display frames, and a display near
+  150 Hz sits on the edge between every second frame and every third (2.5): the interval measured there, 6.6 to 7 ms
+  with the load, flipped the target between 75 fps and 50, and the adaptation, judging frames against a target that
+  had just halved, found them late and halved the frame rate itself (an RTX 4070 Ti on Auto, 2.2M particles, 36 fps
+  up close with its GPU busy 3-4 ms a frame; main 18-34 fps at 0.7 scale). The rounding now leans 0.15 of a frame
+  toward the faster rate where that stays within 1.3 times the aim: 72-73 fps at every zoom; 60, 90 (45 fps), 120,
+  144, 165, 175 and 240 Hz keep their rates.
+- **The full composite only where ice or bubbles are in view.** Any hot or frozen cell anywhere had drawn it in every
+  pixel: a warm world with a few hot cells off screen paid 29 ms at half scale against the lean one's 6.
+  `heatMain` marks the tiles (32 × 32) that hold them and `compPick` asks only of those the view covers.
+- **The composite** (lean, half scale, seen whole) about 8.5 ms against a Pixel 11's 1.2. Cut at stages: the water's
+  surface and the scene's reads take most of it, the look and grade little more. The heat map's shimmer noise is about
+  1 ms of it (0.17 of a Pixel 11's); leaving it out where the water's slope moves it under a twentieth of a pixel saved
+  nothing in a grown world, whose slope is that steep nearly everywhere. Contact gathering's workgroup: 256 is best on
+  both phones.
+
 ## What keeps the frame rate (main.js `adaptQuality`)
 
 - **Frame pacing.** The frame rate aimed for (60 by default) is a whole number of display frames,
-  so frames stay evenly spaced: 72 fps on a 144 Hz display, 58 on 175 Hz. Display rate means one
+  so frames stay evenly spaced: 72 fps on a 144 Hz display, 75 on 150 Hz, 58 on 175 Hz (rounded with a lean toward
+  the faster rate, so a display near an edge doesn't flip between two: `displayFrames`). Display rate means one
   simulation step per refresh, 2.4 times the work of 60 at 143 Hz.
 - **Adaptive quality,** every two seconds at real time or slower. Behind (frames late, the GPU busy
   for more than 92% of the frame with timestamps or 100% of it by submit-to-done time without, or
@@ -370,7 +465,7 @@ under Puppeteer Firefox's frames came unevenly from the start) and a portable Fi
 - **Hidden page:** requestAnimationFrame stops, so the GPU rests; the soundtrack fades out and its
   audio thread is suspended.
 - **Sizing a new world (calibrate).** Auto measures a frame of a fresh world and sizes it to 10 ms of
-  GPU (9 by submit-to-done time without timestamps), down to 16k particles. A phone or tablet aims at 55% of that: it is
+  GPU (9 by submit-to-done time without timestamps), down to 8k particles (`MIN_PARTICLES`). A phone or tablet aims at 55% of that: it is
   measured cool, and its GPU slows by a third or more once it runs hot, besides sharing the GPU with
   the compositor (a Pixel 11 Pro, 2026-10-11, held at 30 fps and was still late in a 32k world at 1.5×
   density: step 11.4 ms, scene and composite about 7 ms). 16k against 32k (32 seeds × 30 min each,
@@ -379,7 +474,16 @@ under Puppeteer Firefox's frames came unevenly from the start) and a portable Fi
   and the living swing a little more (CV 0.24 → 0.31). Sampling 144 neighbors instead of 192 in such
   a world was tried and left out: on an RTX 4070 Ti it saves about 4% of a 16k step (`lifeMain` −10%),
   and its 32 seeds leaned worse (3 collapses against none, effective species 81 → 68, Hill-2 31 → 25;
-  none significant alone).
+  none significant alone). 8k against 16k (2026-11-05, same runs, `runs/lowend/main-n8k`): no gated metric differs;
+  effective species lean lower (68 → 52, p 0.04 alone, not after Holm). 4k against 8k fails the gate: 9 of 32 worlds
+  collapse, food webs 97% → 72%, guilds 3.4 → 2.9, effective species halved; so 8k is the floor. 88 neighbors (and the
+  contact cap scaled with them, 100.57) against 112 in an 8k world: no metric differs (3 collapses against 2), so the
+  tuner may give them up where they pay (a Pixel 11's step 2% less). 64 (cap 73.14) against
+  112 in 8k worlds: no metric differs, nor under 6-tick steps (64 against 112, both at `--step 6`); 88 against 112 in
+  16k worlds: none either. 48 leans worse (food webs 97% → 84%, guilds 3.4 → 3.1, p 0.09-0.1): 64 is the floor. Seen
+  on the way: 8k worlds under 6-tick steps lean worse than at 1 tick whatever the neighbors (6 of 32 collapse against
+  2, guilds 3.4 → 3.0, p 0.01 alone, 0.07 after Holm), which Max on a small device takes (its steps capped to 40 ms of
+  GPU, MAX_STEP_MS, often fewer ticks on a phone).
 
 ## Culling and per-particle work
 
@@ -442,6 +546,14 @@ and never during a balance gate.
   view on a fixed spot, `mouse: 'sweep'` moves the pointer (the loupe) while measuring, and `adapt: 'keep'`
   leaves the adaptive quality to run as it would. Every report has the adaptation second by second
   and the passes of each frame over 40 ms (`spikes`).
+- `bench.mjs --android` runs the same plans in Chrome on a phone adb is connected to (`tools/android.mjs`): over a USB
+  cable under WSL through Windows' adb (run it with `tools/gpu-node.sh`; Windows' `platform-tools` in
+  `%LOCALAPPDATA%\Android\Sdk`), or over Wi-Fi (Developer options → Wireless debugging, `adb pair`, `adb connect`; pair
+  over the LAN, not Tailscale). It drives a tab of its own over the DevTools protocol (Playwright's connectOverCDP stalls
+  on tabs Android has frozen), marks it automated as Playwright's are (the opening menu goes by itself), serves the page
+  to the phone as localhost (`adb reverse`), and records the phone's thermal state and battery beside each scenario.
+  Keep the phone on a charger with the screen awake (`adb shell svc power stayon usb`; `false` after), and record
+  `adb logcat` beside long runs. A scenario's `effects` fixes the tuner's dressing ('low', 'high') or leaves it Auto.
 - `stepbench.mjs` times a saved world's step under Dawn. Dawn's npm build compiles with FXC, not
   DXC as Chrome does, so its kernel timings differ from the browser's.
 - `shots.mjs` screenshots a saved world at several zooms (for pixel comparisons of render variants);
