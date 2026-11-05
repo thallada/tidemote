@@ -179,7 +179,13 @@ wrap puts them and show no seam at the world's edges. Raindrop ripples bend the 
   the world while the wind veered (the whole pattern jumping every few seconds).
 - **Ice** (`iceLook`, `iceGrain`, `frazil`): ice and water bend light almost alike, so the ice is nearly invisible;
   what shows is where it scatters. It is drawn over the ice the simulation freezes (`iceSeen`: the ice block
-  through the B-spline, its edge where half is frozen), fixed in the world, so ice once formed stays put and the
+  through the B-spline, its edge where half is frozen), as drawn: eased toward the simulation's each drawn frame over
+  0.6 s of real time (`ICE_SHOW_WGSL`, `ICE_EASE`, a block past what saves keep; the passes that draw ice run until it
+  has faded out). An edge wanders as its cells freeze and thaw in turn: slow at real time, but at fast speeds a frame
+  spans a second or more of it, and drawn as it stood the edge and its dendrites flickered in and out (on a cold
+  probe's patch, consecutive frames at ×64: 1.4-2.4 pixels in 1000 reversing brightness each frame, 0.00-0.04 eased;
+  `runs/ice/flicker2.mjs`). Remembering each grain's stem axis was tried too and made no difference once eased.
+  Fixed in the world, so ice once formed stays put and the
   front grows outward (a thaw draws it back the same way): a point is ice once that front has come within `lead` of
   it, `lead` being how far ahead of the front the dendrites reach there; that reach grows with the ice (none where
   the field 2.5 units into the ice is not yet frozen, so a patch just begun has none: at full from the start, every

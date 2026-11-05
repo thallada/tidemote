@@ -1,5 +1,5 @@
 import {
-  simWGSL, SIM_CLOCK, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, LERP_WGSL, POST_WGSL, GLASS_WGSL, SEA_WGSL, SHIFT_W, SHIFT_H, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
+  simWGSL, SIM_CLOCK, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, LERP_WGSL, POST_WGSL, GLASS_WGSL, SEA_WGSL, ICE_SHOW_WGSL, ICE_SHOWN, ICE_SHOWN_ANY, SHIFT_W, SHIFT_H, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
   MAXK, FIRST_LIFE, MAX_CELLS, THERMAL_WORDS, TILES, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, NOTE_WORDS, NOTE_WGSL, NOTE_HEAD, NOTE_REC, PIPE_MAX, PIPE_TAKE, PIPE_TAKE_W, PIPE_SP, PIPE_IDS, H_TAKEN, H_CUTS, H_RIDE, RIDE_MAX, H_IN, H_SP, H_CELLS, H_IDS, H_LINKS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES, TUBE_N, TUBE_K, STUDIO_N,
 } from './shaders.js';
 import {
@@ -31,6 +31,8 @@ const SUB_TICKS = 16;
 const STONE_MARGIN = 1.2;
 const STONE_ZOOM = 1.06;
 const STONE_EVERY = 0.5;
+// how long the ice as drawn takes to come most of the way to the simulation's (seconds of real time: ICE_SHOW_WGSL)
+const ICE_EASE = 0.6;
 // absent in a browser without WebGPU, which must still load the page to say so
 const U = globalThis.GPUBufferUsage ?? {};
 export const PICK_MAX = 131072;
@@ -191,9 +193,11 @@ class Engine {
     // the heat field: the water's temperature per cell, the pool's floor (each cell's relief quantile,
     // src/geography.js), the order a frost freezes it in, its ice, how many cells hold ice (THERMAL_WORDS,
     // shaders.js); and heatMain's next temperatures and ice
-    b.thermal = d.createBuffer({ size: THERMAL_WORDS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
-    // the tiles of the water holding ice and hot water after the last step (TILES; heatMain, compPick): never saved, a
-    // step makes them again
+    // (then the ice as drawn, ICE_SHOWN, past what saves keep)
+    b.thermal = d.createBuffer({ size: (ICE_SHOWN_ANY + 4) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+    b.iceShowU = d.createBuffer({ size: 16, usage: U.UNIFORM | U.COPY_DST });
+    // the tiles of the water holding ice and hot water after the last step, and ice still drawn (TILES; heatMain,
+    // iceShowMain, compPick): never saved, a step makes them again
     b.heatTiles = d.createBuffer({ size: 2 * TILES * 4, usage: U.STORAGE | U.COPY_DST });
     b.heatNext = d.createBuffer({ size: 2 * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_SRC });
     b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
@@ -407,6 +411,7 @@ class Engine {
     this.cpShift = cp(this.postModule, 'seaShiftMap');
     this.cpSeaField = cp(this.postModule, 'seaFieldMain');
     this.cpOptics = cp(this.postModule, 'opticsMain');
+    this.cpIceShow = cp(d.createShaderModule({ code: ICE_SHOW_WGSL, label: 'iceShow' }), 'iceShowMain');
     b.shiftMap = d.createBuffer({ size: SHIFT_W * SHIFT_H * 8, usage: U.STORAGE | U.COPY_SRC });
     this.shiftRead = [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: SHIFT_W * SHIFT_H * 8, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST }), busy: false }));
     // the last two grids read back: { data (pixels of the view drawn then), cam: { x, y, ppu, w, h }, at (ms) }
@@ -575,6 +580,8 @@ class Engine {
     this.compPickBG = d.createBindGroup({ layout: this.cpCompPick.getBindGroupLayout(0), entries: [
       { binding: 2, resource: { buffer: b.post } }, { binding: 11, resource: { buffer: b.thermal } }, { binding: 20, resource: { buffer: b.compArgs } },
       { binding: 27, resource: { buffer: b.heatTiles } }] });
+    this.iceShowBG = d.createBindGroup({ layout: this.cpIceShow.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: b.thermal } }, { binding: 1, resource: { buffer: b.iceShowU } }, { binding: 2, resource: { buffer: b.heatTiles } }] });
     this._leanP();
     this._rebindLate();
   }
@@ -1445,6 +1452,19 @@ class Engine {
     f.bloom = ease(f.bloom, this.fx.bloom ? 1 : 0, 2);
     f.sea = ease(f.sea, this.fx.seaEvery > 0 ? 1 : 0, 1.5);
     f.finish = ease(f.finish, this.fx.finish >= 1 ? 1 : 0, 1.5);
+  }
+
+  // the ice as drawn eased toward the simulation's (ICE_SHOW_WGSL), at once in a world just made or loaded
+  _iceShow(enc, realT) {
+    if (!this.K.heat) return;
+    const fresh = this._iceGen !== this.worldGeneration, dt = fresh ? Infinity : Math.max(0, realT - this._iceT);
+    this._iceGen = this.worldGeneration; this._iceT = realT;
+    const cells = this.grid[0] * this.grid[1], u = new ArrayBuffer(16), w = new Uint32Array(u);
+    new Float32Array(u)[0] = 1 - Math.exp(-dt / ICE_EASE); w[1] = cells; w[2] = this.grid[0]; w[3] = this.grid[1];
+    this.device.queue.writeBuffer(this.b.iceShowU, 0, u);
+    this._clear(enc, this.b.thermal, ICE_SHOWN_ANY * 4, 4);
+    const cp = enc.beginComputePass();
+    cp.setPipeline(this.cpIceShow); cp.setBindGroup(0, this.iceShowBG); cp.dispatchWorkgroups(Math.ceil(cells / 64)); cp.end();
   }
 
   _seaPost(pd) {
@@ -2711,6 +2731,7 @@ class Engine {
   _render(enc, { target, cam, time: realT, dpr, selId, loupe, specimen, tsBegin, tsEnd }) {
     const d = this.device;
     this._fadeFx(realT);
+    this._iceShow(enc, realT);
     // real time as the GPU holds it: modulo REAL_WRAP, as an f32 of days of seconds steps by 1/32 s or more
     const time = realT % REAL_WRAP;
     const [W, H] = this.size;

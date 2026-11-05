@@ -10,8 +10,13 @@ export const FIRST_LIFE = 5;
 export const MAX_CELLS = 1 << 19;
 // the heat field's words (b.thermal): four blocks of MAX_CELLS (temperature, floor, freeze order, ice), then ICE_N and HOT_N
 export const THERMAL_WORDS = 4 * MAX_CELLS + 4;
+// after them, never saved: the ice as drawn (ICE_SHOW_WGSL), the heat field's eased toward it in real time, a block
+// of MAX_CELLS, then whether any is drawn
+export const ICE_SHOWN = THERMAL_WORDS;
+export const ICE_SHOWN_ANY = ICE_SHOWN + MAX_CELLS;
 // The water seen in tiles (TILES × TILES of them over the world, a word a row and a bit a column): which hold ice and
-// which water warm enough that bubbles may show near it, ice's rows then hot water's (b.heatTiles; heatMain, compPick)
+// which water warm enough that bubbles may show near it, ice's rows then hot water's (b.heatTiles; heatMain, and the
+// ice still drawn, ICE_SHOW_WGSL; compPick)
 export const TILES = 32;
 export const META_SLOT = 16;
 export const META_POP = META_SLOT + MAXK;
@@ -719,9 +724,10 @@ fn edgeSway(p: vec2f, n: vec2f, flow: vec2f) -> f32 {
   return push + ${f(K.edgeWobble)} * wob;
 }
 `;
-// whether any of the water is frozen (the heat field's ICE_N), for passes that show the ice
-const iceAnyWGSL = `fn iceAny() -> bool { return bitcast<u32>(heatField[${4 * MAX_CELLS}u]) != 0u; }
-fn hotAny() -> bool { return bitcast<u32>(heatField[${4 * MAX_CELLS + 1}u]) != 0u; }`;
+// whether any water is warm enough for bubbles (the heat field's HOT_N), for passes that show it
+const heatAnyWGSL = `fn hotAny() -> bool { return bitcast<u32>(heatField[${4 * MAX_CELLS + 1}u]) != 0u; }
+// (and whether any ice is drawn: what the simulation has, and what is still fading out, ICE_SHOWN)
+fn iceShownAny() -> bool { return bitcast<u32>(heatField[${ICE_SHOWN_ANY}u]) != 0u; }`;
 const shownWater = (world) => /* wgsl */ `
 // a thermal block's field at p, bilinear
 fn blockAt(base: u32, p: vec2f) -> f32 {
@@ -736,9 +742,10 @@ fn blockAt(base: u32, p: vec2f) -> f32 {
              mix(heatField[row1 + u32(x0)], heatField[row1 + u32(x1)], t.x), t.y);
 }
 fn waterTempAt(p: vec2f) -> f32 { return blockAt(0u, p); }
-${iceAnyWGSL}
-// how much of the water at p is frozen (block 3)
+${heatAnyWGSL}
+// how much of the water at p is frozen (block 3), and how much as drawn (ICE_SHOWN)
 fn iceAt(p: vec2f) -> f32 { return blockAt(${3 * MAX_CELLS}u, p); }
+fn iceShownAt(p: vec2f) -> f32 { return blockAt(${ICE_SHOWN}u, p); }
 `;
 // The same, with the default tunables, for passes that only show it (rendering, listening).
 const shownThermal = (g, t) => `thermalState(${g}, ${t}, ${f(DEFAULT_K.specBonus)}, ${f(DEFAULT_K.torporAt)}, ${f(DEFAULT_K.thermalFlat)}, ${f(DEFAULT_K.thermalWarm)})`;
@@ -5271,12 +5278,12 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     col = mix(col, vec3f(0.62, 0.66, 0.74) * dot(col, vec3f(0.3, 0.5, 0.2)) * 1.6, 0.5 * sleep);
     // stranded on the drying mud a cell desiccates: it shrivels, its color drains to a dull brown and it darkens;
     // caught in the ice it is frozen: still, its color drained toward a pale frosted blue-white, a little rimed
-    let iced = iceAny();
+    let iced = iceShownAny();
     if (view.level < 1.0 || iced) {
       var dryN = 0.0;
       if (view.level < 1.0) { dryN = smoothstep(0.0, 0.012, blockAt(${MAX_CELLS}u, p.pos) - view.level); }
       var iceN = 0.0;
-      if (iced) { iceN = smoothstep(0.35, 0.65, iceAt(p.pos)); }
+      if (iced) { iceN = smoothstep(0.35, 0.65, iceShownAt(p.pos)); }
       let l = dot(col, vec3f(0.3, 0.5, 0.2));
       col = mix(col, vec3f(0.55, 0.38, 0.22) * (0.45 + 0.6 * l), 0.85 * dryN);
       b *= 1.0 - 0.5 * dryN;
@@ -8147,15 +8154,15 @@ const ICE_LEAD = 1.4;  // how far the longest stems run ahead
 const ICE_OWN = 0.45;  // lead a grain gains at its center ...
 const ICE_FALL = 0.55; // ... and loses per unit away from it
 const ICE_SLOPE = 0.1; // the least slope of the ice field measured by (where ice starts, and deep in it, it is flat)
-// The ice at wp as drawn: the heat field's (block 3, each grid cell's frozen share) through the B-spline, its edge
-// where half is frozen. sd: how far wp lies from that edge, water positive (world units, by the field's slope floored
+// The ice at wp as drawn: the heat field's (each grid cell's frozen share, eased: ICE_SHOWN) through the B-spline,
+// its edge where half is frozen. sd: how far wp lies from that edge, water positive (world units, by the field's slope floored
 // at ICE_SLOPE, so where a patch is just starting the distance does not leap); rg: how much farther the edge truly
 // lies; reach: how grown the ice is, by the field 2.5 units into it (0 as a patch begins, so the dendrites grow out
 // of it from nothing rather than a whole star showing at once; 1 where the ice runs back that far behind its edge).
 struct IceSeen { sd: f32, rg: f32, reach: f32 }
-${iceAnyWGSL}
+${heatAnyWGSL}
 fn iceSeen(wp: vec2f) -> IceSeen {
-  let f = fieldPost(${3 * MAX_CELLS}u, wp);
+  let f = fieldPost(${ICE_SHOWN}u, wp);
   let g = length(f.yz);
   let gl = max(g, ICE_SLOPE);
   var o: IceSeen;
@@ -8164,8 +8171,8 @@ fn iceSeen(wp: vec2f) -> IceSeen {
   let q = wp + f.yz / max(g, 1e-4) * 2.5 - 0.5;
   let i = vec2i(floor(q));
   let t = q - floor(q);
-  let behind = mix(mix(gridPost(${3 * MAX_CELLS}u, i.x, i.y), gridPost(${3 * MAX_CELLS}u, i.x + 1, i.y), t.x),
-                   mix(gridPost(${3 * MAX_CELLS}u, i.x, i.y + 1), gridPost(${3 * MAX_CELLS}u, i.x + 1, i.y + 1), t.x), t.y);
+  let behind = mix(mix(gridPost(${ICE_SHOWN}u, i.x, i.y), gridPost(${ICE_SHOWN}u, i.x + 1, i.y), t.x),
+                   mix(gridPost(${ICE_SHOWN}u, i.x, i.y + 1), gridPost(${ICE_SHOWN}u, i.x + 1, i.y + 1), t.x), t.y);
   o.reach = smoothstep(0.55, 0.95, behind);
   return o;
 }
@@ -8190,8 +8197,8 @@ fn iceGrain(wp: vec2f, cu: vec2f, N: vec2f, Sv: vec2f, near: f32) -> IceGrain {
   let uc = ctr - 0.5;
   let ic = vec2i(floor(uc));
   let tc = uc - floor(uc);
-  let s00 = gridPost(${3 * MAX_CELLS}u, ic.x, ic.y); let s10 = gridPost(${3 * MAX_CELLS}u, ic.x + 1, ic.y);
-  let s01 = gridPost(${3 * MAX_CELLS}u, ic.x, ic.y + 1); let s11 = gridPost(${3 * MAX_CELLS}u, ic.x + 1, ic.y + 1);
+  let s00 = gridPost(${ICE_SHOWN}u, ic.x, ic.y); let s10 = gridPost(${ICE_SHOWN}u, ic.x + 1, ic.y);
+  let s01 = gridPost(${ICE_SHOWN}u, ic.x, ic.y + 1); let s11 = gridPost(${ICE_SHOWN}u, ic.x + 1, ic.y + 1);
   let gr = -vec2f(mix(s10 - s00, s11 - s01, tc.y), mix(s01 - s00, s11 - s10, tc.x));
   let aa = th + select(0.0, round((atan2(gr.y, gr.x) - th) / 1.0472) * 1.0472, dot(gr, gr) > 1e-6);
   g.ax = vec2f(cos(aa), sin(aa));
@@ -8899,7 +8906,7 @@ fn waterRoom(wpIn: vec2f) -> f32 {
     let pd = pondPost(wp);
     room = min(room, pd.x / max(length(pd.yz), 1e-4));
   }
-  if (!LEAN && iceAny()) {
+  if (!LEAN && iceShownAny()) {
     let ic = iceSeen(wp);
     room = min(room, ic.sd - (ICE_LEAD + ICE_OWN) * ic.reach);
   }
@@ -9297,7 +9304,7 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f,
   }
   // ice (a frost's, the cold probe's): over what is frozen in it, its front a crisp bright line, crystals
   // (frazil) in the near-freezing water ahead of it while it grows
-  if (!LEAN && iceAny()) {
+  if (!LEAN && iceShownAny()) {
     let ic = iceSeen(wp);
     let grow = iceGrowth(waterAt(wp).x);
     if (ic.sd < (ICE_LEAD + ICE_OWN) * ic.reach + 0.3) { c += iceLook(wp, ic.sd, ppu, grow, ic.reach, ic.rg) * (0.35 + 0.65 * behind); }
@@ -9569,7 +9576,7 @@ fn loupeScene(r: vec2f) -> vec3f {
   // (ice or hot water counted with no tile marked: a world just loaded, not yet stepped, whose tiles are not saved)
   var marked = 0u;
   for (var w = 0u; w < ${2 * TILES}u; w++) { marked |= heatTiles[w]; }
-  let lean = seen == 0u && (marked != 0u || (!iceAny() && !hotAny()));
+  let lean = seen == 0u && (marked != 0u || (!iceShownAny() && !hotAny()));
   compArgs[0] = select(3u, 0u, lean); compArgs[1] = 1u; compArgs[2] = 0u; compArgs[3] = 0u;
   compArgs[4] = select(0u, 3u, lean); compArgs[5] = 1u; compArgs[6] = 0u; compArgs[7] = 0u;
 }
@@ -9612,6 +9619,32 @@ export const GLASS_WGSL = /* wgsl */ `
     w += 2.0 * (w1 + w2);
   }
   return vec4f(c / w, 1.0);
+}
+`;
+
+// The ice as drawn (ICE_SHOWN), eased toward the heat field's each drawn frame by k of the way (1 - e^(-dt/τ) of
+// real time): an ice edge wanders as cells freeze and thaw in turn, slowly at real time, but at fast speeds a frame
+// spans seconds of it and the edge drawn as it stood jumped in and out from frame to frame. Eased, it moves smoothly
+// at any speed, as a long exposure shows it. Observational: the simulation reads its own ice.
+// Whatever is drawn marks ICE_SHOWN_ANY and its tile (b.heatTiles, after the step's), so the passes that draw ice run
+// until it has faded out (the engine clears the word first; what is left under 0.002 ends).
+export const ICE_SHOW_WGSL = /* wgsl */ `
+struct IceShow { k: f32, cells: u32, w: u32, h: u32 };
+@group(0) @binding(0) var<storage, read_write> heat: array<atomic<u32>>;
+@group(0) @binding(1) var<uniform> u: IceShow;
+@group(0) @binding(2) var<storage, read_write> tiles: array<atomic<u32>>;
+@compute @workgroup_size(64) fn iceShowMain(@builtin(global_invocation_id) gid: vec3u) {
+  let c = gid.x;
+  if (c >= u.cells) { return; }
+  let ice = bitcast<f32>(atomicLoad(&heat[${3 * MAX_CELLS}u + c]));
+  var s = mix(bitcast<f32>(atomicLoad(&heat[${ICE_SHOWN}u + c])), ice, u.k);
+  if (ice == 0.0 && s < 0.002) { s = 0.0; }
+  atomicStore(&heat[${ICE_SHOWN}u + c], bitcast<u32>(s));
+  if (s > 0.0) {
+    atomicOr(&heat[${ICE_SHOWN_ANY}u], 1u);
+    let t = min(vec2u((vec2f(f32(c % u.w), f32(c / u.w)) + 0.5) * ${TILES}.0 / vec2f(f32(u.w), f32(u.h))), vec2u(${TILES - 1}u));
+    atomicOr(&tiles[t.y], 1u << t.x);
+  }
 }
 `;
 
