@@ -270,6 +270,19 @@ those three ready about 2.5 s later, while coarse steps asked for meanwhile run 
 mind view waits. The compile fills the first half of the loading bar, weighted by each pipeline's
 rough cost (`COMPILE_COST`). Headless runs wait for every pipeline.
 
+**Two waves (2026-11-04).** By then 80 pipelines, started together: cold, a Pixel 11 Pro's page waited 21 s, the
+last on the loupe's (20.6 s), which a phone never uses, and a Pixel 3's GPU process grew from 63 to 488 MB compiling
+them (its phone killing other apps for the memory; Tidemote's own buffers and textures about 50 MB). The page now
+compiles what a first frame needs first, and the rest in a second wave once that is ready, two at a time while the
+world runs (`Engine._later`, `_compileLate`): `LATE` first, then the loupe, the close-up and the card studio, the
+pipette's bore, cells' insides (the main view draws them with the lean point pipeline until theirs lands), bridges,
+the specks and the full composite (the lean one compiles in the first wave and draws alone until the full one lands:
+no ice, bubbles or maps for those seconds). Each lands in place with its bind groups (`_rebindLate`), and what uses
+one waits for it: portraits wait for the close-up (`closeupReady`), the loupe and the close-up draw once theirs are
+there. Cold, the Pixel 11 Pro's page runs at 7.6 s; a Pixel 3's at 16-26 s (from 34-40, its cache warm). Measure a
+build's compile on a phone with `runs/phone/compile-times.mjs` (each pipeline's start and finish, from inside the
+page).
+
 ## Firefox
 
 Measured 2026-10-28 on the RTX 4070 Ti, Firefox 159 stable against Chrome 156, 2M particles. Firefox
