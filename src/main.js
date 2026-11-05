@@ -299,9 +299,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // Auto pixel density draws the scene at 1 device pixel per CSS pixel, always: above 1 the extra pixels are the
   // costliest sharpness the page could give (an M1 at 1.5× spent 18 ms a frame drawing), so only a density chosen
   // in Settings draws more. The one exception is a film begun with Auto (filmRaise): its frames are the screen's
-  // own size, so the scene draws at up to 1.5 while it rolls and drops back to 1 when it ends.
-  let densityCap = 1;
-  const density = () => Math.min(devicePixelRatio || 1, 2, state.perf.density === 'auto' ? Math.min(1.5, densityCap) : state.perf.density);
+  // own size, so the scene draws at up to 1.5 while it rolls (filmDense) and drops back to 1 when it ends.
+  let filmDense = false;
+  const density = () => Math.min(devicePixelRatio || 1, 2, state.perf.density === 'auto' ? (filmDense ? 1.5 : 1) : state.perf.density);
   let dpr = 1;
   // The scene renders at no more than state.perf.density (Auto: 1, rising to 1.5) device pixels per CSS pixel:
   // its per-pixel shading is heavy, and a 2x display would quadruple it for little visible gain.
@@ -3820,8 +3820,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const SCALES = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
   function resetAdapt() {
     perf.frameDt.length = 0; perf.goodWindows = 0; perf.ceiling = 1; perf.ceilingUntil = 0; perf.lastAdjust = performance.now();
-    perf.slow = 1; perf.why = ''; perf.denseUntil = 0; perf.raisedAt = 0; perf.hold = 0;
-    densityCap = 1;
+    perf.slow = 1; perf.why = ''; perf.raisedAt = 0; perf.hold = 0;
   }
   // where the browser reports it (Compute Pressure), a device under serious pressure, hot or busy,
   // backs off before its frames start to miss
@@ -3832,9 +3831,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // paused too (running fast spends the frame on simulation on purpose). Behind (frames late, or with GPU
   // timestamps the GPU busy for nearly the whole interval, or the device under pressure): a lower
   // render scale, then a lower frame rate, or the frame rate first when the simulation is most of the
-  // cost (resolution would barely help); with Auto pixel density, a scene drawn at more than 1 device
+  // cost (resolution would barely help); with Auto pixel density, a film's scene drawn at more than 1 device
   // pixel per CSS pixel drops to 1 before any of them. With room again: the frame rate back first, then
-  // the scale, then the pixel density.
+  // the scale.
   function adaptQuality(now) {
     // fast speeds are never judged, so their frames are not kept (a day held at ×64 kept millions)
     if (state.phase !== 'running' || state.speed > 1) { perf.frameDt.length = 0; return; }
@@ -3870,8 +3869,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (pace) perf.why = 'browser pace';
       if (pace) { if (autoF && perf.slow < 4) { perf.slowCeiling = perf.slow; perf.slow = Math.min(4, perf.slow + 1); } }
       else if (autoD && density() > 1.01 && !(film.state === 'recording' && filmScale(1) > renderScale)) {
-        densityCap = 1; perf.denseUntil = now + perf.hold;
-        resizeDue = true;
+        filmDense = false; resizeDue = true;
       } else if (renderScale > floor + 0.01 && !(autoF && simBound && perf.slow < 4)) {
         perf.ceiling = renderScale;
         // the further behind, the larger the step: pixel cost scales with the square of the scale
@@ -3901,12 +3899,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (perf.slow === 1) perf.why = '';
       return;
     }
-    if (!auto && !autoD) return;
     const cap = held ? perf.ceiling * 0.95 : 1;
     const next = auto && [...SCALES].reverse().find((s) => s > renderScale + 0.01 && s <= cap + 0.001);
-    const full = !auto || renderScale >= 1;
     if (next) { renderScale = next; perf.goodWindows = 0; perf.raisedAt = now; resizeDue = true; }
-    if (full) perf.why = '';
+    if (!auto || renderScale >= 1) perf.why = '';
   }
   /** The least render scale at which the canvas holds the film's frame (at pixel density d), 0 when not filming. */
   function filmScale(d = density()) {
@@ -4777,7 +4773,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // a film begun with the canvas below its size: the canvas back up to it (and the full density, if need be)
   function filmRaise() {
     if (state.perf.scale !== 'auto') return;
-    if (filmScale() > 1 - 1e-6 && densityCap < Infinity) densityCap = Infinity;
+    if (filmScale() > 1 - 1e-6) filmDense = true;
     const need = filmScale();
     if (need > renderScale + 0.01) { renderScale = SCALES.slice().reverse().find((x) => x >= need - 0.01) ?? 1; resetAdapt(); resizeDue = true; }
   }
@@ -4807,7 +4803,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       $('rec-stop').disabled = s === 'saving';
       $('rec-stop').setAttribute('aria-label', s === 'armed' ? 'Stop waiting for the next scene' : 'Stop filming');
     }
-    if (s === 'idle') { if (densityCap > 1) { densityCap = 1; resizeDue = true; } return; }
+    if (s === 'idle') { if (filmDense) { filmDense = false; resizeDue = true; } return; }
     setLive($('rec-t'), s === 'armed' ? 'Next scene' : filmClock(film.elapsed()));
     const b = film.bytes(), cap = film.limit(), left = film.left();
     setLive($('rec-mb'), s === 'armed' ? '' : fmtBytes(b));
