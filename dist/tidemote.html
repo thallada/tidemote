@@ -676,11 +676,19 @@ canvas.chart { cursor: crosshair; }
 .readout span { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
 .opts { display: flex; flex-direction: column; margin-top: var(--s4); }
 /* one option: its label in a fixed column (so rows line up across sections), then a segmented row of
-   choices whose wrapped lines share their borders, as the Lab's filters */
-.opt { display: grid; grid-template-columns: 9.6em 1fr; gap: var(--s3); align-items: center; }
-.opt .segs { padding-top: 1px; }
-.opt .segs .chip { margin-top: -1px; }
+   choices on one line. A row whose label or choices don't fit on that line (fitOpts in main.js) stacks:
+   its label over the choices, which then span the panel's width as one even bar, so no row ever wraps
+   a choice or two onto a ragged second line; when most rows of a block stack, all of it does, so it reads
+   as one list */
+.opt { display: grid; grid-template-columns: 9.6em minmax(0, 1fr); gap: var(--s3); align-items: center; }
+.opt > .lbl { white-space: nowrap; }
+.opt > .segs { flex-wrap: nowrap; min-width: 0; }
+.opt > .segs .chip { flex: none; min-width: 44px; justify-content: center; white-space: nowrap; }
+.opt.stack { grid-template-columns: minmax(0, 1fr); gap: var(--s2); padding-top: var(--s1); }
+.opt.stack > .segs .chip { flex: 1 1 auto; padding: 0 6px; }
 .opt kbd { color: var(--sun); margin-left: var(--s1); }
+/* a touch screen has no keys to show */
+@media (pointer: coarse) { .opt kbd { display: none; } }
 .opts .ramp { margin-left: calc(9.6em + var(--s3)); }
 .vol-row { display: flex; align-items: center; gap: var(--s3); height: 32px; }
 .vol-row input { flex: 1; min-width: 0; height: 24px; }
@@ -834,11 +842,11 @@ dd { margin: 0; color: var(--ink-2); }
 .tags span:first-child { border-color: var(--line-2); color: var(--ink); }
 /* compact, under the species' name: two short lines for most species */
 .tags.sm { gap: 3px; }
-/* between the actions and the readings: at most two lines (the rest behind a +n chip, which opens
-   to all of them). A species' tags never change while it is open, so the height may follow them. */
-#spec-tags { max-height: 41px; overflow: hidden; align-content: flex-start; flex: none; }
+/* between the actions and the readings: one line, the same height for every species (the rest behind a
+   +n chip, which opens to all of them), so the compass below never moves as the species changes */
+#spec-tags { height: 20px; overflow: hidden; align-content: flex-start; flex: none; }
 #spec-tags .more { border-style: dashed; color: var(--ink-3); cursor: pointer; }
-#spec-tags.all { max-height: none; }
+#spec-tags.all { height: auto; }
 #spec-tags:empty { display: none; }
 .tags.sm span { padding: 1px 5px; font-size: 11px; letter-spacing: .08em; }
 /* a mix of cell types (specimen comp): a trait row whose meter is split by type */
@@ -1183,20 +1191,24 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .begin { display: none; height: 44px; padding: 0 28px; color: var(--bg); background: var(--sun); border-color: var(--sun); font-size: 12px; letter-spacing: .3em; text-transform: uppercase; font-weight: 600; font-stretch: 118%; }
 .begin:hover { color: var(--bg); background: #fff3c0; }
 .intro.ask .begin { display: block; }
-/* The menu: under Begin, two quiet readouts for those who know Tidemote (the new world's particle count,
-   the saved worlds), each opening a framed panel; opened, the reticle and the line under the title fold
-   away so the panel takes their room and the whole stays centered */
+/* The menu: under Begin, two buttons for those who know Tidemote (the new world's particle count, the saved
+   worlds), each framed with a caret like a select and opening a framed panel; opened, the reticle and the line
+   under the title fold away so the panel takes their room and the whole stays centered */
 .intro.menu-open .intro-anim, .intro.menu-open .intro-in > p { display: none; }
 .menu { display: flex; flex-direction: column; align-items: center; gap: var(--s3); width: min(520px, 100vw - 48px); }
-.menu-row { display: flex; align-items: stretch; }
+.menu-row { display: flex; align-items: stretch; justify-content: center; gap: var(--s2); }
 .menu-tab {
-  --pad: var(--s3); display: inline-flex; align-items: center; gap: var(--s2); height: 32px; padding: 0 var(--pad); border: 0; position: relative;
-  font-size: 11px; letter-spacing: .2em; text-transform: uppercase; font-weight: 500; font-stretch: 112%; color: var(--ink-3);
+  --pad: var(--s3); display: inline-flex; align-items: center; gap: var(--s2); height: 34px; padding: 0 var(--pad); position: relative;
+  border: 1px solid var(--line-2); background: rgba(6, 10, 11, 0.6); cursor: pointer;
+  font-size: 11px; letter-spacing: .2em; text-transform: uppercase; font-weight: 500; font-stretch: 112%; color: var(--ink-2);
+  transition: border-color .15s, color .15s, background-color .15s;
 }
-.menu-tab + .menu-tab::before { content: ''; position: absolute; left: 0; top: 9px; bottom: 9px; width: 1px; background: var(--line); }
 .menu-tab b { color: var(--cyan); font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: .12em; }
-.menu-tab:hover, .menu-tab[aria-expanded="true"] { color: var(--ink); }
-.menu-tab[aria-expanded="true"]::after { content: ''; position: absolute; left: var(--pad); right: var(--pad); bottom: 2px; height: 1px; background: var(--sun); }
+/* the caret: down while closed, up while its panel is open */
+.menu-tab::after { content: ''; flex: none; width: 5px; height: 5px; margin: 0 1px 3px var(--s1); border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); transition: transform .15s; }
+.menu-tab:hover:not(:disabled), .menu-tab:focus-visible { color: var(--ink); border-color: var(--cyan); background: var(--cyan-deep); }
+.menu-tab[aria-expanded="true"] { color: var(--ink); border-color: var(--sun); }
+.menu-tab[aria-expanded="true"]::after { transform: translateY(4px) rotate(-135deg); }
 .menu-tab:disabled { opacity: .45; cursor: default; }
 .menu-panel {
   --tick: var(--line-2); width: 100%; padding: var(--s3) var(--s3) var(--s2); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: left;
@@ -1233,7 +1245,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .menu-list button.w-row { height: 52px; }
 }
 @media (max-width: 420px) {
-  .menu-tab { --pad: var(--s2); letter-spacing: .14em; }
+  .menu-tab { --pad: var(--s2); letter-spacing: .12em; gap: 6px; }
   .menu-chips { grid-template-columns: repeat(4, 1fr); }
 }
 @keyframes blink { 50% { opacity: .2; } }
@@ -1287,10 +1299,6 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .viewer { height: clamp(104px, calc(22vh - 10px), 176px); }
   .btn { height: 30px; }
   .settings { width: 400px; padding: var(--s2) 12px var(--s3); }
-}
-/* short screens: the species' tags keep to one line under the close-up */
-@media (min-width: 721px) and (max-height: 800px) {
-  #spec-tags { max-height: 20px; }
 }
 @media (max-width: 980px) {
   .dock .tools { display: none; }
@@ -1414,8 +1422,6 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .settings .tabs button { padding: 0 6px; letter-spacing: .06em; }
   .readout b { font-size: 15px; }
   .readout { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-flow: dense; }
-  .opt { grid-template-columns: 7.6em 1fr; }
-  .opts .ramp { margin-left: calc(7.6em + var(--s3)); }
   .flash { top: 22%; font-size: 13px; }
   .help { display: none; }
   #film, #auto-next { display: none !important; }
@@ -25326,7 +25332,7 @@ ${e.message}` : String(e?.message || e));
     autoidle: "Left alone for a minute (three with a panel open), the camera starts filming the world on its own. Drag, scroll or tap to take it back.",
     renderscale: "The share of the screen’s resolution the world is drawn at. Auto lowers it while frames run late and raises it again when there is room, and shows the scale it is using now (the choice nearest it is underlined); a fixed value never changes.",
     autofloor: "The lowest render scale Auto may drop to.",
-    density: "The most device pixels drawn per CSS pixel. High-density (Retina) screens look sharper at 2× but cost up to four times the pixels of 1×. Readouts and outlines stay sharp either way. Auto draws at 1× and rises to 1.5× only while the frame rate holds with room for the extra pixels; while frames run late it drops back to 1× first, before the render scale or the frame rate are lowered. It shows the density it is using now. A fixed value never changes.",
+    density: "The most device pixels drawn per CSS pixel. High-density (Retina) screens look sharper at 2× but cost up to four times the pixels of 1×. Readouts and outlines stay sharp either way. Auto draws at 1× (while a film rolls, up to 1.5×, so its frames are not stretched up). It shows the density it is using now. A fixed value never changes.",
     targetfps: "Frames per second aimed for, as a whole number of the screen’s refreshes so frames stay evenly spaced (60 on a 144 Hz screen is every second refresh, 72 fps). 30 halves the GPU’s work and saves battery; Display follows the screen’s refresh rate (120 on many phones and Macs), which costs the most. Simulated time keeps pace with real time at any rate. Auto aims for 60 and, when the device can’t keep up, lowers the rate itself (to 30, 20 or 15; shown beside Auto); a rate chosen is held even then.",
     bloom: "A soft glow around bright cells. Several extra full-screen passes.",
     optics: "The microscope’s lens: the view softens and its colors part toward the edges, a round field stop darkens the corners, a faint haze lies behind the cells and dust drifts out of focus. One extra full-screen pass.",
@@ -38677,6 +38683,8 @@ ${e.message}` : String(e?.message || e));
   function trackGlass(panels, canvas2) {
     let dirty = true;
     let moving = 0;
+    let cw = 0, ch = 0;
+    let readAt = 0;
     const mark = () => {
       dirty = true;
     };
@@ -38702,8 +38710,12 @@ ${e.message}` : String(e?.message || e));
     addEventListener("resize", mark);
     return {
       poll() {
-        if (!dirty && !moving) return null;
+        const now = performance.now();
+        if (!dirty && !moving && canvas2.width === cw && canvas2.height === ch && now - readAt < 500) return null;
         dirty = false;
+        cw = canvas2.width;
+        ch = canvas2.height;
+        readAt = now;
         const view = canvas2.getBoundingClientRect();
         if (!view.width || !view.height) return { rects: [], sigma: 0 };
         const sx = canvas2.width / view.width, sy = canvas2.height / view.height;
@@ -41540,7 +41552,27 @@ ${e.message}` : String(e?.message || e));
         }
         if (tab === "worlds" && saves == null) refreshSaves();
         readout(true);
+        fitOpts();
       }
+      const range = document.createRange();
+      function fitOpts() {
+        if (el2.hidden) return;
+        const rows = [...opts.querySelectorAll(".opt")].filter((r) => r.querySelector(":scope > .segs"));
+        for (const r of rows) r.classList.remove("stack");
+        const over = new Set(rows.filter((r) => {
+          const l = r.querySelector(":scope > .lbl"), g = r.querySelector(":scope > .segs");
+          if (l) {
+            range.selectNodeContents(l);
+            if (range.getBoundingClientRect().width > l.clientWidth + 1) return true;
+          }
+          return g.scrollWidth > g.clientWidth + 1;
+        }));
+        for (const r of rows) {
+          const mates = rows.filter((m) => m.parentElement === r.parentElement);
+          if (over.has(r) || mates.filter((m) => over.has(m)).length * 2 > mates.length) r.classList.add("stack");
+        }
+      }
+      addEventListener("resize", fitOpts);
       let roAt = 0;
       function readout(force) {
         if (el2.hidden || tab !== "performance") return;
@@ -43145,15 +43177,6 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
         perf.goodWindows = 0;
         perf.raisedAt = now;
         resizeDue = true;
-      } else if (full && autoD && densityCap < Infinity && now >= perf.denseUntil && !held) {
-        const d = density(), up2 = Math.min(devicePixelRatio || 1, 2, 1.5), px = (up2 / d) ** 2;
-        const est = hasTS && perf.renderR ? perf.gpu + perf.renderR * (px - 1) : perf.gpu * px;
-        if (up2 > d + 0.01 && est < T * 0.75) {
-          densityCap = Infinity;
-          perf.goodWindows = 0;
-          perf.raisedAt = now;
-          resizeDue = true;
-        }
       }
       if (full) perf.why = "";
     }
@@ -44176,7 +44199,13 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
         $2("rec-stop").disabled = s === "saving";
         $2("rec-stop").setAttribute("aria-label", s === "armed" ? "Stop waiting for the next scene" : "Stop filming");
       }
-      if (s === "idle") return;
+      if (s === "idle") {
+        if (densityCap > 1) {
+          densityCap = 1;
+          resizeDue = true;
+        }
+        return;
+      }
       setText($2("rec-t"), s === "armed" ? "Next scene" : filmClock(film.elapsed()));
       const b = film.bytes(), cap3 = film.limit(), left = film.left();
       setText($2("rec-mb"), s === "armed" ? "" : fmtBytes(b));
