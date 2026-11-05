@@ -580,6 +580,11 @@ class Engine {
     await Promise.all([run(), run()]);
   }
 
+  /** Whether the close-up (with its studio, or the world) can be drawn yet: its pipelines land in the page's second wave. */
+  closeupReady(studio = false) {
+    return !!(this.pPlain && this.pPoint && this.pBridge && this.bgPointS && (!studio || (this.pStudio && this.studioBG)));
+  }
+
   // The bind groups of the pipelines that may land late (_compileLate), for those landed and not yet bound; made again
   // with the rest wherever their buffers or targets are made anew (allocate, resize, _ensure*Tex)
   _rebindLate() {
@@ -2851,7 +2856,7 @@ class Engine {
       this._lightStone(enc, this.loupeSceneView, this.pStoneLitM, this.loupeLitBG);
     }
 
-    if (specimen && specimen.target && this.pPlain && this.pPoint && this.pBridge && (!specimen.studio || this.pStudio)) {
+    if (specimen && specimen.target && this.closeupReady(specimen.studio)) {
       this._ensureSpecTex(specimen.w, specimen.h);
       this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId, specLod, culled[2]);
       let pass = enc.beginRenderPass({ colorAttachments: [{ view: this.specView, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });

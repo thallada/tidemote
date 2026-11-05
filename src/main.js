@@ -1776,6 +1776,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function portraitParams() {
     const j = portraitJob;
     if (!j || j.drawn) return null;
+    // (the close-up's pipelines land in the engine's second wave: until then the job waits, its time not counted)
+    if (!eng.closeupReady(j.studio)) { j.at = performance.now(); return null; }
     if (performance.now() - j.at > 4000) { portraitJob = null; j.resolve(null); return null; }
     j.tex = device.createTexture({ size: [j.size, j.size], format: eng.format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
     j.drawn = true;
