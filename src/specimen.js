@@ -165,7 +165,7 @@ export function createSpecimen(api) {
     const all = g ? tagsOf(g, K) : [];
     const chip = ([t, k]) => `<span class="term" data-tip="${k}" tabindex="0">${t}</span>`;
     tagsEl.innerHTML = allTags = all.map(chip).join('');
-    // more than two lines: the last that fit give way to a +n chip naming the rest
+    // more than a line: the last that fit give way to a +n chip naming the rest
     if (!tagsEl.clientHeight && all.length) { tagsEl.dataset.k = ''; return; } // not laid out yet: measure on the next render
     const fits = () => tagsEl.scrollHeight <= tagsEl.clientHeight + 1;
     for (let n = all.length - 1; n > 0 && !fits(); n--) {

@@ -5,8 +5,11 @@
 //
 // trackGlass(panels, canvas) follows where the panels lie over the view and how opaque they are, reading the layout
 // only when something may have moved them: a resize, a panel's size or display (ResizeObserver), a class or hidden
-// attribute changing on one or on the body (the page hides and fades them by class), and every frame while one of
-// their own transitions runs. poll() returns the rects in the canvas's pixels and the blur's sigma there, or null when
+// attribute changing on one or on the body (the page hides and fades them by class), every frame while one of
+// their own transitions runs, and whenever the canvas's own pixel size changes (the auto render scale or pixel
+// density resizes it with its CSS box unchanged, which no observer sees: the rects, in its pixels, went stale and
+// the blur was drawn off its panels, scaled toward the view's corner or beyond them), and, as a backstop for a panel
+// moved without resizing by something around it, twice a second. poll() returns the rects in the canvas's pixels and the blur's sigma there, or null when
 // nothing changed.
 
 export const GLASS_BLUR = 6; // CSS pixels, as the panels' backdrop-filter: blur(6px) had it
@@ -14,6 +17,8 @@ export const GLASS_BLUR = 6; // CSS pixels, as the panels' backdrop-filter: blur
 export function trackGlass(panels, canvas) {
   let dirty = true;
   let moving = 0;
+  let cw = 0, ch = 0; // the canvas's pixel size the rects were last measured at
+  let readAt = 0;
   const mark = () => { dirty = true; };
   const ro = new ResizeObserver(mark);
   const mo = new MutationObserver(mark);
@@ -30,8 +35,9 @@ export function trackGlass(panels, canvas) {
   addEventListener('resize', mark);
   return {
     poll() {
-      if (!dirty && !moving) return null;
-      dirty = false;
+      const now = performance.now();
+      if (!dirty && !moving && canvas.width === cw && canvas.height === ch && now - readAt < 500) return null;
+      dirty = false; cw = canvas.width; ch = canvas.height; readAt = now;
       const view = canvas.getBoundingClientRect();
       if (!view.width || !view.height) return { rects: [], sigma: 0 };
       const sx = canvas.width / view.width, sy = canvas.height / view.height;

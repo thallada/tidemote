@@ -319,14 +319,13 @@ under Puppeteer Firefox's frames came unevenly from the start) and a portable Fi
   simulation step per refresh, 2.4 times the work of 60 at 143 Hz.
 - **Adaptive quality,** every two seconds at real time or slower. Behind (frames late, the GPU busy
   for more than 92% of the frame with timestamps or 100% of it by submit-to-done time without, or
-  Compute Pressure reporting `serious`): with Auto pixel density, a
-  scene drawn at more than one device pixel per CSS pixel drops to 1× first, the
-  cheapest sharpness to give up (1.5× is 2.25 times the pixels); then the render scale steps down a fixed ladder (1, 0.85, 0.7,
+  Compute Pressure reporting `serious`): with Auto pixel density, a film's scene drawn at more than
+  one device pixel per CSS pixel drops to 1× first; then the render scale steps down a fixed ladder (1, 0.85, 0.7,
   0.6, 0.5 …) to its floor, then the frame rate drops (half, a third, a quarter: 30, 20, 15 fps), or
   the frame rate first when the simulation is more than twice the drawing. With room again for
-  three windows: the frame rate back first, then the scale, then the pixel density (Auto starts at 1× and rises
-  to 1.5× on a high-density screen only when the frame, its drawing scaled by 2.25, would fill under 75% of the
-  interval: at 1.5× an M1 MacBook spent 18 ms a frame drawing, and a world measured there was sized for it); a level that just proved too slow is
+  three windows: the frame rate back first, then the scale. Auto pixel density stays at 1× (until
+  2026-11 it rose to 1.5× with room to spare: at 1.5× an M1 MacBook spent 18 ms a frame drawing, 2.25 times
+  the pixels for little visible gain), except while a film rolls, whose frames are the screen's size; a level that just proved too slow is
   not retried for 30 s. Settings → Performance shows the rate aimed for and why, and each Auto choice
   (render scale, pixel density, particles) shows what it is using now, with the matching fixed choice
   underlined. A fixed pixel density never changes; prefs saved before v3 holding the old default 1.5

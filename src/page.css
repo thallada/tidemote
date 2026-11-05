@@ -620,11 +620,19 @@ canvas.chart { cursor: crosshair; }
 .readout span { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
 .opts { display: flex; flex-direction: column; margin-top: var(--s4); }
 /* one option: its label in a fixed column (so rows line up across sections), then a segmented row of
-   choices whose wrapped lines share their borders, as the Lab's filters */
-.opt { display: grid; grid-template-columns: 9.6em 1fr; gap: var(--s3); align-items: center; }
-.opt .segs { padding-top: 1px; }
-.opt .segs .chip { margin-top: -1px; }
+   choices on one line. A row whose label or choices don't fit on that line (fitOpts in main.js) stacks:
+   its label over the choices, which then span the panel's width as one even bar, so no row ever wraps
+   a choice or two onto a ragged second line; when most rows of a block stack, all of it does, so it reads
+   as one list */
+.opt { display: grid; grid-template-columns: 9.6em minmax(0, 1fr); gap: var(--s3); align-items: center; }
+.opt > .lbl { white-space: nowrap; }
+.opt > .segs { flex-wrap: nowrap; min-width: 0; }
+.opt > .segs .chip { flex: none; min-width: 44px; justify-content: center; white-space: nowrap; }
+.opt.stack { grid-template-columns: minmax(0, 1fr); gap: var(--s2); padding-top: var(--s1); }
+.opt.stack > .segs .chip { flex: 1 1 auto; padding: 0 6px; }
 .opt kbd { color: var(--sun); margin-left: var(--s1); }
+/* a touch screen has no keys to show */
+@media (pointer: coarse) { .opt kbd { display: none; } }
 .opts .ramp { margin-left: calc(9.6em + var(--s3)); }
 .vol-row { display: flex; align-items: center; gap: var(--s3); height: 32px; }
 .vol-row input { flex: 1; min-width: 0; height: 24px; }
@@ -778,11 +786,11 @@ dd { margin: 0; color: var(--ink-2); }
 .tags span:first-child { border-color: var(--line-2); color: var(--ink); }
 /* compact, under the species' name: two short lines for most species */
 .tags.sm { gap: 3px; }
-/* between the actions and the readings: at most two lines (the rest behind a +n chip, which opens
-   to all of them). A species' tags never change while it is open, so the height may follow them. */
-#spec-tags { max-height: 41px; overflow: hidden; align-content: flex-start; flex: none; }
+/* between the actions and the readings: one line, the same height for every species (the rest behind a
+   +n chip, which opens to all of them), so the compass below never moves as the species changes */
+#spec-tags { height: 20px; overflow: hidden; align-content: flex-start; flex: none; }
 #spec-tags .more { border-style: dashed; color: var(--ink-3); cursor: pointer; }
-#spec-tags.all { max-height: none; }
+#spec-tags.all { height: auto; }
 #spec-tags:empty { display: none; }
 .tags.sm span { padding: 1px 5px; font-size: 11px; letter-spacing: .08em; }
 /* a mix of cell types (specimen comp): a trait row whose meter is split by type */
@@ -1127,20 +1135,24 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .begin { display: none; height: 44px; padding: 0 28px; color: var(--bg); background: var(--sun); border-color: var(--sun); font-size: 12px; letter-spacing: .3em; text-transform: uppercase; font-weight: 600; font-stretch: 118%; }
 .begin:hover { color: var(--bg); background: #fff3c0; }
 .intro.ask .begin { display: block; }
-/* The menu: under Begin, two quiet readouts for those who know Tidemote (the new world's particle count,
-   the saved worlds), each opening a framed panel; opened, the reticle and the line under the title fold
-   away so the panel takes their room and the whole stays centered */
+/* The menu: under Begin, two buttons for those who know Tidemote (the new world's particle count, the saved
+   worlds), each framed with a caret like a select and opening a framed panel; opened, the reticle and the line
+   under the title fold away so the panel takes their room and the whole stays centered */
 .intro.menu-open .intro-anim, .intro.menu-open .intro-in > p { display: none; }
 .menu { display: flex; flex-direction: column; align-items: center; gap: var(--s3); width: min(520px, 100vw - 48px); }
-.menu-row { display: flex; align-items: stretch; }
+.menu-row { display: flex; align-items: stretch; justify-content: center; gap: var(--s2); }
 .menu-tab {
-  --pad: var(--s3); display: inline-flex; align-items: center; gap: var(--s2); height: 32px; padding: 0 var(--pad); border: 0; position: relative;
-  font-size: 11px; letter-spacing: .2em; text-transform: uppercase; font-weight: 500; font-stretch: 112%; color: var(--ink-3);
+  --pad: var(--s3); display: inline-flex; align-items: center; gap: var(--s2); height: 34px; padding: 0 var(--pad); position: relative;
+  border: 1px solid var(--line-2); background: rgba(6, 10, 11, 0.6); cursor: pointer;
+  font-size: 11px; letter-spacing: .2em; text-transform: uppercase; font-weight: 500; font-stretch: 112%; color: var(--ink-2);
+  transition: border-color .15s, color .15s, background-color .15s;
 }
-.menu-tab + .menu-tab::before { content: ''; position: absolute; left: 0; top: 9px; bottom: 9px; width: 1px; background: var(--line); }
 .menu-tab b { color: var(--cyan); font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: .12em; }
-.menu-tab:hover, .menu-tab[aria-expanded="true"] { color: var(--ink); }
-.menu-tab[aria-expanded="true"]::after { content: ''; position: absolute; left: var(--pad); right: var(--pad); bottom: 2px; height: 1px; background: var(--sun); }
+/* the caret: down while closed, up while its panel is open */
+.menu-tab::after { content: ''; flex: none; width: 5px; height: 5px; margin: 0 1px 3px var(--s1); border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); transition: transform .15s; }
+.menu-tab:hover:not(:disabled), .menu-tab:focus-visible { color: var(--ink); border-color: var(--cyan); background: var(--cyan-deep); }
+.menu-tab[aria-expanded="true"] { color: var(--ink); border-color: var(--sun); }
+.menu-tab[aria-expanded="true"]::after { transform: translateY(4px) rotate(-135deg); }
 .menu-tab:disabled { opacity: .45; cursor: default; }
 .menu-panel {
   --tick: var(--line-2); width: 100%; padding: var(--s3) var(--s3) var(--s2); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: left;
@@ -1177,7 +1189,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .menu-list button.w-row { height: 52px; }
 }
 @media (max-width: 420px) {
-  .menu-tab { --pad: var(--s2); letter-spacing: .14em; }
+  .menu-tab { --pad: var(--s2); letter-spacing: .12em; gap: 6px; }
   .menu-chips { grid-template-columns: repeat(4, 1fr); }
 }
 @keyframes blink { 50% { opacity: .2; } }
@@ -1231,10 +1243,6 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .viewer { height: clamp(104px, calc(22vh - 10px), 176px); }
   .btn { height: 30px; }
   .settings { width: 400px; padding: var(--s2) 12px var(--s3); }
-}
-/* short screens: the species' tags keep to one line under the close-up */
-@media (min-width: 721px) and (max-height: 800px) {
-  #spec-tags { max-height: 20px; }
 }
 @media (max-width: 980px) {
   .dock .tools { display: none; }
@@ -1358,8 +1366,6 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .settings .tabs button { padding: 0 6px; letter-spacing: .06em; }
   .readout b { font-size: 15px; }
   .readout { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-flow: dense; }
-  .opt { grid-template-columns: 7.6em 1fr; }
-  .opts .ramp { margin-left: calc(7.6em + var(--s3)); }
   .flash { top: 22%; font-size: 13px; }
   .help { display: none; }
   #film, #auto-next { display: none !important; }

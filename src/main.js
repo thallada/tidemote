@@ -296,10 +296,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   // ------------------------------------------------------------ sizing
   let renderScale = state.perf.scale === 'auto' ? 1 : state.perf.scale;
-  // Auto pixel density draws the scene at 1 device pixel per CSS pixel and rises to 1.5 only once the
-  // view has held its frame rate at full scale with room for 2.25 times the pixels (adaptQuality); behind,
-  // it drops back to 1 before anything else is lowered, the render scale or the frame rate: above 1 the
-  // extra pixels are the cheapest sharpness to give up (an M1 at 1.5× spent 18 ms a frame drawing).
+  // Auto pixel density draws the scene at 1 device pixel per CSS pixel, always: above 1 the extra pixels are the
+  // costliest sharpness the page could give (an M1 at 1.5× spent 18 ms a frame drawing), so only a density chosen
+  // in Settings draws more. The one exception is a film begun with Auto (filmRaise): its frames are the screen's
+  // own size, so the scene draws at up to 1.5 while it rolls and drops back to 1 when it ends.
   let densityCap = 1;
   const density = () => Math.min(devicePixelRatio || 1, 2, state.perf.density === 'auto' ? Math.min(1.5, densityCap) : state.perf.density);
   let dpr = 1;
@@ -2539,7 +2539,27 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (typing && !$('w-name').disabled) { const i = $('w-name'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
       if (tab === 'worlds' && saves == null) refreshSaves();
       readout(true);
+      fitOpts();
     }
+    // A choice row whose label or chips overflow its line stacks (.opt.stack, page.css), and when most rows of a
+    // block do, all of it does: measured unstacked, after each render and on a resize. An Auto chip's live value
+    // keeps a fixed width, so readouts never change it.
+    const range = document.createRange();
+    function fitOpts() {
+      if (el.hidden) return;
+      const rows = [...opts.querySelectorAll('.opt')].filter((r) => r.querySelector(':scope > .segs'));
+      for (const r of rows) r.classList.remove('stack');
+      const over = new Set(rows.filter((r) => {
+        const l = r.querySelector(':scope > .lbl'), g = r.querySelector(':scope > .segs');
+        if (l) { range.selectNodeContents(l); if (range.getBoundingClientRect().width > l.clientWidth + 1) return true; }
+        return g.scrollWidth > g.clientWidth + 1;
+      }));
+      for (const r of rows) {
+        const mates = rows.filter((m) => m.parentElement === r.parentElement);
+        if (over.has(r) || mates.filter((m) => over.has(m)).length * 2 > mates.length) r.classList.add('stack');
+      }
+    }
+    addEventListener('resize', fitOpts);
     let roAt = 0;
     function readout(force) {
       if (el.hidden || tab !== 'performance') return;
@@ -3886,13 +3906,6 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const next = auto && [...SCALES].reverse().find((s) => s > renderScale + 0.01 && s <= cap + 0.001);
     const full = !auto || renderScale >= 1;
     if (next) { renderScale = next; perf.goodWindows = 0; perf.raisedAt = now; resizeDue = true; }
-    // the higher pixel density last, once the full scale has held for three windows more and the frame
-    // would still fit with its drawing scaled by the pixels (2.25 times at 1.5×)
-    else if (full && autoD && densityCap < Infinity && now >= perf.denseUntil && !held) {
-      const d = density(), up = Math.min(devicePixelRatio || 1, 2, 1.5), px = (up / d) ** 2;
-      const est = hasTS && perf.renderR ? perf.gpu + perf.renderR * (px - 1) : perf.gpu * px;
-      if (up > d + 0.01 && est < T * 0.75) { densityCap = Infinity; perf.goodWindows = 0; perf.raisedAt = now; resizeDue = true; }
-    }
     if (full) perf.why = '';
   }
   /** The least render scale at which the canvas holds the film's frame (at pixel density d), 0 when not filming. */
@@ -4794,7 +4807,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       $('rec-stop').disabled = s === 'saving';
       $('rec-stop').setAttribute('aria-label', s === 'armed' ? 'Stop waiting for the next scene' : 'Stop filming');
     }
-    if (s === 'idle') return;
+    if (s === 'idle') { if (densityCap > 1) { densityCap = 1; resizeDue = true; } return; }
     setLive($('rec-t'), s === 'armed' ? 'Next scene' : filmClock(film.elapsed()));
     const b = film.bytes(), cap = film.limit(), left = film.left();
     setLive($('rec-mb'), s === 'armed' ? '' : fmtBytes(b));
