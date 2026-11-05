@@ -1412,7 +1412,7 @@ class Engine {
     enc.clearBuffer(b.stoneGrid, 0, cells * 4);
     if (this.K.heat) {
       enc.clearBuffer(b.ledger, this._heatAccAt() + MAX_CELLS * 4, cells * 4);
-      enc.clearBuffer(b.ledger, this._heatAccAt() + 2 * MAX_CELLS * 4, 4);
+      enc.clearBuffer(b.ledger, this._heatAccAt() + 2 * MAX_CELLS * 4, 8);
     }
     enc.clearBuffer(b.ledger, META_POP * 4, MAXK * 4);
     // litter on the ground (META_DEATH + 60) and cysts per guild (57-59, 61, 62), counted afresh each step
@@ -1457,11 +1457,11 @@ class Engine {
     }
     if (this.K.heat) run('heatMain', Math.ceil(cells / 64));
     if (!prof) pass.end();
-    // the next temperatures and ice become this step's, and how many cells hold ice the next step's to read
+    // the next temperatures and ice become this step's, and how many cells hold ice and hot water the next step's to read
     if (this.K.heat) {
       enc.copyBufferToBuffer(b.heatNext, 0, b.thermal, 0, cells * 4);
       enc.copyBufferToBuffer(b.heatNext, MAX_CELLS * 4, b.thermal, 3 * MAX_CELLS * 4, cells * 4);
-      enc.copyBufferToBuffer(b.ledger, this._heatAccAt() + 2 * MAX_CELLS * 4, b.thermal, 4 * MAX_CELLS * 4, 4);
+      enc.copyBufferToBuffer(b.ledger, this._heatAccAt() + 2 * MAX_CELLS * 4, b.thermal, 4 * MAX_CELLS * 4, 8);
     }
   }
 

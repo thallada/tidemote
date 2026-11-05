@@ -8,7 +8,7 @@ export const MAXK = 1024;
 export const FIRST_LIFE = 5;
 // grid cells at most: K.density particles to a cell, 2^19 holds 8M particles with room
 export const MAX_CELLS = 1 << 19;
-// the heat field's words (b.thermal): four blocks of MAX_CELLS (temperature, floor, freeze order, ice), then ICE_N
+// the heat field's words (b.thermal): four blocks of MAX_CELLS (temperature, floor, freeze order, ice), then ICE_N and HOT_N
 export const THERMAL_WORDS = 4 * MAX_CELLS + 4;
 export const META_SLOT = 16;
 export const META_POP = META_SLOT + MAXK;
@@ -59,6 +59,8 @@ export const NOTE_LITTER = 1 << 25;
 // no hotter (the heat goes into steam).
 const STAGE = { hot: 115, cold: -20, rate: 0.8 };
 const BOIL = 100;
+// dissolved air comes out of water warmer than this (bubSet); a step counts the cells near it (heatMain, HOT_N)
+const GAS_FROM = 42;
 // The needle in the water (docs/hand.md): its shaft's half-width, the length over which it tapers to its point, how
 // much of it is in the water (it comes down steeply from above: the rest is over the water, out of focus, and
 // touches nothing), and how near its point a cell must come to be pricked (world units)
@@ -712,7 +714,8 @@ fn edgeSway(p: vec2f, n: vec2f, flow: vec2f) -> f32 {
 }
 `;
 // whether any of the water is frozen (the heat field's ICE_N), for passes that show the ice
-const iceAnyWGSL = `fn iceAny() -> bool { return bitcast<u32>(heatField[${4 * MAX_CELLS}u]) != 0u; }`;
+const iceAnyWGSL = `fn iceAny() -> bool { return bitcast<u32>(heatField[${4 * MAX_CELLS}u]) != 0u; }
+fn hotAny() -> bool { return bitcast<u32>(heatField[${4 * MAX_CELLS + 1}u]) != 0u; }`;
 const shownWater = (world) => /* wgsl */ `
 // a thermal block's field at p, bilinear
 fn blockAt(base: u32, p: vec2f) -> f32 {
@@ -2653,22 +2656,32 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
 // climate's background. Stone in a cell gives it thermal mass: it warms and cools slowly. Below 0° the water
 // freezes (thermal block 3, docs/catastrophes.md).
 var<workgroup> iceCells: atomic<u32>;
+var<workgroup> hotCells: atomic<u32>;
 @compute @workgroup_size(64)
 fn heatMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) li: u32) {
-  if (gid.x < sim.grid.x * sim.grid.y && heatStep(gid.x)) { atomicAdd(&iceCells, 1u); }
-  // how many cells hold ice, for the next step to read (ICE_N): none, and nothing looks for ice
+  if (gid.x < sim.grid.x * sim.grid.y) {
+    let h = heatStep(gid.x);
+    if (h.x) { atomicAdd(&iceCells, 1u); }
+    if (h.y) { atomicAdd(&hotCells, 1u); }
+  }
+  // how many cells hold ice, and how many water warm enough that bubbles may show near them, for the next step to read
+  // (ICE_N, HOT_N): none of either, and the composite draws without them (compPick)
   workgroupBarrier();
   let n = atomicLoad(&iceCells);
   if (li == 0u && n > 0u) { atomicAdd(&ledger[heatAccAt() + 2u * MAX_CELLS], n); }
+  let hot = atomicLoad(&hotCells);
+  if (li == 0u && hot > 0u) { atomicAdd(&ledger[heatAccAt() + 2u * MAX_CELLS + 1u], hot); }
 }
-// One grid cell's next temperature and ice (heatNext's two blocks); whether it holds any ice.
-fn heatStep(c: u32) -> bool {
+// One grid cell's next temperature and ice (heatNext's two blocks); whether it holds any ice, and whether bubbles may
+// show near it (bubblesNear: air from GAS_FROM and 5° over the open water)
+fn heatStep(c: u32) -> vec2<bool> {
   let x = i32(c % sim.grid.x);
   let y = i32(c / sim.grid.x);
   let center = vec2f(f32(x), f32(y)) + 0.5;
   let here = heatCell(x, y);
   let carried = heatSample(center - flowAt(center) * sim.dt).x;
-  let lap = heatCell(x + 1, y) + heatCell(x - 1, y) + heatCell(x, y + 1) + heatCell(x, y - 1) - 4.0 * here;
+  let hr = heatCell(x + 1, y); let hl = heatCell(x - 1, y); let hu = heatCell(x, y + 1); let hd = heatCell(x, y - 1);
+  let lap = hr + hl + hu + hd - 4.0 * here;
   let stones = stoneCells[c];
   let mass = 1.0 + ${f(K.stoneMass)} * (f32(stones & 0xffffu) / REEF_FIX + f32(stones >> 16u));
   let light = lightAt(center);
@@ -2702,7 +2715,9 @@ fn heatStep(c: u32) -> bool {
   }
   heatNext[c] = min(t, ${f(BOIL)});
   heatNext[MAX_CELLS + c] = ice;
-  return ice > 0.0;
+  // (bubblesNear's test, per cell: its water and slope carried as far, with a degree more to spare for the cells' blend)
+  let slope = 0.5 * length(vec2f(hr - hl, hu - hd));
+  return vec2<bool>(ice > 0.0, t + 1.75 * slope + 4.0 > max(${f(GAS_FROM)}, sim.tbg + 5.0));
 }
 
 // --------------------------------------------------------------------- life
@@ -8383,7 +8398,7 @@ fn bubWall(sd: f32, sdn: f32) -> f32 { return max(sd, 0.5 * (sd - sdn)); }
 // own pace, leaving a ring of its collapse and a few specks of air that dissolve as it grows again. Their sizes spread as nucleation leaves them (log-normal): most small, a few large. a: the bubble, b
 // and c: those it touches (vapor: the specks it left); n how many; reach how far from a's center they all lie;
 // flash a collapse's ring (x its radius, y how bright).
-const GAS_FROM = 42.0; // (dissolved air comes out of water warmer than this: bubSet)
+const GAS_FROM = ${f(GAS_FROM)}; // (dissolved air comes out of water warmer than this: bubSet)
 struct BubSet { n: u32, a: Bub, b: Bub, c: Bub, reach: f32, flash: vec2f }
 // A generation of bubbles at wp: back, about how far the current has carried what is at wp over its life so far, tau
 // (its cells' frame, wp - back, where they began: each bubble is carried from there as one, bubSet, so the current's
@@ -9340,7 +9355,9 @@ struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location
     water = waterAt(wp - post.world * floor(wp / post.world));
     let roil = shimmer(wp, water);
     uv += roil / post.res;
-    bub = bubblesAt(wp + surf.shift + roil / post.ppu, post.ppu, water);
+    // (none in the lean composite: compPick draws the full one wherever water is warm enough for them, HOT_N; their
+    // registers cost every pixel, a Pixel 11 Pro's composite 4.1 → 1.9 ms without them)
+    if (!LEAN) { bub = bubblesAt(wp + surf.shift + roil / post.ppu, post.ppu, water); }
     bend += bub.bend;
   }
   uv += keepInView(bend * post.ppu, i.pos.xy) / post.res;
@@ -9501,7 +9518,7 @@ fn loupeScene(r: vec2f) -> vec3f {
 // the lean one: it, unless water is frozen (which only the GPU knows).
 @group(0) @binding(20) var<storage, read_write> compArgs: array<u32>;
 @compute @workgroup_size(1) fn compPick() {
-  let lean = !iceAny();
+  let lean = !iceAny() && !hotAny();
   compArgs[0] = select(3u, 0u, lean); compArgs[1] = 1u; compArgs[2] = 0u; compArgs[3] = 0u;
   compArgs[4] = select(0u, 3u, lean); compArgs[5] = 1u; compArgs[6] = 0u; compArgs[7] = 0u;
 }
