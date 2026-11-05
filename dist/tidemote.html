@@ -6720,9 +6720,10 @@ fn cullIndex(ii: u32) -> u32 {
 // registers leave more pixels in flight (an M1, cells about 10 pixels across: 0.5 ms of the scene's 4.9)
 override INTERIOR: bool = true;
 // (the quad list: the full pipeline's draw arguments, the lean one's, then the full one's particles from the start
-// and the lean one's from the end)
+// and the lean one's from the end, which only listMain fills: until the main view's full pipeline lands, the lean
+// one draws its cells unlisted, as the full one would)
 fn pointAt(ii: u32) -> u32 {
-  if (!INTERIOR) { return quadR[arrayLength(&quadR) - 1u - ii]; }
+  if (!INTERIOR && view.splat < 0.0) { return quadR[arrayLength(&quadR) - 1u - ii]; }
   if (view.splat != 0.0) { return quadR[8u + ii]; }
   if (view.culled == 1u) { return cullIndex(ii); }
   return ii;
@@ -24457,7 +24458,7 @@ ${e.message}` : String(e?.message || e));
           pass.setBindGroup(0, this.smallBG);
           pass.drawIndirect(this.b.smallArgs, 0);
         }
-        const lean = !pl.point && pl.pointLean;
+        const lean = !(pl.point && bgPoint) && pl.pointLean;
         pass.setPipeline(lean ? pl.pointLean : pl.point);
         pass.setBindGroup(0, lean ? this.mainBG.pointLean : bgPoint);
         if (quads) pass.drawIndirect(quads, 0);
@@ -24599,7 +24600,7 @@ ${e.message}` : String(e?.message || e));
       const lod = this.settings.lod, loupeLod = !!loupe && lod, specLod = !!specimen && (lod || !specimen.live);
       const ps = Math.max(1.1 * dpr, 0.085 * cam.ppu);
       const splat = !culled[0] && this.settings.nodes && ps <= SPLAT_PX && this.count >= W * H2 / 4 ? SPLAT_PX : 0;
-      const listed = !splat && this.settings.nodes;
+      const listed = !splat && this.settings.nodes && !!(this.main.point && this.mainBG.point);
       this._writeView(this.b.view, this.viewData, cam, W, H2, dpr, time, selId, lod, culled[0], listed ? -1 : splat, true);
       if (listed) {
         d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0, 4, 0, 0, 0]));
@@ -38893,9 +38894,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "ff610bbcbb7de71f") return;
+      if (localStorage.getItem(key) === "42154c828450f4c0") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "ff610bbcbb7de71f");
+      if (res) localStorage.setItem(key, "42154c828450f4c0");
     } catch {
     }
   }
