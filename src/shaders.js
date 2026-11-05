@@ -4812,9 +4812,10 @@ fn cullIndex(ii: u32) -> u32 {
 // registers leave more pixels in flight (an M1, cells about 10 pixels across: 0.5 ms of the scene's 4.9)
 override INTERIOR: bool = true;
 // (the quad list: the full pipeline's draw arguments, the lean one's, then the full one's particles from the start
-// and the lean one's from the end)
+// and the lean one's from the end, which only listMain fills: until the main view's full pipeline lands, the lean
+// one draws its cells unlisted, as the full one would)
 fn pointAt(ii: u32) -> u32 {
-  if (!INTERIOR) { return quadR[arrayLength(&quadR) - 1u - ii]; }
+  if (!INTERIOR && view.splat < 0.0) { return quadR[arrayLength(&quadR) - 1u - ii]; }
   if (view.splat != 0.0) { return quadR[8u + ii]; }
   if (view.culled == 1u) { return cullIndex(ii); }
   return ii;

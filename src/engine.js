@@ -2554,7 +2554,7 @@ class Engine {
     if (this.settings.nodes) {
       if (v[22] < 0) { pass.setPipeline(pl.small); pass.setBindGroup(0, this.smallBG); pass.drawIndirect(this.b.smallArgs, 0); }
       // (until the main view's full point pipeline lands, its cells are drawn lean: without their insides)
-      const lean = !pl.point && pl.pointLean;
+      const lean = !(pl.point && bgPoint) && pl.pointLean;
       pass.setPipeline(lean ? pl.pointLean : pl.point);
       pass.setBindGroup(0, lean ? this.mainBG.pointLean : bgPoint);
       if (quads) pass.drawIndirect(quads, 0); else if (culled) pass.drawIndirect(culled, 0); else pass.draw(4, this.count);
@@ -2683,8 +2683,11 @@ class Engine {
     // there are enough of them to pay for the buffer it clears and adds in (a quarter as many as pixels)
     const ps = Math.max(1.1 * dpr, 0.085 * cam.ppu);
     const splat = !culled[0] && this.settings.nodes && ps <= SPLAT_PX && this.count >= W * H / 4 ? SPLAT_PX : 0;
-    // otherwise each sprite in view is sized once and those drawn small take a slim pipeline (listMain)
-    const listed = !splat && this.settings.nodes;
+    // otherwise each sprite in view is sized once and those drawn small take a slim pipeline (listMain); not until the
+    // full point pipeline has landed (_compileLate): the lean one drawing in its place would draw the full one's count
+    // from the lean list's end, stale indices of earlier frames that changed as the view moved (cells popping in and
+    // out) and none of the cells resolved past interiorLOD
+    const listed = !splat && this.settings.nodes && !!(this.main.point && this.mainBG.point);
     this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId, lod, culled[0], listed ? -1 : splat, true);
     if (listed) {
       d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0, 4, 0, 0, 0]));
