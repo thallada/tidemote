@@ -659,11 +659,11 @@ canvas.chart { cursor: crosshair; }
 .settings .tabs button { height: 32px; padding: 0 6px; letter-spacing: .08em; }
 .settings .sec-h > .ghost { flex: none; margin: 0 -6px 0 auto; }
 .opt .chip:disabled { opacity: .35; cursor: default; }
-/* an Auto choice shows what it is using now, at a fixed width so the row never reflows as it changes;
-   the choice it matches is underlined in the same color */
+/* an Auto choice shows what it is using now: the choice it matches underlined in the sun's color, or, when it
+   matches none (a render scale of 60%), its value on the Auto chip, at a fixed width so the row never reflows */
 .opt .auto-now { color: var(--sun); min-width: 4ch; letter-spacing: .04em; font-variant-numeric: tabular-nums; }
+.opt .segs:has(.auto-pick) .auto-now { display: none; }
 .opt .chip.auto-pick:not([aria-pressed="true"]) { box-shadow: inset 0 -2px 0 var(--sun); }
-.opt .chip-note { color: var(--ink-3); letter-spacing: .08em; }
 .hot-btn { border-color: var(--hot); color: var(--ink); background: rgba(255, 95, 58, 0.14); justify-self: start; }
 .hot-btn:hover { background: rgba(255, 95, 58, 0.26); border-color: var(--hot); }
 /* a button that is a row's value (Start a new world with ...) may wrap: it grows, padded, rather than crowd its lines */
@@ -675,17 +675,17 @@ canvas.chart { cursor: crosshair; }
 .readout b { font-size: 17px; font-weight: 300; line-height: 1; color: var(--sun); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .readout span { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
 .opts { display: flex; flex-direction: column; margin-top: var(--s4); }
-/* one option: its label in a fixed column (so rows line up across sections), then a segmented row of
-   choices on one line. A row whose label or choices don't fit on that line (fitOpts in main.js) stacks:
-   its label over the choices, which then span the panel's width as one even bar, so no row ever wraps
-   a choice or two onto a ragged second line; when most rows of a block stack, all of it does, so it reads
-   as one list */
+/* one option: its label in a fixed column, then its choices as one bar filling the rest, so every row's label and
+   bar line up with the next and the eye runs down each. A bar of many choices (.many) is a grid of even cells over
+   two lines or more; a bar too long for its line wraps, each line still filling it, its borders shared. */
 .opt { display: grid; grid-template-columns: 9.6em minmax(0, 1fr); gap: var(--s3); align-items: center; }
 .opt > .lbl { white-space: nowrap; }
-.opt > .segs { flex-wrap: nowrap; min-width: 0; }
-.opt > .segs .chip { flex: none; min-width: 44px; justify-content: center; white-space: nowrap; }
-.opt.stack { grid-template-columns: minmax(0, 1fr); gap: var(--s2); padding-top: var(--s1); }
-.opt.stack > .segs .chip { flex: 1 1 auto; padding: 0 6px; }
+.opt > .segs { min-width: 0; padding-top: 1px; }
+.opt > .segs .chip { flex: 1 1 auto; min-width: 0; padding: 0 6px; margin-top: -1px; justify-content: center; white-space: nowrap; }
+.opt > .segs.many { display: grid; grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); padding-left: 1px; }
+.opt > .segs.many .chip { margin-left: -1px; }
+.opt > .segs.many .chip:has(.auto-now) { grid-column: span 2; }
+.opt > .segs.many:has(.auto-pick) .chip:has(.auto-now) { grid-column: auto; }
 .opt kbd { color: var(--sun); margin-left: var(--s1); }
 /* a touch screen has no keys to show */
 @media (pointer: coarse) { .opt kbd { display: none; } }
@@ -1421,7 +1421,8 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .settings .sec-h .key { display: none; }
   .settings .tabs button { padding: 0 6px; letter-spacing: .06em; }
   .readout b { font-size: 15px; }
-  .readout { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-flow: dense; }
+  /* (four across, as on a laptop: the settings below them in the first screen) */
+  .readout span { letter-spacing: .1em; }
   .flash { top: 22%; font-size: 13px; }
   .help { display: none; }
   #film, #auto-next { display: none !important; }
@@ -25404,12 +25405,12 @@ ${e.message}` : String(e?.message || e));
     autoidle: "Left alone for a minute (three with a panel open), the camera starts filming the world on its own. Drag, scroll or tap to take it back.",
     renderscale: "The share of the screen’s resolution the world is drawn at. Auto lowers it while frames run late and raises it again when there is room, and shows the scale it is using now (the choice nearest it is underlined); a fixed value never changes.",
     autofloor: "The lowest render scale Auto may drop to.",
-    tunesea: "How often the sea’s waves are worked out: every frame, every second or fourth (their pace kept, in steps), or not at all, leaving the water’s surface still. On a phone it is a sixth of a frame. Auto lowers and raises it with the other Auto choices, by what each costs this device and how much it shows (shown beside Auto).",
+    tunesea: "How often the sea’s waves are worked out: every frame (Full), every second (½) or fourth (¼) frame, their pace kept, in steps, or not at all, leaving the water’s surface still. On a phone it is a sixth of a frame. Auto lowers and raises it with the other Auto choices, by what each costs this device and how much it shows (the choice it uses is underlined).",
     tunebloom: "The soft glow around bright cells, allowed or not. Auto leaves it out when frames run late and its time is worth more elsewhere.",
     tunespecks: "The finest specks drifting in the water, seen only close up. Auto leaves them out when frames run late.",
-    tunestone: "How often the stone is lit again while the world runs, as its grains wear and its reefs grow. Auto lights it less often when frames run late.",
+    tunestone: "How often the stone is lit again while the world runs (every ½, 1 or 2 seconds), as its grains wear and its reefs grow. Auto lights it less often when frames run late.",
     tuneinteriors: "Whether cells seen up close show what is inside them (their nuclei, vacuoles and the food they digest). Off, they keep their shapes, walls and tissue, drawn more cheaply. Auto turns them off only on a device where frames run late up close.",
-    tunefinish: "The last touches on the view: Full has all of them; No shimmer leaves out the heat map’s faint shimmer over warm water (boiling water still roils); Plain also leaves out the eyepiece’s optics and the microscope’s look, about halving the cost of finishing each frame. Auto gives them up only on a device where frames run late and they cost much.",
+    tunefinish: "The last touches on the view: Full has all of them; Still leaves out the heat map’s faint shimmer over warm water (boiling water still roils); Plain also leaves out the eyepiece’s optics and the microscope’s look, about halving the cost of finishing each frame. Auto gives them up only on a device where frames run late and they cost much.",
     density: "The most device pixels drawn per CSS pixel. High-density (Retina) screens look sharper at 2× but cost up to four times the pixels of 1×. Readouts and outlines stay sharp either way. Auto draws at 1× (while a film rolls, up to 1.5×, so its frames are not stretched up). It shows the density it is using now. A fixed value never changes.",
     targetfps: "Frames per second aimed for, as a whole number of the screen’s refreshes so frames stay evenly spaced (60 on a 144 Hz screen is every second refresh, 72 fps). 30 halves the GPU’s work and saves battery; Display follows the screen’s refresh rate (120 on many phones and Macs), which costs the most. Simulated time keeps pace with real time at any rate. Auto aims for 60 and, when the device can’t keep up, lowers the rate itself (to 30, 20 or 15; shown beside Auto); a rate chosen is held even then.",
     bloom: "A soft glow around bright cells. Several extra full-screen passes.",
@@ -25418,7 +25419,7 @@ ${e.message}` : String(e?.message || e));
     specks: "The fine suspension that drifts between cells when zoomed far in. Drawn speck by speck; off saves a compute pass and a full-screen pass.",
     closeup: "The live close-up in the specimen panel: a second, small view of the world drawn every frame.",
     particles: "Every grain, husk and cell is one particle; their number is fixed for a world’s whole life. Auto measures the GPU and picks the most it can run smoothly, and shows the count it picked for this world. Changing it starts a new world.",
-    neighbors: "In a crowd, the most nearby particles a cell weighs each step. It samples them evenly and counts each for the ones it skips, so crowding and pushes stay right on average; it only picks food and bond partners from those it saw. The cells it touches (bodies parting, a crowd’s drag) are sampled in proportion. Fewer runs faster in dense colonies and makes no difference in open water. The default is marked. Takes effect at once.",
+    neighbors: "In a crowd, the most nearby particles a cell weighs each step. It samples them evenly and counts each for the ones it skips, so crowding and pushes stay right on average; it only picks food and bond partners from those it saw. The cells it touches (bodies parting, a crowd’s drag) are sampled in proportion. Fewer runs faster in dense colonies and makes no difference in open water. Auto weighs 112 and gives up to 88 or 64 only on a device where the step costs much (no difference to the ecology was found down to 64); the count it uses is underlined. Takes effect at once.",
     interface: "Off hides every panel, readout and caption, leaving only the world and the loupe; the auto camera keeps filming. U or Esc brings it back.",
     loupe: "A magnifier that follows the mouse when zoomed out. Clicks inside it select what is under the crosshair.",
     speed: "Current speed, in micrometers (µm) per second.",
@@ -39027,11 +39028,11 @@ ${e.message}` : String(e?.message || e));
   var throttles = navigator.userAgentData?.mobile ?? (/Android|iPhone|iPad|Mobile/.test(navigator.userAgent) || isCoarse && !matchMedia("(any-pointer: fine)").matches);
   var TUNE_TITLES = { sea: "Water motion", bloom: "Bloom", specks: "Specks", stone: "Stone light", finish: "Finish", interiors: "Cell insides" };
   var TUNE_NAMES = {
-    sea: ["Off", "Quarter", "Half", "Every frame"],
+    sea: ["Off", "¼", "½", "Full"],
     bloom: ["Off", "On"],
     specks: ["Off", "On"],
-    stone: ["Every 2 s", "Every 1 s", "Every ½ s"],
-    finish: ["Plain", "No shimmer", "Full"],
+    stone: ["2 s", "1 s", "½ s"],
+    finish: ["Plain", "Still", "Full"],
     interiors: ["Off", "On"]
   };
   var NONE6 = 4294967295;
@@ -41564,7 +41565,7 @@ ${e.message}` : String(e?.message || e));
       const choice = (id, title, key, items, cur, tip) => {
         const now = String(cur) === "auto" ? autoNow(id) : null;
         const label3 = (v, l) => v === "auto" && now ? `${l} <span class="auto-now" data-auto="${id}">${now.text}</span>` : l;
-        return `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ""}</span><div class="row segs" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip${now && String(v) === now.pick ? " auto-pick" : ""}" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? " disabled" : ""}>${label3(v, l)}</button>`).join("")}</div></div>`;
+        return `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ""}</span><div class="row segs${items.length > 7 ? " many" : ""}" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip${now && String(v) === now.pick ? " auto-pick" : ""}" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? " disabled" : ""}>${label3(v, l)}</button>`).join("")}</div></div>`;
       };
       function autoNow(id) {
         if (id === "fps") {
@@ -41581,6 +41582,7 @@ ${e.message}` : String(e?.message || e));
           return { text: TUNE_NAMES[k][l], pick: String(l) };
         }
         if (id === "n" && !state.perf.particles) return { text: kfmt(eng.count), pick: String(eng.count) };
+        if (id === "scan") return { text: String(eng.maxScan), pick: String(eng.maxScan) };
         return null;
       }
       const autoLive = () => {
@@ -41602,19 +41604,19 @@ ${e.message}` : String(e?.message || e));
         const m = sound.mix, mix4 = (k) => choice(`mix-${k}`, MIX[k].name, "", MIX[k].choices.map(([label3], i) => [i, label3]), m[k], `audio${k}`);
         return group("sound", "Playback", onoff("sound", "Soundtrack", "M", sound.on) + `<div class="opt"><span class="lbl">Volume <kbd>− =</kbd></span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${Math.round(sound.volume * 100)}" aria-label="Volume"><b id="set-vol-v">${Math.round(sound.volume * 100)}%</b></div></div>` + mix4("background")) + group("mix", "Mix", ["music", "cells", "water", "tools"].map(mix4).join("")) + group("character", "Character", mix4("space") + mix4("tone"));
       }
-      const scanChoices = () => [...new Set([0.75, 1, 1.5, 2].map((f2) => Math.round(K.maxScan * f2 / 8) * 8).concat(eng.maxScan))].sort((a, b) => a - b);
+      const scanChoices = () => [.../* @__PURE__ */ new Set([...KNOBS.neighbors.levels, ...[1.5, 2].map((f2) => Math.round(K.maxScan * f2 / 8) * 8), state.perf.scan ?? K.maxScan])].sort((a, b) => a - b);
       function performance_() {
         const P = state.perf;
         const dev = Math.min(devicePixelRatio || 1, 2);
         const sizes2 = PARTICLE_SIZES.filter((n) => n <= maxParticles());
         const nowN = pendingN ?? (P.particles || "auto");
-        return group("res", "Resolution", choice("scale", "Render scale", "", [["auto", "Auto"], [1, "100%"], [0.75, "75%"], [0.5, "50%"], [0.35, "35%"]], P.scale, "renderscale") + (P.scale === "auto" ? choice("floor", "Auto lowest", "", [[0.75, "75%"], [0.5, "50%"], [0.35, "35%"], [0.25, "25%"]], P.floor, "autofloor") : "") + choice("density", "Pixel density", "", [["auto", "Auto"], [1, "1×"], [1.5, "1.5×", dev < 1.5], [2, "2×", dev < 2]], P.density, "density") + choice("fps", "Target fps", "", [["auto", "Auto"], [30, "30"], [60, "60"], [0, "Display"]], P.fps, "targetfps") + Object.keys(TUNE_TITLES).map((k) => choice(`tune-${k}`, TUNE_TITLES[k], "", [["auto", "Auto"], ...TUNE_NAMES[k].map((n, i) => [i, n]).reverse()], P.tune[k], `tune${k}`)).join("")) + group("world", "World", choice("n", "Particles", "", [["auto", "Auto"], ...sizes2.map((n) => [n, kfmt(n)])], nowN, "particles") + choice("scan", "Neighbors", "", scanChoices().map((n) => [n, n === K.maxScan ? `${n} <span class="chip-note">default</span>` : String(n)]), eng.maxScan, "neighbors") + (pendingN != null && String(pendingN) !== String(P.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === "auto" ? "a measured count" : fmt(pendingN)}</button></div>` : "") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", "Profile")}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : ""));
+        return group("res", "Resolution", choice("scale", "Render scale", "", [["auto", "Auto"], [1, "100%"], [0.75, "75%"], [0.5, "50%"], [0.35, "35%"]], P.scale, "renderscale") + (P.scale === "auto" ? choice("floor", "Auto lowest", "", [[0.75, "75%"], [0.5, "50%"], [0.35, "35%"], [0.25, "25%"]], P.floor, "autofloor") : "") + choice("density", "Pixel density", "", [["auto", "Auto"], [1, "1×"], [1.5, "1.5×", dev < 1.5], [2, "2×", dev < 2]], P.density, "density") + choice("fps", "Target fps", "", [["auto", "Auto"], [30, "30"], [60, "60"], [0, "Display"]], P.fps, "targetfps")) + group("detail", "Detail", Object.keys(TUNE_TITLES).map((k) => choice(`tune-${k}`, TUNE_TITLES[k], "", [["auto", "Auto"], ...TUNE_NAMES[k].map((n, i) => [i, n]).reverse()], P.tune[k], `tune${k}`)).join("")) + group("world", "World", choice("n", "Particles", "", [["auto", "Auto"], ...sizes2.map((n) => [n, kfmt(n)])], nowN, "particles") + choice("scan", "Neighbors", "", [["auto", "Auto"], ...scanChoices().map((n) => [n, String(n)])], P.scan ?? "auto", "neighbors") + (pendingN != null && String(pendingN) !== String(P.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === "auto" ? "a measured count" : fmt(pendingN)}</button></div>` : "") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", "Profile")}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : ""));
       }
       const EVENT_NAMES = { drought: "Drought", storm: "Storm", duckweed: "Duckweed", frost: "Frost" };
       function climate_() {
         const E = state.events;
         const kinds = E.on ? EVENT_TYPES.map((x) => onoff(`ev-${x}`, EVENT_NAMES[x], "", E[x], `ev${x}`)).join("") : "";
-        const now = !K.pond ? "" : state.phase === "running" && !climate.event && E.on && EVENT_TYPES.some((x) => E[x]) ? `<div class="opt"><span class="lbl">${term("evstart", "Start one now")}</span><div class="row segs">${EVENT_TYPES.filter((x) => E.on && E[x]).map((x) => `<button type="button" class="chip" data-o="ev-start" data-v="${x}">${EVENT_NAMES[x]}</button>`).join("")}</div></div>` : climate?.event ? `<div class="opt"><span class="lbl">Under way</span><span class="note">${EVENT_NAMES[climate.event.type]}${climate.phase && climate.phase !== climate.event.type ? ` · ${climate.phase}` : ""}</span></div>` : "";
+        const now = !K.pond ? "" : state.phase === "running" && !climate.event && E.on && EVENT_TYPES.some((x) => E[x]) ? ((on) => `<div class="opt"><span class="lbl">${term("evstart", "Start one now")}</span><div class="row segs${on.length > 3 ? ' many" style="--cols: 2' : ""}">${on.map((x) => `<button type="button" class="chip" data-o="ev-start" data-v="${x}">${EVENT_NAMES[x]}</button>`).join("")}</div></div>`)(EVENT_TYPES.filter((x) => E.on && E[x])) : climate?.event ? `<div class="opt"><span class="lbl">Under way</span><span class="note">${EVENT_NAMES[climate.event.type]}${climate.phase && climate.phase !== climate.event.type ? ` · ${climate.phase}` : ""}</span></div>` : "";
         return group("events", "Pool events", onoff("ev-on", "Events", "", E.on, "poolevents") + kinds + now);
       }
       let saves = null, used = 0, wName = "", ask2 = null, wBusy = "", wPoll = 0;
@@ -41801,27 +41803,7 @@ ${e.message}` : String(e?.message || e));
         }
         if (tab === "worlds" && saves == null) refreshSaves();
         readout(true);
-        fitOpts();
       }
-      const range = document.createRange();
-      function fitOpts() {
-        if (el2.hidden) return;
-        const rows = [...opts.querySelectorAll(".opt")].filter((r) => r.querySelector(":scope > .segs"));
-        for (const r of rows) r.classList.remove("stack");
-        const over = new Set(rows.filter((r) => {
-          const l = r.querySelector(":scope > .lbl"), g = r.querySelector(":scope > .segs");
-          if (l) {
-            range.selectNodeContents(l);
-            if (range.getBoundingClientRect().width > l.clientWidth + 1) return true;
-          }
-          return g.scrollWidth > g.clientWidth + 1;
-        }));
-        for (const r of rows) {
-          const mates = rows.filter((m) => m.parentElement === r.parentElement);
-          if (over.has(r) || mates.filter((m) => over.has(m)).length * 2 > mates.length) r.classList.add("stack");
-        }
-      }
-      addEventListener("resize", fitOpts);
       let roAt = 0;
       function readout(force) {
         if (el2.hidden || tab !== "performance") return;
@@ -41923,8 +41905,9 @@ ${e.message}` : String(e?.message || e));
           applyTune();
           resetAdapt();
         } else if (id === "scan") {
-          P.scan = +v === K.maxScan ? null : +v;
-          eng.maxScan = +v;
+          P.scan = v === "auto" ? null : +v;
+          if (v === "auto") tune.neighbors.level = KNOBS.neighbors.levels.length - 1;
+          applyTune();
         } else if (id === "n") pendingN = v === "auto" ? "auto" : +v;
         else if (id === "apply") {
           const n = pendingN;

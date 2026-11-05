@@ -56,8 +56,8 @@ const touchOnly = !matchMedia('(any-hover: hover)').matches;
 const throttles = navigator.userAgentData?.mobile ?? (/Android|iPhone|iPad|Mobile/.test(navigator.userAgent) || (isCoarse && !matchMedia('(any-pointer: fine)').matches));
 // the tuner's knobs as Settings → Performance names them, and each level's name (cheapest first, as KNOBS' ladders)
 const TUNE_TITLES = { sea: 'Water motion', bloom: 'Bloom', specks: 'Specks', stone: 'Stone light', finish: 'Finish', interiors: 'Cell insides' };
-const TUNE_NAMES = { sea: ['Off', 'Quarter', 'Half', 'Every frame'], bloom: ['Off', 'On'], specks: ['Off', 'On'], stone: ['Every 2 s', 'Every 1 s', 'Every ½ s'],
-  finish: ['Plain', 'No shimmer', 'Full'], interiors: ['Off', 'On'] };
+const TUNE_NAMES = { sea: ['Off', '¼', '½', 'Full'], bloom: ['Off', 'On'], specks: ['Off', 'On'], stone: ['2 s', '1 s', '½ s'],
+  finish: ['Plain', 'Still', 'Full'], interiors: ['Off', 'On'] };
 const NONE = 0xffffffff;
 const TAU = Math.PI * 2;
 const genomeOfWords = (w) => { const u = Uint32Array.from(w); return readGenome(u, new Float32Array(u.buffer), 0); };
@@ -2346,7 +2346,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const choice = (id, title, key, items, cur, tip) => {
       const now = String(cur) === 'auto' ? autoNow(id) : null;
       const label = (v, l) => (v === 'auto' && now ? `${l} <span class="auto-now" data-auto="${id}">${now.text}</span>` : l);
-      return `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ''}</span><div class="row segs" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip${now && String(v) === now.pick ? ' auto-pick' : ''}" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? ' disabled' : ''}>${label(v, l)}</button>`).join('')}</div></div>`;
+      return `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ''}</span><div class="row segs${items.length > 7 ? ' many' : ''}" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip${now && String(v) === now.pick ? ' auto-pick' : ''}" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? ' disabled' : ''}>${label(v, l)}</button>`).join('')}</div></div>`;
     };
     // what an Auto option is using now ({ text, pick: the data-v of the choice it matches, if any }):
     // the render scale, the pixel density, the frame rate aimed for, and a measured world's particle count
@@ -2356,6 +2356,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (id === 'density') { const d = +density().toFixed(2); return { text: `${d}×`, pick: String(d) }; }
       if (id.startsWith('tune-')) { const k = id.slice(5), l = tune[k].level; return { text: TUNE_NAMES[k][l], pick: String(l) }; }
       if (id === 'n' && !state.perf.particles) return { text: kfmt(eng.count), pick: String(eng.count) };
+      if (id === 'scan') return { text: String(eng.maxScan), pick: String(eng.maxScan) };
       return null;
     }
     const autoLive = () => {
@@ -2408,9 +2409,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + group('mix', 'Mix', ['music', 'cells', 'water', 'tools'].map(mix).join(''))
         + group('character', 'Character', mix('space') + mix('tone'));
     }
-    // the neighbor budgets offered: about ¾, 1, 1½ and 2 times the default (and one chosen before, if
-    // it is none of those)
-    const scanChoices = () => [...new Set([0.75, 1, 1.5, 2].map((f) => Math.round((K.maxScan * f) / 8) * 8).concat(eng.maxScan))].sort((a, b) => a - b);
+    // the neighbor budgets offered: Auto's (the tuner's levels), 1½ and 2 times the default, and one chosen before
+    const scanChoices = () => [...new Set([...KNOBS.neighbors.levels, ...[1.5, 2].map((f) => Math.round((K.maxScan * f) / 8) * 8), state.perf.scan ?? K.maxScan])].sort((a, b) => a - b);
     function performance_() {
       const P = state.perf;
       const dev = Math.min(devicePixelRatio || 1, 2);
@@ -2419,10 +2419,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
       return group('res', 'Resolution', choice('scale', 'Render scale', '', [['auto', 'Auto'], [1, '100%'], [0.75, '75%'], [0.5, '50%'], [0.35, '35%']], P.scale, 'renderscale')
         + (P.scale === 'auto' ? choice('floor', 'Auto lowest', '', [[0.75, '75%'], [0.5, '50%'], [0.35, '35%'], [0.25, '25%']], P.floor, 'autofloor') : '')
         + choice('density', 'Pixel density', '', [['auto', 'Auto'], [1, '1×'], [1.5, '1.5×', dev < 1.5], [2, '2×', dev < 2]], P.density, 'density')
-        + choice('fps', 'Target fps', '', [['auto', 'Auto'], [30, '30'], [60, '60'], [0, 'Display']], P.fps, 'targetfps')
-        + Object.keys(TUNE_TITLES).map((k) => choice(`tune-${k}`, TUNE_TITLES[k], '', [['auto', 'Auto'], ...TUNE_NAMES[k].map((n, i) => [i, n]).reverse()], P.tune[k], `tune${k}`)).join(''))
+        + choice('fps', 'Target fps', '', [['auto', 'Auto'], [30, '30'], [60, '60'], [0, 'Display']], P.fps, 'targetfps'))
+        + group('detail', 'Detail', Object.keys(TUNE_TITLES).map((k) => choice(`tune-${k}`, TUNE_TITLES[k], '', [['auto', 'Auto'], ...TUNE_NAMES[k].map((n, i) => [i, n]).reverse()], P.tune[k], `tune${k}`)).join(''))
         + group('world', 'World', choice('n', 'Particles', '', [['auto', 'Auto'], ...sizes.map((n) => [n, kfmt(n)])], nowN, 'particles')
-        + choice('scan', 'Neighbors', '', scanChoices().map((n) => [n, n === K.maxScan ? `${n} <span class="chip-note">default</span>` : String(n)]), eng.maxScan, 'neighbors')
+        + choice('scan', 'Neighbors', '', [['auto', 'Auto'], ...scanChoices().map((n) => [n, String(n)])], P.scan ?? 'auto', 'neighbors')
         + (pendingN != null && String(pendingN) !== String(P.particles || 'auto')
           ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === 'auto' ? 'a measured count' : fmt(pendingN)}</button></div>` : '')
         + (hasTS ? `<div class="opt"><span class="lbl">${term('profile', 'Profile')}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : ''));
@@ -2433,7 +2433,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const E = state.events;
       const kinds = E.on ? EVENT_TYPES.map((x) => onoff(`ev-${x}`, EVENT_NAMES[x], '', E[x], `ev${x}`)).join('') : '';
       const now = !K.pond ? '' : state.phase === 'running' && !climate.event && E.on && EVENT_TYPES.some((x) => E[x])
-        ? `<div class="opt"><span class="lbl">${term('evstart', 'Start one now')}</span><div class="row segs">${EVENT_TYPES.filter((x) => E.on && E[x]).map((x) => `<button type="button" class="chip" data-o="ev-start" data-v="${x}">${EVENT_NAMES[x]}</button>`).join('')}</div></div>`
+        ? ((on) => `<div class="opt"><span class="lbl">${term('evstart', 'Start one now')}</span><div class="row segs${on.length > 3 ? ' many" style="--cols: 2' : ''}">${on.map((x) => `<button type="button" class="chip" data-o="ev-start" data-v="${x}">${EVENT_NAMES[x]}</button>`).join('')}</div></div>`)(EVENT_TYPES.filter((x) => E.on && E[x]))
         : climate?.event ? `<div class="opt"><span class="lbl">Under way</span><span class="note">${EVENT_NAMES[climate.event.type]}${climate.phase && climate.phase !== climate.event.type ? ` · ${climate.phase}` : ''}</span></div>` : '';
       return group('events', 'Pool events', onoff('ev-on', 'Events', '', E.on, 'poolevents') + kinds + now);
     }
@@ -2606,27 +2606,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (typing && !$('w-name').disabled) { const i = $('w-name'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
       if (tab === 'worlds' && saves == null) refreshSaves();
       readout(true);
-      fitOpts();
     }
-    // A choice row whose label or chips overflow its line stacks (.opt.stack, page.css), and when most rows of a
-    // block do, all of it does: measured unstacked, after each render and on a resize. An Auto chip's live value
-    // keeps a fixed width, so readouts never change it.
-    const range = document.createRange();
-    function fitOpts() {
-      if (el.hidden) return;
-      const rows = [...opts.querySelectorAll('.opt')].filter((r) => r.querySelector(':scope > .segs'));
-      for (const r of rows) r.classList.remove('stack');
-      const over = new Set(rows.filter((r) => {
-        const l = r.querySelector(':scope > .lbl'), g = r.querySelector(':scope > .segs');
-        if (l) { range.selectNodeContents(l); if (range.getBoundingClientRect().width > l.clientWidth + 1) return true; }
-        return g.scrollWidth > g.clientWidth + 1;
-      }));
-      for (const r of rows) {
-        const mates = rows.filter((m) => m.parentElement === r.parentElement);
-        if (over.has(r) || mates.filter((m) => over.has(m)).length * 2 > mates.length) r.classList.add('stack');
-      }
-    }
-    addEventListener('resize', fitOpts);
     let roAt = 0;
     function readout(force) {
       if (el.hidden || tab !== 'performance') return;
@@ -2688,7 +2668,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'density') { P.density = v === 'auto' ? 'auto' : +v; resetAdapt(); fit(); }
       else if (id === 'fps') { P.fps = v === 'auto' ? 'auto' : +v; resetAdapt(); }
       else if (id.startsWith('tune-')) { const k = id.slice(5); P.tune[k] = v === 'auto' ? 'auto' : +v; if (v === 'auto') tune[k].level = KNOBS[k].levels.length - 1; applyTune(); resetAdapt(); }
-      else if (id === 'scan') { P.scan = +v === K.maxScan ? null : +v; eng.maxScan = +v; }
+      else if (id === 'scan') { P.scan = v === 'auto' ? null : +v; if (v === 'auto') tune.neighbors.level = KNOBS.neighbors.levels.length - 1; applyTune(); }
       else if (id === 'n') pendingN = v === 'auto' ? 'auto' : +v;
       else if (id === 'apply') { const n = pendingN; pendingN = null; setParticles(n); }
       else if (id === 'profile') { copyProfile(); return; }

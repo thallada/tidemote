@@ -603,11 +603,11 @@ canvas.chart { cursor: crosshair; }
 .settings .tabs button { height: 32px; padding: 0 6px; letter-spacing: .08em; }
 .settings .sec-h > .ghost { flex: none; margin: 0 -6px 0 auto; }
 .opt .chip:disabled { opacity: .35; cursor: default; }
-/* an Auto choice shows what it is using now, at a fixed width so the row never reflows as it changes;
-   the choice it matches is underlined in the same color */
+/* an Auto choice shows what it is using now: the choice it matches underlined in the sun's color, or, when it
+   matches none (a render scale of 60%), its value on the Auto chip, at a fixed width so the row never reflows */
 .opt .auto-now { color: var(--sun); min-width: 4ch; letter-spacing: .04em; font-variant-numeric: tabular-nums; }
+.opt .segs:has(.auto-pick) .auto-now { display: none; }
 .opt .chip.auto-pick:not([aria-pressed="true"]) { box-shadow: inset 0 -2px 0 var(--sun); }
-.opt .chip-note { color: var(--ink-3); letter-spacing: .08em; }
 .hot-btn { border-color: var(--hot); color: var(--ink); background: rgba(255, 95, 58, 0.14); justify-self: start; }
 .hot-btn:hover { background: rgba(255, 95, 58, 0.26); border-color: var(--hot); }
 /* a button that is a row's value (Start a new world with ...) may wrap: it grows, padded, rather than crowd its lines */
@@ -619,17 +619,17 @@ canvas.chart { cursor: crosshair; }
 .readout b { font-size: 17px; font-weight: 300; line-height: 1; color: var(--sun); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .readout span { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
 .opts { display: flex; flex-direction: column; margin-top: var(--s4); }
-/* one option: its label in a fixed column (so rows line up across sections), then a segmented row of
-   choices on one line. A row whose label or choices don't fit on that line (fitOpts in main.js) stacks:
-   its label over the choices, which then span the panel's width as one even bar, so no row ever wraps
-   a choice or two onto a ragged second line; when most rows of a block stack, all of it does, so it reads
-   as one list */
+/* one option: its label in a fixed column, then its choices as one bar filling the rest, so every row's label and
+   bar line up with the next and the eye runs down each. A bar of many choices (.many) is a grid of even cells over
+   two lines or more; a bar too long for its line wraps, each line still filling it, its borders shared. */
 .opt { display: grid; grid-template-columns: 9.6em minmax(0, 1fr); gap: var(--s3); align-items: center; }
 .opt > .lbl { white-space: nowrap; }
-.opt > .segs { flex-wrap: nowrap; min-width: 0; }
-.opt > .segs .chip { flex: none; min-width: 44px; justify-content: center; white-space: nowrap; }
-.opt.stack { grid-template-columns: minmax(0, 1fr); gap: var(--s2); padding-top: var(--s1); }
-.opt.stack > .segs .chip { flex: 1 1 auto; padding: 0 6px; }
+.opt > .segs { min-width: 0; padding-top: 1px; }
+.opt > .segs .chip { flex: 1 1 auto; min-width: 0; padding: 0 6px; margin-top: -1px; justify-content: center; white-space: nowrap; }
+.opt > .segs.many { display: grid; grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); padding-left: 1px; }
+.opt > .segs.many .chip { margin-left: -1px; }
+.opt > .segs.many .chip:has(.auto-now) { grid-column: span 2; }
+.opt > .segs.many:has(.auto-pick) .chip:has(.auto-now) { grid-column: auto; }
 .opt kbd { color: var(--sun); margin-left: var(--s1); }
 /* a touch screen has no keys to show */
 @media (pointer: coarse) { .opt kbd { display: none; } }
@@ -1365,7 +1365,8 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .settings .sec-h .key { display: none; }
   .settings .tabs button { padding: 0 6px; letter-spacing: .06em; }
   .readout b { font-size: 15px; }
-  .readout { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-flow: dense; }
+  /* (four across, as on a laptop: the settings below them in the first screen) */
+  .readout span { letter-spacing: .1em; }
   .flash { top: 22%; font-size: 13px; }
   .help { display: none; }
   #film, #auto-next { display: none !important; }
