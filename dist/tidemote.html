@@ -1564,10 +1564,10 @@ svg.niche .n-dot { fill: var(--cyan); }
     <div class="grp tools" id="tools" role="toolbar" aria-label="Tools"></div>
     <button type="button" class="act bench-btn" id="bench-open" aria-expanded="false" aria-controls="bench" data-hint="Bench · B"><svg><use id="bench-i" href="#i-bench"/></svg><span id="bench-l">Bench</span><svg class="bench-c" aria-hidden="true"><use href="#i-chev"/></svg></button>
     <div class="grp acts">
-      <button type="button" class="act" id="auto-play" aria-label="Auto camera" aria-pressed="false" data-hint="Auto camera · A"><svg><use href="#i-auto"/></svg><span>Auto</span></button>
+      <button type="button" class="act" id="auto-play" aria-label="Auto camera" aria-pressed="false" data-hint="Auto camera · P"><svg><use href="#i-auto"/></svg><span>Auto</span></button>
       <button type="button" class="act" id="auto-next" aria-label="Next scene" data-hint="Next scene · X" hidden><svg><use href="#i-next"/></svg></button>
       <button type="button" class="act" id="film" aria-label="Film" aria-pressed="false" data-hint="Film · R" hidden><svg><use href="#i-film"/></svg><span id="film-v">Film</span></button>
-      <span class="snd-wrap"><button type="button" class="act" id="snd" aria-label="Sound" aria-pressed="false" data-hint="Sound · S"><svg><use href="#i-sound"/></svg><span>Sound</span></button><input id="vol" type="range" min="0" max="100" step="1" value="70" aria-label="Volume" hidden></span>
+      <span class="snd-wrap"><button type="button" class="act" id="snd" aria-label="Sound" aria-pressed="false" data-hint="Sound · M"><svg><use href="#i-sound"/></svg><span>Sound</span></button><input id="vol" type="range" min="0" max="100" step="1" value="70" aria-label="Volume" hidden></span>
       <button type="button" class="act" id="set-open" aria-label="Settings" aria-expanded="false" aria-controls="settings" data-hint="Settings · V"><svg><use href="#i-gear"/></svg><span>Settings</span></button>
       <button type="button" class="act primary" id="lab-open" aria-label="Field Lab" aria-expanded="false" aria-controls="lab" data-hint="Field Lab · K"><svg><use href="#i-lab"/></svg><span>Lab</span></button>
     </div>
@@ -1708,17 +1708,17 @@ svg.niche .n-dot { fill: var(--cyan); }
     <dt>Drag · Wheel</dt><dd>Pan · zoom</dd>
     <dt>Space</dt><dd>Pause</dd>
     <dt>, . / &gt;</dt><dd>Slower · faster · real time · max</dd>
-    <dt>A · X</dt><dd>Auto camera · on to its next scene</dd>
+    <dt>P · X</dt><dd>Auto camera · on to its next scene</dd>
     <dt>R</dt><dd>Film thirty seconds (with the auto camera on, its next scene)</dd>
-    <dt>C</dt><dd>Follow the specimen</dd>
-    <dt>Enter · Tab</dt><dd>Ride the specimen (a held click or the arrows steer it) · on to its newest kin</dd>
+    <dt>Enter · Tab</dt><dd>Ride the specimen: the view follows it · on to its newest kin</dd>
+    <dt>W A S D · ↑ ← ↓ →</dt><dd>Steer the specimen, riding it from the first press (held, it gathers speed; tapped, it edges); a held click or finger steers too, a click on another cell gets off</dd>
     <dt>Esc</dt><dd>Close, then clear the highlight, then the map</dd>
     <dt>K</dt><dd>Fold or open the Field Lab</dd>
     <dt>Esc · ⌫</dt><dd>In the Lab’s Lineage view: back the way you came</dd>
     <dt>V</dt><dd>Settings</dd>
-    <dt>S · − =</dt><dd>Sound · volume</dd>
+    <dt>M · − =</dt><dd>Sound · volume</dd>
     <dt>T</dt><dd>Trails</dd>
-    <dt>G · E · D · W</dt><dd>Light map · heat map · tide map · currents</dd>
+    <dt>G · E · H · C</dt><dd>Light map · heat map · tide map · currents</dd>
     <dt>L N Y O</dt><dd>Bonds · particles · bloom · optics</dd>
     <dt>1–8 · 0</dt><dd>The tools: loupe, touch, lamp, shade, warm, cold, needle, pipette (held down: for a moment; again: put it down) · pan, nothing in hand</dd>
     <dt>B · Esc</dt><dd>The bench · put the tool down</dd>
@@ -1919,7 +1919,9 @@ svg.niche .n-dot { fill: var(--cyan); }
   var H_LINKS = H_IDS + 2 * PIPE_IDS;
   var H_OUT = H_LINKS + 2 * PIPE_MAX;
   var H_CUTS = H_OUT + 1 + PIPE_SP + 2 * PIPE_MAX;
-  var HAND_WORDS = H_CUTS + 1;
+  var RIDE_MAX = 4096;
+  var H_RIDE = H_CUTS + 1;
+  var HAND_WORDS = H_RIDE + 1 + RIDE_MAX;
   var HEAT_BINS = 16;
   var HEAT_BIN = 3;
   var THERMAL_LEDGER = { hist: 40, torpid: 56, makers: 57, framboidsMade: 58 };
@@ -3089,32 +3091,35 @@ ${w ? "" : "    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }"}
     let lt = lightSlope(p.pos) * (g.tail.z * ${f(K.phototaxis)} * min(th.perf, 1.0));${W("mPhoto = lt;")}
     taxis += lt;
   }
-  // the hand's ride (docs/hand.md): a ridden cell's will, a velocity toward where the viewer steers it that it takes
-  // on whatever else drives it, fastest for a swimmer, slower for a cell adrift, slow for an anchored one, none on
-  // dry ground; the cells bonded to it are drawn the same way, so a body goes with it rather than holding it back
+  // the hand's ride (docs/hand.md): a ridden cell's will, a velocity the viewer steers it at (hand.more.zw, world
+  // units a second: the page's willSpeed, fastest for a swimmer, slower for a cell adrift, slow for an anchored one)
+  // that it takes on whatever else drives it, as firmly as hand.ids.z says (none at rest: it goes its own way), none
+  // on dry ground. Its whole body takes on the same will (the cells bonded to it, and the body the page traced, H_RIDE),
+  // so the body is steered as one and its bonds are not torn by the pull. Stone is a wall to it: the part of the will
+  // into stone it is pressed against is lost, so a ridden cell slides along stone rather than through it.
   // (its cost is in upkeep, below)
   var will = vec2f(0.0);
   let rider = sim.hand.ids.y;
   if (rider != NONE && !stranded) {
-    var ra = vec2f(0.0);
     var on = p.id == rider;
-    if (on) { ra = p.pos; }
-    else {
-      // (the two it keeps, then those that keep it)
-      for (var b = 0u; b < 2u + nBack && !on; b++) {
-        var j = select(n2, n1, b == 0u);
-        if (b >= 2u) { j = backAt(i, b - 2u, p, n1, n2); }
-        if (j != NONE && j < sim.count && sortedFull[j].id == rider) { on = true; ra = sortedFull[j].pos; }
+    // (the two it keeps, then those that keep it; then, a cell with a bond, the rest of the body the page traced)
+    for (var b = 0u; b < 2u + nBack && !on; b++) {
+      var j = select(n2, n1, b == 0u);
+      if (b >= 2u) { j = backAt(i, b - 2u, p, n1, n2); }
+      if (j != NONE && j < sim.count && sortedFull[j].id == rider) { on = true; }
+    }
+    if (!on && (n1 != NONE || n2 != NONE || nBack > 0u)) { on = ridden(p.id); }
+    if (on) {
+      will = sim.hand.more.zw;
+      let sl = length(stoneF);
+      if (sl > 1e-5) {
+        let sn = stoneF / sl;
+        let into = dot(will, sn);
+        if (into < 0.0) { will -= sn * (into * smoothstep(0.0, 0.25, sl) * (1.0 - g.calcify)); }
       }
     }
-    if (on) {
-      let wd = handD(sim.hand.more.zw, ra);
-      let speed = ${f(K.will)} * bitcast<f32>(sim.hand.ids.z) * mix(${f(K.willDrift)}, 1.0, clamp(g.swim * min(th.perf, 1.0), 0.0, 1.0))
-        * mix(1.0, ${f(K.willAnchored)}, smoothstep(0.35, 0.1, g.advect));
-      will = wd / max(length(wd), 0.5) * speed;
-    }
   }
-  let willOn = any(will != vec2f(0.0));
+  let willOn = any(will != vec2f(0.0)) && bitcast<f32>(sim.hand.ids.z) > 0.0;
   // A coarse step holds the pair and stone forces gathered at its start, and a dense clump is too stiff
   // for that: it would overshoot, heat and loosen. So they carry a correction, implicit in the stiffness.
   // The cell and its neighborhood are taken as two bodies sharing momentum: the reaction to this cell's
@@ -3240,7 +3245,8 @@ ${w ? `  if (sub) { bondF += bendOn(i, gr) * ${f(K.growStiff)}; mSwim = select(n
       vel += normalize(dir) * swim * h;${W("if (k == 0u) { mSwim = normalize(dir) * swim; }")}
     }
     vel += taxis * h;
-    if (willOn) { vel = mix(vel, will, clamp(${f(K.willGrip)} * h, 0.0, 1.0)); }
+    // (the will takes the place of most of its motion, so stone pushes it out again after)
+    if (willOn) { vel = mix(vel, will, clamp(${f(K.willGrip)} * bitcast<f32>(sim.hand.ids.z) * h, 0.0, 1.0)) + stoneF * (${f(K.stoneWall)} * (1.0 - g.calcify) * h); }
     if (stranded) {
       vel = vel * exp(-${f(K.dryDrag)} * h) - pond.yz / max(length(pond.yz), 1e-4) * (${f(K.meniscus)} * (1.0 - smoothstep(0.0, ${f(K.filmR)}, -shore)) * h);
     }
@@ -3280,7 +3286,7 @@ ${w ? `  if (sub) { bondF += bendOn(i, gr) * ${f(K.growStiff)}; mSwim = select(n
   // heat-maker burns extra, all of it heat
   let heatMaking = ${f(K.heat ? K.thermoCost : 0)} * thermo;
   // a ridden cell pays for its will as for swimming
-  let willCost = select(0.0, bitcast<f32>(sim.hand.ids.z) * ${f(K.willCost)} * g.metab, p.id == sim.hand.ids.y && !stranded);
+  let willCost = select(0.0, bitcast<f32>(sim.hand.ids.z) * min(length(sim.hand.more.zw) / ${f(K.will)}, 1.0) * ${f(K.willCost)} * g.metab, willOn);
   let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0))
     * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) + heatMaking + willCost;`
     );
@@ -3337,8 +3343,9 @@ struct Hand {
                 // STAGE_COLD, less toward a temperature that share of the way there from the open water's
   rod: vec4f,   // Touch's rod in the water: its center, and where it was when the world last stepped
   cut: vec4f,   // the needle's stroke since the world last stepped, from xy to zw
-  more: vec4f,  // x the rod's radius (0: not in the water), y the cut's half-width (0: no cut), zw where the ridden cell is steered
-  ids: vec4u,   // x the cell the needle pricks, y the ridden cell (NONE: none), z the will's strength (f32 bits),
+  more: vec4f,  // x the rod's radius (0: not in the water), y the cut's half-width (0: no cut), zw the ridden cell's will
+                // (the velocity it is steered at, world units a second)
+  ids: vec4u,   // x the cell the needle pricks, y the ridden cell (NONE: none), z the will's hold (f32 bits, 0..1),
                 // w how many cells the pipette draws (their IDs in the ledger's hand region)
   suck: vec4f,  // the pipette's tip, its reach (0: none), how fast it draws what is in reach (world units a second, 0: not pressed)
   needle: vec4f, // the needle in the water: its point, and its shaft's way off toward the corner, as long as it runs (0: none)
@@ -3426,6 +3433,14 @@ fn note(ev: u32, kind: u32, id: u32, pos: vec2f, ak: u32, aid: u32, apos: vec2f)
 }
 fn noteSelf(ev: u32, kind: u32, id: u32, pos: vec2f) { note(ev, kind, id, pos, 0u, NONE, pos); }
 // whether the pipette draws cell id (its IDs sorted: a binary search)
+// Whether cell id is one of the ridden body's (the page's trace of it, H_RIDE)
+fn ridden(id: u32) -> bool {
+  let b = handAt() + ${H_RIDE}u;
+  let n = min(atomicLoad(&ledger[b]), ${RIDE_MAX}u);
+  var lo = 0u; var hi = n;
+  while (lo < hi) { let mid = (lo + hi) / 2u; if (atomicLoad(&ledger[b + 1u + mid]) < id) { lo = mid + 1u; } else { hi = mid; } }
+  return lo < n && atomicLoad(&ledger[b + 1u + lo]) == id;
+}
 fn drawn(id: u32) -> bool {
   let n = sim.hand.ids.w;
   let b = handAt();
@@ -5443,7 +5458,7 @@ ${cellWGSL(K, false, genomePtr)}
 // stranded. Then its mark.
 fn handOver(i: u32, v0: vec2f, push0: vec2f, swim: f32, will: vec2f, willOn: bool, flow: vec2f, pond: vec3f, shore: f32, stranded: bool) {
   let push = push0 + select(normalize(v0), vec2f(0.0), dot(v0, v0) < 1e-6) * swim;
-  let wg = select(0.0, clamp(${f(K.willGrip)} * sim.dt / f32(sim.ticks), 0.0, 1.0), willOn);
+  let wg = select(0.0, clamp(${f(K.willGrip)} * bitcast<f32>(sim.hand.ids.z) * sim.dt / f32(sim.ticks), 0.0, 1.0), willOn);
   let film = select(vec2f(0.0), -pond.yz / max(length(pond.yz), 1e-4) * (${f(K.meniscus)} * (1.0 - smoothstep(0.0, ${f(K.filmR)}, -shore))), stranded);
   let o = subAt(i);
   let w = bitcast<vec4u>(vec4f(push, flow)); let w2 = bitcast<vec4u>(vec4f(film, will * wg));
@@ -23552,6 +23567,13 @@ ${e.message}` : String(e?.message || e));
       d.queue.writeBuffer(this.b.studioGenomes, FIRST_LIFE * G_BYTES, genome);
       this._organsOf(this.studioOrgansBG, 1);
     }
+    /** The ridden body's cells (their IDs, the first RIDE_MAX, or none): each takes on the will (docs/hand.md, Riding). */
+    setRideBody(ids) {
+      const v = Uint32Array.from(ids || []).subarray(0, RIDE_MAX).sort(), w = new Uint32Array(1 + v.length);
+      w[0] = v.length;
+      w.set(v, 1);
+      this.device.queue.writeBuffer(this.b.ledger, this._handAt() + H_RIDE * 4, w);
+    }
     /** The cells the pipette draws toward its tip (their IDs, the first PIPE_MAX), its tip and pull in hand.suck. */
     setDrawn(ids) {
       const v = Uint32Array.from(ids).subarray(0, PIPE_MAX).sort();
@@ -25337,7 +25359,7 @@ ${e.message}` : String(e?.message || e));
     annotations: "Live notes over the world on what is happening in view, read from the simulation as it happens: who is hunting or grazing on whom, a species scalding in water its crowd has warmed, cells stilled by the cold, a new species budding off. With the auto camera only, always, or never.",
     diversity: "Effective number of species: exp of the Shannon entropy of species populations. A world of 10 equally common species scores 10.",
     will: "The viewer’s will, while this cell is ridden: one more drive, toward where it is steered, as strong as its swimming lets it be and paid for in upkeep as swimming is. Hunger and fear still pull as they did, and often win.",
-    ride: "Ride this cell: the camera follows it and a held click or finger (or the arrow keys) steers it, a will among its drives, as fast as its genes allow. Tab goes to its newest child, or after it dies to the nearest of its kind. Enter or Esc gets off.",
+    ride: "Ride this cell (or just press W A S D or an arrow key with it selected): the camera dives to it and follows it, and W A S D, the arrow keys or a held click or finger steer it, a will among its drives, as fast as its genes allow: held, it gathers speed over a second or so; tapped, it edges. A body is steered whole, and stone stops it. Tab goes to its newest child. If it dies as one cell of a body, the ride goes on in another; alone, the ride ends and Enter rides a relative. Enter, Esc or a click on another cell gets off.",
     toolreach: "How far every tool but the needle reaches, the same for all: the ring around the pointer. [ ] or ⇧ wheel change it."
   };
   var t = (term2, label3) => `<span class="term" data-tip="${term2}">${label3}</span>`;
@@ -29017,6 +29039,7 @@ ${e.message}` : String(e?.message || e));
   }
 
   // src/specimen.js
+  var RIDE_REL = '<button type="button" class="btn" data-act="riderel" data-hint="Ride the nearest of its kind · Enter">Ride a relative</button>';
   function createSpecimen(api) {
     const { eng, K } = api;
     const $3 = (id) => document.getElementById(id);
@@ -29135,8 +29158,8 @@ ${e.message}` : String(e?.message || e));
       const b = e.target.closest("[data-act]");
       if (!b) return;
       const a = b.dataset.act;
-      if (a === "follow") api.onFollow();
-      else if (a === "ride") api.onRide();
+      if (a === "ride") api.onRide();
+      else if (a === "riderel") api.onRideRelative();
       else if (a === "relative") api.onRelative();
       else if (a === "find") api.onFind();
       else if (a === "hl") api.onHighlight();
@@ -29491,7 +29514,8 @@ ${e.message}` : String(e?.message || e));
             const c = rgb2.map((x) => Math.round(255 * Math.min(1, x + lift)));
             plainGlyph(16 + grain.kind, (4278190080 | c[2] << 16 | c[1] << 8 | c[0]) >>> 0);
           } else plainGlyph(MATTER_GLYPH[p.kind][0], MATTER_GLYPH[p.kind][1]);
-          setActs(`m${!!mem}`, mem ? '<button type="button" class="btn" data-act="relative">Watch a relative</button>' : "");
+          const re = api.rideEnded();
+          setActs(`m${!!mem}${re}`, mem ? (re ? RIDE_REL : "") + '<button type="button" class="btn" data-act="relative">Watch a relative</button>' : "");
           const q10 = (q) => K.heat ? q ** ((eng.tbg - K.tRef) / 10) : 1;
           if (p.kind === 2) v += vital("Energy left", p.energy / 1.2, "sun", `${q10(K.rotQ10) > 1.3 ? "rotting fast · " : ""}crumbles in ${fmtDur(Math.max(0, (p.energy - K.huskMin) / (K.decay * q10(K.rotQ10))))}`, "husk");
           else if (framboid) v += vital("Fuel", clamp6(p.energy / K.framboidLife, 0, 1), "warm", `burns out in about ${fmtDur(Math.max(0, p.energy / q10(2)))}`, "framboid");
@@ -29525,7 +29549,8 @@ ${e.message}` : String(e?.message || e));
           const hl = sp && api.focusKey() === `sp:${sp.serial}`;
           const ride = api.riding();
           const cardB = sp ? cardBtn(sp.serial) : "";
-          setActs(`c${api.follow()}${hl}${!!sp}${ride}${cardB.length}`, `<button type="button" class="btn" data-act="follow" aria-pressed="${api.follow()}" data-hint="Keep it in view · C">Follow</button><button type="button" class="btn" data-act="ride" aria-pressed="${ride}" data-hint="${ride ? "Get off · Enter" : "Ride it: steer with a held click, a finger or the arrows · Enter"}">Ride</button>${sp && sp.alive ? `<button type="button" class="btn" data-act="hl" aria-pressed="${!!hl}" data-hint="Highlight its species">Highlight</button>` : ""}${cardB}`);
+          const rideB = sel.lost ? api.rideEnded() ? RIDE_REL : "" : `<button type="button" class="btn" data-act="ride" aria-pressed="${ride}" data-hint="${ride ? "Get off · Enter" : "Ride it: the view follows it; WASD, the arrows or a held click steer · Enter"}">Ride</button>`;
+          setActs(`c${sel.lost}${api.rideEnded()}${hl}${!!sp}${ride}${cardB.length}`, `${rideB}${sp && sp.alive ? `<button type="button" class="btn" data-act="hl" aria-pressed="${!!hl}" data-hint="Highlight its species">Highlight</button>` : ""}${cardB}`);
           if (g) {
             const dv = divEnergy(g, K);
             v += vital("Energy", p.energy / dv, "sun", `${p.energy.toFixed(2)} / ${dv.toFixed(2)}`, "energy");
@@ -37858,11 +37883,14 @@ ${e.message}` : String(e?.message || e));
         ids[20] = id >>> 0;
         act(t2, x, y, 1);
       },
-      /** Steer the ridden cell id toward (x, y) at strength s (0..1), at simulated time t; steer(NONE) lets it go. */
-      steer(id, x = 0, y = 0, s = 0, t2 = null) {
+      /**
+       * Ride cell id: steer it at velocity (vx, vy) (world units a second) held as firmly as s (0..1: at 0 it goes its
+       * own way), at simulated time t, where it is (at); steer(NONE) lets it go.
+       */
+      steer(id, vx = 0, vy = 0, s = 0, t2 = null, at = null) {
         h.rider = id >>> 0;
-        h.will = h.rider === NONE4 ? null : [x, y, s];
-        if (s > 0 && t2 != null) act(t2, x, y, 0, "ride");
+        h.will = h.rider === NONE4 ? null : [vx, vy, s];
+        if (s > 0 && t2 != null && at) act(t2, at[0], at[1], 0, "ride");
       },
       /** Ease the lamp, stage and rod toward what the hand is doing at simulated time t, and write the engine's words. */
       update(dt, t2 = 0) {
@@ -38693,6 +38721,122 @@ ${e.message}` : String(e?.message || e));
     };
   }
 
+  // src/ride.js
+  var RIDE = {
+    up: 0.4,
+    // s: the throttle's time constant toward a way held (90% of top speed after 3.9 of these, 1.56 s)
+    down: 0.14,
+    // s: back to rest, let go, or turned against the way it goes (it stops quicker than it starts)
+    reach: 0.5,
+    // world units: a held pointer nearer the cell than this steers it slower, to a stop on it
+    grip: 2
+    // the will's hold on the cell by the throttle: full from half of top speed, so a light touch nudges
+  };
+  var RIDE_CAM = {
+    short: 3.4,
+    // world units the view's shorter side spans at the ride's zoom (mid-to-close)
+    body: 1.3,
+    // ...or this many of the body's spans (across), if more...
+    bodyMax: 2,
+    // ...up to this many times short: a big body is framed about the ridden cell, not whole
+    keep: [0.75, 1.5],
+    // a view already within these of it is kept as it is
+    dive: 6.5,
+    // the spring's rate (1/s) into the ride's zoom: settled within about a second...
+    maxRate: 4,
+    // ...never zooming faster than this (log of the span a second: 7% a 60th of a second), so a dive from
+    // the whole world (40 times) takes about 1.5 s
+    diveFor: 1.1,
+    // s: then it eases to...
+    breathe: 2,
+    // ...this rate, following the speed
+    wide: 0.22,
+    // how much wider the view is at its top speed
+    slow: 0.1,
+    // the share of its top speed below which it is closest
+    smooth: 0.6
+    // s: the speed is smoothed over this
+  };
+  function spring(x, v, x1, w, dt) {
+    const c1 = x - x1, c2 = v + w * c1, e = Math.exp(-w * dt);
+    return [x1 + (c1 + c2 * dt) * e, (c2 - w * (c1 + c2 * dt)) * e];
+  }
+  var smoothstep2 = (a, b, x) => {
+    const t2 = Math.min(1, Math.max(0, (x - a) / (b - a)));
+    return t2 * t2 * (3 - 2 * t2);
+  };
+  var KEY_WAY = {
+    KeyW: [0, -1],
+    ArrowUp: [0, -1],
+    KeyS: [0, 1],
+    ArrowDown: [0, 1],
+    KeyA: [-1, 0],
+    ArrowLeft: [-1, 0],
+    KeyD: [1, 0],
+    ArrowRight: [1, 0]
+  };
+  var isRideKey = (code) => code in KEY_WAY;
+  function keyWay(codes) {
+    let x = 0, y = 0;
+    for (const c of codes) {
+      const w = KEY_WAY[c];
+      if (w) {
+        x += w[0];
+        y += w[1];
+      }
+    }
+    const l = Math.hypot(x, y);
+    return l > 0 ? [x / l, y / l] : [0, 0];
+  }
+  function pointerWay(dx, dy, reach = RIDE.reach) {
+    const l = Math.hypot(dx, dy);
+    return l > 1e-9 ? [dx / Math.max(l, reach), dy / Math.max(l, reach)] : [0, 0];
+  }
+  function createThrottle() {
+    return { u: [0, 0], v: [0, 0] };
+  }
+  function stepThrottle(th, way, dt, o = RIDE) {
+    if (!(dt > 0)) return th.u;
+    const held = way[0] !== 0 || way[1] !== 0;
+    const against = held && way[0] * th.u[0] + way[1] * th.u[1] < 0;
+    const w = 1 / (held && !against ? o.up : o.down);
+    for (let k = 0; k < 2; k++) [th.u[k], th.v[k]] = spring(th.u[k], th.v[k], way[k], w, dt);
+    const l = Math.hypot(th.u[0], th.u[1]);
+    if (l > 1) {
+      th.u[0] /= l;
+      th.u[1] /= l;
+    }
+    if (!held && l < 1e-3 && Math.hypot(th.v[0], th.v[1]) < 0.01) th.u = [0, 0], th.v = [0, 0];
+    return th.u;
+  }
+  var throttleGrip = (u, o = RIDE) => Math.min(1, o.grip * Math.hypot(u[0], u[1]));
+  function createRideCam(now, o = RIDE_CAM) {
+    const keep = now >= o.short * o.keep[0] && now <= o.short * o.keep[1];
+    return { base: keep ? now : o.short, z: Math.log(now), zv: 0, t: 0, sp: 0, manual: false };
+  }
+  function stepRideCam(c, speed, span2, dt, o = RIDE_CAM) {
+    if (!(dt > 0)) return Math.exp(c.z);
+    c.t += dt;
+    c.sp += (speed - c.sp) * (1 - Math.exp(-dt / o.smooth));
+    if (span2 > 0 && c.span == null) c.span = span2;
+    const base = Math.max(c.base, Math.min((c.span || 0) * o.body, o.short * o.bodyMax));
+    const to = Math.log(base * (1 + o.wide * smoothstep2(o.slow, 1, c.sp)));
+    const w = c.t < o.diveFor ? o.dive : o.breathe + (o.dive - o.breathe) * Math.exp(-(c.t - o.diveFor) / 0.5);
+    const z0 = c.z;
+    [c.z, c.zv] = spring(c.z, c.zv, to, w, dt);
+    if (Math.abs(c.z - z0) > o.maxRate * dt) {
+      const sg = Math.sign(c.z - z0);
+      c.z = z0 + sg * o.maxRate * dt;
+      c.zv = sg * o.maxRate;
+    }
+    return Math.exp(c.z);
+  }
+  function willSpeed(g, K) {
+    if (!g) return K.will * K.willDrift;
+    const swim = Math.min(1, Math.max(0, g.swim || 0));
+    return K.will * (K.willDrift + (1 - K.willDrift) * swim) * (1 + (K.willAnchored - 1) * smoothstep2(0.35, 0.1, g.advect ?? 1));
+  }
+
   // src/main.js
   var $2 = (id) => document.getElementById(id);
   var canvas = $2("stage");
@@ -38749,9 +38893,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "5dc2c858c0b49969") return;
+      if (localStorage.getItem(key) === "ff610bbcbb7de71f") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "5dc2c858c0b49969");
+      if (res) localStorage.setItem(key, "ff610bbcbb7de71f");
     } catch {
     }
   }
@@ -38906,7 +39050,7 @@ ${e.message}` : String(e?.message || e));
     let pipette = createPipette();
     const pull = { on: false, at: 0, until: 0, tip: [0, 0], got: [], taken: /* @__PURE__ */ new Set(), drawn: /* @__PURE__ */ new Set(), last: 0, quiet: 0, armed: false, shake: 0, note: null };
     const spit = { on: false, held: false, busy: false, sp: null, org: null, at: 0, next: 0, owed: 0, last: 0, fails: 0, dir: 0, pt: null, tip: [0, 0] };
-    const ride = { on: false, arrows: /* @__PURE__ */ new Set(), at: null, warned: false, slept: false };
+    const ride = { on: false, keys: /* @__PURE__ */ new Set(), at: null, warned: false, slept: false, th: createThrottle(), cam: null, body: void 0, top: 1 };
     let uiHoldUntil = 0;
     const panelSel = ".panel, .rail, .dock, .floats";
     document.addEventListener("pointerdown", (e) => {
@@ -40092,10 +40236,7 @@ ${e.message}` : String(e?.message || e));
     let spView = null;
     let dirty = false;
     function deselect() {
-      if (ride.on) {
-        ride.on = false;
-        hand.steer(NONE6);
-      }
+      if (ride.on) toggleRide(false, false);
       sel = null;
       spView = null;
       eng.trackId = NONE6;
@@ -40103,81 +40244,113 @@ ${e.message}` : String(e?.message || e));
       if (specimen) specimen.close();
       setMembers(null);
     }
-    function toggleRide(on = !ride.on) {
+    const viewShort = () => Math.min(canvas.width, canvas.height) / ppu();
+    function toggleRide(on = !ride.on, say = true) {
       if (on && !(sel && sel.particle.kind >= FIRST_LIFE && !sel.lost)) return;
       ride.on = on;
       ride.at = null;
+      ride.th = createThrottle();
+      if (sel) sel.rideEnded = false;
       if (on) {
         if (inHand()) pickTool("none");
-        if (!state.follow) toggleFollow();
-        else takeOver();
-      } else hand.steer(NONE6);
-      dirty = true;
-      flash(on ? "Riding · a held click or the arrows steer it · Tab: its newest child" : "Off");
-    }
-    function steerRide() {
-      if (!ride.on) return;
-      if (!sel || sel.lost || sel.particle.kind < FIRST_LIFE) {
-        if (hand.rider !== NONE6) {
-          hand.steer(NONE6);
-          flash("It is gone · Tab: on to the nearest of its kind");
+        if (sel.film) {
+          sel.film = false;
+          sel.filmFor = null;
+          specimen.open();
         }
+        takeOver();
+        state.follow = true;
+        ride.cam = createRideCam(viewShort());
+      } else {
+        hand.steer(NONE6);
+        state.follow = false;
+        ride.cam = null;
+        rideBody(null);
+      }
+      dirty = true;
+      if (say) flash(on ? "Ride On · WASD to steer" : "Ride Off");
+    }
+    function endRide(why) {
+      if (!ride.on) return;
+      toggleRide(false, false);
+      if (why && sel) sel.rideEnded = true;
+      flash(why ? `Ride Off · ${why}` : "Ride Off");
+    }
+    function rideBody(ids) {
+      if (ids === ride.body) return;
+      ride.body = ids;
+      eng.setRideBody(ids);
+    }
+    function steerRide(dt) {
+      if (!ride.on) return;
+      if (!sel || sel.lost) {
+        endRide("lost track of it");
         return;
       }
-      sel.rideKind = sel.particle.kind;
-      const serial = genomeFor(sel.particle.kind)?.serial;
-      if (serial && !life.rode.includes(serial)) life.rode.push(serial);
-      const fast = state.speed > 2;
-      if (fast && (ride.at || ride.arrows.size) && !ride.warned) {
+      if (sel.particle.kind < FIRST_LIFE && !sel.rehome) {
+        endRide("it died");
+        return;
+      }
+      const fast = state.speed > 2, live = !fast && !state.paused;
+      const [px, py] = predicted(), [W, H2] = eng.grid;
+      const way = ride.at ? pointerWay(wrapD2(ride.at[0] - px, W), wrapD2(ride.at[1] - py, H2)) : keyWay(ride.keys);
+      const held = way[0] !== 0 || way[1] !== 0;
+      if (fast && held && !ride.warned) {
         ride.warned = true;
         flash("Steering only at ×2 or slower");
       }
       if (!fast) ride.warned = false;
-      const [px, py] = predicted();
-      let to = ride.at;
-      if (!to && ride.arrows.size) {
-        const d = [0, 0];
-        for (const k of ride.arrows) {
-          if (k === "ArrowLeft") d[0]--;
-          if (k === "ArrowRight") d[0]++;
-          if (k === "ArrowUp") d[1]--;
-          if (k === "ArrowDown") d[1]++;
-        }
-        to = [px + d[0] * 4, py + d[1] * 4];
-      }
+      const u = stepThrottle(ride.th, live ? way : [0, 0], dt / 1e3);
+      const s = live ? throttleGrip(u) : 0;
       const cyst = sel.particle.cause === CYST;
-      if (cyst && to && !ride.slept) {
+      if (cyst && held && !ride.slept) {
         ride.slept = true;
         flash("Dormant, a cyst · it moves when it wakes");
       }
       if (!cyst) ride.slept = false;
-      hand.steer(sel.id, ...to || [px, py], to && !fast ? 1 : 0, eng.simTime);
+      const g = genomeFor(sel.particle.kind), v = ride.top = willSpeed(g, K);
+      if (s > 0 && g?.serial && !life.rode.includes(g.serial)) life.rode.push(g.serial);
+      hand.steer(sel.id, u[0] * v, u[1] * v, s, eng.simTime, [px, py]);
+      rideBody(members);
+    }
+    function rideCamera(dt) {
+      if (!ride.on || !ride.cam || ride.cam.manual || !sel) return;
+      const w = stepRideCam(ride.cam, Math.hypot(sel.particle.vx, sel.particle.vy) / ride.top, sel.box ? sel.org.span : 0, dt / 1e3);
+      cam.zoomTarget = clamp6(Math.min(canvas.width, canvas.height) / (w * fitPPU()), 1, maxZoom());
+    }
+    const zoomedByHand = () => {
+      if (ride.cam) ride.cam.manual = true;
+    };
+    async function nearestKin(kind, at, not) {
+      const res = await eng.requestPick(at, 4, NONE6, { kind });
+      const [W, H2] = eng.grid;
+      const kin = (res?.entries || []).filter((c) => c.id !== not && c.kind === kind).map((c) => ({ c, d: Math.hypot(wrapD2(c.x - at[0], W), wrapD2(c.y - at[1], H2)) }));
+      const young = kin.filter((k) => k.d < 1.2).sort((a, b) => a.c.age - b.c.age)[0];
+      return { res, young: !!young, next: (young || kin.sort((a, b) => a.d - b.d)[0])?.c };
     }
     async function hopRide() {
       if (!ride.on || !sel) return;
-      const kind = sel.particle.kind >= FIRST_LIFE ? sel.particle.kind : sel.rideKind;
-      if (kind == null) return;
-      const [px, py] = predicted();
-      const res = await eng.requestPick([px, py], 4, NONE6, { kind });
-      const [W, H2] = eng.grid;
-      const kin = (res?.entries || []).filter((c) => c.id !== sel.id && c.kind === kind).map((c) => ({ c, d: Math.hypot(wrapD2(c.x - px, W), wrapD2(c.y - py, H2)) }));
-      const young = kin.filter((k) => k.d < 1.2).sort((a, b) => a.c.age - b.c.age)[0];
-      const next = young || kin.sort((a, b) => a.d - b.d)[0];
+      const { res, young, next } = await nearestKin(sel.particle.kind, predicted(), sel.id);
       if (!next) {
         flash("None of its kind near");
         return;
       }
-      beginTracking(next.c, res, true);
+      if (!ride.on) return;
+      beginTracking(next, res, true);
       dirty = true;
-      if (!state.follow) toggleFollow();
       flash(young ? "On to its newest kin" : "On to the nearest of its kind");
     }
-    function toggleFollow() {
-      if (!sel) return;
-      state.follow = !state.follow;
-      if (state.follow) takeOver();
-      dirty = true;
-      flash(state.follow ? "Following" : "Stopped following");
+    async function rideRelative() {
+      if (!sel || !sel.memory) return;
+      const kind = sel.memory.kind, at = [sel.particle.x, sel.particle.y];
+      const { res, next } = await nearestKin(kind, at, sel.id);
+      if (!next) {
+        flash("None of its kind nearby");
+        return;
+      }
+      beginTracking(next, res, true);
+      toggleRide(true, false);
+      flash("Ride On · a relative");
     }
     function story(text2) {
       if (!sel) return;
@@ -40193,7 +40366,7 @@ ${e.message}` : String(e?.message || e));
       const g = sp ? sp.genome : readGenome(c.genomeU32, c.genomeF32, kind);
       return g.serial ? g : null;
     }
-    async function selectAt(sx, sy, pxPerWorld, world) {
+    async function selectAt(sx, sy, pxPerWorld, world, riding = false) {
       if (state.phase !== "running") return;
       const [wx, wy] = world || toWorldShown(sx, sy);
       const p = pxPerWorld || cssPPU();
@@ -40216,6 +40389,10 @@ ${e.message}` : String(e?.message || e));
       const anyR = bestAny && bestAny.kind === 3 ? 0.17 : bestAny && bestAny.kind === 4 ? 0.09 : 0.05;
       const touchR = isCoarse ? 30 : 22;
       const chosen = bestLife && bl < Math.max(touchR, 0.2 * p) ? bestLife : bestAny && ba < Math.max(isCoarse ? 20 : 14, anyR * p) ? bestAny : null;
+      if (riding) {
+        if (!chosen || chosen.kind < FIRST_LIFE || !ride.on || !sel || chosen.id === sel.id || sel.members?.has(chosen.id)) return;
+        endRide();
+      }
       if (!chosen) {
         deselect();
         return;
@@ -40473,6 +40650,7 @@ ${e.message}` : String(e?.message || e));
         }
         if (sel.rehome) {
           story(`${transitionText(sel.particle, sel.rehome.cell).replace(/ Its (body|skeleton) is now .*$/, "").replace(/ What remained is silt\.$/, "")} Its organism lives on; now watching another of its cells.`);
+          if (ride.on) flash("Its cell died · riding on in its body");
         } else story("Its organism split: following the larger part.");
         sel.rehome = null;
         sel.id = idAt(best);
@@ -40537,10 +40715,10 @@ ${e.message}` : String(e?.message || e));
       genomeFor,
       originWord,
       focusKey: () => focus.key,
-      follow: () => state.follow,
       riding: () => ride.on,
-      onFollow: toggleFollow,
+      rideEnded: () => !!(sel && sel.rideEnded && sel.memory),
       onRide: () => toggleRide(),
+      onRideRelative: rideRelative,
       onRelative: followRelative,
       onFind: () => findMember(spView),
       onHighlight: () => {
@@ -40991,6 +41169,7 @@ ${e.message}` : String(e?.message || e));
         flash("That species is no longer on record");
         return;
       }
+      if (ride.on) toggleRide(false, false);
       sel = null;
       eng.trackId = NONE6;
       state.follow = false;
@@ -41050,7 +41229,7 @@ ${e.message}` : String(e?.message || e));
         cam.anchor = null;
       }
       beginTracking(m.best, { entries: [], simTime: m.simTime });
-      state.follow = true;
+      toggleRide(true, false);
       if (phone()) lab.close();
     }
     document.addEventListener("click", (e) => {
@@ -41160,11 +41339,11 @@ ${e.message}` : String(e?.message || e));
       let confirming = false;
       function display() {
         const s = eng.settings;
-        return group("picture", "Picture", choice("microlook", "Microscope", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.look, "microlook") + (state.look ? choice("grain", "Film grain", "", [[0, "Off"], [1, "Fine"], [2, "Heavy"]], state.grain, "filmgrain") : "") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("bloom", "Bloom", "Y", s.bloom > 0, "bloom") + choice("water", "Water surface", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.water, "watersurface") + (state.water ? choice("waves", "Wave motion", "", [[0, "Slow"], [1, "Normal"], [2, "Lively"]], state.waves, "wavemotion") : "") + choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("lod", "Zoom detail", "", s.lod, "lod")) + group("overlays", "Overlays", onoff("tide", "Light map", "G", s.tide > 0, "light") + (s.tide ? rampHtml(MAPS[0]) : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : "") + onoff("bands", "Tide map", "D", s.bands > 0, "tidemap") + (s.bands ? rampHtml(MAPS[2]) : "") + onoff("currents", "Currents", "W", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks") + choice("notes", "Annotations", "", [[1, "Auto camera"], [2, "Always"], [0, "Off"]], state.notes, "annotations")) + group("view", "View", (isCoarse ? "" : onoff("ui", "Interface", "U", state.ui, "interface")) + onoff("closeup", "Live close-up", "", state.closeup, "closeup") + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", "Film")} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === "idle" ? '<button type="button" class="chip" data-o="film" data-v="now">Now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : ""));
+        return group("picture", "Picture", choice("microlook", "Microscope", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.look, "microlook") + (state.look ? choice("grain", "Film grain", "", [[0, "Off"], [1, "Fine"], [2, "Heavy"]], state.grain, "filmgrain") : "") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("bloom", "Bloom", "Y", s.bloom > 0, "bloom") + choice("water", "Water surface", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.water, "watersurface") + (state.water ? choice("waves", "Wave motion", "", [[0, "Slow"], [1, "Normal"], [2, "Lively"]], state.waves, "wavemotion") : "") + choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("lod", "Zoom detail", "", s.lod, "lod")) + group("overlays", "Overlays", onoff("tide", "Light map", "G", s.tide > 0, "light") + (s.tide ? rampHtml(MAPS[0]) : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : "") + onoff("bands", "Tide map", "H", s.bands > 0, "tidemap") + (s.bands ? rampHtml(MAPS[2]) : "") + onoff("currents", "Currents", "C", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks") + choice("notes", "Annotations", "", [[1, "Auto camera"], [2, "Always"], [0, "Off"]], state.notes, "annotations")) + group("view", "View", (isCoarse ? "" : onoff("ui", "Interface", "U", state.ui, "interface")) + onoff("closeup", "Live close-up", "", state.closeup, "closeup") + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", "Film")} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === "idle" ? '<button type="button" class="chip" data-o="film" data-v="now">Now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : ""));
       }
       function audio_() {
         const m = sound.mix, mix4 = (k) => choice(`mix-${k}`, MIX[k].name, "", MIX[k].choices.map(([label3], i) => [i, label3]), m[k], `audio${k}`);
-        return group("sound", "Playback", onoff("sound", "Soundtrack", "S", sound.on) + `<div class="opt"><span class="lbl">Volume <kbd>− =</kbd></span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${Math.round(sound.volume * 100)}" aria-label="Volume"><b id="set-vol-v">${Math.round(sound.volume * 100)}%</b></div></div>` + mix4("background")) + group("mix", "Mix", ["music", "cells", "water", "tools"].map(mix4).join("")) + group("character", "Character", mix4("space") + mix4("tone"));
+        return group("sound", "Playback", onoff("sound", "Soundtrack", "M", sound.on) + `<div class="opt"><span class="lbl">Volume <kbd>− =</kbd></span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${Math.round(sound.volume * 100)}" aria-label="Volume"><b id="set-vol-v">${Math.round(sound.volume * 100)}%</b></div></div>` + mix4("background")) + group("mix", "Mix", ["music", "cells", "water", "tools"].map(mix4).join("")) + group("character", "Character", mix4("space") + mix4("tone"));
       }
       const scanChoices = () => [...new Set([0.75, 1, 1.5, 2].map((f2) => Math.round(K.maxScan * f2 / 8) * 8).concat(eng.maxScan))].sort((a, b) => a - b);
       function performance_() {
@@ -41653,7 +41832,8 @@ ${e.message}` : String(e?.message || e));
       if (id !== "loupe") lensAt = null;
       if (inHand()) {
         takeOver();
-        if (sel && state.follow) toggleFollow();
+        endRide();
+        state.follow = false;
       }
       bench.render();
       view.render();
@@ -42037,6 +42217,7 @@ ${e.message}` : String(e?.message || e));
     }, true);
     addEventListener("blur", () => {
       shiftHeld = false;
+      ride.keys.clear();
     });
     const pipDispensing = () => spit.on ? true : pull.on || hand.suck ? false : pull.armed !== shiftHeld;
     function hearHand(R2, dt) {
@@ -42137,6 +42318,7 @@ ${e.message}` : String(e?.message || e));
           takeOver();
         } else if (ride.on && !folds && (e.pointerType !== "mouse" || e.button === 0)) {
           ptr.down.steer = true;
+          ptr.down.t = performance.now();
           ride.at = toWorld(e.clientX, e.clientY);
         }
       }
@@ -42174,6 +42356,7 @@ ${e.message}` : String(e?.message || e));
         prev.x = e.clientX;
         prev.y = e.clientY;
         ride.at = toWorld(e.clientX, e.clientY);
+        if (Math.hypot(e.clientX - ptr.down.x, e.clientY - ptr.down.y) > (e.pointerType === "mouse" ? 6 : 12)) ptr.down.moved = true;
         return;
       }
       if (ptr.down?.apply) {
@@ -42200,6 +42383,7 @@ ${e.message}` : String(e?.message || e));
           cam.y -= (cy - ptr.pinch.cy) * dpr / p;
         }
         zoomAt(d / Math.max(1, ptr.pinch.d), cx, cy);
+        zoomedByHand();
         ptr.pinch = { d, cx, cy };
         return;
       }
@@ -42211,6 +42395,7 @@ ${e.message}` : String(e?.message || e));
         const p = ppu();
         cam.x -= dxs * dpr / p;
         cam.y -= dys * dpr / p;
+        endRide();
         if (state.follow) {
           state.follow = false;
           dirty = true;
@@ -42225,12 +42410,15 @@ ${e.message}` : String(e?.message || e));
       ptr.pointers.delete(e.pointerId);
       if (ptr.pointers.size < 2) ptr.pinch = null;
       if (ptr.pointers.size === 0) {
-        if (ptr.down?.steer) ride.at = null;
+        if (ptr.down?.steer) {
+          ride.at = null;
+          if (!ptr.down.moved && e.type === "pointerup" && performance.now() - ptr.down.t < 280) selectAt(e.clientX, e.clientY, void 0, void 0, true);
+        }
         if (ptr.down?.pip) pipetteUp();
         else if (ptr.down?.apply) {
           if (!ptr.dragging && e.type === "pointerup") tapTool(e.clientX, e.clientY);
           hand.up(eng.simTime);
-        } else if (ptr.down && !ptr.dragging && e.type === "pointerup" && !inHand()) {
+        } else if (ptr.down && !ptr.down.steer && !ptr.dragging && e.type === "pointerup" && !inHand()) {
           const L = ptr.down.loupe;
           const setLens = hand.tool === "loupe" && e.pointerType !== "mouse";
           if (L && Math.hypot(e.clientX - L.sx, e.clientY - L.sy) < L.R) {
@@ -42264,6 +42452,7 @@ ${e.message}` : String(e?.message || e));
         return;
       }
       zoomAt(f2, e.clientX, e.clientY);
+      zoomedByHand();
     }, { passive: false });
     addEventListener("keydown", (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -42277,7 +42466,10 @@ ${e.message}` : String(e?.message || e));
       if (tag === "INPUT" && /^Arrow/.test(e.key)) return;
       const k = e.key;
       let handled = true;
-      if (k === "R" && e.shiftKey) {
+      if (isRideKey(e.code) && (ride.on || sel && !sel.lost && sel.particle.kind >= FIRST_LIFE && state.phase === "running")) {
+        if (!ride.on) toggleRide(true);
+        ride.keys.add(e.code);
+      } else if (k === "R" && e.shiftKey) {
         if (state.phase !== "running") return;
         const now = performance.now();
         if (now - state.confirmReset < 2500) {
@@ -42330,11 +42522,11 @@ ${e.message}` : String(e?.message || e));
         eng.settings.heat = (eng.settings.heat + 1) % 3;
         flash(["Heat map off", "Heat shimmer", "Thermal camera"][eng.settings.heat]);
         mapsChanged();
-      } else if (k === "d" || k === "D") {
+      } else if (k === "h" || k === "H") {
         eng.settings.bands = eng.settings.bands ? 0 : 1;
         flash(eng.settings.bands ? "Tide map" : "Tide map off");
         mapsChanged();
-      } else if (k === "w" || k === "W") {
+      } else if (k === "c" || k === "C") {
         state.currents = !state.currents;
         flash(state.currents ? "Currents shown" : "Currents hidden");
         view.render();
@@ -42342,23 +42534,20 @@ ${e.message}` : String(e?.message || e));
       else if (k === "k" || k === "K") {
         closeMenus();
         lab.toggle();
-      } else if (k === "m" || k === "M") pickTool("loupe");
-      else if ((k === "[" || k === "]") && inHand()) setReach(reachStep(hand.reach, k === "]" ? 1 : -1), true);
+      } else if ((k === "[" || k === "]") && inHand()) setReach(reachStep(hand.reach, k === "]" ? 1 : -1), true);
       else if (k === "[") {
         state.loupeMag = clamp6(state.loupeMag / 1.25, 1.5, 20);
         flash(`Loupe ×${state.loupeMag.toFixed(1)}`);
       } else if (k === "]") {
         state.loupeMag = clamp6(state.loupeMag * 1.25, 1.5, 20);
         flash(`Loupe ×${state.loupeMag.toFixed(1)}`);
-      } else if (k === "c" || k === "C") {
-        if (sel) toggleFollow();
-      } else if (k === "Enter" && sel) toggleRide();
-      else if (ride.on && /^Arrow/.test(k)) ride.arrows.add(k);
+      } else if ((k === "Enter" || k === "Tab") && sel && !ride.on && sel.rideEnded && sel.memory) rideRelative();
+      else if (k === "Enter" && sel) toggleRide();
       else if (k === "Tab" && ride.on) hopRide();
-      else if (k === "a" || k === "A") playAuto();
+      else if (k === "p" || k === "P") playAuto();
       else if ((k === "x" || k === "X") && director.active) nextScene();
       else if (k === "r" || k === "R") filmAct();
-      else if (k === "s" || k === "S") toggleSound();
+      else if (k === "m" || k === "M") toggleSound();
       else if (k === "-" || k === "_") nudgeVolume(-0.1);
       else if (k === "=" || k === "+") nudgeVolume(0.1);
       else if (k === "u" || k === "U") setInterface(!state.ui);
@@ -42395,6 +42584,7 @@ ${e.message}` : String(e?.message || e));
         takeOver();
         cam.zoomTarget = 1;
         cam.anchor = null;
+        zoomedByHand();
       } else handled = false;
       if (handled) {
         e.preventDefault();
@@ -42403,7 +42593,7 @@ ${e.message}` : String(e?.message || e));
     });
     let quasi = null;
     addEventListener("keyup", (e) => {
-      ride.arrows.delete(e.key);
+      ride.keys.delete(e.code);
       if (!quasi || e.key !== quasi.key) return;
       if (performance.now() - quasi.at > 450 && quasi.prev !== hand.tool) pickTool(quasi.prev);
       quasi = null;
@@ -43090,8 +43280,8 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
         }
         filmMarked = !!(visible && (!sh || sh.why.seen) && (!state.ui || drawMarker(sx, sy, inLens, dt))) && !!sh;
         if (ride.on && hand.will && hand.will[2] > 0 && state.ui) {
-          const [wx, wy] = easeWill(sel.disp[0], sel.disp[1], dt), p = cssPPU();
-          drawWill(sx, sy, sx + wx * p, sy + wy * p);
+          const [wx, wy] = easeWill(dt);
+          drawWill(sx, sy, sx + wx, sy + wy);
         }
       }
       if (L?.mouse) {
@@ -43118,10 +43308,10 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
       if (notesShown) drawNotes(dt, L);
     }
     const WILL_EASE = 80;
+    const WILL_PX = 120;
     const willShown = { a: 0, l: 0 };
-    function easeWill(px, py, dt) {
-      const [W, H2] = eng.grid, tx = wrapD2(hand.will[0] - px, W), ty = wrapD2(hand.will[1] - py, H2);
-      const a = Math.atan2(ty, tx), l = Math.hypot(tx, ty), w = willShown;
+    function easeWill(dt) {
+      const u = ride.th.u, a = Math.atan2(u[1], u[0] + 1e-9), l = Math.hypot(u[0], u[1]) * WILL_PX, w = willShown;
       const k = 1 - Math.exp(-dt / WILL_EASE);
       w.a += (a - w.a - TAU4 * Math.round((a - w.a) / TAU4)) * k;
       w.l += (l - w.l) * k;
@@ -44159,6 +44349,7 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
         if (perf.lastSubmit) perf.frameDt.push(Math.min(Math.max(50, frameTarget() * 2.5), now - perf.lastSubmit));
         const T = frameTarget(), gap = perf.lastSubmit ? now - perf.lastSubmit : T;
         perf.budget = !perf.gpuHeld && gap > 1.5 * T ? Math.min(gap, 2 * T) : T;
+        const fdt = Math.min(100, gap);
         perf.gpuHeld = false;
         perf.lastSubmit = now;
         eng.season = seasonAt(eng.simTime);
@@ -44175,17 +44366,18 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
         autoCamera(now, dt);
         renderCaption(now);
         document.body.classList.toggle("cursor-off", director.active && now - lastPtr.moved > CURSOR_REST);
+        rideCamera(fdt);
         if (state.follow && sel) {
           const [px, py] = predicted();
           const [ox, oy] = viewOffset();
-          const k = Math.min(1, dt / 70);
+          const k = Math.min(1, fdt / (ride.cam && ride.cam.t < 1 ? 70 + 130 * (1 - ride.cam.t) : 70));
           cam.x += wrapD2(px + ox - cam.x, eng.grid[0]) * k;
           cam.y += wrapD2(py + oy - cam.y, eng.grid[1]) * k;
         }
         if (Math.abs(cam.zoom - cam.zoomTarget) > 1e-4) {
           const a = state.follow && sel ? toScreen(sel.disp[0], sel.disp[1]) : cam.anchor || [innerWidth / 2, innerHeight / 2];
           const before = toWorld(a[0], a[1]);
-          cam.zoom += (cam.zoomTarget - cam.zoom) * Math.min(1, dt / 90);
+          cam.zoom += (cam.zoomTarget - cam.zoom) * Math.min(1, fdt / 90);
           const after = toWorld(a[0], a[1]);
           cam.x += before[0] - after[0];
           cam.y += before[1] - after[1];
@@ -44194,7 +44386,7 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
         const L = loupeGeom();
         const R2 = reticleAt();
         canvas.classList.toggle("lens", !!L || !!R2);
-        steerRide();
+        steerRide(fdt);
         pullTick(now);
         if (R2) hand.hover(...toWorld(R2.sx, R2.sy));
         else hand.hover(null);
@@ -44373,7 +44565,9 @@ Tidemote ${SAVE_VERSION} · world time ${fmtClock(eng.simTime)} · ${eng.count} 
       // the look, for the tools (until the Display settings next set it): tunables over Darkfield's at a strength, or off
       look: { set: (p = {}, strength = 1) => applyLook({ ...DARKFIELD, ...p }, strength), off: () => applyLook(DARKFIELD, 0) },
       // a .tidemote file's bytes, as Settings → Worlds opens one
-      openWorld: async (bytes) => loadWorld(await openWorld(bytes))
+      openWorld: async (bytes) => loadWorld(await openWorld(bytes)),
+      // riding, for tools/ridelab.mjs: its state, the specimen, the body traced
+      ride: { state: ride, sel: () => sel, members: () => members, viewShort }
     };
     calibrate().then(() => {
       state.phase = "running";
