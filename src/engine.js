@@ -63,6 +63,7 @@ export async function createEngine(device, format, { hasTimestamps = false, K = 
   const errs = await e.compileErrors();
   if (errs.length) throw new Error('Shader compile failed:\n' + errs.join('\n'));
   await e.pipelinesReady(onProgress);
+  if (late) e._compileLate();
   return e;
 }
 
@@ -275,6 +276,17 @@ class Engine {
     const track = (pr, label) => { this._pipes.push({ pr, w: COMPILE_COST[label] ?? 1.5 }); return pr; };
     const cPipe = (desc) => track(d.createComputePipelineAsync(desc), desc.label);
     const rPipe = (desc) => track(d.createRenderPipelineAsync(desc), desc.label);
+    // The page (late): the pipelines a first frame can do without (the loupe, the close-up, the pipette's bore, cells'
+    // insides and bridges, the full composite, the specks) compile in a second wave once the first is ready, two at a
+    // time (_compileLate), each landing in place (set) with its bind groups (_rebindLate); until one lands what uses
+    // it waits or makes do. Started together they took a Pixel 11 Pro 21 s to compile, its loupe's last; a Pixel 3's
+    // GPU process grew by 400 MB compiling them. Headless runs compile everything first.
+    this._later = [];
+    const defer = (desc, compute, set) => {
+      if (!late) return compute ? cPipe(desc) : rPipe(desc);
+      this._later.push({ desc, compute, set });
+      return null;
+    };
     const dp4a = !!globalThis.navigator?.gpu?.wgslLanguageFeatures?.has('packed_4x8_integer_dot_product');
     // Apple's GPUs run lifeMain, register-bound, a quarter faster in workgroups of 256 than of 128 (an M1,
     // 2026-11-04: 3.8 → 2.9 ms in a 78k world; 64 and 32 between; docs/performance.md, Apple), and 5% faster
@@ -360,10 +372,11 @@ class Engine {
       const constants = coarse ? { COARSE: 1 } : name === 'bodyTick' ? { SUBSTEP: 1 } : null;
       const desc = { layout: 'auto', compute: { module: this.simModule, entryPoint: coarse ? name.slice(0, -6) : name, ...(constants ? { constants } : {}) }, label: name };
       if (late && LATE.has(name)) {
-        // compiles on after the engine is returned: in place (with its bind group, once particles are allocated) when ready
+        // compiles on after the engine is returned, first in the second wave (not beside the first: lifeMain's compile,
+        // which a first frame waits on, shared the GPU process with these): in place (with its bind group, once
+        // particles are allocated) when ready
         const c = (this.cp[name] = { pipe: null, bg: null });
-        d.createComputePipelineAsync(desc).then((p) => { c.pipe = p; if (this._cpRes) this._cpBind(name); })
-          .catch((e) => console.error('[tidemote] pipeline', name, e?.message || e));
+        this._later.unshift({ desc, compute: true, set: (p) => { c.pipe = p; if (this._cpRes) this._cpBind(name); } });
       } else this.cp[name] = { pipe: cPipe(desc), bg: null };
     }
     this.cpPick = { pipe: cp(this.pickModule, 'pickMain'), bg: null };
@@ -390,14 +403,15 @@ class Engine {
     // the main view's draws into the trails: additive, weighted per frame by the blend constant (_render)
     const trail = { color: { srcFactor: 'constant', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'constant', dstFactor: 'one', operation: 'add' } };
     const over = { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } };
-    const rp = (mod, vs, fs, topology, blend, fmt = HDR, constants = {}) => rPipe({
+    const rpDesc = (mod, vs, fs, topology, blend, fmt = HDR, constants = {}) => ({
       layout: 'auto',
       vertex: { module: mod, entryPoint: vs },
       fragment: { module: mod, entryPoint: fs, targets: [{ format: fmt, blend }], constants },
       primitive: { topology },
       label: fs,
     });
-    this.pPoint = rp(this.drawModule, 'vsPoint', 'fsPoint', 'triangle-strip', additive);
+    const rp = (...a) => rPipe(rpDesc(...a));
+    this.pPoint = defer(rpDesc(this.drawModule, 'vsPoint', 'fsPoint', 'triangle-strip', additive), false, (p) => { this.pPoint = p; });
     // sprites of a pixel or so, splatted into a buffer and added into the scene (splatMain, fsSplat)
     this.cpSplat = cPipe({ layout: 'auto', compute: { module: this.drawModule, entryPoint: 'splatMain' }, label: 'splatMain' });
     this.cpList = cPipe({ layout: 'auto', compute: { module: this.drawModule, entryPoint: 'listMain' }, label: 'listMain' });
@@ -418,8 +432,8 @@ class Engine {
       depthStencil: { format: 'depth32float', depthWriteEnabled: false, depthCompare: 'greater' },
       vertex: { module: this.drawModule, entryPoint: 'vsStone' },
       fragment: { module: this.drawModule, entryPoint: 'fsStone', constants: { STONE_EDGE: 1 }, targets: [{ format: HDR, blend: edgeOver }, { format: HDR, blend: surfOver }] } });
-    this.pBridge = rp(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', additive);
-    this.pStudio = rp(this.drawModule, 'vsStudio', 'fsPoint', 'triangle-strip', additive);
+    this.pBridge = defer(rpDesc(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', additive), false, (p) => { this.pBridge = p; });
+    this.pStudio = defer(rpDesc(this.drawModule, 'vsStudio', 'fsPoint', 'triangle-strip', additive), false, (p) => { this.pStudio = p; });
     this.pDown = rp(this.postModule, 'vsFull', 'fsDown', 'triangle-list', undefined);
     // stone lit beneath the cells, into the scene the composite, the bloom, the loupe and the close-up read: the main
     // view's from the stone cache (fsStoneCache, drawn when stale), with each pixel's place in the pile for the
@@ -432,14 +446,18 @@ class Engine {
     this.pStoneLitM = rp(this.postModule, 'vsFull', 'fsStoneLitMicro', 'triangle-list', undefined);
     this.pUp = rp(this.postModule, 'vsFull', 'fsUp', 'triangle-list', additive);
     this.pMurk = rp(this.postModule, 'vsFull', 'fsMurk', 'triangle-list', undefined);
-    this.pComp = rp(this.postModule, 'vsComp', 'fsComposite', 'triangle-list', undefined, format);
-    this.pCompClear = rp(this.postModule, 'vsComp', 'fsComposite', 'triangle-list', undefined, format, { MICRO_SUSPENSION: 0 });
-    // the lean composite (LEAN in POST_WGSL), compiled on after the engine starts (the full one draws until it is
-    // ready), and compPick, which writes both composites' draws each frame (b.compArgs: full, then lean)
-    this.pCompLean = null; this.pCompClearLean = null;
+    // the full composite and the lean one (LEAN in POST_WGSL), and compPick, which writes both composites' draws each
+    // frame (b.compArgs: full, then lean). Headless runs compile the full one first and the lean one on after the
+    // engine starts (the full one draws until it is ready); the page compiles the lean one first and the full one in
+    // its second wave (the lean one draws alone until then: no ice, bubbles or maps for those seconds)
+    const compDesc = (constants) => rpDesc(this.postModule, 'vsComp', 'fsComposite', 'triangle-list', undefined, format, constants);
+    this.pComp = defer(compDesc({}), false, (p) => { this.pComp = p; });
+    this.pCompClear = defer(compDesc({ MICRO_SUSPENSION: 0 }), false, (p) => { this.pCompClear = p; });
+    this.pCompLean = late ? rPipe(compDesc({ LEAN: 1 })) : null;
+    this.pCompClearLean = late ? rPipe(compDesc({ LEAN: 1, MICRO_SUSPENSION: 0 })) : null;
     const leanP = (constants) => d.createRenderPipelineAsync({ layout: 'auto', label: 'fsComposite', primitive: { topology: 'triangle-list' },
       vertex: { module: this.postModule, entryPoint: 'vsComp' }, fragment: { module: this.postModule, entryPoint: 'fsComposite', targets: [{ format }], constants: { LEAN: 1, ...constants } } });
-    this._leanP = () => Promise.all([leanP({}), leanP({ MICRO_SUSPENSION: 0 })]).then(([a, c]) => {
+    this._leanP = () => late ? null : Promise.all([leanP({}), leanP({ MICRO_SUSPENSION: 0 })]).then(([a, c]) => {
       if (this._compHot) return;
       // (its bind groups made with the composite's, here and on every resize)
       if (this.compBGOf) { this.compLeanBG = this.compBGOf(a); this.compClearLeanBG = this.compBGOf(c); }
@@ -447,8 +465,8 @@ class Engine {
     }).catch(() => {});
     this.cpCompPick = cPipe({ layout: 'auto', compute: { module: this.postModule, entryPoint: 'compPick' }, label: 'compPick' });
     b.compArgs = d.createBuffer({ size: 32, usage: U.STORAGE | U.INDIRECT });
-    this.pLoupe = rp(this.postModule, 'vsLoupe', 'fsLoupe', 'triangle-list', over, format);
-    this.pPlain = rp(this.postModule, 'vsFull', 'fsPlain', 'triangle-list', undefined, format);
+    this.pLoupe = defer(rpDesc(this.postModule, 'vsLoupe', 'fsLoupe', 'triangle-list', over, format), false, (p) => { this.pLoupe = p; });
+    this.pPlain = defer(rpDesc(this.postModule, 'vsFull', 'fsPlain', 'triangle-list', undefined, format), false, (p) => { this.pPlain = p; });
     this.sampler = d.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
 
     this.timing = null;
@@ -471,23 +489,25 @@ class Engine {
     b.reprojU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
     // The main view's scene pass also gathers the living alone in a second target (fsPointLive), which
     // the composite lays over matter and stone; its other draws leave that target be.
-    const rpLive = (mod, vs, fs, topology, blend, live, constants = {}) => rPipe({
+    const rpLiveDesc = (mod, vs, fs, topology, blend, live, constants = {}) => ({
       layout: 'auto',
       vertex: { module: mod, entryPoint: vs, constants },
       fragment: { module: mod, entryPoint: fs, constants, targets: [{ format: HDR, blend }, { format: HDR, blend: additive, writeMask: live ? GPUColorWrite.ALL : 0 }] },
       primitive: { topology },
       label: fs + '+live',
     });
+    const rpLive = (...a) => rPipe(rpLiveDesc(...a));
     this.main = {
-      point: rpLive(this.drawModule, 'vsPoint', 'fsPointLive', 'triangle-strip', trail, true),
+      // (cells resolved past interiorLOD: until it lands, pointLean draws them without their insides)
+      point: defer(rpLiveDesc(this.drawModule, 'vsPoint', 'fsPointLive', 'triangle-strip', trail, true), false, (p) => { this.main.point = p; }),
       splat: rpLive(this.drawModule, 'vsFade', 'fsSplat', 'triangle-list', trail, true),
       small: rpLive(this.drawModule, 'vsPointSmall', 'fsPointSmall', 'triangle-strip', trail, true),
       // cells too small for their insides, not sparkling (listMain lists them; INTERIOR in DRAW_WGSL)
       pointLean: rpLive(this.drawModule, 'vsPoint', 'fsPointLive', 'triangle-strip', trail, true, { INTERIOR: 0 }),
       line: rpLive(this.drawModule, 'vsLine', 'fsLine', 'line-list', trail, false),
-      bridge: rpLive(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', trail, false),
+      bridge: defer(rpLiveDesc(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', trail, false), false, (p) => { this.main.bridge = p; }),
       reproj: rpLive(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined, false),
-      tube: rpLive(this.drawModule, 'vsTube', 'fsTubeLive', 'triangle-strip', trail, true),
+      tube: defer(rpLiveDesc(this.drawModule, 'vsTube', 'fsTubeLive', 'triangle-strip', trail, true), false, (p) => { this.main.tube = p; }),
     };
     // Max and coarse speeds: the last drawn world, carried with the camera onto the display frames between draws
     b.holdU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
@@ -502,8 +522,8 @@ class Engine {
 
     // the main view's micro-suspension: specks found per frame, then drawn as quads (MICRO_WGSL)
     this.microModule = d.createShaderModule({ code: MICRO_WGSL, label: 'micro' });
-    this.cpMicro = cPipe({ layout: 'auto', compute: { module: this.microModule, entryPoint: 'microSpecks' }, label: 'microSpecks' });
-    this.pSpeck = rp(this.microModule, 'vsSpeck', 'fsSpeck', 'triangle-strip', additive);
+    this.cpMicro = defer({ layout: 'auto', compute: { module: this.microModule, entryPoint: 'microSpecks' }, label: 'microSpecks' }, true, (p) => { this.cpMicro = p; });
+    this.pSpeck = defer(rpDesc(this.microModule, 'vsSpeck', 'fsSpeck', 'triangle-strip', additive), false, (p) => { this.pSpeck = p; });
     b.microU = d.createBuffer({ size: 256, usage: U.UNIFORM | U.COPY_DST });
     b.specks = d.createBuffer({ size: MICRO_SPECKS * 64, usage: U.STORAGE });
     b.microArgs = d.createBuffer({ size: 16, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
@@ -541,9 +561,50 @@ class Engine {
     this.compPickBG = d.createBindGroup({ layout: this.cpCompPick.getBindGroupLayout(0), entries: [
       { binding: 11, resource: { buffer: b.thermal } }, { binding: 20, resource: { buffer: b.compArgs } }] });
     this._leanP();
-    this.cpMicroBG = d.createBindGroup({ layout: this.cpMicro.getBindGroupLayout(0), entries: [
-      { binding: 0, resource: { buffer: b.post } }, { binding: 1, resource: { buffer: b.microU } },
-      { binding: 2, resource: { buffer: b.specks } }, { binding: 3, resource: { buffer: b.microArgs } }] });
+    this._rebindLate();
+  }
+
+  // The second wave (late, the page): compiled two at a time, each in place as it lands, its bind groups made then
+  async _compileLate() {
+    const d = this.device, queue = this._later;
+    this._later = [];
+    const run = async () => {
+      while (queue.length) {
+        const j = queue.shift();
+        try {
+          j.set(await (j.compute ? d.createComputePipelineAsync(j.desc) : d.createRenderPipelineAsync(j.desc)));
+          this._rebindLate();
+        } catch (e) { console.error('[tidemote] pipeline', j.desc.label, e?.message || e); }
+      }
+    };
+    await Promise.all([run(), run()]);
+  }
+
+  // The bind groups of the pipelines that may land late (_compileLate), for those landed and not yet bound; made again
+  // with the rest wherever their buffers or targets are made anew (allocate, resize, _ensure*Tex)
+  _rebindLate() {
+    const d = this.device, b = this.b, mk = this._mk;
+    if (this.cpMicro && !this.cpMicroBG) {
+      this.cpMicroBG = d.createBindGroup({ layout: this.cpMicro.getBindGroupLayout(0), entries: [
+        { binding: 0, resource: { buffer: b.post } }, { binding: 1, resource: { buffer: b.microU } },
+        { binding: 2, resource: { buffer: b.specks } }, { binding: 3, resource: { buffer: b.microArgs } }] });
+    }
+    if (this.pSpeck && this.murkView && !this.speckBG) this.speckBG = this._speckBGOf();
+    if (this.compBGOf) {
+      if (this.pComp && !this.compBG) this.compBG = this.compBGOf(this.pComp);
+      if (this.pCompClear && !this.compClearBG) this.compClearBG = this.compBGOf(this.pCompClear);
+      if (this.pCompLean && !this.compLeanBG) { this.compLeanBG = this.compBGOf(this.pCompLean); this.compClearLeanBG = this.compBGOf(this.pCompClearLean); }
+    }
+    if (this.pLoupe && this.loupeTex && !this.loupeBG) this.loupeBG = this._loupeBGOf();
+    if (this.pPlain && this.specTex && !this.specBG) this.specBG = this._specBGOf();
+    if (mk) {
+      if (this.pPoint && !this.bgPoint) { this.bgPoint = mk.pointBG(b.view, 0); this.bgPointL = mk.pointBG(b.viewL, 1); this.bgPointS = mk.pointBG(b.viewS, 2); }
+      if (this.pBridge && !this.bgBridge) { this.bgBridge = mk.lineBG(this.pBridge, b.view, 0, true); this.bgBridgeL = mk.lineBG(this.pBridge, b.viewL, 1, true); this.bgBridgeS = mk.lineBG(this.pBridge, b.viewS, 2, true); }
+      if (this.main.point && !this.mainBG.point) this.mainBG.point = mk.pointBG(b.view, 0, this.main.point);
+      if (this.main.bridge && !this.mainBG.bridge) this.mainBG.bridge = mk.lineBG(this.main.bridge, b.view, 0, true);
+      if (this.main.tube && !this.tubeBG) this.tubeBG = mk.bufs(this.main.tube, [[0, b.view], [1, b.tubeParts], [2, b.tubeGenomes], [10, b.tubeOrgans]]);
+      if (this.pStudio && !this.studioBG) this.studioBG = mk.bufs(this.pStudio, [[0, b.viewS], [1, b.studioParts], [2, b.studioGenomes], [10, b.studioOrgans]]);
+    }
   }
 
   /** Clear the bond table, bodyTick's marks with it (scatterMain fills the bonds afresh each step). */
@@ -675,22 +736,18 @@ class Engine {
       { binding: 0, resource: { buffer: view } }, { binding: 1, resource: { buffer: b.parts } }, { binding: 2, resource: { buffer: b.genomes } },
       { binding: 3, resource: { buffer: b.intent } }, { binding: 4, resource: { buffer: b.livingList } }, { binding: 5, resource: { buffer: b.focus } },
       ...(sway ? [{ binding: 9, resource: { buffer: b.sway } }] : []), { binding: 11, resource: { buffer: b.thermal } }, { binding: 12, resource: { buffer: this.cull[k].segs } }] });
-    this.bgPoint = pointBG(b.view, 0);
     this.bgLine = lineBG(this.pLine, b.view, 0);
     // the main view's scene pass (two targets: its pipelines' own layouts)
-    this.mainBG = { point: pointBG(b.view, 0, this.main.point), pointLean: pointBG(b.view, 0, this.main.pointLean), line: lineBG(this.main.line, b.view, 0), bridge: lineBG(this.main.bridge, b.view, 0, true) };
+    this.mainBG = { point: null, pointLean: pointBG(b.view, 0, this.main.pointLean), line: lineBG(this.main.line, b.view, 0), bridge: null };
     const bufs = (pipe, list) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: list.map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
-    this.tubeBG = bufs(this.main.tube, [[0, b.view], [1, b.tubeParts], [2, b.tubeGenomes], [10, b.tubeOrgans]]);
     this.tubeOrgansBG = bufs(this.cpOrgans, [[7, b.tubeGenomes], [9, b.tubeOrgans]]);
-    this.studioBG = bufs(this.pStudio, [[0, b.viewS], [1, b.studioParts], [2, b.studioGenomes], [10, b.studioOrgans]]);
     this.studioOrgansBG = bufs(this.cpOrgans, [[7, b.studioGenomes], [9, b.studioOrgans]]);
-    this.bgPointL = pointBG(b.viewL, 1);
     this.bgLineL = lineBG(this.pLine, b.viewL, 1);
-    this.bgPointS = pointBG(b.viewS, 2);
     this.bgLineS = lineBG(this.pLine, b.viewS, 2);
-    this.bgBridge = lineBG(this.pBridge, b.view, 0, true);
-    this.bgBridgeL = lineBG(this.pBridge, b.viewL, 1, true);
-    this.bgBridgeS = lineBG(this.pBridge, b.viewS, 2, true);
+    // the pipelines that may land late (_rebindLate makes theirs, now for those landed, the rest as they land)
+    this._mk = { pointBG, lineBG, bufs };
+    this.bgPoint = this.bgPointL = this.bgPointS = this.bgBridge = this.bgBridgeL = this.bgBridgeS = this.tubeBG = this.studioBG = null;
+    this._rebindLate();
     const verr = await d.popErrorScope();
     const oerr = await d.popErrorScope();
     if (verr || oerr) {
@@ -816,9 +873,10 @@ class Engine {
     this.liveTex?.destroy();
     this.liveTex = tex(w, h);
     this.liveView = this.liveTex.createView();
-    this.speckBG = d.createBindGroup({ layout: this.pSpeck.getBindGroupLayout(0), entries: [
+    this._speckBGOf = () => d.createBindGroup({ layout: this.pSpeck.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: this.b.post } }, { binding: 1, resource: { buffer: this.b.microU } },
       { binding: 4, resource: { buffer: this.b.specks } }, { binding: 5, resource: this.sampler }, { binding: 6, resource: this.murkView }] });
+    this.speckBG = this.pSpeck ? this._speckBGOf() : null;
     this.murkBG = d.createBindGroup({ layout: this.pMurk.getBindGroupLayout(0), entries: [{ binding: 2, resource: { buffer: this.b.post } }] });
     this.accumViews = this.accum.map((t) => t.createView());
     this.bloomViews = this.bloom.map((t) => t.createView());
@@ -842,8 +900,8 @@ class Engine {
       { binding: 13, resource: this.seaView }, { binding: 14, resource: this.seaSampler },
       { binding: 23, resource: this.seaFieldTex[0].createView() }, { binding: 24, resource: this.seaFieldTex[1].createView() },
       { binding: 26, resource: this.opticsTex.createView() }] });
-    this.compBG = compBG(this.pComp);
-    this.compClearBG = compBG(this.pCompClear);
+    this.compBG = this.pComp ? compBG(this.pComp) : null;
+    this.compClearBG = this.pCompClear ? compBG(this.pCompClear) : null;
     if (this.pCompLean) { this.compLeanBG = compBG(this.pCompLean); this.compClearLeanBG = compBG(this.pCompClearLean); }
     this.compBGOf = compBG;
     this.reprojBG = this.accumViews.map((v) => d.createBindGroup({ layout: this.main.reproj.getBindGroupLayout(0), entries: [
@@ -884,7 +942,11 @@ class Engine {
     this.loupeSceneTex = this.device.createTexture({ size: [L, L], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
     this.loupeSceneView = this.loupeSceneTex.createView();
     this.loupeLitBG = this._litMicroBG(this.loupeView, this.b.viewL, this.loupeStoneView);
-    this.loupeBG = this.device.createBindGroup({ layout: this.pLoupe.getBindGroupLayout(0), entries: [
+    this.loupeBG = this.pLoupe ? this._loupeBGOf() : null;
+  }
+
+  _loupeBGOf() {
+    return this.device.createBindGroup({ layout: this.pLoupe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: this.loupeSceneView },
       { binding: 2, resource: { buffer: this.b.post } }, { binding: 4, resource: { buffer: this.b.loupeU } },
       { binding: 6, resource: { buffer: this.b.viewL } },
@@ -959,7 +1021,11 @@ class Engine {
     this.specSceneTex = this.device.createTexture({ size: [w, h], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
     this.specSceneView = this.specSceneTex.createView();
     this.specLitBG = this._litMicroBG(this.specView, this.b.viewS, this.specStoneView);
-    this.specBG = this.device.createBindGroup({ layout: this.pPlain.getBindGroupLayout(0), entries: [
+    this.specBG = this.pPlain ? this._specBGOf() : null;
+  }
+
+  _specBGOf() {
+    return this.device.createBindGroup({ layout: this.pPlain.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: this.specSceneView },
       { binding: 2, resource: { buffer: this.b.post } }, { binding: 6, resource: { buffer: this.b.viewS } }] });
   }
@@ -2468,7 +2534,7 @@ class Engine {
         pass.setBindGroup(0, bgLine);
         if (culled) pass.drawIndirect(culled, 16); else pass.drawIndirect(this.b.frameCtr, 16);
       }
-      if (v[7] > 6 && detail) {
+      if (v[7] > 6 && detail && pl.bridge && bgBridge) {
         pass.setPipeline(pl.bridge);
         pass.setBindGroup(0, bgBridge);
         if (culled) pass.drawIndirect(culled, 32); else pass.drawIndirect(this.b.bridgeDraw, 0);
@@ -2476,8 +2542,10 @@ class Engine {
     }
     if (this.settings.nodes) {
       if (v[22] < 0) { pass.setPipeline(pl.small); pass.setBindGroup(0, this.smallBG); pass.drawIndirect(this.b.smallArgs, 0); }
-      pass.setPipeline(pl.point);
-      pass.setBindGroup(0, bgPoint);
+      // (until the main view's full point pipeline lands, its cells are drawn lean: without their insides)
+      const lean = !pl.point && pl.pointLean;
+      pass.setPipeline(lean ? pl.pointLean : pl.point);
+      pass.setBindGroup(0, lean ? this.mainBG.pointLean : bgPoint);
       if (quads) pass.drawIndirect(quads, 0); else if (culled) pass.drawIndirect(culled, 0); else pass.draw(4, this.count);
       if (quads && pl.pointLean) { pass.setPipeline(pl.pointLean); pass.setBindGroup(0, this.mainBG.pointLean); pass.drawIndirect(quads, 16); }
     }
@@ -2734,7 +2802,7 @@ class Engine {
       pass.setBlendConstant([gain, gain, gain, gain]);
       if (splat) { pass.setPipeline(this.main.splat); pass.setBindGroup(0, this.splatDrawBG); pass.draw(3); }
       this._drawScene(pass, this.mainBG.line, this.mainBG.point, this.mainBG.bridge, this.viewData, 0, this.main);
-      if (this.tubeN) { pass.setPipeline(this.main.tube); pass.setBindGroup(0, this.tubeBG); pass.draw(4, this.tubeN); }
+      if (this.tubeN && this.tubeBG) { pass.setPipeline(this.main.tube); pass.setBindGroup(0, this.tubeBG); pass.draw(4, this.tubeN); }
       pass.end();
     }
     // The stone cache: lit at once when the view or a setting leaves it stale; lit again where it is every so often
@@ -2766,6 +2834,8 @@ class Engine {
       pass.setPipeline(pile ? this.pStoneLit : this.pStoneLitScene); pass.setBindGroup(0, (pile ? this.litBG : this.litSceneBG)[cur]); pass.draw(3); pass.end();
     }
 
+    // (the loupe and the close-up once their pipelines have landed: _compileLate)
+    if (loupe && !(this.pLoupe && this.pPoint && this.pBridge)) loupe = null;
     if (loupe) {
       // the lens is barrel-distorted: its rim shows LOUPE_FIELD times its radius, so render that much
       const span = loupe.r * 2 * LOUPE_FIELD;
@@ -2781,7 +2851,7 @@ class Engine {
       this._lightStone(enc, this.loupeSceneView, this.pStoneLitM, this.loupeLitBG);
     }
 
-    if (specimen && specimen.target) {
+    if (specimen && specimen.target && this.pPlain && this.pPoint && this.pBridge && (!specimen.studio || this.pStudio)) {
       this._ensureSpecTex(specimen.w, specimen.h);
       this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId, specLod, culled[2]);
       let pass = enc.beginRenderPass({ colorAttachments: [{ view: this.specView, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
@@ -2815,7 +2885,7 @@ class Engine {
       pass.setPipeline(this.pMurk); pass.setBindGroup(0, this.murkBG); pass.draw(3); pass.end();
     }
 
-    const micro = this.settings.specks && cam.ppu > Math.max(80, 2 * Math.max(W / this.grid[0], H / this.grid[1]));
+    const micro = this.settings.specks && this.cpMicroBG && this.speckBG && cam.ppu > Math.max(80, 2 * Math.max(W / this.grid[0], H / this.grid[1]));
     if (micro) this._drawSpecks(enc, cam, W, H);
     // the eyepiece's field stop and dust, when the frame's size, the optics or the look's iris changed
     const opticsKey = [W, H, pd[14], pd[POST_LOOK + 13]].join();
@@ -2836,7 +2906,10 @@ class Engine {
     // post.heat.w, post.heatVis and post.lens.w), and no ice (compPick asks the GPU)
     const lean = this.pCompLean && pd[56] >= 1 && !(this.duck[3] > 0) && !(this.tool[4] > 0)
       && !(pd[6] > 0.5) && !(pd[55] > 0.5) && !(pd[15] > 1.5) && !(this.lens[3] > 0);
-    if (lean) {
+    // (the page's full composite in its second wave: until it lands the lean one draws alone, whatever is there)
+    if (this.pCompLean && !this.compLeanBG) this._rebindLate();
+    const leanOnly = !(micro ? this.pComp && this.compBG : this.pCompClear && this.compClearBG);
+    if (lean && !leanOnly) {
       const cp = enc.beginComputePass();
       cp.setPipeline(this.cpCompPick); cp.setBindGroup(0, this.compPickBG); cp.dispatchWorkgroups(1); cp.end();
     }
@@ -2844,15 +2917,12 @@ class Engine {
       colorAttachments: [{ view: target, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }],
       timestampWrites: tsEnd,
     });
-    pass.setPipeline(micro ? this.pComp : this.pCompClear);
-    pass.setBindGroup(0, micro ? this.compBG : this.compClearBG);
-    if (lean) {
-      pass.drawIndirect(this.b.compArgs, 0);
-      pass.setPipeline(micro ? this.pCompLean : this.pCompClearLean);
-      pass.setBindGroup(0, micro ? this.compLeanBG : this.compClearLeanBG);
-      pass.drawIndirect(this.b.compArgs, 16);
-    } else pass.draw(3);
-    if (loupe) { pass.setPipeline(this.pLoupe); pass.setBindGroup(0, this.loupeBG); pass.draw(6); }
+    const full = () => { pass.setPipeline(micro ? this.pComp : this.pCompClear); pass.setBindGroup(0, micro ? this.compBG : this.compClearBG); };
+    const leanP = () => { pass.setPipeline(micro ? this.pCompLean : this.pCompClearLean); pass.setBindGroup(0, micro ? this.compLeanBG : this.compClearLeanBG); };
+    if (leanOnly) { leanP(); pass.draw(3); }
+    else if (lean) { full(); pass.drawIndirect(this.b.compArgs, 0); leanP(); pass.drawIndirect(this.b.compArgs, 16); }
+    else { full(); pass.draw(3); }
+    if (loupe && this.loupeBG) { pass.setPipeline(this.pLoupe); pass.setBindGroup(0, this.loupeBG); pass.draw(6); }
     pass.end();
   }
 }
