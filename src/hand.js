@@ -102,11 +102,14 @@ export function createHand(words, ids, { reach = REACH.def, drops }) {
     note(tool, x, y, t, n = 0) { act(t, x, y, n, tool); },
     /** The needle pricked cell id at (x, y). */
     prick(id, x, y, t) { ids[20] = id >>> 0; act(t, x, y, 1); },
-    /** Steer the ridden cell id toward (x, y) at strength s (0..1), at simulated time t; steer(NONE) lets it go. */
-    steer(id, x = 0, y = 0, s = 0, t = null) {
+    /**
+     * Ride cell id: steer it at velocity (vx, vy) (world units a second) held as firmly as s (0..1: at 0 it goes its
+     * own way), at simulated time t, where it is (at); steer(NONE) lets it go.
+     */
+    steer(id, vx = 0, vy = 0, s = 0, t = null, at = null) {
       h.rider = id >>> 0;
-      h.will = h.rider === NONE ? null : [x, y, s];
-      if (s > 0 && t != null) act(t, x, y, 0, 'ride');
+      h.will = h.rider === NONE ? null : [vx, vy, s];
+      if (s > 0 && t != null && at) act(t, at[0], at[1], 0, 'ride');
     },
     /** Ease the lamp, stage and rod toward what the hand is doing at simulated time t, and write the engine's words. */
     update(dt, t = 0) {

@@ -18,6 +18,9 @@ import { setHTML } from './live.js';
  * main.js owns the selection and its tracking; this module only draws it. On a phone the panel is a
  * sheet that peeks above the dock and is pulled up for the details.
  */
+// after a ride that ended in its death (or lost track of it): ride the nearest of its kind instead
+const RIDE_REL = '<button type="button" class="btn" data-act="riderel" data-hint="Ride the nearest of its kind · Enter">Ride a relative</button>';
+
 export function createSpecimen(api) {
   const { eng, K } = api;
   const $ = (id) => document.getElementById(id);
@@ -124,8 +127,8 @@ export function createSpecimen(api) {
     const b = e.target.closest('[data-act]');
     if (!b) return;
     const a = b.dataset.act;
-    if (a === 'follow') api.onFollow();
-    else if (a === 'ride') api.onRide();
+    if (a === 'ride') api.onRide();
+    else if (a === 'riderel') api.onRideRelative();
     else if (a === 'relative') api.onRelative();
     else if (a === 'find') api.onFind();
     else if (a === 'hl') api.onHighlight();
@@ -507,7 +510,8 @@ export function createSpecimen(api) {
           const c = rgb.map((x) => Math.round(255 * Math.min(1, x + lift)));
           plainGlyph(16 + grain.kind, (0xff000000 | (c[2] << 16) | (c[1] << 8) | c[0]) >>> 0);
         } else plainGlyph(MATTER_GLYPH[p.kind][0], MATTER_GLYPH[p.kind][1]);
-        setActs(`m${!!mem}`, mem ? '<button type="button" class="btn" data-act="relative">Watch a relative</button>' : '');
+        const re = api.rideEnded();
+        setActs(`m${!!mem}${re}`, mem ? (re ? RIDE_REL : '') + '<button type="button" class="btn" data-act="relative">Watch a relative</button>' : '');
         // in water at the background temperature (warm water wears husks faster)
         const q10 = (q) => (K.heat ? q ** ((eng.tbg - K.tRef) / 10) : 1);
         if (p.kind === 2) v += vital('Energy left', p.energy / 1.2, 'sun', `${q10(K.rotQ10) > 1.3 ? 'rotting fast · ' : ''}crumbles in ${fmtDur(Math.max(0, (p.energy - K.huskMin) / (K.decay * q10(K.rotQ10))))}`, 'husk');
@@ -538,7 +542,8 @@ export function createSpecimen(api) {
         const hl = sp && api.focusKey() === `sp:${sp.serial}`;
         const ride = api.riding();
         const cardB = sp ? cardBtn(sp.serial) : '';
-        setActs(`c${api.follow()}${hl}${!!sp}${ride}${cardB.length}`, `<button type="button" class="btn" data-act="follow" aria-pressed="${api.follow()}" data-hint="Keep it in view · C">Follow</button><button type="button" class="btn" data-act="ride" aria-pressed="${ride}" data-hint="${ride ? 'Get off · Enter' : 'Ride it: steer with a held click, a finger or the arrows · Enter'}">Ride</button>${sp && sp.alive ? `<button type="button" class="btn" data-act="hl" aria-pressed="${!!hl}" data-hint="Highlight its species">Highlight</button>` : ''}${cardB}`);
+        const rideB = sel.lost ? (api.rideEnded() ? RIDE_REL : '') : `<button type="button" class="btn" data-act="ride" aria-pressed="${ride}" data-hint="${ride ? 'Get off · Enter' : 'Ride it: the view follows it; WASD, the arrows or a held click steer · Enter'}">Ride</button>`;
+        setActs(`c${sel.lost}${api.rideEnded()}${hl}${!!sp}${ride}${cardB.length}`, `${rideB}${sp && sp.alive ? `<button type="button" class="btn" data-act="hl" aria-pressed="${!!hl}" data-hint="Highlight its species">Highlight</button>` : ''}${cardB}`);
         if (g) {
           const dv = divEnergy(g, K);
           v += vital('Energy', p.energy / dv, 'sun', `${p.energy.toFixed(2)} / ${dv.toFixed(2)}`, 'energy');

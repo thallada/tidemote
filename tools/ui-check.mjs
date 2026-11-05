@@ -216,7 +216,7 @@ for (const touch of [false, true]) {
   {
     const nx = () => page.evaluate(() => ({ shown: getComputedStyle(document.getElementById('auto-next')).display !== 'none', active: globalThis.__tidemote.director.active }));
     check(`${tag} Next is hidden while the auto camera is off`, !(await nx()).shown);
-    await page.keyboard.press('a');
+    await page.keyboard.press('p');
     await page.waitForTimeout(3000);
     const on = await nx();
     check(`${tag} Next ${touch ? 'stays hidden on a phone' : 'shows beside Auto'} with the auto camera on`, on.active && on.shown === !touch, JSON.stringify(on));
@@ -233,7 +233,7 @@ for (const touch of [false, true]) {
     await page.keyboard.press('x');
     await page.waitForTimeout(1500);
     check(`${tag} X moves the camera on`, (await shotId()) !== id && (await nx()).active);
-    await page.keyboard.press('a');
+    await page.keyboard.press('p');
     await page.waitForTimeout(300);
     check(`${tag} Next hides once the auto camera stops`, !(await nx()).shown);
   }

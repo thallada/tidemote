@@ -149,7 +149,7 @@ export const GLOSSARY = {
   annotations: 'Live notes over the world on what is happening in view, read from the simulation as it happens: who is hunting or grazing on whom, a species scalding in water its crowd has warmed, cells stilled by the cold, a new species budding off. With the auto camera only, always, or never.',
   diversity: 'Effective number of species: exp of the Shannon entropy of species populations. A world of 10 equally common species scores 10.',
   will: 'The viewer’s will, while this cell is ridden: one more drive, toward where it is steered, as strong as its swimming lets it be and paid for in upkeep as swimming is. Hunger and fear still pull as they did, and often win.',
-  ride: 'Ride this cell: the camera follows it and a held click or finger (or the arrow keys) steers it, a will among its drives, as fast as its genes allow. Tab goes to its newest child, or after it dies to the nearest of its kind. Enter or Esc gets off.',
+  ride: 'Ride this cell (or just press W A S D or an arrow key with it selected): the camera dives to it and follows it, and W A S D, the arrow keys or a held click or finger steer it, a will among its drives, as fast as its genes allow: held, it gathers speed over a second or so; tapped, it edges. A body is steered whole, and stone stops it. Tab goes to its newest child. If it dies as one cell of a body, the ride goes on in another; alone, the ride ends and Enter rides a relative. Enter, Esc or a click on another cell gets off.',
   toolreach: 'How far every tool but the needle reaches, the same for all: the ring around the pointer. [ ] or ⇧ wheel change it.',
 };
 

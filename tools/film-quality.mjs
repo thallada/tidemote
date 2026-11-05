@@ -16,7 +16,7 @@ const size = arg('size', '4k'), secs = +arg('seconds', 30), rounds = +arg('round
 const variants = JSON.parse(arg('variants', '[{"name":"default"}]'));
 fs.mkdirSync(out, { recursive: true });
 const { page, errs, close } = await openPage({ size, html: path.resolve(arg('page', 'dist/tidemote.html')), n: +arg('n', 16384) });
-await page.keyboard.press('a'); // the auto camera: the view moves, as a film's usually does
+await page.keyboard.press('p'); // the auto camera: the view moves, as a film's usually does
 await page.waitForTimeout(5000);
 
 const mean = (a) => a.reduce((s, x) => s + x, 0) / Math.max(1, a.length);

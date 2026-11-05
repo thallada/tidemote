@@ -18,7 +18,7 @@ hand.
 | Tool | Key | What it does | In the step |
 | --- | --- | --- | --- |
 | Pan | 0 | Nothing in hand: a drag pans, a click examines | none |
-| Loupe | 1 (M) | The lens: it follows the mouse; on a touch screen a tap examines a cell and sets the lens over it there in the world (it goes with the world as the view pans, off the screen and back), a drag on the lens moves it and a drag outside it pans. Reach sizes it, `[` `]` magnify | none |
+| Loupe | 1 | The lens: it follows the mouse; on a touch screen a tap examines a cell and sets the lens over it there in the world (it goes with the world as the view pans, off the screen and back), a drag on the lens moves it and a drag outside it pans. Reach sizes it, `[` `]` magnify | none |
 | Touch | 2 | A glass rod, coming down from near the top of the field: pressed, it dips into the water over a third of a second, its end (a disc widening to the reach as it goes deeper) pushing every cell and grain under it out to its rim; dragged, it pushes what it passes aside, out of its path to the side it was on, as the water parts round it. Moving, it stirs the water: every 0.1 s it leaves an eddy carrying the water about it at 0.6 of its velocity, fading over 1.2 s (`WAKE`), so a stroke leaves a current, a circling one a vortex that dies away (stirred for 4 s, the water about it turned at 1.7 units a second, 0.4 two seconds later, none after five), and a stroke turned back on itself sends out a ring wave. A tap rings the water from a raindrop slot | `rodPush` in `handPush` (`cellWGSL`, `matterMain`, `cystStep`); `wakeFlow` in `openFlow` (cells, grains, heat) |
 | Lamp, Shade | 3, 4 | Over the world a quarter of it follows the pointer; pressed, all of it: light added (up to 0.6, the noon sun is about 1) or taken (up to 90%) over the reticle's disc. It goes where the pointer goes and off the world with it: nothing is left behind | `lampLight` in `lightAt` (photosynthesis, sparks, the sun's heat), the phototaxis slope |
 | Warm, Cold | 5, 6 | The same quarter and all: the water under the disc drawn, 80% of the way a second (`STAGE.rate`), toward a temperature that share of the way from the open water's to the stage's 115° (`STAGE.hot`) or the probe's −20° (`STAGE.cold`). Water boils at 100° (`BOIL`) and is never hotter (`heatMain`'s last `min`, an identity below it). The water it leaves keeps its heat and gives it up as any water does. From about 45° the air dissolved in it comes out as small bubbles, swelling as it warms; near a boil vapor bubbles swell, wobble and collapse over the hot glass, each collapse sending out a faint ring and leaving specks of air, and the view roils. Each bubble is drawn as a microscope shows one (`bubLook`): a bright line where light glances off its edge, a crescent toward the lamp, red parted from blue, a dark band of total reflection inside it, the lamp gathered to a spot off its center, what lies beyond it shown smaller through it (`bubblesAt`), its outline an oval or lobed, specks clinging to it; most small and a few large, some up by the coverslip far out of focus (spread, dim, ringing), some in twos and threes sharing a flat wall. They drift with the current as the cells and silt around them do and sway with the water's surface: each lives a few seconds, carried whole from where it began (`bubGen`, `bubSet`), growing in and dissolving away as the next ones come. Ice is the water's own phase (`heatMain`'s ice block, docs/catastrophes.md): water below 0° freezes, giving up its latent heat (`iceLatent`) first, and ice above 0° melts, taking it in. So the probe freezes the water under it as the frost's night does, and the stage melts any ice, the frost's too (a frost's night freezes the hole again after); the ice it leaves thaws as the water about it warms it. Its edge holds back the water as the frost's does (`pondWith`), crystals growing ahead of it (drawn by `iceLook`, `frazil`); past the edge's film what lies in it (cells, cysts, husks, grains) is frozen solid, carried by no current and moved by nothing (`inIce`) | `heatMain`; `poolOver`, `extremes`, `shimmer` in the composite |
@@ -43,15 +43,40 @@ edge.
 
 ## Riding
 
-Enter, or the specimen panel's Ride, rides the specimen: the camera follows it, and a held click or finger, or the
-arrow keys, steer it. The will in `cellWGSL` is a velocity toward the target that the cell takes on, whatever
-else drives it (`K.willGrip` a second): `K.will` world units a second for a full swimmer, `K.willDrift` of that for
-a cell adrift (a producer can be steered too, slowly), `K.willAnchored` of it again for one anchored, none on dry
-ground; the cells bonded to it take it on too, so a body goes with it. Its upkeep is `K.willCost` times its
-metabolism at full strength. A cyst sleeps (`cystStep`) and cannot be steered; the page says so. Steered 5 units
-aside for 2 s, awake cells made 1.2 units a second toward the target on average (the will as a push of 1.5 times
-its swimming made none). The specimen's Behavior shows the Will among its drives (mind word 66). Above ×2 the ride is a follow. Tab goes on to the newest kin near it (a child just budded) or, after
-it dies, to the nearest of its kind.
+Enter, the specimen panel's Ride, or the first press of W A S D or an arrow key with a living cell selected, rides
+the specimen: the view follows it (untouched, a ride is a follow; there is no separate Follow), and W A S D, the
+arrows, or a held click or finger steer it. The toasts say Ride On and Ride Off (with why, when it died or was lost). While riding those keys only steer
+(the keys they would otherwise be are elsewhere: C currents, H the tide map, P the auto camera, M sound).
+
+How it handles (`src/ride.js`, pure, `test/ride.test.js`): the way held (keys, a unit vector, diagonals no faster;
+a held pointer, toward it, slower within `RIDE.reach` of the cell) drives a throttle through a critically damped
+spring, `RIDE.up` (0.4 s) toward a way held and `RIDE.down` (0.14 s) back to rest or against its motion: top speed
+(90%) after about 1.6 s held, a 0.1 s tap carries a cell 0.07 units and a 0.3 s press 0.26, so taps edge it. The
+page sends the will as a velocity, the throttle times `willSpeed(g)` (`K.will` world units a second for a full
+swimmer, `K.willDrift` of that for a cell adrift, `K.willAnchored` of it again for one anchored), and its hold
+(`hand.ids.z`) as `throttleGrip`, full from half the throttle: let go, the hold is 0 and the cell goes its own way.
+In `cellWGSL` the cell takes the will on at `K.willGrip` a second times its hold, whatever else drives it, none on dry
+ground; its upkeep is `K.willCost` times its metabolism times the hold and the share of top speed.
+
+A body is steered whole: the cells bonded to the rider, and every cell of the body the page traced (its members,
+sent to the steps as sorted IDs in the hand's words, `H_RIDE`, `Engine.setRideBody`), take on the same velocity, so
+the pull no longer stretches the rider out of its body. Stone is a wall to it: the part of the will into stone a cell
+is pressed against (`stoneF`) is lost, and stone pushes it out again after the will, so a ridden cell or body slides
+along stone (a calcifier, which settles on stone, as much less as it calcifies).
+
+The camera dives to it: from a view whose shorter side spans more or less than `RIDE_CAM.keep` times
+`RIDE_CAM.short` (3.4 world units, or 1.3 of the body's span across, up to twice 3.4: a big body is framed about the
+ridden cell, not whole), it springs (in log of the span) to that within about a second, never faster than
+`RIDE_CAM.maxRate` (7% a 60th of a second, so a dive from the whole world takes about 1.5 s), against the auto
+camera's 9 to 32 s flights, panning in more gently over the first second; then the view widens with the smoothed speed as a share of its top speed (`willSpeed`), at most
+`RIDE_CAM.wide` (22%) at top speed, and closes in again as it slows. A scroll, a pinch or Z leaves the zoom to the viewer for the rest of the ride.
+
+Getting off: Enter or Esc; a quick click (or tap) on another cell selects it and gets off (a click on the ridden body,
+or on nothing, does nothing, so a quick steer never gets off by mistake); panning, taking up a tool, or opening a
+species. If the ridden cell dies as one cell of a body that lives on, the ride goes on in another cell of it (the body
+keeps the will meanwhile); if it was alone, or its whole body died, the ride ends where the view is and the panel
+offers Ride a relative (Enter or Tab), the nearest of its kind. Coarse steps cannot be steered: above ×2 the ride is a
+follow. A cyst sleeps (`cystStep`) and cannot be steered; the page says so. The specimen's Behavior shows the Will among its drives (mind word 66). Tab goes on to the newest kin near it (a child just budded) or the nearest of its kind.
 
 ## The pipette
 

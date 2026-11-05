@@ -90,7 +90,10 @@ export const H_IDS = H_CELLS + PIPE_MAX * 9;
 export const H_LINKS = H_IDS + 2 * PIPE_IDS;
 export const H_OUT = H_LINKS + 2 * PIPE_MAX;
 export const H_CUTS = H_OUT + 1 + PIPE_SP + 2 * PIPE_MAX; // the bonds the needle cut since the page last looked (heard)
-export const HAND_WORDS = H_CUTS + 1;
+// The ridden body (docs/hand.md, Riding): how many of its cells, then their IDs, sorted; every one takes on the will.
+export const RIDE_MAX = 4096;
+export const H_RIDE = H_CUTS + 1;
+export const HAND_WORDS = H_RIDE + 1 + RIDE_MAX;
 // Energy ledger per diet guild, in thousandths: light, (glint: unused), plant bites, husks, kills, upkeep,
 // children, heat-making. META_ENERGY + 40.. holds the thermal sample (THERMAL_LEDGER).
 export const ENERGY_SLOTS = ['light', 'glint', 'plant', 'husk', 'flesh', 'upkeep', 'children', 'heat'];
@@ -1147,32 +1150,35 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
     let lt = lightSlope(p.pos) * (g.tail.z * ${f(K.phototaxis)} * min(th.perf, 1.0));${W('mPhoto = lt;')}
     taxis += lt;
   }
-  // the hand's ride (docs/hand.md): a ridden cell's will, a velocity toward where the viewer steers it that it takes
-  // on whatever else drives it, fastest for a swimmer, slower for a cell adrift, slow for an anchored one, none on
-  // dry ground; the cells bonded to it are drawn the same way, so a body goes with it rather than holding it back
+  // the hand's ride (docs/hand.md): a ridden cell's will, a velocity the viewer steers it at (hand.more.zw, world
+  // units a second: the page's willSpeed, fastest for a swimmer, slower for a cell adrift, slow for an anchored one)
+  // that it takes on whatever else drives it, as firmly as hand.ids.z says (none at rest: it goes its own way), none
+  // on dry ground. Its whole body takes on the same will (the cells bonded to it, and the body the page traced, H_RIDE),
+  // so the body is steered as one and its bonds are not torn by the pull. Stone is a wall to it: the part of the will
+  // into stone it is pressed against is lost, so a ridden cell slides along stone rather than through it.
   // (its cost is in upkeep, below)
   var will = vec2f(0.0);
   let rider = sim.hand.ids.y;
   if (rider != NONE && !stranded) {
-    var ra = vec2f(0.0);
     var on = p.id == rider;
-    if (on) { ra = p.pos; }
-    else {
-      // (the two it keeps, then those that keep it)
-      for (var b = 0u; b < 2u + nBack && !on; b++) {
-        var j = select(n2, n1, b == 0u);
-        if (b >= 2u) { j = backAt(i, b - 2u, p, n1, n2); }
-        if (j != NONE && j < sim.count && sortedFull[j].id == rider) { on = true; ra = sortedFull[j].pos; }
+    // (the two it keeps, then those that keep it; then, a cell with a bond, the rest of the body the page traced)
+    for (var b = 0u; b < 2u + nBack && !on; b++) {
+      var j = select(n2, n1, b == 0u);
+      if (b >= 2u) { j = backAt(i, b - 2u, p, n1, n2); }
+      if (j != NONE && j < sim.count && sortedFull[j].id == rider) { on = true; }
+    }
+    if (!on && (n1 != NONE || n2 != NONE || nBack > 0u)) { on = ridden(p.id); }
+    if (on) {
+      will = sim.hand.more.zw;
+      let sl = length(stoneF);
+      if (sl > 1e-5) {
+        let sn = stoneF / sl;
+        let into = dot(will, sn);
+        if (into < 0.0) { will -= sn * (into * smoothstep(0.0, 0.25, sl) * (1.0 - g.calcify)); }
       }
     }
-    if (on) {
-      let wd = handD(sim.hand.more.zw, ra);
-      let speed = ${f(K.will)} * bitcast<f32>(sim.hand.ids.z) * mix(${f(K.willDrift)}, 1.0, clamp(g.swim * min(th.perf, 1.0), 0.0, 1.0))
-        * mix(1.0, ${f(K.willAnchored)}, smoothstep(0.35, 0.1, g.advect));
-      will = wd / max(length(wd), 0.5) * speed;
-    }
   }
-  let willOn = any(will != vec2f(0.0));
+  let willOn = any(will != vec2f(0.0)) && bitcast<f32>(sim.hand.ids.z) > 0.0;
   // A coarse step holds the pair and stone forces gathered at its start, and a dense clump is too stiff
   // for that: it would overshoot, heat and loosen. So they carry a correction, implicit in the stiffness.
   // The cell and its neighborhood are taken as two bodies sharing momentum: the reaction to this cell's
@@ -1298,7 +1304,8 @@ ${w ? `  if (sub) { bondF += bendOn(i, gr) * ${f(K.growStiff)}; mSwim = select(n
       vel += normalize(dir) * swim * h;${W('if (k == 0u) { mSwim = normalize(dir) * swim; }')}
     }
     vel += taxis * h;
-    if (willOn) { vel = mix(vel, will, clamp(${f(K.willGrip)} * h, 0.0, 1.0)); }
+    // (the will takes the place of most of its motion, so stone pushes it out again after)
+    if (willOn) { vel = mix(vel, will, clamp(${f(K.willGrip)} * bitcast<f32>(sim.hand.ids.z) * h, 0.0, 1.0)) + stoneF * (${f(K.stoneWall)} * (1.0 - g.calcify) * h); }
     if (stranded) {
       vel = vel * exp(-${f(K.dryDrag)} * h) - pond.yz / max(length(pond.yz), 1e-4) * (${f(K.meniscus)} * (1.0 - smoothstep(0.0, ${f(K.filmR)}, -shore)) * h);
     }
@@ -1338,7 +1345,7 @@ ${w ? `  if (sub) { bondF += bendOn(i, gr) * ${f(K.growStiff)}; mSwim = select(n
   // heat-maker burns extra, all of it heat
   let heatMaking = ${f(K.heat ? K.thermoCost : 0)} * thermo;
   // a ridden cell pays for its will as for swimming
-  let willCost = select(0.0, bitcast<f32>(sim.hand.ids.z) * ${f(K.willCost)} * g.metab, p.id == sim.hand.ids.y && !stranded);
+  let willCost = select(0.0, bitcast<f32>(sim.hand.ids.z) * min(length(sim.hand.more.zw) / ${f(K.will)}, 1.0) * ${f(K.willCost)} * g.metab, willOn);
   let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0))
     * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) + heatMaking + willCost;`;
 }
@@ -1398,8 +1405,9 @@ struct Hand {
                 // STAGE_COLD, less toward a temperature that share of the way there from the open water's
   rod: vec4f,   // Touch's rod in the water: its center, and where it was when the world last stepped
   cut: vec4f,   // the needle's stroke since the world last stepped, from xy to zw
-  more: vec4f,  // x the rod's radius (0: not in the water), y the cut's half-width (0: no cut), zw where the ridden cell is steered
-  ids: vec4u,   // x the cell the needle pricks, y the ridden cell (NONE: none), z the will's strength (f32 bits),
+  more: vec4f,  // x the rod's radius (0: not in the water), y the cut's half-width (0: no cut), zw the ridden cell's will
+                // (the velocity it is steered at, world units a second)
+  ids: vec4u,   // x the cell the needle pricks, y the ridden cell (NONE: none), z the will's hold (f32 bits, 0..1),
                 // w how many cells the pipette draws (their IDs in the ledger's hand region)
   suck: vec4f,  // the pipette's tip, its reach (0: none), how fast it draws what is in reach (world units a second, 0: not pressed)
   needle: vec4f, // the needle in the water: its point, and its shaft's way off toward the corner, as long as it runs (0: none)
@@ -1487,6 +1495,14 @@ fn note(ev: u32, kind: u32, id: u32, pos: vec2f, ak: u32, aid: u32, apos: vec2f)
 }
 fn noteSelf(ev: u32, kind: u32, id: u32, pos: vec2f) { note(ev, kind, id, pos, 0u, NONE, pos); }
 // whether the pipette draws cell id (its IDs sorted: a binary search)
+// Whether cell id is one of the ridden body's (the page's trace of it, H_RIDE)
+fn ridden(id: u32) -> bool {
+  let b = handAt() + ${H_RIDE}u;
+  let n = min(atomicLoad(&ledger[b]), ${RIDE_MAX}u);
+  var lo = 0u; var hi = n;
+  while (lo < hi) { let mid = (lo + hi) / 2u; if (atomicLoad(&ledger[b + 1u + mid]) < id) { lo = mid + 1u; } else { hi = mid; } }
+  return lo < n && atomicLoad(&ledger[b + 1u + lo]) == id;
+}
 fn drawn(id: u32) -> bool {
   let n = sim.hand.ids.w;
   let b = handAt();
@@ -3504,7 +3520,7 @@ ${cellWGSL(K, false, genomePtr)}
 // stranded. Then its mark.
 fn handOver(i: u32, v0: vec2f, push0: vec2f, swim: f32, will: vec2f, willOn: bool, flow: vec2f, pond: vec3f, shore: f32, stranded: bool) {
   let push = push0 + select(normalize(v0), vec2f(0.0), dot(v0, v0) < 1e-6) * swim;
-  let wg = select(0.0, clamp(${f(K.willGrip)} * sim.dt / f32(sim.ticks), 0.0, 1.0), willOn);
+  let wg = select(0.0, clamp(${f(K.willGrip)} * bitcast<f32>(sim.hand.ids.z) * sim.dt / f32(sim.ticks), 0.0, 1.0), willOn);
   let film = select(vec2f(0.0), -pond.yz / max(length(pond.yz), 1e-4) * (${f(K.meniscus)} * (1.0 - smoothstep(0.0, ${f(K.filmR)}, -shore))), stranded);
   let o = subAt(i);
   let w = bitcast<vec4u>(vec4f(push, flow)); let w2 = bitcast<vec4u>(vec4f(film, will * wg));

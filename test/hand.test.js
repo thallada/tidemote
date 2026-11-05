@@ -142,9 +142,11 @@ test('acts in one place run together; elsewhere or later they are new', () => {
   assert.equal(hand.acts[0].n, 2);
 });
 
-test('steering writes the rider, its target and strength', () => {
+test('steering writes the rider, its will and hold', () => {
   const { hand, words, ids } = make();
-  hand.steer(77, 4, 5, 0.8); hand.update(1 / 60);
+  hand.steer(77, 4, 5, 0.8, 10, [1, 2]); hand.update(1 / 60);
+  assert.equal(hand.acts.at(-1).tool, 'ride');
+  assert.deepEqual([hand.acts.at(-1).x, hand.acts.at(-1).y], [1, 2]);
   assert.equal(ids[21], 77);
   assert.deepEqual([words[18], words[19]], [4, 5]);
   assert.ok(Math.abs(words[22] - 0.8) < 1e-6);

@@ -38,6 +38,7 @@ import { miniCard, setThumb, hasThumb, dropThumb } from './minicard.js';
 import { layOut, frameCells, records } from './studio.js';
 import { encodeImages, encodeBytes } from './encode.js';
 import { trackGlass } from './glass.js';
+import { isRideKey, keyWay, pointerWay, createThrottle, stepThrottle, throttleGrip, createRideCam, stepRideCam, willSpeed } from './ride.js';
 import { createCabinetStore, encodeCard, decodeCard, cardLink, cardFromHash, cardFromPng, cardIntoPng } from './cabinet.js';
 import { fmt, fmtClock, fmtDur, kfmt, when, esc, cssCol, clamp, term, spLink, saveFile, ROLE, MATTER, LIVING_CSS, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
 
@@ -243,8 +244,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // Dispense on (armed: a press sets down), and what it sets down (startSpit)
   const pull = { on: false, at: 0, until: 0, tip: [0, 0], got: [], taken: new Set(), drawn: new Set(), last: 0, quiet: 0, armed: false, shake: 0, note: null };
   const spit = { on: false, held: false, busy: false, sp: null, org: null, at: 0, next: 0, owed: 0, last: 0, fails: 0, dir: 0, pt: null, tip: [0, 0] };
-  // riding the specimen (toggleRide): where a held pointer steers it (at), the arrow keys held
-  const ride = { on: false, arrows: new Set(), at: null, warned: false, slept: false };
+  // riding the specimen (toggleRide, ride.js): where a held pointer steers it (at), the keys held (KeyboardEvent.code),
+  // the throttle they build, the camera's dive and breathing (cam; manual once the viewer zooms), the body sent
+  // (top: the will's full speed for it, world units a second)
+  const ride = { on: false, keys: new Set(), at: null, warned: false, slept: false, th: createThrottle(), cam: null, body: undefined, top: 1 };
   // While a pointer is held down on a panel, nothing re-renders under it: replacing the element
   // between pointerdown and pointerup swallows the click.
   let uiHoldUntil = 0;
@@ -1321,7 +1324,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   let spView = null;
   let dirty = false;
   function deselect() {
-    if (ride.on) { ride.on = false; hand.steer(NONE); }
+    if (ride.on) toggleRide(false, false);
     sel = null;
     spView = null;
     eng.trackId = NONE;
@@ -1330,68 +1333,106 @@ function run(eng, device, ctx, specCtx, hasTS) {
     setMembers(null);
   }
   // ------------------------------------------------------------ riding (docs/hand.md)
-  // The specimen ridden: the camera follows it, and a held click or finger, or the arrow keys, steer it, a will
-  // among its drives (hand.steer). Coarse steps cannot be steered: above ×2 the ride goes on as a follow.
-  function toggleRide(on = !ride.on) {
+  // The specimen ridden: the camera follows it, diving to it (ride.js), and WASD, the arrows or a held click or finger
+  // steer it, a will among its drives (hand.steer) that its whole body takes on. Untouched, a ride is a follow.
+  // Coarse steps cannot be steered: above ×2 the ride goes on as a follow. Selecting another cell, panning, taking
+  // up a tool or Esc gets off; so does its death, unless it was one cell of a body that lives on (it rides on in another).
+  // The shorter side of the view, in world units
+  const viewShort = () => Math.min(canvas.width, canvas.height) / ppu();
+  function toggleRide(on = !ride.on, say = true) {
     if (on && !(sel && sel.particle.kind >= FIRST_LIFE && !sel.lost)) return;
     ride.on = on;
     ride.at = null;
-    if (on) { if (inHand()) pickTool('none'); if (!state.follow) toggleFollow(); else takeOver(); }
-    else hand.steer(NONE);
+    ride.th = createThrottle();
+    if (sel) sel.rideEnded = false;
+    if (on) {
+      if (inHand()) pickTool('none');
+      // (the auto camera's subject, ridden, becomes the viewer's own)
+      if (sel.film) { sel.film = false; sel.filmFor = null; specimen.open(); }
+      takeOver();
+      state.follow = true;
+      ride.cam = createRideCam(viewShort());
+    } else {
+      hand.steer(NONE);
+      state.follow = false;
+      ride.cam = null;
+      rideBody(null);
+    }
     dirty = true;
-    flash(on ? 'Riding · a held click or the arrows steer it · Tab: its newest child' : 'Off');
+    if (say) flash(on ? 'Ride On · WASD to steer' : 'Ride Off');
+  }
+  // the ride over by itself (why: 'it died' or 'lost track of it', after which the panel offers Ride a relative)
+  function endRide(why) {
+    if (!ride.on) return;
+    toggleRide(false, false);
+    if (why && sel) sel.rideEnded = true;
+    flash(why ? `Ride Off · ${why}` : 'Ride Off');
+  }
+  // the ridden body's cells, sent to the steps when they change (the trace's members: setMembers)
+  function rideBody(ids) {
+    if (ids === ride.body) return;
+    ride.body = ids;
+    eng.setRideBody(ids);
   }
   // where the ridden cell is steered this frame, and how hard (nothing held: it goes its own way)
-  function steerRide() {
+  function steerRide(dt) {
     if (!ride.on) return;
-    if (!sel || sel.lost || sel.particle.kind < FIRST_LIFE) {
-      if (hand.rider !== NONE) { hand.steer(NONE); flash('It is gone · Tab: on to the nearest of its kind'); }
-      return;
-    }
-    sel.rideKind = sel.particle.kind; // (its kind, for Tab once it is gone)
-    const serial = genomeFor(sel.particle.kind)?.serial;
-    if (serial && !life.rode.includes(serial)) life.rode.push(serial);
-    const fast = state.speed > 2;
-    if (fast && (ride.at || ride.arrows.size) && !ride.warned) { ride.warned = true; flash('Steering only at ×2 or slower'); }
+    if (!sel || sel.lost) { endRide('lost track of it'); return; }
+    // (one cell of a body died: until the next trace rehomes the watch it rides on in the body, which keeps the will)
+    if (sel.particle.kind < FIRST_LIFE && !sel.rehome) { endRide('it died'); return; }
+    const fast = state.speed > 2, live = !fast && !state.paused;
+    const [px, py] = predicted(), [W, H] = eng.grid;
+    const way = ride.at ? pointerWay(wrapD(ride.at[0] - px, W), wrapD(ride.at[1] - py, H)) : keyWay(ride.keys);
+    const held = way[0] !== 0 || way[1] !== 0;
+    if (fast && held && !ride.warned) { ride.warned = true; flash('Steering only at ×2 or slower'); }
     if (!fast) ride.warned = false;
-    const [px, py] = predicted();
-    let to = ride.at;
-    if (!to && ride.arrows.size) {
-      const d = [0, 0];
-      for (const k of ride.arrows) { if (k === 'ArrowLeft') d[0]--; if (k === 'ArrowRight') d[0]++; if (k === 'ArrowUp') d[1]--; if (k === 'ArrowDown') d[1]++; }
-      to = [px + d[0] * 4, py + d[1] * 4];
-    }
+    const u = stepThrottle(ride.th, live ? way : [0, 0], dt / 1000);
+    const s = live ? throttleGrip(u) : 0;
     // (a cyst sleeps: it will not move however it is steered, and says so once)
     const cyst = sel.particle.cause === CYST;
-    if (cyst && to && !ride.slept) { ride.slept = true; flash('Dormant, a cyst · it moves when it wakes'); }
+    if (cyst && held && !ride.slept) { ride.slept = true; flash('Dormant, a cyst · it moves when it wakes'); }
     if (!cyst) ride.slept = false;
-    hand.steer(sel.id, ...(to || [px, py]), to && !fast ? 1 : 0, eng.simTime);
+    const g = genomeFor(sel.particle.kind), v = (ride.top = willSpeed(g, K));
+    if (s > 0 && g?.serial && !life.rode.includes(g.serial)) life.rode.push(g.serial);
+    hand.steer(sel.id, u[0] * v, u[1] * v, s, eng.simTime, [px, py]);
+    rideBody(members);
   }
-  // Tab: on to the ridden cell's newest kin near it (a child just budded, or after a death the nearest of its kind)
+  // the ride's camera: into a mid-to-close zoom on it, then a little wider as it nears its top speed (until the viewer zooms)
+  function rideCamera(dt) {
+    if (!ride.on || !ride.cam || ride.cam.manual || !sel) return;
+    const w = stepRideCam(ride.cam, Math.hypot(sel.particle.vx, sel.particle.vy) / ride.top, sel.box ? sel.org.span : 0, dt / 1000);
+    cam.zoomTarget = clamp(Math.min(canvas.width, canvas.height) / (w * fitPPU()), 1, maxZoom());
+  }
+  // the viewer zoomed: the ride's camera keeps the zoom they chose for the rest of the ride
+  const zoomedByHand = () => { if (ride.cam) ride.cam.manual = true; };
+  // The nearest living cells of a kind about a point: the youngest within reach of it (a child just budded), else the nearest
+  async function nearestKin(kind, at, not) {
+    const res = await eng.requestPick(at, 4, NONE, { kind });
+    const [W, H] = eng.grid;
+    const kin = (res?.entries || []).filter((c) => c.id !== not && c.kind === kind)
+      .map((c) => ({ c, d: Math.hypot(wrapD(c.x - at[0], W), wrapD(c.y - at[1], H)) }));
+    const young = kin.filter((k) => k.d < 1.2).sort((a, b) => a.c.age - b.c.age)[0];
+    return { res, young: !!young, next: (young || kin.sort((a, b) => a.d - b.d)[0])?.c };
+  }
+  // Tab: on to the ridden cell's newest kin near it (a child just budded, or the nearest of its kind)
   async function hopRide() {
     if (!ride.on || !sel) return;
-    const kind = sel.particle.kind >= FIRST_LIFE ? sel.particle.kind : sel.rideKind;
-    if (kind == null) return;
-    const [px, py] = predicted();
-    const res = await eng.requestPick([px, py], 4, NONE, { kind });
-    const [W, H] = eng.grid;
-    const kin = (res?.entries || []).filter((c) => c.id !== sel.id && c.kind === kind)
-      .map((c) => ({ c, d: Math.hypot(wrapD(c.x - px, W), wrapD(c.y - py, H)) }));
-    // the youngest within reach of it, else the nearest
-    const young = kin.filter((k) => k.d < 1.2).sort((a, b) => a.c.age - b.c.age)[0];
-    const next = young || kin.sort((a, b) => a.d - b.d)[0];
+    const { res, young, next } = await nearestKin(sel.particle.kind, predicted(), sel.id);
     if (!next) { flash('None of its kind near'); return; }
-    beginTracking(next.c, res, true);
+    if (!ride.on) return;
+    beginTracking(next, res, true);
     dirty = true;
-    if (!state.follow) toggleFollow();
     flash(young ? 'On to its newest kin' : 'On to the nearest of its kind');
   }
-  function toggleFollow() {
-    if (!sel) return;
-    state.follow = !state.follow;
-    if (state.follow) takeOver();
-    dirty = true;
-    flash(state.follow ? 'Following' : 'Stopped following');
+  // After a ride ended in its death: ride the nearest of its kind
+  async function rideRelative() {
+    if (!sel || !sel.memory) return;
+    const kind = sel.memory.kind, at = [sel.particle.x, sel.particle.y];
+    const { res, next } = await nearestKin(kind, at, sel.id);
+    if (!next) { flash('None of its kind nearby'); return; }
+    beginTracking(next, res, true);
+    toggleRide(true, false);
+    flash('Ride On · a relative');
   }
   function story(text) {
     if (!sel) return;
@@ -1409,7 +1450,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     return g.serial ? g : null;
   }
 
-  async function selectAt(sx, sy, pxPerWorld, world) {
+  // (riding: a click on nothing, on matter or on the ridden body does nothing; on another living cell it gets off and selects it)
+  async function selectAt(sx, sy, pxPerWorld, world, riding = false) {
     if (state.phase !== 'running') return;
     const [wx, wy] = world || toWorldShown(sx, sy);
     const p = pxPerWorld || cssPPU();
@@ -1428,6 +1470,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const anyR = bestAny && bestAny.kind === 3 ? 0.17 : bestAny && bestAny.kind === 4 ? 0.09 : 0.05;
     const touchR = isCoarse ? 30 : 22;
     const chosen = bestLife && bl < Math.max(touchR, 0.2 * p) ? bestLife : bestAny && ba < Math.max(isCoarse ? 20 : 14, anyR * p) ? bestAny : null;
+    if (riding) {
+      if (!chosen || chosen.kind < FIRST_LIFE || !ride.on || !sel || chosen.id === sel.id || sel.members?.has(chosen.id)) return;
+      endRide();
+    }
     if (!chosen) { deselect(); return; }
     beginTracking(chosen, res);
     closeMenus();
@@ -1669,6 +1715,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (best < 0) { if (sel.rehome) organismGone(); return; }
       if (sel.rehome) {
         story(`${transitionText(sel.particle, sel.rehome.cell).replace(/ Its (body|skeleton) is now .*$/, '').replace(/ What remained is silt\.$/, '')} Its organism lives on; now watching another of its cells.`);
+        if (ride.on) flash('Its cell died · riding on in its body');
       } else story('Its organism split: following the larger part.');
       sel.rehome = null;
       sel.id = idAt(best);
@@ -1727,9 +1774,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
   specimen = createSpecimen({
     eng, K, state, held: uiHeld,
     life: () => life, sel: () => sel, spView: () => spView, genomeFor, originWord,
-    focusKey: () => focus.key, follow: () => state.follow, riding: () => ride.on,
-    onFollow: toggleFollow,
+    focusKey: () => focus.key, riding: () => ride.on, rideEnded: () => !!(sel && sel.rideEnded && sel.memory),
     onRide: () => toggleRide(),
+    onRideRelative: rideRelative,
     onRelative: followRelative,
     onFind: () => findMember(spView),
     onHighlight: () => {
@@ -2109,6 +2156,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function openSpecies(serial) {
     const sp = life.reg.get(serial);
     if (!sp) { flash('That species is no longer on record'); return; }
+    if (ride.on) toggleRide(false, false);
     sel = null;
     eng.trackId = NONE;
     state.follow = false;
@@ -2161,7 +2209,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     takeOver();
     if (cssPPU() < 18) { cam.zoomTarget = clamp((18 * dpr) / fitPPU(), 1, maxZoom()); cam.anchor = null; }
     beginTracking(m.best, { entries: [], simTime: m.simTime });
-    state.follow = true;
+    // (kept in view: a ride, untouched until the viewer steers)
+    toggleRide(true, false);
     if (phone()) lab.close();
   }
 
@@ -2272,9 +2321,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + (s.tide ? rampHtml(MAPS[0]) : '')
         + (K.heat ? choice('heat', 'Heat map', 'E', [[0, 'Off'], [1, 'Shimmer'], [2, 'Full']], s.heat, 'heatmap') : '')
         + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : '')
-        + onoff('bands', 'Tide map', 'D', s.bands > 0, 'tidemap')
+        + onoff('bands', 'Tide map', 'H', s.bands > 0, 'tidemap')
         + (s.bands ? rampHtml(MAPS[2]) : '')
-        + onoff('currents', 'Currents', 'W', state.currents)
+        + onoff('currents', 'Currents', 'C', state.currents)
         + onoff('links', 'Bonds', 'L', s.links, 'bond')
         + onoff('nodes', 'Particles', 'N', s.nodes)
         + choice('songmarks', 'Song marks', '', [[0, 'Off'], [1, 'Picked'], [2, 'All']], state.songMarks, 'songmarks')
@@ -2288,7 +2337,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // the page is hidden, its layers' levels and its space and tone (src/audio/mix.js), each by what it sounds like
     function audio_() {
       const m = sound.mix, mix = (k) => choice(`mix-${k}`, SOUND_MIX[k].name, '', SOUND_MIX[k].choices.map(([label], i) => [i, label]), m[k], `audio${k}`);
-      return group('sound', 'Playback', onoff('sound', 'Soundtrack', 'S', sound.on)
+      return group('sound', 'Playback', onoff('sound', 'Soundtrack', 'M', sound.on)
         + `<div class="opt"><span class="lbl">Volume <kbd>− =</kbd></span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${Math.round(sound.volume * 100)}" aria-label="Volume"><b id="set-vol-v">${Math.round(sound.volume * 100)}%</b></div></div>`
         + mix('background'))
         + group('mix', 'Mix', ['music', 'cells', 'water', 'tools'].map(mix).join(''))
@@ -2663,7 +2712,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     hand.set(id, eng.simTime);
     hear('pick', { tool: hand.tool });
     if (id !== 'loupe') lensAt = null;
-    if (inHand()) { takeOver(); if (sel && state.follow) toggleFollow(); }
+    if (inHand()) { takeOver(); endRide(); state.follow = false; }
     bench.render();
     view.render();
   }
@@ -3019,7 +3068,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // what a press would do now, or is doing: Load or Dispense (⇧ held, the other, before the press too)
   let shiftHeld = false;
   for (const ev of ['keydown', 'keyup']) addEventListener(ev, (e) => { shiftHeld = e.shiftKey; }, true);
-  addEventListener('blur', () => { shiftHeld = false; });
+  addEventListener('blur', () => { shiftHeld = false; ride.keys.clear(); });
   const pipDispensing = () => (spit.on ? true : pull.on || hand.suck ? false : pull.armed !== shiftHeld);
   // The hand heard (audio/handsound.js): its acts as they happen, and every frame while it does something, the
   // tool's state (its level; how fast the rod or the needle in the water moves on the screen, 0..4, 300 px a second
@@ -3097,8 +3146,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (L && e.pointerType !== 'mouse' && !folds && Math.hypot(e.clientX - L.sx, e.clientY - L.sy) < L.R) ptr.down.lens = { x: L.sx, y: L.sy };
       if (pip) { pipettePress(e); takeOver(); }
       else if (apply) { hand.down(...toWorld(e.clientX, e.clientY), eng.simTime); takeOver(); }
-      // riding, a press steers (and pans nothing)
-      else if (ride.on && !folds && (e.pointerType !== 'mouse' || e.button === 0)) { ptr.down.steer = true; ride.at = toWorld(e.clientX, e.clientY); }
+      // riding, a press steers (and pans nothing); a quick click on another cell selects it (up, below)
+      else if (ride.on && !folds && (e.pointerType !== 'mouse' || e.button === 0)) { ptr.down.steer = true; ptr.down.t = performance.now(); ride.at = toWorld(e.clientX, e.clientY); }
     }
     if (ptr.pointers.size === 2) {
       const [a, b] = [...ptr.pointers.values()];
@@ -3118,7 +3167,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (e.pointerType === 'mouse') { hover.x = e.clientX; hover.y = e.clientY; hover.on = true; }
     const prev = ptr.pointers.get(e.pointerId);
     if (!prev) return;
-    if (ptr.down?.steer) { prev.x = e.clientX; prev.y = e.clientY; ride.at = toWorld(e.clientX, e.clientY); return; }
+    if (ptr.down?.steer) {
+      prev.x = e.clientX; prev.y = e.clientY; ride.at = toWorld(e.clientX, e.clientY);
+      if (Math.hypot(e.clientX - ptr.down.x, e.clientY - ptr.down.y) > (e.pointerType === 'mouse' ? 6 : 12)) ptr.down.moved = true;
+      return;
+    }
     if (ptr.down?.apply) {
       prev.x = e.clientX; prev.y = e.clientY;
       hand.move(...toWorld(e.clientX, e.clientY));
@@ -3138,6 +3191,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const p = ppu();
       if (!state.follow) { cam.x -= ((cx - ptr.pinch.cx) * dpr) / p; cam.y -= ((cy - ptr.pinch.cy) * dpr) / p; }
       zoomAt(d / Math.max(1, ptr.pinch.d), cx, cy);
+      zoomedByHand();
       ptr.pinch = { d, cx, cy };
       return;
     }
@@ -3145,6 +3199,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (ptr.dragging) {
       const p = ppu();
       cam.x -= (dxs * dpr) / p; cam.y -= (dys * dpr) / p;
+      endRide();
       if (state.follow) { state.follow = false; dirty = true; }
       canvas.classList.add('grabbing');
     }
@@ -3154,12 +3209,16 @@ function run(eng, device, ctx, specCtx, hasTS) {
     ptr.pointers.delete(e.pointerId);
     if (ptr.pointers.size < 2) ptr.pinch = null;
     if (ptr.pointers.size === 0) {
-      if (ptr.down?.steer) ride.at = null;
+      if (ptr.down?.steer) {
+        ride.at = null;
+        // (a quick click that did not steer anywhere: selecting another cell gets off; the ridden body's own, nothing)
+        if (!ptr.down.moved && e.type === 'pointerup' && performance.now() - ptr.down.t < 280) selectAt(e.clientX, e.clientY, undefined, undefined, true);
+      }
       if (ptr.down?.pip) pipetteUp();
       else if (ptr.down?.apply) {
         if (!ptr.dragging && e.type === 'pointerup') tapTool(e.clientX, e.clientY);
         hand.up(eng.simTime);
-      } else if (ptr.down && !ptr.dragging && e.type === 'pointerup' && !inHand()) {
+      } else if (ptr.down && !ptr.down.steer && !ptr.dragging && e.type === 'pointerup' && !inHand()) {
         const L = ptr.down.loupe;
         // (with the loupe on a touch screen, the lens goes where the tap was, centered on what it picked)
         const setLens = hand.tool === 'loupe' && e.pointerType !== 'mouse';
@@ -3188,6 +3247,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (e.shiftKey && inHand()) { setReach(hand.reach * f); return; }
     if (e.shiftKey && loupeGeom()) { state.loupeMag = clamp(state.loupeMag * f, 1.5, 20); return; }
     zoomAt(f, e.clientX, e.clientY);
+    zoomedByHand();
   }, { passive: false });
 
   addEventListener('keydown', (e) => {
@@ -3200,7 +3260,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (tag === 'INPUT' && /^Arrow/.test(e.key)) return;
     const k = e.key;
     let handled = true;
-    if (k === 'R' && e.shiftKey) {
+    // riding, WASD and the arrows steer (whatever they do otherwise); a living cell selected, they start a ride
+    if (isRideKey(e.code) && (ride.on || (sel && !sel.lost && sel.particle.kind >= FIRST_LIFE && state.phase === 'running'))) {
+      if (!ride.on) toggleRide(true);
+      ride.keys.add(e.code);
+    }
+    else if (k === 'R' && e.shiftKey) {
       if (state.phase !== 'running') return;
       const now = performance.now();
       if (now - state.confirmReset < 2500) { state.confirmReset = 0; seedWorld(eng.count); sound.overture(); flash('A new world begins'); }
@@ -3219,22 +3284,20 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (k === 'o' || k === 'O') { eng.settings.optics = eng.settings.optics > 0 ? 0 : 1; flash(eng.settings.optics ? 'Microscope optics on' : 'Microscope optics off'); persist(); view.render(); }
     else if (k === 'g' || k === 'G') { eng.settings.tide = eng.settings.tide ? 0 : 1; flash(eng.settings.tide ? 'Light map' : 'Light map off'); mapsChanged(); }
     else if ((k === 'e' || k === 'E') && K.heat) { eng.settings.heat = (eng.settings.heat + 1) % 3; flash(['Heat map off', 'Heat shimmer', 'Thermal camera'][eng.settings.heat]); mapsChanged(); }
-    else if (k === 'd' || k === 'D') { eng.settings.bands = eng.settings.bands ? 0 : 1; flash(eng.settings.bands ? 'Tide map' : 'Tide map off'); mapsChanged(); }
-    else if (k === 'w' || k === 'W') { state.currents = !state.currents; flash(state.currents ? 'Currents shown' : 'Currents hidden'); view.render(); }
+    else if (k === 'h' || k === 'H') { eng.settings.bands = eng.settings.bands ? 0 : 1; flash(eng.settings.bands ? 'Tide map' : 'Tide map off'); mapsChanged(); }
+    else if (k === 'c' || k === 'C') { state.currents = !state.currents; flash(state.currents ? 'Currents shown' : 'Currents hidden'); view.render(); }
     else if (k === 'v' || k === 'V') view.toggle();
     else if (k === 'k' || k === 'K') { closeMenus(); lab.toggle(); }
-    else if (k === 'm' || k === 'M') pickTool('loupe');
     else if ((k === '[' || k === ']') && inHand()) setReach(reachStep(hand.reach, k === ']' ? 1 : -1), true);
     else if (k === '[') { state.loupeMag = clamp(state.loupeMag / 1.25, 1.5, 20); flash(`Loupe ×${state.loupeMag.toFixed(1)}`); }
     else if (k === ']') { state.loupeMag = clamp(state.loupeMag * 1.25, 1.5, 20); flash(`Loupe ×${state.loupeMag.toFixed(1)}`); }
-    else if (k === 'c' || k === 'C') { if (sel) toggleFollow(); }
+    else if ((k === 'Enter' || k === 'Tab') && sel && !ride.on && sel.rideEnded && sel.memory) rideRelative();
     else if (k === 'Enter' && sel) toggleRide();
-    else if (ride.on && /^Arrow/.test(k)) ride.arrows.add(k);
     else if (k === 'Tab' && ride.on) hopRide();
-    else if (k === 'a' || k === 'A') playAuto();
+    else if (k === 'p' || k === 'P') playAuto();
     else if ((k === 'x' || k === 'X') && director.active) nextScene();
     else if (k === 'r' || k === 'R') filmAct();
-    else if (k === 's' || k === 'S') toggleSound();
+    else if (k === 'm' || k === 'M') toggleSound();
     else if (k === '-' || k === '_') nudgeVolume(-0.1);
     else if (k === '=' || k === '+') nudgeVolume(0.1);
     else if (k === 'u' || k === 'U') setInterface(!state.ui);
@@ -3264,14 +3327,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (k === '?') toggleHelp();
     else if (k === 'i' || k === 'I') { state.hud = !state.hud; $('hud').classList.toggle('off', !state.hud); document.body.classList.toggle('hud-off', !state.hud); flash(state.hud ? 'Readouts shown' : 'Readouts hidden'); }
     else if (k === 'f' || k === 'F') toggleFullscreen();
-    else if (k === 'z' || k === 'Z') { takeOver(); cam.zoomTarget = 1; cam.anchor = null; }
+    else if (k === 'z' || k === 'Z') { takeOver(); cam.zoomTarget = 1; cam.anchor = null; zoomedByHand(); }
     else handled = false;
     if (handled) { e.preventDefault(); hideIntro(); }
   });
   // a tool's key held down past a moment (a quasimode): let go, the tool that was in hand before
   let quasi = null;
   addEventListener('keyup', (e) => {
-    ride.arrows.delete(e.key);
+    ride.keys.delete(e.code);
     if (!quasi || e.key !== quasi.key) return;
     if (performance.now() - quasi.at > 450 && quasi.prev !== hand.tool) pickTool(quasi.prev);
     quasi = null;
@@ -3972,10 +4035,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
       }
       // (with the interface hidden the subject is not marked, but its song marks still show)
       filmMarked = !!(visible && (!sh || sh.why.seen) && (!state.ui || drawMarker(sx, sy, inLens, dt))) && !!sh;
-      // riding: the will, a line from the cell to where it is steered
+      // riding: the will, a line from the cell the way it is steered, as long as the throttle is open
       if (ride.on && hand.will && hand.will[2] > 0 && state.ui) {
-        const [wx, wy] = easeWill(sel.disp[0], sel.disp[1], dt), p = cssPPU();
-        drawWill(sx, sy, sx + wx * p, sy + wy * p);
+        const [wx, wy] = easeWill(dt);
+        drawWill(sx, sy, sx + wx, sy + wy);
       }
     }
     // (the mouse at the lens's center; a lens set by a tap has no pointer to mark)
@@ -3997,13 +4060,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
     drawSongMarks(now, L);
     if (notesShown) drawNotes(dt, L);
   }
-  // The will as drawn, from the ridden cell (world units), eased toward where it is steered as the specimen's compass
-  // eases its arrows: a new way turns to over a moment, the shorter way round, and its length follows, never snapping.
+  // The will as drawn, from the ridden cell (screen px: WILL_PX at the throttle full open), eased as the specimen's
+  // compass eases its arrows: a new way turns to over a moment, the shorter way round, and its length follows, never snapping.
   const WILL_EASE = 80; // ms
+  const WILL_PX = 120;
   const willShown = { a: 0, l: 0 };
-  function easeWill(px, py, dt) {
-    const [W, H] = eng.grid, tx = wrapD(hand.will[0] - px, W), ty = wrapD(hand.will[1] - py, H);
-    const a = Math.atan2(ty, tx), l = Math.hypot(tx, ty), w = willShown;
+  function easeWill(dt) {
+    const u = ride.th.u, a = Math.atan2(u[1], u[0] + 1e-9), l = Math.hypot(u[0], u[1]) * WILL_PX, w = willShown;
     const k = 1 - Math.exp(-dt / WILL_EASE);
     w.a += (a - w.a - TAU * Math.round((a - w.a) / TAU)) * k;
     w.l += (l - w.l) * k;
@@ -4924,6 +4987,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
       // passed (at most two intervals).
       const T = frameTarget(), gap = perf.lastSubmit ? now - perf.lastSubmit : T;
       perf.budget = !perf.gpuHeld && gap > 1.5 * T ? Math.min(gap, 2 * T) : T;
+      // (the time since the last frame drawn, not the last display frame: below the display's rate, or with the GPU
+      // behind, display frames go by undrawn, and what eases by the frame's time here eased at half speed)
+      const fdt = Math.min(100, gap);
       perf.gpuHeld = false;
       perf.lastSubmit = now;
       eng.season = seasonAt(eng.simTime);
@@ -4944,17 +5010,19 @@ function run(eng, device, ctx, specCtx, hasTS) {
       renderCaption(now);
       // and the pointer hides once the mouse has rested a few seconds
       document.body.classList.toggle('cursor-off', director.active && now - lastPtr.moved > CURSOR_REST);
+      rideCamera(fdt);
       if (state.follow && sel) {
         const [px, py] = predicted();
         const [ox, oy] = viewOffset();
-        const k = Math.min(1, dt / 70);
+        // (a ride's first second pans in more gently, as its zoom dives)
+        const k = Math.min(1, fdt / (ride.cam && ride.cam.t < 1 ? 70 + 130 * (1 - ride.cam.t) : 70));
         cam.x += wrapD(px + ox - cam.x, eng.grid[0]) * k;
         cam.y += wrapD(py + oy - cam.y, eng.grid[1]) * k;
       }
       if (Math.abs(cam.zoom - cam.zoomTarget) > 1e-4) {
         const a = state.follow && sel ? toScreen(sel.disp[0], sel.disp[1]) : cam.anchor || [innerWidth / 2, innerHeight / 2];
         const before = toWorld(a[0], a[1]);
-        cam.zoom += (cam.zoomTarget - cam.zoom) * Math.min(1, dt / 90);
+        cam.zoom += (cam.zoomTarget - cam.zoom) * Math.min(1, fdt / 90);
         const after = toWorld(a[0], a[1]);
         cam.x += before[0] - after[0]; cam.y += before[1] - after[1];
       }
@@ -4962,7 +5030,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const L = loupeGeom();
       const R = reticleAt();
       canvas.classList.toggle('lens', !!L || !!R);
-      steerRide();
+      steerRide(fdt);
       pullTick(now);
       // (the lamp, shade, stage and probe follow the pointer over the world, a little of them, until pressed)
       if (R) hand.hover(...toWorld(R.sx, R.sy)); else hand.hover(null);
@@ -5086,7 +5154,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // the look, for the tools (until the Display settings next set it): tunables over Darkfield's at a strength, or off
     look: { set: (p = {}, strength = 1) => applyLook({ ...DARKFIELD, ...p }, strength), off: () => applyLook(DARKFIELD, 0) },
     // a .tidemote file's bytes, as Settings → Worlds opens one
-    openWorld: async (bytes) => loadWorld(await openWorld(bytes)) };
+    openWorld: async (bytes) => loadWorld(await openWorld(bytes)),
+    // riding, for tools/ridelab.mjs: its state, the specimen, the body traced
+    ride: { state: ride, sel: () => sel, members: () => members, viewShort } };
 
   calibrate().then(() => {
     state.phase = 'running';
