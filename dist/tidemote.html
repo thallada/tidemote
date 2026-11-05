@@ -661,7 +661,7 @@ canvas.chart { cursor: crosshair; }
 .opt .chip:disabled { opacity: .35; cursor: default; }
 /* an Auto choice shows what it is using now: the choice it matches underlined in the sun's color, or, when it
    matches none (a render scale of 60%), its value on the Auto chip, at a fixed width so the row never reflows */
-.opt .auto-now { color: var(--sun); min-width: 4ch; letter-spacing: .04em; font-variant-numeric: tabular-nums; }
+.opt .auto-now { color: var(--sun); min-width: 3ch; letter-spacing: .04em; font-variant-numeric: tabular-nums; }
 .opt .segs:has(.auto-pick) .auto-now { display: none; }
 .opt .chip.auto-pick:not([aria-pressed="true"]) { box-shadow: inset 0 -2px 0 var(--sun); }
 .hot-btn { border-color: var(--hot); color: var(--ink); background: rgba(255, 95, 58, 0.14); justify-self: start; }
@@ -676,12 +676,14 @@ canvas.chart { cursor: crosshair; }
 .readout span { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
 .opts { display: flex; flex-direction: column; margin-top: var(--s4); }
 /* one option: its label in a fixed column, then its choices as one bar filling the rest, so every row's label and
-   bar line up with the next and the eye runs down each. A bar of many choices (.many) is a grid of even cells over
-   two lines or more; a bar too long for its line wraps, each line still filling it, its borders shared. */
+   bar line up with the next and the eye runs down each. A bar never wraps (an Auto chip's value coming and going
+   would change its height): short of room its chips give up their padding. A bar of many choices (.many) is a
+   grid of even cells over two lines or more. */
 .opt { display: grid; grid-template-columns: 9.6em minmax(0, 1fr); gap: var(--s3); align-items: center; }
 .opt > .lbl { white-space: nowrap; }
-.opt > .segs { min-width: 0; padding-top: 1px; }
+.opt > .segs { flex-wrap: nowrap; min-width: 0; padding-top: 1px; }
 .opt > .segs .chip { flex: 1 1 auto; min-width: 0; padding: 0 6px; margin-top: -1px; justify-content: center; white-space: nowrap; }
+.opt > .segs .chip:has(.auto-now) { gap: 5px; }
 .opt > .segs.many { display: grid; grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); padding-left: 1px; }
 .opt > .segs.many .chip { margin-left: -1px; }
 .opt > .segs.many .chip:has(.auto-now) { grid-column: span 2; }
@@ -1463,6 +1465,16 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 @media (max-width: 380px) {
   .tabs button { padding: 0 6px; letter-spacing: .06em; }
   .settings .sec-h h2 { display: none; }
+  /* a narrower label column, its labels on two lines where they must, for the choices' room */
+  .opt { grid-template-columns: 8em minmax(0, 1fr); }
+  .opt > .lbl { white-space: normal; line-height: 1.3; }
+  .opts .ramp { margin-left: calc(8em + var(--s3)); }
+  .opt > .segs .chip { padding: 0 4px; letter-spacing: .07em; }
+}
+/* the narrowest phones: every row's label over its bar, the bar the panel's width */
+@media (max-width: 340px) {
+  .opt { grid-template-columns: minmax(0, 1fr); gap: var(--s2); padding-top: var(--s1); }
+  .opts .ramp { margin-left: 0; }
 }
 @media (pointer: coarse) {
   .keys-note, .opt kbd { display: none; }
@@ -25403,7 +25415,7 @@ ${e.message}` : String(e?.message || e));
     card: "A species card: its portrait, sigil, song, lineage and natural history on one image, with the chronicler’s latest line about it. Save it as a PNG, and its song as a short clip. You can give the species a name of your own there.",
     film: "Records the view as a video, with the auto camera’s captions and the soundtrack, until you stop it (R, or Stop on the red strip); the strip shows its time and size. Where it can, it is written to disk as it is made; it stops itself before it grows too big to keep (up to 8 GB, an hour or more at 1080p; less where it has to wait in memory). With the auto camera on it waits for the camera’s next scene and films from its start.",
     autoidle: "Left alone for a minute (three with a panel open), the camera starts filming the world on its own. Drag, scroll or tap to take it back.",
-    renderscale: "The share of the screen’s resolution the world is drawn at. Auto lowers it while frames run late and raises it again when there is room, and shows the scale it is using now (the choice nearest it is underlined); a fixed value never changes.",
+    renderscale: "The share of the screen’s resolution the world is drawn at. Auto lowers it while frames run late and raises it again when there is room, and shows the scale it is using now (the choice it matches underlined, or the scale beside Auto); it may go as low as Auto lowest, and in an emergency lower still, to 25%. A fixed value never changes.",
     autofloor: "The lowest render scale Auto may drop to.",
     tunesea: "How often the sea’s waves are worked out: every frame (Full), every second (½) or fourth (¼) frame, their pace kept, in steps, or not at all, leaving the water’s surface still. On a phone it is a sixth of a frame. Auto lowers and raises it with the other Auto choices, by what each costs this device and how much it shows (the choice it uses is underlined).",
     tunebloom: "The soft glow around bright cells, allowed or not. Auto leaves it out when frames run late and its time is worth more elsewhere.",
@@ -41610,7 +41622,7 @@ ${e.message}` : String(e?.message || e));
         const dev = Math.min(devicePixelRatio || 1, 2);
         const sizes2 = PARTICLE_SIZES.filter((n) => n <= maxParticles());
         const nowN = pendingN ?? (P.particles || "auto");
-        return group("res", "Resolution", choice("scale", "Render scale", "", [["auto", "Auto"], [1, "100%"], [0.75, "75%"], [0.5, "50%"], [0.35, "35%"]], P.scale, "renderscale") + (P.scale === "auto" ? choice("floor", "Auto lowest", "", [[0.75, "75%"], [0.5, "50%"], [0.35, "35%"], [0.25, "25%"]], P.floor, "autofloor") : "") + choice("density", "Pixel density", "", [["auto", "Auto"], [1, "1×"], [1.5, "1.5×", dev < 1.5], [2, "2×", dev < 2]], P.density, "density") + choice("fps", "Target fps", "", [["auto", "Auto"], [30, "30"], [60, "60"], [0, "Display"]], P.fps, "targetfps")) + group("detail", "Detail", Object.keys(TUNE_TITLES).map((k) => choice(`tune-${k}`, TUNE_TITLES[k], "", [["auto", "Auto"], ...TUNE_NAMES[k].map((n, i) => [i, n]).reverse()], P.tune[k], `tune${k}`)).join("")) + group("world", "World", choice("n", "Particles", "", [["auto", "Auto"], ...sizes2.map((n) => [n, kfmt(n)])], nowN, "particles") + choice("scan", "Neighbors", "", [["auto", "Auto"], ...scanChoices().map((n) => [n, String(n)])], P.scan ?? "auto", "neighbors") + (pendingN != null && String(pendingN) !== String(P.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === "auto" ? "a measured count" : fmt(pendingN)}</button></div>` : "") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", "Profile")}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : ""));
+        return group("res", "Resolution", choice("scale", "Render scale", "", [["auto", "Auto"], [1, "100%"], [0.75, "75%"], [0.5, "50%"], [0.25, "25%"]], P.scale, "renderscale") + (P.scale === "auto" ? choice("floor", "Auto lowest", "", [[0.75, "75%"], [0.5, "50%"], [0.35, "35%"], [0.25, "25%"]], P.floor, "autofloor") : "") + choice("density", "Pixel density", "", [["auto", "Auto"], [1, "1×"], [1.5, "1.5×", dev < 1.5], [2, "2×", dev < 2]], P.density, "density") + choice("fps", "Target fps", "", [["auto", "Auto"], [30, "30"], [60, "60"], [0, "Display"]], P.fps, "targetfps")) + group("detail", "Detail", Object.keys(TUNE_TITLES).map((k) => choice(`tune-${k}`, TUNE_TITLES[k], "", [["auto", "Auto"], ...TUNE_NAMES[k].map((n, i) => [i, n]).reverse()], P.tune[k], `tune${k}`)).join("")) + group("world", "World", choice("n", "Particles", "", [["auto", "Auto"], ...sizes2.map((n) => [n, kfmt(n)])], nowN, "particles") + choice("scan", "Neighbors", "", [["auto", "Auto"], ...scanChoices().map((n) => [n, String(n)])], P.scan ?? "auto", "neighbors") + (pendingN != null && String(pendingN) !== String(P.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">Start a new world with ${pendingN === "auto" ? "a measured count" : fmt(pendingN)}</button></div>` : "") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", "Profile")}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">Copy profile</button></div></div>` : ""));
       }
       const EVENT_NAMES = { drought: "Drought", storm: "Storm", duckweed: "Duckweed", frost: "Frost" };
       function climate_() {

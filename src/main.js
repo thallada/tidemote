@@ -2416,7 +2416,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const dev = Math.min(devicePixelRatio || 1, 2);
       const sizes = PARTICLE_SIZES.filter((n) => n <= maxParticles());
       const nowN = pendingN ?? (P.particles || 'auto');
-      return group('res', 'Resolution', choice('scale', 'Render scale', '', [['auto', 'Auto'], [1, '100%'], [0.75, '75%'], [0.5, '50%'], [0.35, '35%']], P.scale, 'renderscale')
+      return group('res', 'Resolution', choice('scale', 'Render scale', '', [['auto', 'Auto'], [1, '100%'], [0.75, '75%'], [0.5, '50%'], [0.25, '25%']], P.scale, 'renderscale')
         + (P.scale === 'auto' ? choice('floor', 'Auto lowest', '', [[0.75, '75%'], [0.5, '50%'], [0.35, '35%'], [0.25, '25%']], P.floor, 'autofloor') : '')
         + choice('density', 'Pixel density', '', [['auto', 'Auto'], [1, '1×'], [1.5, '1.5×', dev < 1.5], [2, '2×', dev < 2]], P.density, 'density')
         + choice('fps', 'Target fps', '', [['auto', 'Auto'], [30, '30'], [60, '60'], [0, 'Display']], P.fps, 'targetfps'))
