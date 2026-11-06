@@ -28,6 +28,8 @@ import { createNoteView } from './noteview.js';
 import { createChronicler, watchMap, durWords } from './chronicler.js';
 import { STAINS, stainColors, stainKey, stainMode } from './stain.js';
 import { createNarrator } from './narrator.js';
+import { chronicleBook } from './book.js';
+import { sigilSVG } from './song.js';
 import { earned } from './achievements.js';
 import { createCards, strangerCard, PORTRAIT_BOX, PORTRAIT_SHOWN, CARD_SCALE, CARD_W, CARD_H } from './card.js';
 import { createFilm, clearFilms } from './film.js';
@@ -2273,6 +2275,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const tips = createTips($('tip'));
 
   // ------------------------------------------------------------ lab
+  // the chronicle as a book to keep (book.js), saved as an HTML file from the Lab's log
+  function bookHtml() {
+    return chronicleBook({
+      chronicle: life.chronicle, reg: life.reg, eras: (climate.history || []).map((h) => ({ t: h.t, name: h.name })), now: eng.simTime,
+      world: `a world of ${kfmt(eng.count)} particles, ${life.reg.size.toLocaleString('en-US')} species on record`,
+      sigil: (sp) => sigilSVG(voiceOf(sp.genome), sp.genome, { size: 30 }),
+      words: (sp) => { const f = facetsOf(sp.genome); return `${f.diet} · ${f.mobility} · ${f.body === 'multicellular' ? 'many-celled' : 'single cells'}${(sp.genome.graft || 0) > K.graftMin ? ' · grafter' : ''}`; },
+    });
+  }
   lab = createLab({
     eng, state, held: uiHeld,
     // a phone starts with it folded away: there it covers the world
@@ -2285,6 +2296,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     focusKey: () => focus.key,
     focusPredicate: (label, pred) => setFocus(`pred:${label}`, label, { pred }),
     relabel,
+    book: () => saveFile(new Blob([bookHtml()], { type: 'text/html' }), `natural-history-${fmtClock(eng.simTime).replace(/:/g, '-')}.html`),
     cabinet: {
       cards: () => cabinet.cards, world: worldId,
       facets: (c) => { let f = cardFacets.get(c); if (!f) cardFacets.set(c, (f = facets(genomeOfWords(c.words), K))); return f; },
@@ -5193,7 +5205,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   });
   // a handle for tools/perf, which profiles the page in a real browser
   globalThis.__tidemote = { state, cam, perf, eng, notes, noteView, sound, lab, life: () => life, climate: () => climate, renderScale: () => renderScale, maxZoom, setSpeed, findMember, deselect,
-    chron, cards, film, filmAct, openSpecies, director, saveWorld, worlds: worldStore, boot: bootTimes, pruned,
+    chron, cards, film, filmAct, bookHtml: () => bookHtml(), openSpecies, director, saveWorld, worlds: worldStore, boot: bootTimes, pruned,
     setScale(v) { state.perf.scale = v; if (v !== 'auto') renderScale = v; resetAdapt(); fit(); },
     // as the adaptive scale does it: applied when the next frame begins
     queueScale(v) { renderScale = v; resizeDue = true; },

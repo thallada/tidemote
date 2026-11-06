@@ -618,8 +618,9 @@ export function createLab(api) {
   // ---------------------------------------------------------- log
   const TYPES = [['all', 'All'], ['story', 'Chronicler'], ['est', 'New species'], ['genus', 'New genera'], ['ext', 'Extinctions'], ['top', 'Dominance'], ['era', 'Eras'], ['pond', 'The pool'], ...(api.eng.K.heat ? [['heat', 'Heat']] : [])];
   function buildLog() {
-    const p = pane(`<input type="search" id="log-q" placeholder="Search the log" aria-label="Search the log" autocomplete="off">
+    const p = pane(`<div class="log-top"><input type="search" id="log-q" placeholder="Search the log" aria-label="Search the log" autocomplete="off"><button type="button" class="chip" id="log-book" data-hint="The chronicler’s stories as a book to keep: an HTML file, by era, with an index of the species">Book</button></div>
       <div class="row" role="group" aria-label="Show">${chips('logType', TYPES, st.logType)}</div>`);
+    p.ctl.querySelector('#log-book').addEventListener('click', () => api.book?.());
     const list = document.createElement('ol');
     list.className = 'log';
     p.scroll.append(list);
