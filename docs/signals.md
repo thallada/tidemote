@@ -54,5 +54,10 @@ by grazers that carried their food's toxin (sequestration, as monarch butterflie
 four, and grazers held 43–72% of the living. A striking escalation, and an ecological collapse: a producer's upkeep is
 small beside its income, so a flat cost let the toxin be nearly free. Hence the tax.
 
-The tax's screen and the gate are in the commit log of this branch and summarized in
-docs/claude-play-2026-11-05.md.
+With the tax (`toxTax` 0.3), the gate (32 × 30 min at 32k, `runs/play/gate-tax`): persisted 100%, food web 97%,
+no guild lost, the living's share up (0.32 → 0.44) and steadier (CV 0.31 → 0.19), the eight grazer-only worlds of
+the baseline gone; but effective species fell 112 → 83 (p = 0.002, **regressed**) and outcomes narrowed (5.8 →
+3.0: 15 producer+grazer, 13 producer+grazer+scavenger, one world with hunters against six). Toxins at 30 minutes:
+producers 33% toxic, grazers 82%, scavengers and hunters 2%. The grazers carry the toxin as resistance to their
+food, which also shields them from hunters. `toxResist` (how much of an eater's own toxin counts against a meal's)
+was added to test decoupling the two; its gates follow in docs/claude-play-2026-11-05.md.

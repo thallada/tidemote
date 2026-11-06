@@ -35,3 +35,8 @@ play with myself: color that means something, and a way to ask whether a world h
   24 px, no overflow on the Takes pane.
 - Bioluminescence: implemented, but I did not catch a flash on film (with the tax, toxic producers were scarce
   where I looked). Unverified visually.
+- Gate with the tax (`runs/play/gate-tax`): effective species regressed (112 → 83, p = 0.002) though persistence,
+  living share and steadiness improved and no guild was lost; grazers end 82% toxic (resistance to their food),
+  which also shields them from hunters (one world in 32 kept hunters, against six in the baseline).
+- `toxResist` 0 (an eater's own toxin no defense; stopped after 12 runs): grazers starved on toxic producers in 11
+  of 12 worlds (7 producer+scavenger, 3 producers alone, 1 monoculture). Resistance is necessary.
