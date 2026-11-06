@@ -69,6 +69,25 @@ mirrors it). Designed founders never graft.
 - **Headless**: each run sample carries `grafts` (shares of the living sampled: of grafting species, holding a graft,
   holding up a grafter; `META_DEATH + 25…27`).
 
-## How it went
+## How it went (2026-11-05, screening at 32k, 15 simulated minutes, Dawn, one run at a time)
 
-See the end of this file for the screening runs.
+`off` is the same code with grafting disabled (`graftMin` 2), so founding is the same. Late-window means
+(`tools/night/table.mjs`):
+
+| config | seeds | eff. species | Hill 2 | cells grafted | of grafting species |
+| --- | --- | --- | --- | --- | --- |
+| off | 8 | 151.5 | 52.1 | 0 | 0 |
+| pool 0.5, take 0.15 (first try) | 6 | 102.8 | 32.1 | 17% | 22% |
+| pool 0.2, take 0.03 | 4 | 98.4 | 27.3 | 11% | 15% |
+| pool 0.1, take 0.01 | 8 | 131.3 | 42.2 | 10% | 14% |
+| pool 0.1, take 0 | 4 | 128.2 | 38.6 | 8% | 10% |
+| pool 0.05, take 0.02 | 4 | 135.3 | 43.9 | 5% | 6% |
+| pool 0.02, take 0.01 (and with graftFound 0.05; graftArmor 1) | 4 each | 126.7 (124.9; 130.8) | 40.4 (40.5; 43.4) | 9% (6%; 8%) | 12% (7%; 10%) |
+
+Grafting at first was a dominant strategy: the energy a graft moves dwarfed what cells earn. Even pooling at 0.1/s of
+the difference moves about 0.15 energy a second from a rich producer to a poor grafter, five times a cell's upkeep.
+Below that the differences between settings are within the noise of four seeds (the `off` seeds alone span 103 to
+183 effective species). Two structural changes came out of it: one graft per host, and only where the host keeps
+`graftRoom` (2) of its six back slots for its own kind, since a body's cell lets go of a partner that cannot hold it
+back, so grafters crowding a host tore its body apart. The defaults (pool 0.05, take 0.02, `engulf` 0.002) went to the
+32-seed gate; see docs/night-2026-11-05.md for its verdict.
