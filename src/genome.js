@@ -229,6 +229,13 @@ export function mimicModel(g, candidates, K = DEFAULT_K) {
   return best;
 }
 
+/** The harmless species (of candidates) wearing toxic g's colors: its mimics, most numerous first. */
+export function mimicsOf(g, candidates, K = DEFAULT_K) {
+  if ((g.toxin || 0) <= 0.3) return [];
+  return candidates.filter((c) => c.serial !== g.serial && (c.genome.toxin || 0) <= 0.1 && lookAlike(g.hue, c.genome.hue, K) > 0.5)
+    .sort((a, b) => b.pop - a.pop);
+}
+
 /** A species' growth plan as growOf in shaders.js reads it (null: it does not grow as a tree). */
 export function growPlan(g) {
   const v = g.grow;

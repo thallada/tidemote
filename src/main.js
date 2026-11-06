@@ -3,7 +3,7 @@ import { voiceOf } from './audio/mapping.js';
 import { signalAt } from './audio/motif.js';
 import { V_SCALE } from './audio/listen.js';
 import { createEngine, MAXK, FIRST_LIFE, MAX_STEPS, compactState } from './engine.js';
-import { genomeSerial, readGenome, writeGenome, parseParticle, thermalGuild, dietGuild, mimicModel } from './genome.js';
+import { genomeSerial, readGenome, writeGenome, parseParticle, thermalGuild, dietGuild, mimicModel, mimicsOf } from './genome.js';
 import { createTakes } from './takes.js';
 import { seasonAt, createClimate, abioRate, EVENT_TYPES, excursionAt } from './climate.js';
 import { countPools } from './geography.js';
@@ -1886,6 +1886,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     eng, K, state, held: uiHeld,
     life: () => life, sel: () => sel, spView: () => spView, genomeFor, originWord,
     mimicOf: (g) => mimicModel(g, [...life.reg.values()].filter((sp) => sp.alive && sp.established), K),
+    mimicsOf: (g) => mimicsOf(g, [...life.reg.values()].filter((sp) => sp.alive && sp.established), K),
     focusKey: () => focus.key, riding: () => ride.on, rideEnded: () => !!(sel && sel.rideEnded && sel.memory),
     onRide: () => toggleRide(),
     onRideRelative: rideRelative,
