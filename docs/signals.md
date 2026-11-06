@@ -76,3 +76,10 @@ measure mimicry within a guild (grazers wearing toxic grazers' colors) rather th
 
 At 6-tick coarse steps (`runs/play/gate-step6`, 32 runs) the ecology matches this rule's normal-step gate on every
 metric (effective species 89 → 84, p 0.29), so fast speeds keep it.
+
+Color, 8 seeds × 2 at 32k × 30 min, the rule against `aversion`, `toxHarm`, `toxSick` 0 (`runs/play/hues`, each
+sample's `toxins.hues`), means over the last 10 minutes: effective colors (exp of the entropy of the living's hues in
+36 bins) 16.0 ± 3.8 against 16.7 ± 3.0; bins holding 1% of the living 18.2 against 19.8; the fullest bin 24% against
+23%; the mean hue vector's length 0.34 against 0.46. Worlds stay as colorful, and each keeps a palette of its own (no
+hue is a warning color across worlds). Mimicry did not replicate: 0.97 against 1.48 (the off arm's few toxic species
+make its ratio noise). Grazers were half or more toxic in 5 worlds of 8; in 3, toxins had all but gone.
