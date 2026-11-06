@@ -25,7 +25,8 @@ mirrors it). Designed founders never graft.
 - **Formation.** In its scan a grafter (`graftOn`) holding no graft notes the nearest cell of another living, waking
   species within bond reach (`linkR`) whose surface its receptors fit past `K.graftFit` (0.2: the same affinity, `a`,
   that its particle-life pull on that cell uses). After the scan it takes that cell into a free bond slot, if the
-  cell can hold another bond back (`backOf(j, 0) < BACK`). Adhesion is not needed (a single-celled grafter grafts);
+  cell holds no other graft (`guarded`) and keeps more than `graftRoom` (2) of its bonds back free for its own kind
+(a host's body is not torn apart by its grafters). Adhesion is not needed (a single-celled grafter grafts);
   a tree's cells bond only by plan and never graft. A cell holds at most one graft (`grafted`).
 - **Holding.** `keepBond` keeps a bond to another species while either end grafts and fits the other
   (`graftHolds`: grafter's receptors against the other's surface, as above). Since fit depends only on the two
@@ -41,12 +42,19 @@ mirrors it). Designed founders never graft.
   `graftPool · (E_q − E_p) + graftTake · (t_p · E_q⁺ − t_q · E_p⁺)`
 
   where t is each end's graft gene (0 for a non-grafter). The first term pools, toward the poorer cell, half
-  (`graftPool` 0.5) as readily as a body's bond; the second is the grafter's pull on its host's energy
-  (`graftTake` 0.15/s at a full gene). The expression is antisymmetric, so each end reckons the same amount with
+  (`graftPool`, 0.05: a twentieth) as readily as a body's bond; the second is the grafter's pull on its host's energy
+  (`graftTake`, 0.02/s at a full gene). Both are on the scale of a cell's upkeep (about 0.03/s). The expression is antisymmetric, so each end reckons the same amount with
   opposite signs and energy is conserved exactly, however the bond is kept (one way, or both). It is added after a
   tree's feeding replaces the body's sharing, so a tree can host too. So a grafter on a rich host drinks from it
   (a parasite); one on a poor host feeds it; one on an equal pools with it.
-- **What it is not.** A graft gives no armor (armor is the prey species' adhesion), and a grafter may still eat its
+- **Symbiogenesis.** A grafter holding a producer (photosynthesis past 0.4), dividing, takes it in at `engulf`
+  (0.002 a division): its daughter founds a species, a mutant of it (`engulfInto`), with the producer's photosynthesis
+  (`engulfKeep`, 70% of it, where more than its own), the producer's first cell type as its third, its hue drawn half
+  way to the producer's, and no graft of its own. The producer's serial goes to the species ledger (the fifth graft
+  word), so the chronicler and the registry know the line's second parent.
+- **Guarding** (`graftArmor`, 0 by default, screened at 1): a cell held by a grafter resists being eaten as a body's
+  adhesion would, the host's side of a mutualism.
+- **What it is not.** By default a graft gives no armor (armor is the prey species' adhesion), and a grafter may still eat its
   host, or be eaten by it: nothing in the meal rules knows about grafts.
 
 ## Watching it
