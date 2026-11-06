@@ -117,7 +117,16 @@ export function createSound({ onChange = () => {}, onError = () => {}, onSang = 
   }
   function setVolume(v) {
     st.volume = clamp(v, 0, 1); persist(); notify();
-    if (st.gain && st.on) { const g = st.gain.gain; g.cancelScheduledValues(st.ctx.currentTime); g.setTargetAtTime(level(st.volume), st.ctx.currentTime, 0.05); }
+    if (st.gain && st.on) { const g = st.gain.gain; g.cancelScheduledValues(st.ctx.currentTime); g.setTargetAtTime(level(st.volume) * (st.ducked ? DUCK : 1), st.ctx.currentTime, 0.05); }
+  }
+  // the narrator speaking (src/narrator.js): the soundtrack steps back to DUCK of its level, and returns after
+  const DUCK = 0.3;
+  function duck(on) {
+    if (!!on === !!st.ducked) return;
+    st.ducked = !!on;
+    if (!st.gain || !st.on || st.away) return;
+    const g = st.gain.gain, t = st.ctx.currentTime;
+    g.cancelScheduledValues(t); g.setTargetAtTime(level(st.volume) * (on ? DUCK : 1), t, on ? 0.15 : 0.6);
   }
   const post = (m) => { if (st.node) st.node.port.postMessage(m); };
   // the page hidden (another tab, the phone locked): fade out and let the audio thread rest; shown
@@ -190,7 +199,7 @@ export function createSound({ onChange = () => {}, onError = () => {}, onSang = 
     // resume from inside a click or key press, where autoplay is blocked
     unlock: () => { if (st.on && st.ctx && !st.away) st.ctx.resume(); },
     away,
-    toggle: () => setOn(!st.on), setOn, setVolume, setMix,
+    toggle: () => setOn(!st.on), setOn, setVolume, setMix, duck,
     get mix() { return { ...st.mix }; },
     census, listen, era: (name) => post({ type: 'era', name }),
     // the hand's acts and state (audio/handsound.js)

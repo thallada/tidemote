@@ -36,6 +36,8 @@ The page is laid out as an instrument bench around the world: a status rail alon
 
 **Grafts** (docs/symbiosis.md): a few species carry a grafting gene, and their cells can bond to a cell of another species whose surface their receptors fit. Energy runs along a graft toward the poorer cell, and the grafter draws on its host besides, so one rule makes parasites draining richer hosts, passengers pooling their fortunes with them, and two-colored crusts that move as one; hosts escape only by evolving surfaces their grafters no longer fit. Now and then a grafter clinging to a producer takes it in as it divides, and its daughter founds a new line that photosynthesizes with its host's light (symbiogenesis). The specimen panel's last decision says when a cell is living off, clinging to or carrying another, and the chronicler tells of parasites, partnerships and lines born of a union.
 
+**The narrator** (Settings → Audio → Narrator, off by default where the browser has voices): the chronicler's stories read aloud as they are told, in the browser's own speech, while the soundtrack steps back. With the auto camera, which goes to look at each story's subject as it is told, the world plays as a documentary (`src/narrator.js`).
+
 **Stains** (Settings → Overlays → Stain, or **J**): as a microscopist stains a slide, a stain colors every living cell by what its species is: its diet, its genus, its grafts, the water it wants, how it moves, or how new it is. From afar, where the cells are a confetti of species colors, a stain shows the world's structure: the meadows and the grazing fronts, the mosaic of lineages, where the new species are being born.
 
 Zooming in reveals twelve families of cell outlines: lobose and filose amoebae, bent radiates,

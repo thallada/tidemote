@@ -1731,7 +1731,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     <dt>M · − =</dt><dd>Sound · volume</dd>
     <dt>T</dt><dd>Trails</dd>
     <dt>G · E · H · C</dt><dd>Light map · heat map · tide map · currents</dd>
-    <dt>J</dt><dd>Stain the living: diet · lineage · grafts · warmth · motion · novelty</dd>
+    <dt>J</dt><dd>Stain the living: diet · lineage · grafts · warmth · motion · vigor · novelty</dd>
     <dt>L N Y O</dt><dd>Bonds · particles · bloom · optics</dd>
     <dt>1–8 · 0</dt><dd>The tools: loupe, touch, lamp, shade, warm, cold, needle, pipette (held down: for a moment; again: put it down) · pan, nothing in hand</dd>
     <dt>B · Esc</dt><dd>The bench · put the tool down</dd>
@@ -21459,8 +21459,17 @@ registerProcessor("tidemote-sound", TidemoteSound);
       if (st.gain && st.on) {
         const g = st.gain.gain;
         g.cancelScheduledValues(st.ctx.currentTime);
-        g.setTargetAtTime(level(st.volume), st.ctx.currentTime, 0.05);
+        g.setTargetAtTime(level(st.volume) * (st.ducked ? DUCK : 1), st.ctx.currentTime, 0.05);
       }
+    }
+    const DUCK = 0.3;
+    function duck(on) {
+      if (!!on === !!st.ducked) return;
+      st.ducked = !!on;
+      if (!st.gain || !st.on || st.away) return;
+      const g = st.gain.gain, t2 = st.ctx.currentTime;
+      g.cancelScheduledValues(t2);
+      g.setTargetAtTime(level(st.volume) * (on ? DUCK : 1), t2, on ? 0.15 : 0.6);
     }
     const post = (m) => {
       if (st.node) st.node.port.postMessage(m);
@@ -21549,6 +21558,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       setOn,
       setVolume,
       setMix,
+      duck,
       get mix() {
         return { ...st.mix };
       },
@@ -25428,7 +25438,8 @@ ${e.message}` : String(e?.message || e));
     scalding: "Far above its optimum a cell begins to die of the heat: a chance each second, rising steeply. A scalded cell leaves a husk. Heat-stressed cells bleach toward pale bone first.",
     phototaxis: "Some species sense which way the light grows and push themselves toward it, or, shunning it, away into the dim water. It is a motility of its own, paid for in upkeep, so even a drifting producer can follow the bands of light as they travel; grazers and hunters that follow the light find the meadows there.",
     symbiogenesis: "A grafter clinging to a producer may, as it divides, take its host in: its daughter founds a new species that keeps the producer’s photosynthesis (most of it) and grows the producer’s cell type as its own third. So the eukaryotic cell got its mitochondria, and plants their chloroplasts. Most such unions die out; those that last are told by the chronicler.",
-    stain: "As a microscopist stains a slide to see what the eye alone cannot, a stain colors every living cell by what its species is: Diet (light, grazing, the dead, flesh), Lineage (a color per genus), Grafts (grafters and their hosts), Warmth (the water it wants), Motion (swimmers, drifters, the anchored) or Novelty (how new the species is). It changes only how the living are drawn. J steps through them.",
+    narrator: "The chronicler’s stories read aloud as they are told, in the browser’s own voice, while the soundtrack steps back. With the auto camera, which goes to see what each story is about, the world plays as a documentary.",
+    stain: "As a microscopist stains a slide to see what the eye alone cannot, a stain colors every living cell by what its species is: Diet (light, grazing, the dead, flesh), Lineage (a color per genus), Grafts (grafters and their hosts), Warmth (the water it wants), Motion (swimmers, drifters, the anchored), Vigor (each cell by its own energy) or Novelty (how new the species is). It changes only how the living are drawn. J steps through them.",
     graft: "A graft is a bond between two species. A species with the grafting gene (past 15%) can bond to one cell of another species whose surface its receptors fit, adhesive or not, and holds it while they still fit. Energy runs along a graft as along a body’s bond, toward the poorer cell, and besides the grafter draws on its host as hard as its gene: a parasite drains a richer host, a passenger pools its fortunes with one, and a host can only escape by evolving a surface the grafter no longer fits. Grafts show as a narrow neck between two colors.",
     thermotaxis: "Swimmers away from their optimum steer up or down the warmth of the water toward it, harder the further off they are. Drifters and anchored cells cannot steer; heat sorts them by who survives where.",
     framboid: "A pyrite framboid: a sphere of tiny iron sulfide crystals, a few microns across like the cells. Framboids grow where a pile of husks rots in cool water (the rot releases the sulfide), and a few lie in the mud from the start. As one oxidizes it warms its water, burning faster the warmer that water is, so a crowded, hot cluster burns itself out; spent, it crumbles to silt. Sparks of life favor their warmth, and heat-loving species gather round them. Framboids are solid like stone.",
@@ -36780,6 +36791,95 @@ ${e.message}` : String(e?.message || e));
     return [];
   }
 
+  // src/narrator.js
+  function pickVoice(voices, lang = "en") {
+    if (!voices || !voices.length) return null;
+    const score = (v) => {
+      const l = (v.lang || "").toLowerCase().replace("_", "-"), n = (v.name || "").toLowerCase();
+      let s = 0;
+      if (l.startsWith(lang)) s += 100;
+      if (l === "en-gb") s += 6;
+      if (v.localService) s += 20;
+      if (/natural|neural|premium|enhanced|daniel|serena|arthur|george|libby|ryan|sonia/.test(n)) s += 15;
+      if (/google/.test(n)) s += 4;
+      if (/compact|novelty|whisper|bad news|bells|boing|bubbles|cellos|zarvox|trinoids|albert|jester|organ|superstar|wobble/.test(n)) s -= 80;
+      if (v.default) s += 2;
+      return s;
+    };
+    let best = null, bs = -Infinity;
+    for (const v of voices) {
+      const s = score(v);
+      if (s > bs) {
+        bs = s;
+        best = v;
+      }
+    }
+    return best && bs >= 100 ? best : null;
+  }
+  function speakable(text2) {
+    return String(text2 || "").replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&[a-z]+;/g, " ").replace(/\s+/g, " ").trim();
+  }
+  function createNarrator({ synth, Utterance, duck = () => {
+  }, rate = 0.94, pitch = 0.92, volume = 1 } = {}) {
+    const queue = [];
+    let speaking = false, voice = null, on = false;
+    const ready = () => !!synth && !!Utterance;
+    const refresh = () => {
+      if (ready()) voice = pickVoice(synth.getVoices?.() || []);
+    };
+    if (ready() && "onvoiceschanged" in synth) synth.onvoiceschanged = refresh;
+    refresh();
+    function next() {
+      if (!on || speaking || !queue.length || !ready()) {
+        if (!speaking) duck(false);
+        return;
+      }
+      const u = new Utterance(queue.shift());
+      if (voice) {
+        u.voice = voice;
+        u.lang = voice.lang;
+      } else u.lang = "en-GB";
+      u.rate = rate;
+      u.pitch = pitch;
+      u.volume = volume;
+      speaking = true;
+      duck(true);
+      const done = () => {
+        speaking = false;
+        next();
+      };
+      u.onend = done;
+      u.onerror = done;
+      synth.speak(u);
+    }
+    return {
+      get available() {
+        if (!voice) refresh();
+        return ready() && !!voice;
+      },
+      get on() {
+        return on;
+      },
+      set on(v) {
+        on = !!v;
+        if (!on) this.stop();
+      },
+      say(text2) {
+        const t2 = speakable(text2);
+        if (!on || !t2) return;
+        queue.push(t2);
+        while (queue.length > 2) queue.shift();
+        next();
+      },
+      stop() {
+        queue.length = 0;
+        if (ready()) synth.cancel();
+        speaking = false;
+        duck(false);
+      }
+    };
+  }
+
   // src/achievements.js
   var ACHIEVEMENTS = [
     // the chronicler's firsts (detectFirsts: told at most once a world, after its first minutes)
@@ -39451,6 +39551,8 @@ ${e.message}` : String(e?.message || e));
       // mark the cells that sing: 0 off, 1 the picked species, 2 all
       stain: 0,
       // a stain coloring the living by species (STAINS in stain.js; 0 none), never kept between visits
+      narrate: !!prefs.narrate,
+      // the narrator reads the chronicler's stories aloud (narrator.js)
       notes: prefs.notes ?? 1,
       // live annotations (docs/annotations.md): 0 off, 1 with the auto camera, 2 always
       water: prefs.water ?? 2,
@@ -39511,7 +39613,7 @@ ${e.message}` : String(e?.message || e));
     document.body.classList.toggle("no-closeup", !state.closeup);
     const persist = () => {
       const s = eng.settings;
-      savePrefs({ v: 5, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+      savePrefs({ v: 5, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, narrate: state.narrate, water: state.water, waves: state.waves, look: state.look, grain: state.grain, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
       document.body.classList.toggle("no-closeup", !state.closeup);
     };
     const applyLook = (p = { ...DARKFIELD, grain: [0, 0.25, 0.5][state.grain] }, strength = [0, 0.6, 1, 1.35][state.look]) => eng.look.set(packLook(p, strength));
@@ -40591,6 +40693,8 @@ ${e.message}` : String(e?.message || e));
       for (let s = FIRST_LIFE; s < MAXK; s++) if (c.pop[s]) slots.push([s, life.reg.get(genomeSerial(c.genomeU32, s))]);
       eng.setStain(stainMode(id) === 2 ? null : stainColors(id, slots, { t: c.simTime, hosts: stainHosts }, K), stainMode(id));
     }
+    const narrator = createNarrator({ synth: globalThis.speechSynthesis, Utterance: globalThis.SpeechSynthesisUtterance, duck: (on) => sound.duck(on) });
+    narrator.on = state.narrate;
     function tellStories(c) {
       if (state.stain) applyStain(c);
       if (c.spl) for (let s = FIRST_LIFE; s < MAXK; s++) slotSerial[s] = c.pop[s] ? genomeSerial(c.genomeU32, s) : 0;
@@ -40617,6 +40721,7 @@ ${e.message}` : String(e?.message || e));
       });
       for (const s of told) {
         pushEvent(s.html, s.col, "story");
+        if (state.narrate) narrator.say(s.text);
         if (desk) unlock(earned(s, storiesRead()));
         const sp = s.subjects.map((k) => life.reg.get(k)).find((k) => k && k.alive);
         if (sp) director.spotlight(sp.slot, sp.serial, { story: s.text });
@@ -41803,7 +41908,7 @@ ${e.message}` : String(e?.message || e));
       }
       function audio_() {
         const m = sound.mix, mix4 = (k) => choice(`mix-${k}`, MIX[k].name, "", MIX[k].choices.map(([label3], i) => [i, label3]), m[k], `audio${k}`);
-        return group("sound", "Playback", onoff("sound", "Soundtrack", "M", sound.on) + `<div class="opt"><span class="lbl">Volume <kbd>− =</kbd></span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${Math.round(sound.volume * 100)}" aria-label="Volume"><b id="set-vol-v">${Math.round(sound.volume * 100)}%</b></div></div>` + mix4("background")) + group("mix", "Mix", ["music", "cells", "water", "tools"].map(mix4).join("")) + group("character", "Character", mix4("space") + mix4("tone"));
+        return group("sound", "Playback", onoff("sound", "Soundtrack", "M", sound.on) + `<div class="opt"><span class="lbl">Volume <kbd>− =</kbd></span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${Math.round(sound.volume * 100)}" aria-label="Volume"><b id="set-vol-v">${Math.round(sound.volume * 100)}%</b></div></div>` + mix4("background") + (narrator.available || state.narrate ? onoff("narrate", "Narrator", "", state.narrate, "narrator") : "")) + group("mix", "Mix", ["music", "cells", "water", "tools"].map(mix4).join("")) + group("character", "Character", mix4("space") + mix4("tone"));
       }
       const scanChoices = () => [...new Set([0.75, 1, 1.5, 2].map((f2) => Math.round(K.maxScan * f2 / 8) * 8).concat(eng.maxScan))].sort((a, b) => a - b);
       function performance_() {
@@ -42080,7 +42185,11 @@ ${e.message}` : String(e?.message || e));
           state.look = +v;
           applyLook();
         } else if (id.startsWith("mix-")) sound.setMix({ [id.slice(4)]: +v });
-        else if (id === "grain") {
+        else if (id === "narrate") {
+          state.narrate = !!+v;
+          narrator.on = state.narrate;
+          if (state.narrate) narrator.say(life.chronicle?.find?.((e) => e.type === "story")?.html || "The narrator will read the chronicle as it is written.");
+        } else if (id === "grain") {
           state.grain = +v;
           applyLook();
         } else if (id === "ev-start") {

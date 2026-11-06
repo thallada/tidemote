@@ -27,6 +27,7 @@ import { Notes } from './notes.js';
 import { createNoteView } from './noteview.js';
 import { createChronicler, watchMap, durWords } from './chronicler.js';
 import { STAINS, stainColors, stainKey, stainMode } from './stain.js';
+import { createNarrator } from './narrator.js';
 import { earned } from './achievements.js';
 import { createCards, strangerCard, PORTRAIT_BOX, PORTRAIT_SHOWN, CARD_SCALE, CARD_W, CARD_H } from './card.js';
 import { createFilm, clearFilms } from './film.js';
@@ -222,6 +223,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     events: { ...EVENTS_ON(), ...prefs.events },
     songMarks: prefs.songMarks ?? 1, // mark the cells that sing: 0 off, 1 the picked species, 2 all
     stain: 0, // a stain coloring the living by species (STAINS in stain.js; 0 none), never kept between visits
+    narrate: !!prefs.narrate, // the narrator reads the chronicler's stories aloud (narrator.js)
     notes: prefs.notes ?? 1, // live annotations (docs/annotations.md): 0 off, 1 with the auto camera, 2 always
     water: prefs.water ?? 2, // the water's surface: 0 off, 1 subtle, 2 normal, 3 strong (applyWater)
     waves: prefs.waves ?? 1, // its waves' motion: 0 slow, 1 normal, 2 lively
@@ -279,7 +281,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ v: 5, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+    savePrefs({ v: 5, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, narrate: state.narrate, water: state.water, waves: state.waves, look: state.look, grain: state.grain, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   // the look (src/look.js, docs/look.md): Darkfield as the Display settings ask, how strong as a whole and how much
@@ -1255,6 +1257,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     for (let s = FIRST_LIFE; s < MAXK; s++) if (c.pop[s]) slots.push([s, life.reg.get(genomeSerial(c.genomeU32, s))]);
     eng.setStain(stainMode(id) === 2 ? null : stainColors(id, slots, { t: c.simTime, hosts: stainHosts }, K), stainMode(id));
   }
+  // the narrator (narrator.js): the stories read aloud, the soundtrack stepping back while it speaks
+  const narrator = createNarrator({ synth: globalThis.speechSynthesis, Utterance: globalThis.SpeechSynthesisUtterance, duck: (on) => sound.duck(on) });
+  narrator.on = state.narrate;
   function tellStories(c) {
     if (state.stain) applyStain(c);
     if (c.spl) for (let s = FIRST_LIFE; s < MAXK; s++) slotSerial[s] = c.pop[s] ? genomeSerial(c.genomeU32, s) : 0;
@@ -1269,6 +1274,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     });
     for (const s of told) {
       pushEvent(s.html, s.col, 'story');
+      if (state.narrate) narrator.say(s.text);
       if (desk) unlock(earned(s, storiesRead()));
       const sp = s.subjects.map((k) => life.reg.get(k)).find((k) => k && k.alive);
       if (sp) director.spotlight(sp.slot, sp.serial, { story: s.text });
@@ -2368,7 +2374,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const m = sound.mix, mix = (k) => choice(`mix-${k}`, SOUND_MIX[k].name, '', SOUND_MIX[k].choices.map(([label], i) => [i, label]), m[k], `audio${k}`);
       return group('sound', 'Playback', onoff('sound', 'Soundtrack', 'M', sound.on)
         + `<div class="opt"><span class="lbl">Volume <kbd>− =</kbd></span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${Math.round(sound.volume * 100)}" aria-label="Volume"><b id="set-vol-v">${Math.round(sound.volume * 100)}%</b></div></div>`
-        + mix('background'))
+        + mix('background')
+        + (narrator.available || state.narrate ? onoff('narrate', 'Narrator', '', state.narrate, 'narrator') : ''))
         + group('mix', 'Mix', ['music', 'cells', 'water', 'tools'].map(mix).join(''))
         + group('character', 'Character', mix('space') + mix('tone'));
     }
@@ -2640,6 +2647,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'waves') { state.waves = +v; applyWater(); }
       else if (id === 'microlook') { state.look = +v; applyLook(); }
       else if (id.startsWith('mix-')) sound.setMix({ [id.slice(4)]: +v });
+      else if (id === 'narrate') { state.narrate = !!+v; narrator.on = state.narrate; if (state.narrate) narrator.say(life.chronicle?.find?.((e) => e.type === 'story')?.html || 'The narrator will read the chronicle as it is written.'); }
       else if (id === 'grain') { state.grain = +v; applyLook(); }
       else if (id === 'ev-start') { if (!climate.event) climate.force(v); toggle(false); return; }
       else if (id === 'film') { toggle(false); filmAct(v === 'stop' ? undefined : v); return; }
