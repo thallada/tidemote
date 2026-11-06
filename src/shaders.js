@@ -5410,7 +5410,10 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     // (2: vigor, each cell by its own energy toward its division, no table; 3: the grafts stain, with the cells that
     // hold a graft now brighter than the rest of their species)
     if (view.stain == 2u) {
-      let v = clamp(a.fed / 1.2, 0.0, 1.0);
+      // (energy over the division mark, lifeMain's divE)
+      let bodyE = ${f(DEFAULT_K.bodyE)} * genomes[kind].size;
+      let divE = genomes[kind].reproE + bodyE + max(0.0, bodyE + ${f(DEFAULT_K.provision)} * genomes[kind].metab / genomes[kind].share - genomes[kind].reproE - bodyE);
+      let v = clamp(select(p.energy, gh.fed * genomes[kind].reproE, dead) / divE, 0.0, 1.0);
       col = select(select(mix(vec3f(0.55, 1.0, 0.35), vec3f(1.0, 1.0, 0.92), (v - 0.7) / 0.3), mix(vec3f(1.0, 0.72, 0.2), vec3f(0.55, 1.0, 0.35), (v - 0.3) / 0.4), v < 0.7), mix(vec3f(1.0, 0.18, 0.15), vec3f(1.0, 0.72, 0.2), v / 0.3), v < 0.3);
       b = max(b, 0.75);
     } else if (view.stain != 0u) {
