@@ -1142,7 +1142,9 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .legend i { display: inline-block; width: 10px; height: 2px; margin-right: 6px; vertical-align: 3px; }
 .ramp { display: flex; align-items: center; gap: var(--s2); color: var(--ink-3); font-size: 11px; }
 /* a stain's key (Settings → Stain): a swatch per color, one line */
-.stain-key { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); margin-left: calc(9.6em + var(--s3)); color: var(--ink-3); font-size: 11px; }
+.stain-key { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); color: var(--ink-3); font-size: 11px; }
+.opts .stain-key { margin-left: calc(9.6em + var(--s3)); }
+.focus.maps .stain-key { flex-wrap: nowrap; }
 .stain-key span { display: inline-flex; align-items: center; gap: var(--s1); white-space: nowrap; }
 .stain-key i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 /* the light map's ramp (fsComposite): deep blue, teal, sun */
@@ -2123,14 +2125,18 @@ fn swaySlot2(id: u32, n: u32) -> u32 {
     // passenger's share of a richer host). graftFound: the share of sparks of life that graft.
     graftMin: 0.15,
     graftFit: 0.2,
-    graftPool: 0.5,
-    graftTake: 0.15,
+    graftPool: 0.05,
+    graftTake: 0.02,
     graftFound: 0.12,
     graftCost: 4e-3,
     // a grafter's upkeep per second at a full gene (as adhesion's)
     // Symbiogenesis: a grafter holding a producer, dividing, takes it in at this chance: its daughter founds a species
     // carrying the producer's photosynthesis (engulfKeep of it, if more than its own) and its first cell type as a third
-    engulf: 4e-3,
+    graftRoom: 2,
+    // bonds back a host keeps free for its own kind: a grafter takes a cell only with more room than this
+    graftArmor: 0,
+    // a cell held by a grafter resists being eaten as a body's adhesion this much past adhMin would
+    engulf: 2e-3,
     engulfKeep: 0.7,
     bite: 0.5,
     // energy taken per bite from a photosynthesizing cell (big enough to outpace a patch's regrowth: booms and crashes)
@@ -3060,8 +3066,9 @@ ${w ? "" : "    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }"}
   // whether a bud of a body bearing tails, if it buds now, starts a tail (none of its kind near, room ahead)
   let sprout = tails && budTurn == 0u && !budBlocked && !tailNear && rnd(&s) < g.tail.x * ${f(K.tailOdds)};
   crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride; plantN *= stride; animN *= stride;
-  // a grafter holding no graft takes the nearest stranger it fits into a free slot (it pulls once that cell holds it back)
-  if (gj != NONE && gj != n1 && gj != n2 && backOf(gj, 0u) < BACK) {
+  // a grafter holding no graft takes the nearest stranger it fits into a free slot (it pulls once that cell holds it back),
+  // if no other grafter holds it and it keeps room for its own kind's bonds (a host's body is not torn by its grafters)
+  if (gj != NONE && gj != n1 && gj != n2 && backOf(gj, 0u) + ${K.graftRoom | 0}u < BACK && !guarded(gj, sortedFull[gj].kind)) {
     var dg = sortedFull[gj].pos - p.pos;
     dg -= world * round(dg * invWorld);
     if (n1 == NONE) { n1 = gj; dn1 = dg; d1 = length(dg); }
@@ -5211,8 +5218,10 @@ fn mealDue(fk: u32, meal: u32) -> bool {
 
 // Whether an attack on food of kind fk misses: armour, an unfamiliar quarry, too little skill, or prey
 // hiding among stone. Every roll is drawn whatever the outcome, so the random stream stays the same.
-fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, plantN: f32, animN: f32, rivals: f32, sg: vec4u, full: f32, s: ptr<function, u32>) -> bool {
-  let armored = fk >= FIRST_LIFE && rnd(s) * (1.0 + ${f(K.armor)} * max(0.0, genomes[fk].adhesion - ${f(K.adhMin)})) > 1.0;
+fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, plantN: f32, animN: f32, rivals: f32, sg: vec4u, full: f32, s: ptr<function, u32>, food: u32) -> bool {
+  // (a cell held by a grafter of another species is guarded by it, graftArmor: docs/symbiosis.md)
+  let guard = select(0.0, ${f(K.graftArmor)}, ${K.graftArmor > 0 ? "true" : "false"} && fk >= FIRST_LIFE && guarded(food, fk));
+  let armored = fk >= FIRST_LIFE && rnd(s) * (1.0 + ${f(K.armor)} * max(0.0, genomes[fk].adhesion - ${f(K.adhMin)}) + guard) > 1.0;
   let image = (info >> 6u) & 1023u;
   let unfamiliar = ${f(K.searchImage)} > 0.0 && fk >= FIRST_LIFE && image != 0u && image != fk && rnd(s) < ${f(K.searchImage)};
   let unskilled = ${f(K.catchSkill)} > 0.0 && fk >= FIRST_LIFE && rnd(s) >= min(1.0, eatEff * select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, genomes[fk].photo > 0.4) / ${f(K.catchSkill)});
@@ -5239,6 +5248,14 @@ fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, plantN: f
   return armored || unfamiliar || unskilled || sheltered || hidden || jostled || fumbled || unrecognized || rested;
 }
 
+// Whether cell j (of kind k) is held by a cell of another species (a grafter: docs/symbiosis.md)
+fn guarded(j: u32, k: u32) -> bool {
+  for (var b = 0u; b < backN(j); b++) {
+    let c = backOf(j, 1u + b);
+    if (c < sim.count && sortedFull[c].kind != k && sortedFull[c].kind >= FIRST_LIFE) { return true; }
+  }
+  return false;
+}
 // K.diag: count v into a guild's slot k
 fn diagAdd(dg: u32, k: u32, v: u32) { atomicAdd(&ledger[META_DIAG + DIAG_STRIDE * dg + k], v); }
 fn isAnimal(j: u32) -> bool { return j != NONE && sortedFull[j].kind >= FIRST_LIFE && genomes[sortedFull[j].kind].photo <= 0.4; }
@@ -5407,7 +5424,7 @@ ${cellWGSL(K, false, genomePtr)}
     // a meal opportunity every K.eatEvery ticks, in the cell's own phase
     } else if (food != NONE && (sim.tick + p.id) % ${K.eatEvery | 0}u == 0u && mealDue(sortedFull[food].kind, (sim.tick + p.id) / ${K.eatEvery | 0}u)) {
       let fk = sortedFull[food].kind;
-      let missed = mealMissed(fk, info, ${G}, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, E / (divE * ${f(K.satietyAt)}), &s);
+      let missed = mealMissed(fk, info, ${G}, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, E / (divE * ${f(K.satietyAt)}), &s, food);
       let won = !missed && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged;
       if (DIAG && canHunt && isAnimal(food)) { diagAdd(dg, 15u, 1u); diagAdd(dg, select(select(17u, 18u, won), 16u, missed), 1u); }
       if (fk >= FIRST_LIFE) { splPair(p.kind, fk, won); }
@@ -5487,7 +5504,7 @@ ${cellWGSL(K, false, genomePtr)}
           let fp = sortedFull[fd];
           // handling time, or a miss (armour, an unfamiliar quarry, skill, shelter), ends this opportunity
           if (!mealDue(fp.kind, mi)) { break; }
-          if (mealMissed(fp.kind, info, ${G}, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, E / (divE * ${f(K.satietyAt)}), &s)) {
+          if (mealMissed(fp.kind, info, ${G}, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, E / (divE * ${f(K.satietyAt)}), &s, fd)) {
             if (hunt && isAnimal(fd)) { diagAdd(dg, 16u, 1u); }
             if (fp.kind >= FIRST_LIFE) { splPair(p.kind, fp.kind, false); }
             break;
@@ -25399,6 +25416,7 @@ ${e.message}` : String(e?.message || e));
     torpor: "Far below its optimum (more than 1.25 tolerances) a cell goes torpid: it neither feeds, swims nor divides, pays a quarter of its upkeep, dims, its pulse stops and it falls silent, until the water warms.",
     scalding: "Far above its optimum a cell begins to die of the heat: a chance each second, rising steeply. A scalded cell leaves a husk. Heat-stressed cells bleach toward pale bone first.",
     phototaxis: "Some species sense which way the light grows and push themselves toward it, or, shunning it, away into the dim water. It is a motility of its own, paid for in upkeep, so even a drifting producer can follow the bands of light as they travel; grazers and hunters that follow the light find the meadows there.",
+    symbiogenesis: "A grafter clinging to a producer may, as it divides, take its host in: its daughter founds a new species that keeps the producer’s photosynthesis (most of it) and grows the producer’s cell type as its own third. So the eukaryotic cell got its mitochondria, and plants their chloroplasts. Most such unions die out; those that last are told by the chronicler.",
     stain: "As a microscopist stains a slide to see what the eye alone cannot, a stain colors every living cell by what its species is: Diet (light, grazing, the dead, flesh), Lineage (a color per genus), Grafts (grafters and their hosts), Warmth (the water it wants), Motion (swimmers, drifters, the anchored) or Novelty (how new the species is). It changes only how the living are drawn. J steps through them.",
     graft: "A graft is a bond between two species. A species with the grafting gene (past 15%) can bond to one cell of another species whose surface its receptors fit, adhesive or not, and holds it while they still fit. Energy runs along a graft as along a body’s bond, toward the poorer cell, and besides the grafter draws on its host as hard as its gene: a parasite drains a richer host, a passenger pools its fortunes with one, and a host can only escape by evolving a surface the grafter no longer fits. Grafts show as a narrow neck between two colors.",
     thermotaxis: "Swimmers away from their optimum steer up or down the warmth of the water toward it, harder the further off they are. Drifters and anchored cells cannot steer; heat sorts them by who survives where.",
@@ -29559,7 +29577,8 @@ ${e.message}` : String(e?.message || e));
         s += kv("Peak", sp ? fmt(sp.peak) : "—");
       }
       if (src) {
-        s += kv("Arose", `${fmtClock(src.born || 0)}${src.founder ? ` · ${api.originWord(src)}` : ""}`);
+        const host = src.symbiont && life.reg.get(src.symbiont);
+        s += kv("Arose", `${fmtClock(src.born || 0)}${src.founder ? ` · ${api.originWord(src)}` : ""}${src.symbiont ? ` · taking in ${host ? spLink(host.serial, host.name) : "a producer"}` : ""}`, src.symbiont ? "symbiogenesis" : void 0);
         const gen = life.genera.get(src.genus);
         s += kv("Genus", gen ? `${esc(gen.name)}${gen.from ? ` · split from ${esc(gen.from)}` : ""}` : "–", "genus");
         s += kv("Mutations", `${g.depth} from its founder`, "depth");
@@ -36994,7 +37013,8 @@ ${e.message}` : String(e?.message || e));
       lineage.push(a.name);
       a = a.ancestor && reg.get(a.ancestor);
     }
-    const origin = sp.founder ? sp.serial > founders ? `sparked from silt at ${fmtClock(sp.born || 0)}` : "a founding lineage" : "an ancestor too rare to be named";
+    const host = sp.symbiont && reg.get(sp.symbiont);
+    const origin = sp.symbiont ? `born of a union with ${host ? host.name : "a producer"}` : sp.founder ? sp.serial > founders ? `sparked from silt at ${fmtClock(sp.born || 0)}` : "a founding lineage" : "an ancestor too rare to be named";
     const swim = g.swim * (1 - g.photo), div = divEnergy(g, K);
     const grafter = (g.graft || 0) > K.graftMin;
     const tags = [f2.diet === "photosynth" ? "photosynth" : f2.diet, f2.schooling ? "schooling" : f2.mobility, f2.body === "multicellular" ? `${f2.types > 1 ? `${f2.types} cell types` : "many-celled"}${grafter ? ", grafting" : ""}` : grafter ? "grafter" : "single cells"];
@@ -39288,9 +39308,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "30abacfa85ab1cdb") return;
+      if (localStorage.getItem(key) === "fce8f211bf78b569") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "30abacfa85ab1cdb");
+      if (res) localStorage.setItem(key, "fce8f211bf78b569");
     } catch {
     }
   }
@@ -40131,8 +40151,13 @@ ${e.message}` : String(e?.message || e));
       return `<div class="ramp ${cls}"><span>${lo}</span><i></i><span>${hi}</span></div>`;
     };
     const mapsOn = () => MAPS.filter((m) => m.on(eng.settings));
+    const stainKeyHtml = () => `<div class="stain-key" data-hint="${STAINS[state.stain].hint}">${stainKey(STAINS[state.stain].id).map(([c, l]) => `<span><i style="background:${c}"></i>${l}</span>`).join("")}</div>`;
     function clearMaps() {
       for (const m of mapsOn()) m.close(eng.settings);
+      if (state.stain) {
+        state.stain = 0;
+        applyStain();
+      }
       mapsChanged();
     }
     function toggleMap(m) {
@@ -40147,12 +40172,12 @@ ${e.message}` : String(e?.message || e));
       view.render();
     }
     function renderMaps() {
-      const on = mapsOn();
+      const on = mapsOn(), st = state.stain ? STAINS[state.stain] : null;
       for (const m of MAPS) $2(m.gauge).classList.toggle("on", on.includes(m));
-      $2("maps").hidden = !on.length;
-      if (!on.length) return;
-      const html = on.length === 1 ? rampHtml(on[0]) : "";
-      const label3 = on.map((m) => m.name).join(" · ");
+      $2("maps").hidden = !on.length && !st;
+      if (!on.length && !st) return;
+      const html = on.length === 1 && !st ? rampHtml(on[0]) : st && !on.length ? stainKeyHtml() : "";
+      const label3 = [...on.map((m) => m.name), ...st ? [`${st.name} stain`] : []].join(" · ");
       setText($2("maps-label"), label3);
       setHTML($2("maps-ramp"), html);
       $2("maps-ramp").hidden = !html;
@@ -40417,6 +40442,7 @@ ${e.message}` : String(e?.message || e));
           director.spotlight(s, g.serial, { signal: true });
         }
         audio.push([s, g]);
+        if (c.spl && sp.symbiont == null && c.spl[SPL_GRAFT + s * SPL_GRAFT_W + 4]) sp.symbiont = c.spl[SPL_GRAFT + s * SPL_GRAFT_W + 4];
         sp.slot = s;
         sp.genome = g;
         sp.pop = p;
@@ -40435,7 +40461,8 @@ ${e.message}` : String(e?.message || e));
               pushEvent(`New genus <b>${esc(gen.name)}</b> splits from ${esc(gen.from)}: ${spLink(sp.serial, sp.name)} · ${describe2(g, K)}`, g.col, "genus");
             } else {
               const anc = sp.ancestor && life.reg.get(sp.ancestor);
-              const origin = sp.founder ? originWord(sp) : anc ? `from ${spLink(anc.serial, anc.name)}` : "from an unrecorded ancestor";
+              const host = sp.symbiont && life.reg.get(sp.symbiont);
+              const origin = (sp.founder ? originWord(sp) : anc ? `from ${spLink(anc.serial, anc.name)}` : "from an unrecorded ancestor") + (sp.symbiont ? `, taking in ${host ? spLink(host.serial, host.name) : "a producer"}` : "");
               pushEvent(`${spLink(sp.serial, sp.name)} established · ${describe2(g, K)} · ${origin}`, g.col, "est");
             }
           }
@@ -41758,7 +41785,7 @@ ${e.message}` : String(e?.message || e));
       let confirming = false;
       function display() {
         const s = eng.settings;
-        return group("picture", "Picture", choice("microlook", "Microscope", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.look, "microlook") + (state.look ? choice("grain", "Film grain", "", [[0, "Off"], [1, "Fine"], [2, "Heavy"]], state.grain, "filmgrain") : "") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("bloom", "Bloom", "Y", s.bloom > 0, "bloom") + choice("water", "Water surface", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.water, "watersurface") + (state.water ? choice("waves", "Wave motion", "", [[0, "Slow"], [1, "Normal"], [2, "Lively"]], state.waves, "wavemotion") : "") + choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("lod", "Zoom detail", "", s.lod, "lod")) + group("overlays", "Overlays", onoff("tide", "Light map", "G", s.tide > 0, "light") + (s.tide ? rampHtml(MAPS[0]) : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : "") + onoff("bands", "Tide map", "H", s.bands > 0, "tidemap") + (s.bands ? rampHtml(MAPS[2]) : "") + onoff("currents", "Currents", "C", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + choice("stain", "Stain", "J", STAINS.map((st, i) => [i, st.name]), state.stain, "stain") + (state.stain ? `<div class="stain-key" data-hint="${STAINS[state.stain].hint}">${stainKey(STAINS[state.stain].id).map(([c, l]) => `<span><i style="background:${c}"></i>${l}</span>`).join("")}</div>` : "") + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks") + choice("notes", "Annotations", "", [[1, "Auto camera"], [2, "Always"], [0, "Off"]], state.notes, "annotations")) + group("view", "View", (isCoarse ? "" : onoff("ui", "Interface", "U", state.ui, "interface")) + onoff("closeup", "Live close-up", "", state.closeup, "closeup") + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", "Film")} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === "idle" ? '<button type="button" class="chip" data-o="film" data-v="now">Now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : ""));
+        return group("picture", "Picture", choice("microlook", "Microscope", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.look, "microlook") + (state.look ? choice("grain", "Film grain", "", [[0, "Off"], [1, "Fine"], [2, "Heavy"]], state.grain, "filmgrain") : "") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("bloom", "Bloom", "Y", s.bloom > 0, "bloom") + choice("water", "Water surface", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.water, "watersurface") + (state.water ? choice("waves", "Wave motion", "", [[0, "Slow"], [1, "Normal"], [2, "Lively"]], state.waves, "wavemotion") : "") + choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("lod", "Zoom detail", "", s.lod, "lod")) + group("overlays", "Overlays", onoff("tide", "Light map", "G", s.tide > 0, "light") + (s.tide ? rampHtml(MAPS[0]) : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : "") + onoff("bands", "Tide map", "H", s.bands > 0, "tidemap") + (s.bands ? rampHtml(MAPS[2]) : "") + onoff("currents", "Currents", "C", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + choice("stain", "Stain", "J", STAINS.map((st, i) => [i, st.name]), state.stain, "stain") + (state.stain ? stainKeyHtml() : "") + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks") + choice("notes", "Annotations", "", [[1, "Auto camera"], [2, "Always"], [0, "Off"]], state.notes, "annotations")) + group("view", "View", (isCoarse ? "" : onoff("ui", "Interface", "U", state.ui, "interface")) + onoff("closeup", "Live close-up", "", state.closeup, "closeup") + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", "Film")} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === "idle" ? '<button type="button" class="chip" data-o="film" data-v="now">Now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : ""));
       }
       function audio_() {
         const m = sound.mix, mix4 = (k) => choice(`mix-${k}`, MIX[k].name, "", MIX[k].choices.map(([label3], i) => [i, label3]), m[k], `audio${k}`);
@@ -42017,6 +42044,7 @@ ${e.message}` : String(e?.message || e));
         else if (id === "stain") {
           state.stain = +v;
           applyStain();
+          renderMaps();
         } else if (id === "bands") s.bands = +v;
         else if (id === "currents") state.currents = !!+v;
         else if (id === "links") s.links = !!+v;

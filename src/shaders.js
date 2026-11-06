@@ -248,15 +248,15 @@ export const DEFAULT_K = {
   // passenger's share of a richer host). graftFound: the share of sparks of life that graft.
   graftMin: 0.15,
   graftFit: 0.2,
-  graftPool: 0.1,
-  graftTake: 0.01,
+  graftPool: 0.05,
+  graftTake: 0.02,
   graftFound: 0.12,
   graftCost: 0.004,   // a grafter's upkeep per second at a full gene (as adhesion's)
   // Symbiogenesis: a grafter holding a producer, dividing, takes it in at this chance: its daughter founds a species
   // carrying the producer's photosynthesis (engulfKeep of it, if more than its own) and its first cell type as a third
   graftRoom: 2,       // bonds back a host keeps free for its own kind: a grafter takes a cell only with more room than this
   graftArmor: 0,      // a cell held by a grafter resists being eaten as a body's adhesion this much past adhMin would
-  engulf: 0.004,
+  engulf: 0.002,
   engulfKeep: 0.7,
   bite: 0.5,        // energy taken per bite from a photosynthesizing cell (big enough to outpace a patch's regrowth: booms and crashes)
   eatEvery: 6,      // frames between meals
