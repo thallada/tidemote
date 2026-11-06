@@ -26,7 +26,7 @@ import { Director } from './director.js';
 import { Notes } from './notes.js';
 import { createNoteView } from './noteview.js';
 import { createChronicler, watchMap, durWords } from './chronicler.js';
-import { STAINS, stainColors, stainKey } from './stain.js';
+import { STAINS, stainColors, stainKey, stainMode } from './stain.js';
 import { earned } from './achievements.js';
 import { createCards, strangerCard, PORTRAIT_BOX, PORTRAIT_SHOWN, CARD_SCALE, CARD_W, CARD_H } from './card.js';
 import { createFilm, clearFilms } from './film.js';
@@ -1253,7 +1253,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     const slots = [];
     for (let s = FIRST_LIFE; s < MAXK; s++) if (c.pop[s]) slots.push([s, life.reg.get(genomeSerial(c.genomeU32, s))]);
-    eng.setStain(stainColors(id, slots, { t: c.simTime, hosts: stainHosts }, K));
+    eng.setStain(stainMode(id) === 2 ? null : stainColors(id, slots, { t: c.simTime, hosts: stainHosts }, K), stainMode(id));
   }
   function tellStories(c) {
     if (state.stain) applyStain(c);

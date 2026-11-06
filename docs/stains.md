@@ -13,9 +13,10 @@ its close button (or Esc) takes it off.
 | --- | --- |
 | Diet | light (green), grazing (gold), the dead (violet), flesh (red), mixed in proportion: the food web laid out in space |
 | Lineage | a color per genus (a hash of its name): relatives share one, so the mosaic of lineages across the pool shows |
-| Grafts | grafting species (magenta) and the species whose cells held up a grafter since the last species ledger (cyan); everything else dimmed (docs/symbiosis.md) |
+| Grafts | grafting species (magenta) and the species whose cells held up a grafter since the last species ledger (cyan); everything else dimmed (docs/symbiosis.md). A grafting species' cells that hold a graft now are drawn bright, the rest of it dim |
 | Warmth | each species' thermal optimum, 0° blue through 20° green to 40° red |
 | Motion | swimmers (cyan, brighter the harder), drifters (pale), anchored and sessile life (amber) |
+| Vigor | each cell by its own energy toward dividing (not its species'): starving red, hungry amber, fed green, ready to divide white |
 | Novelty | how long ago the species arose: white and gold for the last minutes, through rose to deep blue past an hour |
 
 ## How
@@ -28,4 +29,6 @@ is on (`applyStain` in `src/main.js`; the grafts stain's hosts come from the spe
 pass that draws the living already binds. `spriteOf` (DRAW_WGSL) takes the stain's color in place of the cell's own
 before everything else that colors a cell (dormancy, the mud, the ice, torpor, heat stress, a heat-maker's glow, its
 pulse and fullness), so a stained cell still shows its state; the resolved cell (`cellColor`) and the splat draw from
-the same color. A stain is never kept between visits.
+the same color. Two stains are drawn per cell in the shader itself (`view.stain`, `stainMode` in `src/stain.js`): Vigor (2) from
+the cell's energy over its species' division energy, with no table; Grafts (3) from the table, then whether the cell's
+own bond slots hold a cell of another species (`intent`). A stain is never kept between visits.

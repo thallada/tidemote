@@ -5407,9 +5407,20 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     if (!dead && cause == 8u) { b *= 1.0 + 2.0 * max(0.0, 1.0 - p.age / BIRTH_T); }
     col = unpack4x8unorm(p.col).rgb;
     // a stain (the page's, by species: rgb its color, a how strongly it takes; the unstained go a dim gray)
-    if (view.stain != 0u) {
+    // (2: vigor, each cell by its own energy toward its division, no table; 3: the grafts stain, with the cells that
+    // hold a graft now brighter than the rest of their species)
+    if (view.stain == 2u) {
+      let v = clamp(a.fed / 1.2, 0.0, 1.0);
+      col = select(select(mix(vec3f(0.55, 1.0, 0.35), vec3f(1.0, 1.0, 0.92), (v - 0.7) / 0.3), mix(vec3f(1.0, 0.72, 0.2), vec3f(0.55, 1.0, 0.35), (v - 0.3) / 0.4), v < 0.7), mix(vec3f(1.0, 0.18, 0.15), vec3f(1.0, 0.72, 0.2), v / 0.3), v < 0.3);
+      b = max(b, 0.75);
+    } else if (view.stain != 0u) {
       let sc = unpack4x8unorm(focus[${MAXK / 32 + 65536}u + kind]);
       col = mix(vec3f(0.16 + 0.25 * dot(col, vec3f(0.3, 0.5, 0.2))), sc.rgb * 1.1, sc.a);
+      if (view.stain == 3u && !dead && genomes[kind].tail.w > ${f(DEFAULT_K.graftMin)}) {
+        let it = intent[ii];
+        let held = (it.z < arrayLength(&parts) && parts[it.z].kind != kind && parts[it.z].kind >= FIRST_LIFE) || (it.w < arrayLength(&parts) && parts[it.w].kind != kind && parts[it.w].kind >= FIRST_LIFE);
+        col = select(col * 0.55, mix(col, vec3f(1.0, 0.8, 1.0), 0.35) * 1.3, held);
+      }
     }
     col = mix(col, vec3f(0.62, 0.66, 0.74) * dot(col, vec3f(0.3, 0.5, 0.2)) * 1.6, 0.5 * sleep);
     // stranded on the drying mud a cell desiccates: it shrivels, its color drains to a dull brown and it darkens;

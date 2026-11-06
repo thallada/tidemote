@@ -12,6 +12,7 @@ export const STAINS = [
   { id: 'graft', name: 'Grafts', hint: 'Species that graft to others (magenta) and the species they hold fast to (cyan); everything else dimmed.' },
   { id: 'warmth', name: 'Warmth', hint: 'The water each species works best in: cold (blue) through temperate (green) to hot (red).' },
   { id: 'motion', name: 'Motion', hint: 'How each species moves: swimmers (cyan), drifters (pale), anchored and sessile life (amber).' },
+  { id: 'vigor', name: 'Vigor', cell: true, hint: 'Each cell by its own energy toward dividing: starving (red), hungry (amber), fed (green), ready to divide (white). Hunger fronts and fat meadows show.' },
   { id: 'age', name: 'Novelty', hint: 'How new each species is: those born in the last minutes burn white and gold, the old ones deep blue.' },
 ];
 
@@ -64,6 +65,9 @@ export function stainOf(id, sp, slot, ctx = {}, K = DEFAULT_K) {
   return [0, 0, 0, 0];
 }
 
+/** How the engine draws stain id: 2 each cell by its own energy (no table), 3 grafts (the table, and the cells holding a graft brighter), 1 the table. */
+export const stainMode = (id) => (id === 'vigor' ? 2 : id === 'graft' ? 3 : 1);
+
 /** The stain's colors by genome slot (Uint32Array(MAXK), packed rgba8), for the living species in slots ([slot, sp]). */
 export function stainColors(id, slots, ctx = {}, K = DEFAULT_K, out = new Uint32Array(MAXK)) {
   out.fill(0);
@@ -79,6 +83,7 @@ export function stainKey(id) {
   if (id === 'warmth') return [[css(ramp(WARM, 0)), '0°'], [css(ramp(WARM, 0.5)), '20°'], [css(ramp(WARM, 1)), '40°']];
   if (id === 'motion') return [[css([0.2, 0.95, 1]), 'swimmers'], [css([0.82, 0.86, 0.8]), 'drifters'], [css([1, 0.7, 0.25]), 'anchored']];
   if (id === 'age') return [[css(ramp(AGE, 0)), 'new'], [css(ramp(AGE, 0.25)), '4 min'], [css(ramp(AGE, 0.55)), '20 min'], [css(ramp(AGE, 1)), '1 h+']];
+  if (id === 'vigor') return [['rgb(255,46,38)', 'starving'], ['rgb(255,184,51)', 'hungry'], ['rgb(140,255,89)', 'fed'], ['rgb(255,255,235)', 'ready']];
   if (id === 'clade') return [[css(hsl(0.0, 0.85, 0.6)), 'one color'], [css(hsl(0.33, 0.85, 0.6)), 'per'], [css(hsl(0.66, 0.85, 0.6)), 'genus']];
   return [];
 }

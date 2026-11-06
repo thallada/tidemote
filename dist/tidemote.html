@@ -7328,9 +7328,20 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     if (!dead && cause == 8u) { b *= 1.0 + 2.0 * max(0.0, 1.0 - p.age / BIRTH_T); }
     col = unpack4x8unorm(p.col).rgb;
     // a stain (the page's, by species: rgb its color, a how strongly it takes; the unstained go a dim gray)
-    if (view.stain != 0u) {
+    // (2: vigor, each cell by its own energy toward its division, no table; 3: the grafts stain, with the cells that
+    // hold a graft now brighter than the rest of their species)
+    if (view.stain == 2u) {
+      let v = clamp(a.fed / 1.2, 0.0, 1.0);
+      col = select(select(mix(vec3f(0.55, 1.0, 0.35), vec3f(1.0, 1.0, 0.92), (v - 0.7) / 0.3), mix(vec3f(1.0, 0.72, 0.2), vec3f(0.55, 1.0, 0.35), (v - 0.3) / 0.4), v < 0.7), mix(vec3f(1.0, 0.18, 0.15), vec3f(1.0, 0.72, 0.2), v / 0.3), v < 0.3);
+      b = max(b, 0.75);
+    } else if (view.stain != 0u) {
       let sc = unpack4x8unorm(focus[${MAXK / 32 + 65536}u + kind]);
       col = mix(vec3f(0.16 + 0.25 * dot(col, vec3f(0.3, 0.5, 0.2))), sc.rgb * 1.1, sc.a);
+      if (view.stain == 3u && !dead && genomes[kind].tail.w > ${f(DEFAULT_K.graftMin)}) {
+        let it = intent[ii];
+        let held = (it.z < arrayLength(&parts) && parts[it.z].kind != kind && parts[it.z].kind >= FIRST_LIFE) || (it.w < arrayLength(&parts) && parts[it.w].kind != kind && parts[it.w].kind >= FIRST_LIFE);
+        col = select(col * 0.55, mix(col, vec3f(1.0, 0.8, 1.0), 0.35) * 1.3, held);
+      }
     }
     col = mix(col, vec3f(0.62, 0.66, 0.74) * dot(col, vec3f(0.3, 0.5, 0.2)) * 1.6, 0.5 * sleep);
     // stranded on the drying mud a cell desiccates: it shrivels, its color drains to a dull brown and it darkens;
@@ -22901,8 +22912,8 @@ ${e.message}` : String(e?.message || e));
      * A stain (Settings → Stain): colors = Uint32Array(MAXK), each species' packed rgba8 (a: how strongly it takes; the
      * unstained show a dim gray), or null for none. Observational: it changes only how the living are drawn.
      */
-    setStain(colors2 = null) {
-      this.stainOn = !!colors2;
+    setStain(colors2 = null, mode = 1) {
+      this.stainOn = colors2 || mode === 2 ? mode : 0;
       if (colors2) this.device.queue.writeBuffer(this.b.focus, (MAXK / 32 + FOCUS_MAX) * 4, colors2, 0, MAXK);
     }
     _ensureSpecTex(w, h) {
@@ -24587,7 +24598,7 @@ ${e.message}` : String(e?.message || e));
       v[23] = K.tightFrom;
       v[24] = K.pond ? this.level : 1;
       vu[25] = lit ? 1 : 0;
-      vu[26] = this.stainOn ? 1 : 0;
+      vu[26] = this.stainOn || 0;
       const clk = this._clock();
       v.set(this.tide, 28);
       v.set(clk.tidePh, 44);
@@ -36701,6 +36712,7 @@ ${e.message}` : String(e?.message || e));
     { id: "graft", name: "Grafts", hint: "Species that graft to others (magenta) and the species they hold fast to (cyan); everything else dimmed." },
     { id: "warmth", name: "Warmth", hint: "The water each species works best in: cold (blue) through temperate (green) to hot (red)." },
     { id: "motion", name: "Motion", hint: "How each species moves: swimmers (cyan), drifters (pale), anchored and sessile life (amber)." },
+    { id: "vigor", name: "Vigor", cell: true, hint: "Each cell by its own energy toward dividing: starving (red), hungry (amber), fed (green), ready to divide (white). Hunger fronts and fat meadows show." },
     { id: "age", name: "Novelty", hint: "How new each species is: those born in the last minutes burn white and gold, the old ones deep blue." }
   ];
   var clamp10 = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
@@ -36750,6 +36762,7 @@ ${e.message}` : String(e?.message || e));
     if (id === "age") return [...ramp2(AGE, Math.sqrt(Math.max(0, (ctx.t ?? 0) - (sp.born ?? 0)) / 3600)), 1];
     return [0, 0, 0, 0];
   }
+  var stainMode = (id) => id === "vigor" ? 2 : id === "graft" ? 3 : 1;
   function stainColors(id, slots, ctx = {}, K = DEFAULT_K, out = new Uint32Array(MAXK)) {
     out.fill(0);
     for (const [slot, sp] of slots) if (sp?.genome) out[slot] = pack2(...stainOf(id, sp, slot, ctx, K));
@@ -36762,6 +36775,7 @@ ${e.message}` : String(e?.message || e));
     if (id === "warmth") return [[css(ramp2(WARM, 0)), "0°"], [css(ramp2(WARM, 0.5)), "20°"], [css(ramp2(WARM, 1)), "40°"]];
     if (id === "motion") return [[css([0.2, 0.95, 1]), "swimmers"], [css([0.82, 0.86, 0.8]), "drifters"], [css([1, 0.7, 0.25]), "anchored"]];
     if (id === "age") return [[css(ramp2(AGE, 0)), "new"], [css(ramp2(AGE, 0.25)), "4 min"], [css(ramp2(AGE, 0.55)), "20 min"], [css(ramp2(AGE, 1)), "1 h+"]];
+    if (id === "vigor") return [["rgb(255,46,38)", "starving"], ["rgb(255,184,51)", "hungry"], ["rgb(140,255,89)", "fed"], ["rgb(255,255,235)", "ready"]];
     if (id === "clade") return [[css(hsl(0, 0.85, 0.6)), "one color"], [css(hsl(0.33, 0.85, 0.6)), "per"], [css(hsl(0.66, 0.85, 0.6)), "genus"]];
     return [];
   }
@@ -39308,9 +39322,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "fce8f211bf78b569") return;
+      if (localStorage.getItem(key) === "8369131fcb47a842") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "fce8f211bf78b569");
+      if (res) localStorage.setItem(key, "8369131fcb47a842");
     } catch {
     }
   }
@@ -40575,7 +40589,7 @@ ${e.message}` : String(e?.message || e));
       }
       const slots = [];
       for (let s = FIRST_LIFE; s < MAXK; s++) if (c.pop[s]) slots.push([s, life.reg.get(genomeSerial(c.genomeU32, s))]);
-      eng.setStain(stainColors(id, slots, { t: c.simTime, hosts: stainHosts }, K));
+      eng.setStain(stainMode(id) === 2 ? null : stainColors(id, slots, { t: c.simTime, hosts: stainHosts }, K), stainMode(id));
     }
     function tellStories(c) {
       if (state.stain) applyStain(c);
