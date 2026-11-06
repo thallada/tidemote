@@ -37,7 +37,24 @@ export function toxinSample(species, K) {
   for (let b = 0; b < 720; b++) if (near((b + 0.5) / 720)) cover++;
   cover /= 720;
   const mimicShare = harmless ? mimics / harmless : 0;
-  return { guilds, toxicSpecies: toxic.length, mimicShare, cover, mimicry: cover > 0 ? mimicShare / cover : null };
+  return { guilds, toxicSpecies: toxic.length, mimicShare, cover, mimicry: cover > 0 ? mimicShare / cover : null, hues: hueSample(species) };
+}
+
+// How colorful the water is: the living's hues in 36 bins of 10 degrees. `colors` is the effective number of bins
+// (exp of the entropy, 1..36), `occupied` the bins holding at least 1% of the living, `R` the length of the mean hue
+// vector (0 spread round the wheel, 1 all one color), `bins` the shares.
+export function hueSample(species) {
+  const bins = new Array(36).fill(0);
+  let n = 0, cx = 0, cy = 0;
+  for (const { pop, genome: g } of species) {
+    const h = ((g.hue % 1) + 1) % 1;
+    bins[Math.min(35, Math.floor(h * 36))] += pop; n += pop;
+    cx += pop * Math.cos(2 * Math.PI * h); cy += pop * Math.sin(2 * Math.PI * h);
+  }
+  if (!n) return { colors: 0, occupied: 0, R: 0, bins };
+  let H = 0;
+  for (let i = 0; i < 36; i++) { bins[i] /= n; if (bins[i] > 0) H -= bins[i] * Math.log(bins[i]); }
+  return { colors: Math.exp(H), occupied: bins.filter((b) => b >= 0.01).length, R: Math.hypot(cx, cy) / n, bins: bins.map((b) => +b.toFixed(4)) };
 }
 
 export function communitySample(species, adhMin) {
