@@ -189,7 +189,7 @@ export const DEFAULT_K = {
   // toxic as it is (resistance); a poisoned eater keeps the toxic species as its search image, sick of it, and passes
   // up living prey of a like hue (the color the viewer sees), so a toxic species' look protects it and its mimics
   toxCost: 0.016,     // upkeep of a fully toxic cell (× metab)...
-  toxTax: 0.3,        // ...and the share of all it takes in (light, meals) a fully toxic cell spends making its poison: defense
+  toxTax: 0.6,        // ...and the share of all it takes in (light, meals) a fully toxic cell spends making its poison: defense
                       // against growth, so a producer pays in proportion to how well it lives
   toxHarm: 1.5,       // share of a meal an eater throws up (as dung) per unit of toxin it is not resistant to...
   toxSick: 0.4,       // ...and the energy it loses (as heat) per unit

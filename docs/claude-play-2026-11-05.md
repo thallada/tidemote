@@ -42,3 +42,6 @@ play with myself: color that means something, and a way to ask whether a world h
   of 12 worlds (7 producer+scavenger, 3 producers alone, 1 monoculture). Resistance is necessary.
 - `toxResist` 0.5 (stopped after 12 runs): grazers lost in 6 of 12 worlds, worse than full resistance. Full
   resistance stays; next, a costlier toxin (`toxTax` 0.6), aimed at the grazers' resistance that shields them.
+- `toxTax` 0.6 (`runs/play/gate-tax06`): **passes the gate**, borderline: effective species 112 → 89 (holm 0.051),
+  Hill 2 and outcome variety lower, populations steadier; persistence and food web 100%, more leader changes, hunters
+  in 3 worlds of 32. Grazers 43% toxic, producers 17%. Made the default.

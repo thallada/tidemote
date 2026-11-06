@@ -9,7 +9,7 @@ water come to mean something, and a viewer can watch a mimic put on a model's co
 - **A toxin gene**, `tail.w` in the genome (the word was spare, so saves keep their layout; 0 in older saves),
   0..1. It drifts by mutation and is now and then gained or lost (`mutateInto`), like calcification. 15% of sparks
   of life and 15% of founders (hunters aside) carry one.
-- **It costs.** A flat upkeep (`toxCost` × metab) and, mostly, a tax on everything the cell takes in (`toxTax`:
+- **It costs.** A flat upkeep (`toxCost` × metab) and, mostly, a tax on everything the cell takes in (`toxTax`, 0.6:
   light and meals): the plant growth–defense trade-off, which makes a producer pay in proportion to how well it
   lives. Without the tax (upkeep only) toxins swept the food chain (below).
 - **Eating it hurts.** An eater that bites or kills a toxic cell throws up `toxHarm` × the toxin of the meal (into
@@ -60,4 +60,12 @@ the baseline gone; but effective species fell 112 → 83 (p = 0.002, **regressed
 3.0: 15 producer+grazer, 13 producer+grazer+scavenger, one world with hunters against six). Toxins at 30 minutes:
 producers 33% toxic, grazers 82%, scavengers and hunters 2%. The grazers carry the toxin as resistance to their
 food, which also shields them from hunters. `toxResist` (how much of an eater's own toxin counts against a meal's)
-was added to test decoupling the two; its gates follow in docs/claude-play-2026-11-05.md.
+was added to test decoupling the two. Without resistance (0) grazers starved on toxic producers in 11 of 12 worlds;
+at 0.5, in 6 of 12: resistance is needed, and stays at 1.
+
+The default is `toxTax` 0.6 (`runs/play/gate-tax06`): the gate passes (no gated metric regressed; persisted and food
+web 100%, three worlds in 32 with hunters, leader changes 6.4 → 7.4), but diversity is lower than the baseline's
+(effective species 112 → 89, p = 0.007, holm 0.051; Hill 2 38 → 27), the living steadier (CV 0.31 → 0.17) and
+the outcomes fewer (5.8 → 3.5, producer+grazer in 18 worlds). At 30 minutes producers are 17% toxic, grazers 43%.
+Mimicry, by the `mimicry` ratio, is not yet distinguishable from descent at 30–40 minutes; it should be measured
+over hours against `aversion: 0`.
