@@ -101,6 +101,19 @@ test('catch skill and strike chance follow lifeMain', () => {
   assert.ok(strikeChance(G[HUNTER], G[BUG], BUG, 0, 2, K) < base);
 });
 
+test('a poisoned eater passes up prey that looks like what poisoned it, unless it can break the toxin down', () => {
+  const prey = { ...G[BUG], hue: 0.3 };
+  const poisoner = { ...G[ALGA], hue: 0.31, toxin: 0.8 };
+  const base = strikeChance(G[HUNTER], prey, BUG, 0, 0, K);
+  const sick = strikeChance(G[HUNTER], prey, BUG, 77, 0, K, 0, poisoner);
+  assert.ok(Math.abs(sick - base * (1 - K.aversion)) < 1e-9, 'the same hue: aversion at full');
+  // a different color is caught as if it had no search image at all
+  assert.ok(Math.abs(strikeChance(G[HUNTER], { ...prey, hue: 0.8 }, BUG, 77, 0, K, 0, poisoner) - base) < 1e-9);
+  // resistant: the toxin was no poison, so the image is an ordinary one and other prey is unfamiliar
+  assert.ok(strikeChance({ ...G[HUNTER], resist: 0.9 }, prey, BUG, 77, 0, K, 0, poisoner) < base);
+  assert.ok(strikeChance({ ...G[HUNTER], resist: 0.9 }, prey, BUG, 77, 0, K, 0, poisoner) > sick);
+});
+
 test('settleMind shows a new state only once it holds', () => {
   const a = { key: 'hunt', target: 1 }, b = { key: 'flee', target: 2 };
   let memo = settleMind(null, a);

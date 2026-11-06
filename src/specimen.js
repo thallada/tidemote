@@ -376,6 +376,7 @@ export function createSpecimen(api) {
     if ((g.adhesion || 0) > K.adhMin) b += kv('Growth', describeGrowth(growPlan(g), g), 'growth');
     if (g.calcify > 0.005) b += trait('Calcifying', g.calcify, 0, 1, `${Math.round(g.calcify * 100)}%`, 'calcify');
     if ((g.toxin || 0) > 0.005) b += trait('Toxic', g.toxin, 0, 1, `${Math.round(g.toxin * 100)}%`, 'toxin');
+    if ((g.resist || 0) > 0.005) b += trait('Resistant', g.resist, 0, 1, `${Math.round(g.resist * 100)}%`, 'resistance');
     const model = api.mimicOf?.(g);
     const mims = api.mimicsOf?.(g) || [];
     if (mims.length) b += kv('Worn also by', `${mims.slice(0, 2).map((m) => spLink(m.serial, m.name)).join(', ')}${mims.length > 2 ? ` and ${mims.length - 2} more` : ''}, harmless`, 'mimicry');

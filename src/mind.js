@@ -3,7 +3,8 @@
 // against their surface signatures, appetite for the foods its diet favors, schooling, bonds, stone),
 // then eats, divides or neither. These helpers name the outcome; they are pure and tested.
 import { MIND_HEAD, MIND_NBR, MIND_NBR_WORDS } from './shaders.js';
-import { divEnergy } from './genome.js';
+import { divEnergy, lookAlike } from './genome.js';
+import { hueWord } from './chronicler.js';
 
 const NONE = 0xffffffff;
 const HUSK = 2;
@@ -88,10 +89,18 @@ export function catchSkill(hunter, prey, K) {
   return K.catchSkill > 0 ? Math.min(1, (eatEff * pref) / K.catchSkill) : 1;
 }
 
-/** Chance one strike by `g` (at `stoneN` grains of stone and `plantN` producers, with search image `image`) lands on `prey`. */
-export function strikeChance(g, prey, preyKind, image, stoneN, K, plantN = 0) {
+/** How much of a meal's toxin `g` breaks down (resistOf in shaders.js). */
+export const resistOf = (g, K) => Math.max(g.resist || 0, (K.toxResist ?? 0) * (g.toxin || 0));
+/** Whether `g`, whose search image is the species `imageG`, is sick of it: poisoned by it (sickOf in shaders.js). */
+export const sickOf = (g, imageG, K) => !!imageG && (imageG.toxin || 0) - resistOf(g, K) > (K.toxLearn ?? 0.05);
+
+/** Chance one strike by `g` (at `stoneN` grains of stone and `plantN` producers, with search image `image`, whose
+ * genome is `imageG`) lands on `prey`. */
+export function strikeChance(g, prey, preyKind, image, stoneN, K, plantN = 0, imageG = null) {
   const armor = 1 / (1 + K.armor * Math.max(0, (prey.adhesion || 0) - K.adhMin));
-  const familiar = image === 0 || image === preyKind ? 1 : 1 - K.searchImage;
+  // a sick eater has no search image: it passes up what looks like the species that poisoned it instead
+  const familiar = sickOf(g, imageG, K) ? 1 - (K.aversion ?? 0) * lookAlike(prey.hue, imageG.hue, K)
+    : image === 0 || image === preyKind ? 1 : 1 - K.searchImage;
   const shelter = 1 - Math.min(K.refugeMax, stoneN * K.refuge);
   // an animal among dense producers hides in them
   const hidden = prey.photo <= 0.4 ? 1 - Math.min(K.refugeMax, plantN * K.plantRefuge) : 1;
@@ -183,15 +192,20 @@ export function interpretMind(m, g, kind, { K, genomeOf, ridden = false }) {
     else {
       const gq = genomeOf(fk);
       const plant = gq && gq.photo > 0.4;
-      const strike = gq ? strikeChance(g, gq, fk, m.image, m.stoneN, K, m.plantN) : 0;
+      const imageG = m.image ? genomeOf(m.image) : null;
+      const sick = sickOf(g, imageG, K);
+      const strike = gq ? strikeChance(g, gq, fk, m.image, m.stoneN, K, m.plantN, imageG) : 0;
+      const averse = sick && gq ? (K.aversion ?? 0) * lookAlike(gq.hue, imageG.hue, K) : 0;
       // a fed hunter rests: it takes a chance at living animals only as often as it is short of food
       const attack = plant ? 1 : attackChance(E, need, K);
       const p = strike * attack;
       const every = K.eatEvery * (plant ? K.biteEvery : K.killEvery) * (m.dt || 1 / 60);
-      const unfamiliar = m.image !== 0 && m.image !== fk && K.searchImage > 0;
+      const unfamiliar = !sick && m.image !== 0 && m.image !== fk && K.searchImage > 0;
       const hidden = !plant && gq && gq.photo <= 0.4 && m.plantN * K.plantRefuge >= 0.1;
       const odds = { p, every, verb: plant ? 'bite' : 'kill', unfamiliar, attack };
-      st = plant
+      st = averse >= 0.3
+        ? { key: 'averse', target: fk, odds, text: 'Wary of {sp}', why: `Hungry (${hunger}), but sick: it was poisoned by ${hueWord(imageG.hue)} cells, and {sp} looks like them, so it passes up about ${pct(averse)} of its chances at {sp}. A harmless meal now and then makes it forget.` }
+        : plant
         ? { key: 'graze', target: fk, odds, text: 'Grazing on {sp}', why: `Hungry (${hunger}), with a {sp} cell in reach to crop. A bite lands about ${pct(p)} of the time, one try every ${every.toFixed(1)} s.` }
         : attack < 0.5
           ? { key: 'rest', target: fk, odds, text: 'Fed, letting {sp} pass', why: `Well fed (${hunger}): a fed hunter strikes only as often as it is short of food, now at about ${pct(attack)} of its chances, so {sp} in reach is mostly left alone. When it does strike, it kills about ${pct(strike)} of the time.` }

@@ -199,6 +199,8 @@ export const DEFAULT_K = {
   aversion: 0.85,     // chance a poisoned eater passes up living prey that looks like what poisoned it (same hue)...
   toxHue: 0.07,       // ...fading out at this distance in hue (of the whole wheel, 1)
   toxForget: 0.2,     // chance a meal of harmless prey makes a sick eater forget what poisoned it
+  toxLearn: 0.2,      // the toxin (beyond its resistance) a meal must carry to make an eater sick of it: a trace costs it a
+                      // little but teaches nothing, and keeps its search image
   matterSkill: 1.0,   // eating a husk succeeds with (eatEff × that diet) / this, certain past it (0: always)
   catchSkill: 0.6,  // catch chance scales with eating skill (eatEff × preference), reaching certainty here
   nutrHalf: 8.0,    // silt grains nearby at which photosynthesis runs at half speed
@@ -3218,11 +3220,11 @@ fn lookAlike(a: f32, b: f32) -> f32 {
   return 1.0 - smoothstep(${f(K.toxHue * 0.4)}, ${f(K.toxHue)}, abs(fract(a - b + 0.5) - 0.5));
 }
 // Whether a cell's search image (info) is a species that poisoned it: sick of it, it passes up its look.
-fn sickOf(image: u32, myRes: f32) -> bool { return image >= FIRST_LIFE && image < MAXK && toxicFor(image, myRes) > 0.05; }
+fn sickOf(image: u32, myRes: f32) -> bool { return image >= FIRST_LIFE && image < MAXK && toxicFor(image, myRes) > ${f(K.toxLearn)}; }
 // The eater's memory after a meal of living kind fk: the prey becomes its search image, unless it is sick of a
 // toxic species, which a harmless meal makes it forget only now and then (a toxic one replaces it at once).
 fn remember(info: u32, fk: u32, myRes: f32, s: ptr<function, u32>) -> u32 {
-  let keep = sickOf((info >> 6u) & 1023u, myRes) && toxicFor(fk, myRes) <= 0.05 && rnd(s) >= ${f(K.toxForget)};
+  let keep = sickOf((info >> 6u) & 1023u, myRes) && toxicFor(fk, myRes) <= ${f(K.toxLearn)} && rnd(s) >= ${f(K.toxForget)};
   return select((info & 0xffff003fu) | (fk << 6u), info, keep);
 }
 // A toxic meal: the eater throws up toxHarm × the toxin of it (into its gut, dropped as dung) and is sick, losing
@@ -5352,15 +5354,26 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
       b *= 1.0 + 0.15 * iceN;
     }
     if (th.torpid) { col = mix(col, vec3f(0.55, 0.7, 0.95) * dot(col, vec3f(0.33)), 0.5); b *= 0.6; }
-    // Bioluminescence (docs/signals.md): in dim water a toxic species' cells flash blue-green as they are bitten or
-    // killed, a warning only the viewer sees (eaters go by color). A flash is quick, then fades; only cells drawn
-    // in detail keep the record that says they were bitten, and a kill flares as it bursts.
+    // Bioluminescence (docs/signals.md): a toxic species' cells flash blue-green as they are bitten or killed,
+    // brightest in dim water, a warning only the viewer sees (eaters go by color). A flash is quick, then fades;
+    // only cells drawn in detail keep the record that says they were bitten, and a kill flares as it bursts.
     if (g.chem.x > 0.3) {
-      let dark = 1.0 - smoothstep(0.12, 0.55, sunAt(p.pos));
+      let dark = 1.0 - 0.6 * smoothstep(0.12, 0.55, sunAt(p.pos));
       let hit = select(exp(-a.bit / 0.35), select(0.0, 1.0 - smoothstep(0.0, 0.45, gh.t), gh.how == 1u), dead);
       let flash = dark * hit * smoothstep(0.3, 0.7, g.chem.x);
       col = mix(col, vec3f(0.3, 0.85, 1.0), 0.75 * flash);
       b *= 1.0 + 3.0 * flash;
+    }
+    // a poisoned eater (its search image a species whose toxin it cannot break down) is queasy: its color sours
+    // toward a bilious olive while it stays sick, and it retches, pale and shrunken, just after a meal
+    let image = (p.info >> 6u) & 1023u;
+    if (!dead && image >= FIRST_LIFE && image < MAXK
+        && genomes[image].chem.x - max(g.chem.y, ${f(DEFAULT_K.toxResist)} * g.chem.x) > ${f(DEFAULT_K.toxLearn)}) {
+      let retch = select(0.0, 1.0 - smoothstep(0.0, 1.2, a.ate), a.seen);
+      let l = dot(col, vec3f(0.3, 0.5, 0.2));
+      col = mix(col, vec3f(0.62, 0.68, 0.22) * (0.55 + 0.7 * l), 0.4 + 0.35 * retch);
+      b *= 1.0 - 0.25 * retch;
+      size *= 1.0 - 0.12 * retch * (0.6 + 0.4 * sin(view.time * 40.0 + f32(p.id % 64u)));
     }
     // heat stress bleaches a cell toward pale bone; a heat-maker glows faintly warm
     col = mix(col, vec3f(1.0, 0.96, 0.9) * max(0.45, dot(col, vec3f(0.3, 0.5, 0.2))), 0.6 * smoothstep(0.3, 1.0, th.x));
