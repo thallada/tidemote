@@ -50,3 +50,9 @@ play with myself: color that means something, and a way to ask whether a world h
 - 6-tick coarse steps (`runs/play/gate-step6`, 32 × 30 min, `--step 6`) against this branch's own normal-step gate
   (`gate-tax06`): every metric the same (effective species 89 → 84, p 0.29; food web 1 → 0.94, p 0.25). The toxin
   rules keep the ecology of normal steps at fast speeds. (32 runs, not the 128 CLAUDE.md suggests.)
+- Against a gate of main itself (`gate-main` b66a121, then `gate-learn`, the resistance gene and `toxLearn`):
+  passes, every gated metric the same; effective species 103 → 91 (p 0.10); hunters as common (late share 13% →
+  11%) but never dominant (≥ 20% in 9 worlds against 2). Two hours (8 seeds each): the same as main, and the arms
+  race cycles rather than saturating. 6-tick steps: the same as normal ones. UI audit: nothing new.
+- The two bug fixes are on their own branch, `play-fixes` (one commit on main, with a test of the once-a-world
+  stories).

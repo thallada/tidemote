@@ -110,3 +110,18 @@ label's "predator") in 9 against 2: no world turns hunter-heavy. Grazers fall (4
 and scavengers rise (33 → 38%, 10 → 14%: the vomit goes to the gut, which scavengers eat). That is the cascade a
 plant defense should cause: resistance taxes grazers, and fewer grazers feed fewer hunters. At 30 minutes the
 arms race is still running (toxic producers 21% at 10 minutes, 40% at 30; resistant grazers 10% → 48%).
+
+Two hours, 8 seeds each at 32k (`runs/play/long-learn`, `runs/play/long-main`): the two match (effective species
+107 here against 119 on main, p 0.77; Hill 2 30 against 36; leader changes 28 against 26; hunters at ≥ 20% in 4
+worlds of 8 against 6), and outcomes vary more (6.7 against 4.0). The arms race does not saturate; it **cycles**.
+Toxic producers rise, grazers evolve resistance, the toxin stops paying and falls, then the resistance, which now
+buys nothing, is lost too, and the toxin can rise again. In seed 3, toxic producers were 61% → 76% → 3% → 0 → 18%
+at 15, 30, 60, 90 and 120 minutes, and resistant grazers 65% → 99% → 93% → 10% → 11%. Seeds 1 and 2 had their
+first wave late (72–93% toxic producers at 60–90 minutes, grazers 81–100% resistant by 120). One world (seed 4)
+counted as collapsed: in a dark, cold era (light 0.11, water 5–10°) grazers ate down the producers and the living
+dipped to 1.8% for a few minutes, then recovered to 14.5k; its producers were 1% toxic then, so that was the
+weather, not the toxin (main's own gates lose a world in 16 or so the same way). Colors stayed at 9–27 effective
+hues throughout.
+
+At 6-tick steps (`runs/play/step6-learn`, 32 × 30 min against `gate-learn`): every metric the same (effective
+species 91 → 93, food web 0.97 → 0.97).
