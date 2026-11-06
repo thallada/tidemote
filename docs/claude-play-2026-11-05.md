@@ -40,3 +40,5 @@ play with myself: color that means something, and a way to ask whether a world h
   which also shields them from hunters (one world in 32 kept hunters, against six in the baseline).
 - `toxResist` 0 (an eater's own toxin no defense; stopped after 12 runs): grazers starved on toxic producers in 11
   of 12 worlds (7 producer+scavenger, 3 producers alone, 1 monoculture). Resistance is necessary.
+- `toxResist` 0.5 (stopped after 12 runs): grazers lost in 6 of 12 worlds, worse than full resistance. Full
+  resistance stays; next, a costlier toxin (`toxTax` 0.6), aimed at the grazers' resistance that shields them.
