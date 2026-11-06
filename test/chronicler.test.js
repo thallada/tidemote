@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createChronicler, watchMap, durWords, shareWords, fitOf, firstsOf, TUNE } from '../src/chronicler.js';
 import { archetypeGenome, finalizeGenome, dietGuild } from '../src/genome.js';
-import { MAXK, FIRST_LIFE, SPL_WORDS, SPL_WATCH, SPL_CAUSE, SPL_CAUSES, SPL_PAIR, SPL_RANGE, DEFAULT_K } from '../src/shaders.js';
+import { MAXK, FIRST_LIFE, SPL_WORDS, SPL_WATCH, SPL_CAUSE, SPL_CAUSES, SPL_PAIR, SPL_RANGE, SPL_GRAFT, SPL_GRAFT_W, DEFAULT_K } from '../src/shaders.js';
 import { pack, unpack } from '../src/worlds.js';
 import { earned } from '../src/achievements.js';
 
@@ -48,7 +48,7 @@ function world(seed = 1) {
         const put = (i, a) => { spl[o + i] = Math.round((R * Math.cos(a) + 1) * 127 * n); spl[o + i + 1] = Math.round((R * Math.sin(a) + 1) * 127 * n); };
         put(0, at[0] * 2 * Math.PI); put(2, at[1] * 2 * Math.PI); spl[o + 4] = n;
       }
-      return { t: w.t, now: w.now, reg, living: [...reg.values()].reduce((a, sp) => a + (sp.alive ? sp.pop : 0), 0), est: 30, founders: 24,
+      return { t: w.t, now: w.now, reg, living: [...reg.values()].reduce((a, sp) => a + (sp.alive ? sp.pop : 0), 0), est: 30, founders: 100000,
         slotSerial, spl: w.splOn === false ? null : spl, temp: 19, light: 0.25, world: [256, 144], stone: 1000, count: 65536, era: 'The First Tides', ...extra };
     },
   };
@@ -272,6 +272,38 @@ test('at high speed the real-time gap holds', () => {
   });
   for (let i = 1; i < told.length; i++) assert.ok(told[i].now - told[i - 1].now >= TUNE.gapReal);
   assert.ok(told.length <= 300 / (TUNE.gapReal / 1000) + 1);
+});
+
+test('grafts: a parasite is told by its host, a partnership as one, and a line born of symbiogenesis', () => {
+  const ch = createChronicler();
+  const w = world(11);
+  const host = w.add('plankton', { genus: 'Mo', pop: 3000 });
+  const para = w.add('grazer', { genus: 'Thax', pop: 600, mut: (g) => { g.graft = 0.6; } });
+  const mate = w.add('scavenger', { genus: 'Dru', pop: 600, mut: (g) => { g.graft = 0.3; } });
+  const sym = w.add('grazer', { genus: 'Thax', pop: 500, ancestor: para.serial, mut: (g) => { g.photo = 0.5; } });
+  w.add('hunter', { genus: 'Vorath', pop: 300 });
+  w.spl[SPL_GRAFT + sym.slot * SPL_GRAFT_W + 4] = host.serial;
+  // two thirds of the parasite's cells grafted to the host, drawing 0.04/s each; half the partner's, nothing either way
+  const told = run(ch, w, 300, 10, (w2) => {
+    const o = SPL_GRAFT + para.slot * SPL_GRAFT_W, q = SPL_GRAFT + mate.slot * SPL_GRAFT_W, held = 600 * 10 * 0.66;
+    w2.spl[o] += held; w2.spl[o + 1] = host.slot; w2.spl[o + 2] = (w2.spl[o + 2] + held * 40) >>> 0;
+    w2.spl[q] += 600 * 10 * 0.5; w2.spl[q + 1] = host.slot; w2.spl[q + 2] = (w2.spl[q + 2] + 600 * 10 * 0.5 * -1) >>> 0;
+    w2.spl[SPL_GRAFT + host.slot * SPL_GRAFT_W + 3] += 3000;
+  });
+  const p = told.find((s) => s.kind === 'graft' && s.moment === 'parasite');
+  assert.ok(p, `a parasite: ${told.map((x) => x.text).join(' | ')}`);
+  assert.match(p.text, new RegExp(`${para.name} has taken to living upon ${host.name}`));
+  const m = told.find((s) => s.kind === 'graft' && s.moment === 'passenger');
+  assert.ok(m, `partners: ${told.map((x) => x.text).join(' | ')}`);
+  assert.match(m.text, new RegExp(`${mate.name} and ${host.name}`));
+  // the world's first graft story says so; the next does not
+  const gs = told.filter((s) => s.kind === 'graft');
+  assert.match(gs[0].text, /Never before in this world/);
+  assert.doesNotMatch(gs[1].text, /Never before/);
+  const y = told.find((s) => s.kind === 'symbio');
+  assert.ok(y, `symbiogenesis: ${told.map((x) => x.text).join(' | ')}`);
+  assert.match(y.text, new RegExp(`${sym.name} was born of a union`));
+  assert.match(y.text, new RegExp(host.name));
 });
 
 test('the chronicler’s memory survives a save', () => {

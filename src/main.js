@@ -17,7 +17,7 @@ import { record, seal } from './lineage/model.js';
 import { createWorldStore, encodeWorld, decodeWorld, SAVE_VERSION, openable, WHY_NOT } from './worlds.js';
 import { facets, describe, DIET_COL, MOB_COL } from './facets.js';
 import { retraceBody, settleMembers, nearBody, largestBody, bodyPatch } from './trace.js';
-import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS, SIM_CLOCK, G_WORDS, DEFAULT_K, P_BYTES, TUBE_N, TUBE_K, STUDIO_N, PIPETTE_DOF, CYST, NOTE_TG } from './shaders.js';
+import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS, SIM_CLOCK, G_WORDS, DEFAULT_K, P_BYTES, TUBE_N, TUBE_K, STUDIO_N, PIPETTE_DOF, CYST, NOTE_TG, SPL_GRAFT, SPL_GRAFT_W } from './shaders.js';
 import { flowAt, tideAt, duckShade } from './flow.js';
 import { DARKFIELD, packLook } from './look.js';
 import { MIX as SOUND_MIX, defaultMix } from './audio/mix.js';
@@ -26,6 +26,7 @@ import { Director } from './director.js';
 import { Notes } from './notes.js';
 import { createNoteView } from './noteview.js';
 import { createChronicler, watchMap, durWords } from './chronicler.js';
+import { STAINS, stainColors, stainKey } from './stain.js';
 import { earned } from './achievements.js';
 import { createCards, strangerCard, PORTRAIT_BOX, PORTRAIT_SHOWN, CARD_SCALE, CARD_W, CARD_H } from './card.js';
 import { createFilm, clearFilms } from './film.js';
@@ -220,6 +221,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // the pool's events (docs/catastrophes.md): all on, or off, or some of them
     events: { ...EVENTS_ON(), ...prefs.events },
     songMarks: prefs.songMarks ?? 1, // mark the cells that sing: 0 off, 1 the picked species, 2 all
+    stain: 0, // a stain coloring the living by species (STAINS in stain.js; 0 none), never kept between visits
     notes: prefs.notes ?? 1, // live annotations (docs/annotations.md): 0 off, 1 with the auto camera, 2 always
     water: prefs.water ?? 2, // the water's surface: 0 off, 1 subtle, 2 normal, 3 strong (applyWater)
     waves: prefs.waves ?? 1, // its waves' motion: 0 slow, 1 normal, 2 lively
@@ -1229,7 +1231,25 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const slotSerial = new Uint32Array(MAXK);
   // the species the specimen panel shows (its own, or the selected cell's), or null
   const viewedSerial = () => (spView != null ? spView : sel && sel.particle && sel.particle.kind >= FIRST_LIFE ? genomeFor(sel.particle.kind)?.serial : null);
+  // A stain (stain.js): every living species' color in it, sent to the engine as censuses come (the grafts stain's
+  // hosts from the species ledger: the species whose cells held up a grafter since the last copy of it)
+  const stainHosts = new Set();
+  let stainPrevHosted = null;
+  function applyStain(c = life.lastCensus) {
+    const id = STAINS[state.stain]?.id;
+    if (!id || id === 'none' || !c) { eng.setStain(null); return; }
+    if (c.spl) {
+      const h = c.spl.subarray(SPL_GRAFT, SPL_GRAFT + MAXK * SPL_GRAFT_W), W = SPL_GRAFT_W;
+      stainHosts.clear();
+      if (stainPrevHosted) for (let s = FIRST_LIFE; s < MAXK; s++) { const d = (h[s * W + 3] - stainPrevHosted[s]) >>> 0; if (c.pop[s] && d > 0 && d < 1e8) stainHosts.add(s); }
+      stainPrevHosted = Uint32Array.from({ length: MAXK }, (_, s) => h[s * W + 3]);
+    }
+    const slots = [];
+    for (let s = FIRST_LIFE; s < MAXK; s++) if (c.pop[s]) slots.push([s, life.reg.get(genomeSerial(c.genomeU32, s))]);
+    eng.setStain(stainColors(id, slots, { t: c.simTime, hosts: stainHosts }, K));
+  }
   function tellStories(c) {
+    if (state.stain) applyStain(c);
     if (c.spl) for (let s = FIRST_LIFE; s < MAXK; s++) slotSerial[s] = c.pop[s] ? genomeSerial(c.genomeU32, s) : 0;
     const x = climate.excursion, t = c.simTime;
     const told = chron.observe({
@@ -2326,6 +2346,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + onoff('currents', 'Currents', 'C', state.currents)
         + onoff('links', 'Bonds', 'L', s.links, 'bond')
         + onoff('nodes', 'Particles', 'N', s.nodes)
+        + choice('stain', 'Stain', 'J', STAINS.map((st, i) => [i, st.name]), state.stain, 'stain')
+        + (state.stain ? `<div class="stain-key" data-hint="${STAINS[state.stain].hint}">${stainKey(STAINS[state.stain].id).map(([c, l]) => `<span><i style="background:${c}"></i>${l}</span>`).join('')}</div>` : '')
         + choice('songmarks', 'Song marks', '', [[0, 'Off'], [1, 'Picked'], [2, 'All']], state.songMarks, 'songmarks')
         + choice('notes', 'Annotations', '', [[1, 'Auto camera'], [2, 'Always'], [0, 'Off']], state.notes, 'annotations'))
         + group('view', 'View', (isCoarse ? '' : onoff('ui', 'Interface', 'U', state.ui, 'interface'))
@@ -2595,6 +2617,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (id === 'trails') { trailIdx = +v; s.trails = trailLevels[trailIdx]; }
       else if (id === 'tide') s.tide = +v;
       else if (id === 'heat') s.heat = +v;
+      else if (id === 'stain') { state.stain = +v; applyStain(); }
       else if (id === 'bands') s.bands = +v;
       else if (id === 'currents') state.currents = !!+v;
       else if (id === 'links') s.links = !!+v;
@@ -3303,6 +3326,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     else if (k === 'o' || k === 'O') { eng.settings.optics = eng.settings.optics > 0 ? 0 : 1; flash(eng.settings.optics ? 'Microscope optics on' : 'Microscope optics off'); persist(); view.render(); }
     else if (k === 'g' || k === 'G') { eng.settings.tide = eng.settings.tide ? 0 : 1; flash(eng.settings.tide ? 'Light map' : 'Light map off'); mapsChanged(); }
+    else if (k === 'j' || k === 'J') { state.stain = (state.stain + 1) % STAINS.length; applyStain(); flash(state.stain ? `Stain: ${STAINS[state.stain].name}` : 'Stain off'); mapsChanged(); }
     else if ((k === 'e' || k === 'E') && K.heat) { eng.settings.heat = (eng.settings.heat + 1) % 3; flash(['Heat map off', 'Heat shimmer', 'Thermal camera'][eng.settings.heat]); mapsChanged(); }
     else if (k === 'h' || k === 'H') { eng.settings.bands = eng.settings.bands ? 0 : 1; flash(eng.settings.bands ? 'Tide map' : 'Tide map off'); mapsChanged(); }
     else if (k === 'c' || k === 'C') { state.currents = !state.currents; flash(state.currents ? 'Currents shown' : 'Currents hidden'); view.render(); }

@@ -38,7 +38,12 @@ export const SPL_CAUSES = ['born', 'starved', 'old', 'eaten', 'scalded', 'strand
 export const SPL_MAP = 1;
 export const SPL_CAUSE = SPL_MAP + MAXK;
 export const SPL_PAIR = SPL_CAUSE + MAXK * SPL_CAUSES.length;
-export const SPL_RANGE = SPL_PAIR + SPL_WATCH * SPL_WATCH * 2;
+// per slot, cumulative (docs/symbiosis.md): its cells sampled holding a graft (once a second each), the species of the
+// last host one held, the energy their grafts moved to them (thousandths a second, summed as an i32), its cells
+// sampled holding up a grafter; and for a species born of symbiogenesis, the serial of the producer it took in
+export const SPL_GRAFT = SPL_PAIR + SPL_WATCH * SPL_WATCH * 2;
+export const SPL_GRAFT_W = 5;
+export const SPL_RANGE = SPL_GRAFT + MAXK * SPL_GRAFT_W;
 export const SPL_WORDS = SPL_RANGE + MAXK * 5;
 // rangeMain samples at most about this many particles (every stride-th, from a rotating start)
 export const SPL_RANGE_SAMPLES = 32768;
@@ -141,7 +146,7 @@ fn swaySlot2(id: u32, n: u32) -> u32 {
 `;
 // The selected cell's mind (mindMain): a header of MIND_HEAD words, then MIND_NBR living neighbors
 // of MIND_NBR_WORDS words each. See parseMind in mind.js for the layout.
-export const MIND_HEAD = 68;
+export const MIND_HEAD = 72;
 export const MIND_NBR = 48;
 export const MIND_NBR_WORDS = 8;
 export const MIND_BYTES = (MIND_HEAD + MIND_NBR * MIND_NBR_WORDS) * 4;
@@ -247,6 +252,10 @@ export const DEFAULT_K = {
   graftTake: 0.15,
   graftFound: 0.12,
   graftCost: 0.004,   // a grafter's upkeep per second at a full gene (as adhesion's)
+  // Symbiogenesis: a grafter holding a producer, dividing, takes it in at this chance: its daughter founds a species
+  // carrying the producer's photosynthesis (engulfKeep of it, if more than its own) and its first cell type as a third
+  engulf: 0.004,
+  engulfKeep: 0.7,
   bite: 0.5,        // energy taken per bite from a photosynthesizing cell (big enough to outpace a patch's regrowth: booms and crashes)
   eatEvery: 6,      // frames between meals
   dietMin: 0.15,    // share of the diet a food must have before a cell bothers to eat it
@@ -1278,7 +1287,7 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
     let q = sortedFull[nb];
     let w = select(1.0, 0.0, tails && orderOf(q.info) == 2u);
     vP += q.vel * w; nP += w;
-    if (q.kind == p.kind) { shareE += q.energy - p.energy; } else { graftE += graftFlow(p, q); hosted = true; }
+    if (q.kind == p.kind) { shareE += q.energy - p.energy; } else { graftE += graftFlow(p, q); hosted = true;${W('mHostN += 1u; mHostK = q.kind;')} }
   }
   vP /= max(nP, 1.0);
   shareE *= shareK;
@@ -1474,6 +1483,7 @@ const SPL_CAUSE = ${SPL_CAUSE}u;
 const SPL_NC = ${SPL_CAUSES.length}u;
 const SPL_PAIR = ${SPL_PAIR}u;
 const SPL_RANGE = ${SPL_RANGE}u;
+const SPL_GRAFT = ${SPL_GRAFT}u;
 const SPL_WATCH = ${SPL_WATCH}u;
 fn splBase() -> u32 { return arrayLength(&ledger) - SPL_WORDS - HAND_WORDS - NOTE_WORDS - HEAT_ACC_WORDS; }
 // The pipette's words (PIPE_* in shaders.js), between the species ledger and the heat deposits
@@ -1956,6 +1966,7 @@ fn claimSlot(k: u32) -> bool {
   if (!atomicCompareExchangeWeak(&ledger[META_SLOT + k], 0u, 1u).exchanged) { return false; }
   let o = splBase() + SPL_CAUSE + k * SPL_NC;
   for (var c = 0u; c < SPL_NC; c++) { atomicStore(&ledger[o + c], 0u); }
+  for (var c = 0u; c < ${SPL_GRAFT_W}u; c++) { atomicStore(&ledger[splBase() + SPL_GRAFT + k * ${SPL_GRAFT_W}u + c], 0u); }
   return true;
 }
 
@@ -2063,6 +2074,26 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   g.depth = g.depth + 1u;
   finalize(&g);
   genomes[slot] = g;
+}
+
+// Symbiogenesis (docs/symbiosis.md): a grafter's daughter founds a species (a mutant of it) that has taken its producer
+// host in: the host's photosynthesis (engulfKeep of it, where more than its own), the host's first cell type as its
+// third, its color drawn toward the host's; holding its producer within, it grafts no more. The host's serial goes to
+// the species ledger, for the chronicler.
+fn engulfInto(slot: u32, parentKind: u32, hostKind: u32, s: ptr<function, u32>) {
+  mutateInto(slot, parentKind, s);
+  var g = genomes[slot];
+  let h = genomes[hostKind];
+  g.photo = max(g.photo, h.photo * ${f(K.engulfKeep)});
+  g.sig[2] = h.sig[0];
+  var dh = h.hue - g.hue;
+  dh -= round(dh);
+  g.hue = fract(g.hue + 0.5 * dh + 1.0);
+  g.tail.w = 0.0;
+  finalize(&g);
+  genomes[slot] = g;
+  atomicStore(&ledger[splBase() + SPL_GRAFT + slot * ${SPL_GRAFT_W}u + 4u], h.serial);
+  atomicAdd(&ledger[META_DEATH + 28u], 1u);
 }
 
 // A spark of life founds a species suited to the water it sparked in (t).
@@ -2789,6 +2820,18 @@ fn graftFlow(p: Particle, q: Particle) -> f32 {
   let tq = select(0.0, genomes[q.kind].tail.w, grafts(q.kind));
   return ${f(K.graftPool)} * (q.energy - p.energy) + ${f(K.graftTake)} * (tp * max(q.energy, 0.0) - tq * max(p.energy, 0.0));
 }
+// The producer a grafting cell of kind k holds (by its bonds n1, n2), which it may take in as it divides (engulfInto),
+// or NONE.
+fn engulfable(k: u32, n1: u32, n2: u32) -> u32 {
+  if (!grafts(k)) { return NONE; }
+  for (var b = 0u; b < 2u; b++) {
+    let j = select(n2, n1, b == 0u);
+    if (j == NONE) { continue; }
+    let hk = sortedFull[j].kind;
+    if (hk != k && hk >= FIRST_LIFE && genomes[hk].photo > 0.4) { return hk; }
+  }
+  return NONE;
+}
 fn keepBond(i: u32, j: u32, p: Particle) -> u32 {
   if (j >= sim.count || j == i) { return NONE; }
   let q = sortedFull[j];
@@ -3338,9 +3381,18 @@ ${cellWGSL(K, false, genomePtr)}
     // grafts (docs/symbiosis.md): cells of grafting species, those holding a graft, and hosts
     if (graftOn) {
       atomicAdd(&ledger[META_DEATH + 26u], 1u);
-      if ((n1 != NONE && sortedFull[n1].kind != p.kind) || (n2 != NONE && sortedFull[n2].kind != p.kind)) { atomicAdd(&ledger[META_DEATH + 25u], 1u); }
+      var hk = NONE;
+      if (n1 != NONE && sortedFull[n1].kind != p.kind) { hk = sortedFull[n1].kind; }
+      else if (n2 != NONE && sortedFull[n2].kind != p.kind) { hk = sortedFull[n2].kind; }
+      if (hk != NONE) {
+        atomicAdd(&ledger[META_DEATH + 25u], 1u);
+        let o = splBase() + SPL_GRAFT + p.kind * ${SPL_GRAFT_W}u;
+        atomicAdd(&ledger[o], 1u);
+        atomicStore(&ledger[o + 1u], hk);
+        atomicAdd(&ledger[o + 2u], bitcast<u32>(i32(round(clamp(graftE * ${f(K.bodyShare)}, -2.0, 2.0) * 1000.0))));
+      }
     }
-    if (hosted) { atomicAdd(&ledger[META_DEATH + 27u], 1u); }
+    if (hosted) { atomicAdd(&ledger[META_DEATH + 27u], 1u); atomicAdd(&ledger[splBase() + SPL_GRAFT + p.kind * ${SPL_GRAFT_W}u + 3u], 1u); }
     if (HEAT_ON) {
       atomicAdd(&ledger[META_ENERGY + 40u + u32(clamp(Tc / ${f(HEAT_BIN)}, 0.0, ${f(HEAT_BINS - 1)}))], 1u);
       if (th.torpid) { atomicAdd(&ledger[META_ENERGY + 56u], 1u); }
@@ -3384,7 +3436,15 @@ ${cellWGSL(K, false, genomePtr)}
       if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
         ck = p.kind;
         cr = sampleRole(${G}, role, &s);
-        if (rnd(&s) < g.mutRate * ${f(K.mutScale)}) {
+        let ek = engulfable(p.kind, n1, n2);
+        if (ek != NONE && rnd(&s) < ${f(K.engulf)}) {
+          let slot = allocSlot(&s);
+          if (slot != NONE) {
+            engulfInto(slot, p.kind, ek, &s);
+            ck = slot;
+            atomicAdd(&ledger[3], 1u);
+          }
+        } else if (rnd(&s) < g.mutRate * ${f(K.mutScale)}) {
           let slot = allocSlot(&s);
           if (slot != NONE) {
             mutateInto(slot, p.kind, &s);
@@ -3445,7 +3505,15 @@ ${cellWGSL(K, false, genomePtr)}
         if (won) {
           ck = p.kind;
           cr = sampleRole(${G}, role, &s);
-          if (rnd(&s) < g.mutRate * ${f(K.mutScale)}) {
+          let ek = engulfable(p.kind, n1, n2);
+          if (ek != NONE && rnd(&s) < ${f(K.engulf)}) {
+            let slot = allocSlot(&s);
+            if (slot != NONE) {
+              engulfInto(slot, p.kind, ek, &s);
+              ck = slot;
+              atomicAdd(&ledger[3], 1u);
+            }
+          } else if (rnd(&s) < g.mutRate * ${f(K.mutScale)}) {
             let slot = allocSlot(&s);
             if (slot != NONE) {
               mutateInto(slot, p.kind, &s);
@@ -3790,6 +3858,8 @@ var<private> mPhoto: vec2f;
 var<private> mFl: f32;
 var<private> mMatterN: vec4f;
 var<private> mN: u32;
+var<private> mHostN: u32;
+var<private> mHostK: u32;
 
 fn mPut(o: u32, v: f32) { mind[o] = bitcast<u32>(v); }
 fn mPut2(o: u32, v: vec2f) { mind[o] = bitcast<u32>(v.x); mind[o + 1u] = bitcast<u32>(v.y); }
@@ -3884,6 +3954,14 @@ ${cellWGSL(K, true, genomePtr)}
   // phototaxis: its push up (or down) the light's slope; a ridden cell's will
   mPut2(64, mPhoto);
   mPut2(66, will);
+  // grafts (docs/symbiosis.md): the stranger it holds, the energy its grafts move to it a second, the grafters holding it
+  var gk = NONE;
+  if (n1 != NONE && sortedFull[n1].kind != p.kind) { gk = sortedFull[n1].kind; }
+  else if (n2 != NONE && sortedFull[n2].kind != p.kind) { gk = sortedFull[n2].kind; }
+  mind[68] = gk;
+  mPut(69, graftE * ${f(K.bodyShare)});
+  mind[70] = mHostN;
+  mind[71] = select(NONE, mHostK, mHostN > 0u);
 }
 `;
 }
@@ -4167,7 +4245,8 @@ fn noteMain(@builtin(global_invocation_id) gid: vec3u) {
     torpid = th.torpid;
     for (var b = 0u; b < 2u; b++) {
       let j = intent[i][b + 2u];
-      if (j < nu.count && parts[j].kind == p.kind) { partners[b] = parts[j].id; }
+      // (a graft's too, to another species: the bodies' union-find keeps to one kind, the grafts story reads them)
+      if (j < nu.count && parts[j].kind >= FIRST_LIFE) { partners[b] = parts[j].id; }
     }
   }
   let o = ${NOTE_HEAD}u + k * ${NOTE_REC}u;
@@ -4804,7 +4883,8 @@ struct View {
   tightFrom: f32,
   // the pool (docs/catastrophes.md): its water level, to show cells stranded
   // lit: 1 where the world's light shows (the main view, the loupe), 0 in views shown unlit (the close-up, the stone cache)
-  level: f32, lit: u32, pad2: u32, pad3: u32,
+  // stain: 1 while a stain (Settings → Stain) colors the living by species, from the table at the focus buffer's end
+  level: f32, lit: u32, stain: u32, pad3: u32,
   // the world's light as the composite shows it (sceneLit), for silt's sparkle: the Tide's waves and phases, x the
   // season, y the open water's light, z the sky's, w the light's clock; the hand's lamp
   tide: array<vec4f, 4>,
@@ -5313,6 +5393,11 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     // life sparked from silt glows as it grows
     if (!dead && cause == 8u) { b *= 1.0 + 2.0 * max(0.0, 1.0 - p.age / BIRTH_T); }
     col = unpack4x8unorm(p.col).rgb;
+    // a stain (the page's, by species: rgb its color, a how strongly it takes; the unstained go a dim gray)
+    if (view.stain != 0u) {
+      let sc = unpack4x8unorm(focus[${MAXK / 32 + 65536}u + kind]);
+      col = mix(vec3f(0.16 + 0.25 * dot(col, vec3f(0.3, 0.5, 0.2))), sc.rgb * 1.1, sc.a);
+    }
     col = mix(col, vec3f(0.62, 0.66, 0.74) * dot(col, vec3f(0.3, 0.5, 0.2)) * 1.6, 0.5 * sleep);
     // stranded on the drying mud a cell desiccates: it shrivels, its color drains to a dull brown and it darkens;
     // caught in the ice it is frozen: still, its color drained toward a pale frosted blue-white, a little rimed

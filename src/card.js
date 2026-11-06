@@ -34,7 +34,8 @@ export function cardData(sp, { reg, K, story = null, simTime = 0, founders = 0, 
   const origin = sp.founder ? (sp.serial > founders ? `sparked from silt at ${fmtClock(sp.born || 0)}` : 'a founding lineage') : 'an ancestor too rare to be named';
   const swim = g.swim * (1 - g.photo), div = divEnergy(g, K);
   // what it is, in a word or two each: its diet, how it moves, its body
-  const tags = [f.diet === 'photosynth' ? 'photosynth' : f.diet, f.schooling ? 'schooling' : f.mobility, f.body === 'multicellular' ? `${f.types > 1 ? `${f.types} cell types` : 'many-celled'}` : 'single cells'];
+  const grafter = (g.graft || 0) > K.graftMin; // (docs/symbiosis.md)
+  const tags = [f.diet === 'photosynth' ? 'photosynth' : f.diet, f.schooling ? 'schooling' : f.mobility, f.body === 'multicellular' ? `${f.types > 1 ? `${f.types} cell types` : 'many-celled'}${grafter ? ', grafting' : ''}` : grafter ? 'grafter' : 'single cells'];
   // its body as gauges against the ranges species take (the archetypes' and sparks')
   const body = [
     ['Speed', share(swim, 0, 2.2), swim < 0.05 ? 'still' : swim.toFixed(2)],

@@ -530,6 +530,12 @@ export class Notes {
         this._part('stalk', ts);
         if (st) out.push({ type: 'stalk', key: `stalk:${st.actor}`, prio: 0.7, strength: 1 / Math.max(st.dist, 0.05), ...st, track: [st.actor, st.target] });
       }
+      // Grafts (docs/symbiosis.md): a cell holding a bond to a cell of another species, up close; the pair of species
+      // with the most grafts in view, told by one of them
+      if (close) {
+        const gr = this._grafts(ctx, v);
+        if (gr) out.push({ type: 'graft', key: `graft:${gr.akind}:${gr.kind}`, prio: 0.62, strength: gr.count, ...gr, track: [gr.actor, gr.target] });
+      }
 
       yield;
       // The food web in view: who has eaten whom here in the last 30 s, by bites and kills.
@@ -811,6 +817,35 @@ export class Notes {
   // read them), as { kind, ids, n, anchor (the member nearest its middle), its place (ax, ay), size (world units across),
   // form, speed (world units a second), lengths (body lengths a second), heading, key }, kept by key from look to look
   // (a body keeps its key while it keeps any of its cells). Once a look.
+  // The view's grafts: cells bonded to a cell of another species (as the view read their partners), the pair of species
+  // with the most of them in view: { actor (a grafter, nearest the view's middle), target (its host), akind, kind,
+  // count, feds (the pair's fullness: grafter, host) }
+  _grafts(ctx, v = this.view) {
+    const pairs = new Map();
+    const [W, H] = this.world(), cx = v.rect[0] + v.rect[2] / 2, cy = v.rect[1] + v.rect[3] / 2;
+    for (let i = 0; i < v.n; i++) {
+      if (!isLiving(v.kind[i]) || v.cause[i] === CYST) continue;
+      for (let q = 0; q < 2; q++) {
+        const pid = q ? v.p2[i] : v.p1[i];
+        if (pid === NONE) continue;
+        const j = v.at.get(pid);
+        if (j === undefined || v.kind[j] === v.kind[i] || !isLiving(v.kind[j])) continue;
+        if (!this.sp(v.kind[i]) || !this.sp(v.kind[j]) || !ctx.inner(v.x[i], v.y[i])) continue;
+        const key = v.kind[i] * 1024 + v.kind[j];
+        let dx = v.x[i] - cx, dy = v.y[i] - cy;
+        dx -= W * Math.round(dx / W); dy -= H * Math.round(dy / H);
+        const d = Math.hypot(dx, dy);
+        let p = pairs.get(key);
+        if (!p) pairs.set(key, (p = { akind: v.kind[i], kind: v.kind[j], count: 0, d: Infinity, actor: 0, target: 0, feds: [0, 0] }));
+        p.count++;
+        if (d < p.d) { p.d = d; p.actor = v.id[i]; p.target = pid; p.feds = [v.fed[i], v.fed[j]]; }
+      }
+    }
+    let best = null;
+    for (const p of pairs.values()) if (!best || p.count > best.count) best = p;
+    return best;
+  }
+
   _bodies(v = this.view) {
     if (this._bodyView === v) return this._bodyList;
     const [W, H] = this.world(), parent = new Int32Array(v.n).fill(-1);

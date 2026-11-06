@@ -17,7 +17,7 @@
 
 import { dietGuild, mobilityGuild, thermalGuild, growPlan, roleShares, affinity } from './genome.js';
 import { fmt, fmtClock, esc, UM_PER_UNIT } from './fmt.js';
-import { MAXK, FIRST_LIFE, SPL_WATCH, SPL_CAUSE, SPL_CAUSES, SPL_PAIR, SPL_RANGE, DEFAULT_K } from './shaders.js';
+import { MAXK, FIRST_LIFE, SPL_WATCH, SPL_CAUSE, SPL_CAUSES, SPL_PAIR, SPL_RANGE, SPL_GRAFT, SPL_GRAFT_W, DEFAULT_K } from './shaders.js';
 
 const NC = SPL_CAUSES.length;
 const C = Object.fromEntries(SPL_CAUSES.map((k, i) => [k, i])); // born, starved, old, eaten, scalded, stranded, cyst, woke
@@ -128,7 +128,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       pairs: new Map(), // h · 2^26 + q -> { h, q, bins: [[t, tries, meals]] } (one bin a minute, the last hour)
       watch: { version: 0, serials: new Array(SPL_WATCH).fill(0) },
       versions: new Map(), // watch map version -> serials by index
-      prevPairs: null, prevVer: -1, prevSlot: null, prevCause: null,
+      prevPairs: null, prevVer: -1, prevSlot: null, prevCause: null, prevGraft: null,
       tokens: T.storyCap, lastStory: -1e9, lastReal: -1e9, lastTick: -1e9, slowNext: 0,
       told: new Map(), // kind -> t, "kind:key" -> t, "sp:serial" -> t
       pending: null, latest: new Map(), // serial -> { t, text }
@@ -145,7 +145,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
   // ------------------------------------------------------------------ bookkeeping
   function track(sp) {
     if (!S.sp.has(sp.serial)) {
-      S.sp.set(sp.serial, { serial: sp.serial, s: [], l: [], acc: new Array(NC).fill(0), cum: new Array(NC).fill(0), rng: [], diet: new Map(), eaters: new Map(), lastL: -1e9, reign: 0, low: null });
+      S.sp.set(sp.serial, { serial: sp.serial, s: [], l: [], acc: new Array(NC).fill(0), cum: new Array(NC).fill(0), rng: [], diet: new Map(), eaters: new Map(), lastL: -1e9, reign: 0, low: null, graft: [], hosts: new Map() });
     }
   }
   // the sample nearest to t - ago (fine samples first, then coarse)
@@ -226,6 +226,32 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       }
     }
     S.prevCause = cause.slice();
+    // grafts (docs/symbiosis.md), by slot, as the causes: cells sampled holding a graft, the energy their grafts
+    // moved to them (thousandths, an i32), cells sampled holding up a grafter; and the host species last held
+    const graft = spl.subarray(SPL_GRAFT, SPL_GRAFT + MAXK * SPL_GRAFT_W);
+    if (S.prevGraft) {
+      for (let k = FIRST_LIFE; k < MAXK; k++) {
+        const serial = slotSerial[k], st = serial && S.sp.get(serial);
+        if (!st) continue;
+        const same = S.prevSlot[k] === serial, o = k * SPL_GRAFT_W;
+        // (born of symbiogenesis: the producer it took in)
+        if (graft[o + 4] && !st.symbiont) st.symbiont = graft[o + 4];
+        const held = same ? (graft[o] - S.prevGraft[o]) >>> 0 : graft[o];
+        const hosted = same ? (graft[o + 3] - S.prevGraft[o + 3]) >>> 0 : graft[o + 3];
+        const flow = same ? (graft[o + 2] - S.prevGraft[o + 2]) | 0 : graft[o + 2] | 0;
+        if (held > 1e8 || hosted > 1e8) continue;
+        if (held || hosted) st.graft.push([t, held, flow / 1000, hosted]);
+        const host = graft[o + 1] >= FIRST_LIFE && graft[o + 1] < MAXK ? slotSerial[graft[o + 1]] : 0;
+        // (a species is tracked only once established: its symbiont is read whenever the ledger has it)
+        if (held && host) {
+          // (hosts of long ago fade: a species' hosts are those it has held lately)
+          for (const [h, v] of st.hosts) { if (v < 2) st.hosts.delete(h); else st.hosts.set(h, v * 0.97); }
+          st.hosts.set(host, (st.hosts.get(host) || 0) + held);
+        }
+        trim(st.graft, t - 20 * MIN);
+      }
+    }
+    S.prevGraft = graft.slice();
     S.prevSlot = slotSerial.slice();
     // pairs, by watched index: counted only across an interval in which both indices kept their species
     const ver = spl[0], ser = S.versions.get(ver);
@@ -317,7 +343,8 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
   }
 
   // ------------------------------------------------------------------ telling
-  const toldAt = (key) => S.told.get(key) ?? -1e9;
+  // (never told: -Infinity, so a story kept from repeating for ever (keyGap Infinity) can still be told once)
+  const toldAt = (key) => S.told.get(key) ?? -Infinity;
   function choose(cands, obs) {
     const { t } = obs;
     const now = obs.now ?? 0;
@@ -930,8 +957,47 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     }
   }
 
+  // Grafts (docs/symbiosis.md): a species of weight living grafted to another, most of its cells holding fast to
+  // the host's; told as a parasite (energy runs to it along the grafts), a passenger (little runs either way: the two
+  // pool as one body) or a giver (energy runs from it), and the world's first such compact as a first.
+  function detectGrafts(ctx, add) {
+    const { reg, t, living } = ctx;
+    if (t < T.warm) return;
+    for (const st of S.sp.values()) {
+      const sp = reg.get(st.serial);
+      // symbiogenesis: an established species whose first cells took their producer host in
+      if (sp && sp.alive && sp.established && st.symbiont && !st.symbioTold) {
+        const host = reg.get(st.symbiont), parent = sp.ancestor && reg.get(sp.ancestor);
+        const hostName = host ? L(reg, host.serial) : 'a producer since vanished from the record';
+        add({ kind: 'symbio', score: 0.8, col: sp.genome.col, subjects: [sp.serial, ...(host ? [host.serial] : [])], key: `symbio:${sp.serial}`, keyGap: Infinity,
+          html: `<b>A new kind of life:</b> ${L(reg, sp.serial)} was born of a union. Its first cells, grafted to ${hostName}${parent ? ` as their parents of ${L(reg, parent.serial)} had been` : ''}, took their host into themselves, and now carry its light within: they photosynthesize ${Math.round(sp.genome.photo * 100)}%, and grow its cells' kind as their own.`,
+          onTold: () => { st.symbioTold = true; } });
+      }
+      if (!sp || !sp.alive || !sp.established || sp.pop < Math.max(30, 0.004 * living) || !st.graft.length) continue;
+      let held = 0, flow = 0, from = Infinity;
+      for (const x of st.graft) if (x[0] > t - 6 * MIN) { held += x[1]; flow += x[2]; from = Math.min(from, x[0]); }
+      // samples are once a second a cell: held over the cell-seconds of the stretch is the share of its cells grafted
+      const span = t - Math.max(from - T.sample, t - 6 * MIN);
+      const share = held / Math.max(1, sp.pop * span);
+      if (!(share >= 0.3) || held < 200) continue;
+      const [host, hm, hsum] = topBy(st.hosts);
+      const hsp = host && reg.get(host);
+      if (!hsp || hm < 0.5 * hsum || hsp.genus === sp.genus) continue;
+      const per = flow / held, up = sp.genome.upkeep ?? sp.genome.metab ?? 0.03;
+      const role = per > 0.25 * up ? 'parasite' : per < -0.25 * up ? 'giver' : 'passenger';
+      const first = !S.firsts.has('graft');
+      const pct = shareWords(share);
+      const html = role === 'parasite'
+        ? `${first ? '<b>Never before in this world:</b> a parasite. ' : ''}${L(reg, sp.serial)} has taken to living upon ${L(reg, hsp.serial)}: ${pct} of its cells hang fast to theirs by grafts, ${vary('graft-p', ['drawing their energy away', 'drinking from them as they live', 'feeding at their expense'])}.`
+        : role === 'giver'
+          ? `${first ? '<b>Never before in this world:</b> one species grafted to another. ' : ''}${L(reg, sp.serial)} clings to ${L(reg, hsp.serial)} and ${vary('graft-g', ['feeds it', 'gives more than it takes'])}: ${pct} of its cells are grafted to theirs, and energy runs from them into their hosts.`
+          : `${first ? '<b>Never before in this world:</b> two species living as one. ' : ''}${L(reg, sp.serial)} and ${L(reg, hsp.serial)} ${vary('graft-m', ['now live as one', 'have joined their fortunes', 'have made a compact'])}: ${pct} of the cells of ${L(reg, sp.serial)} are grafted to theirs, and their energy pools between them as within a single body.`;
+      add({ kind: 'graft', score: first ? 0.75 : 0.55 + 0.1 * Math.min(1, sp.pop / living / 0.03), col: sp.genome.col, subjects: [sp.serial, hsp.serial], key: `graft:${sp.serial}:${hsp.serial}`, keyGap: Infinity, moment: role, html, onTold: () => S.firsts.add('graft') });
+    }
+  }
+
   const FAST = [detectCollapse, detectGuilds, detectExtinctions, detectReign, detectSwings, detectFirsts];
-  const SLOW = [detectArms, detectDiets, detectCycles, detectRanges, detectRadiation, detectTrends, detectMisc];
+  const SLOW = [detectArms, detectDiets, detectCycles, detectRanges, detectRadiation, detectTrends, detectMisc, detectGrafts];
 
   // ------------------------------------------------------------------ the climate's news
   function snapshot(reg, living) {
@@ -1129,7 +1195,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     latest: (serial) => S.latest.get(serial) || null,
     /** What a saved world keeps of the chronicler (the stories' memory, not the ledger's baselines). */
     save() {
-      const keep = { ...S, prevPairs: null, prevVer: -1, prevSlot: null, prevCause: null, pending: null, versions: new Map(), lastReal: -1e9 };
+      const keep = { ...S, prevPairs: null, prevVer: -1, prevSlot: null, prevCause: null, prevGraft: null, pending: null, versions: new Map(), lastReal: -1e9 };
       keep.firsts = [...S.firsts];
       keep.eraMark = S.eraMark ? { ...S.eraMark, snap: null, pending: null } : null;
       keep.eventMark = null; keep.excursion = null;

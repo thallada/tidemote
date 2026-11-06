@@ -140,7 +140,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
       // grafts (docs/symbiosis.md): the share of the living (as the heat ledger sampled them) of grafting species,
       // holding a graft, and holding up a grafter
       const sinceD = (i) => (prevD ? (c.demography[i] - prevD[i]) >>> 0 : 0);
-      const grafts = felt ? { grafters: sinceD(26) / felt, grafted: sinceD(25) / felt, hosts: sinceD(27) / felt } : null;
+      const grafts = felt ? { grafters: sinceD(26) / felt, grafted: sinceD(25) / felt, hosts: sinceD(27) / felt, engulfed: sinceD(28) } : null;
       // each guild's cysts now (dormant, counted among the living above)
       const dormant = Object.fromEntries(guilds.map((g, gi) => [g, c.demography[gi < 3 ? 57 + gi : 58 + gi] ?? 0]));
       eng.readThermal().then((f) => { latestField = fieldStats(f, eng.tbg); }).catch(() => {});

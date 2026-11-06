@@ -1195,6 +1195,21 @@ export function createNoteView(g) {
       P.pts = [a, b];
       P.label = { tone: HOT, eye: 'Hunting', main: nm(d.akind), data: [`CLOSING ON ${nm(d.kind)}`, `ITS LAST MEAL WAS ONE OF THEM · ${fmtLen(d.speed, '/s')}`] };
       P.keys.push({ glyph: 'cross', text: 'QUARRY', tone: INK });
+    } else if (d.type === 'graft') {
+      // a graft (docs/symbiosis.md): the grafter's lock, a link to the stranger it holds fast to
+      const a = pos(d.actor), b = pos(d.target);
+      if (!a || !b) return null;
+      const r = F.radius(d.akind);
+      const vb = verbBox(a, b, 'GRAFT', 0.12);
+      P.draws.push((t) => link(a, b, 'GRAFT', INK, t - 0.3, F.now, 0.12, 9, false, vb));
+      P.draws.push((t) => lock(a[0], a[1], r, INK, t));
+      P.draws.push((t) => brackets(b[0] - F.radius(d.kind) - 4, b[1] - F.radius(d.kind) - 4, b[0] + F.radius(d.kind) + 4, b[1] + F.radius(d.kind) + 4, rgba(INK, 0.8), t - 0.5));
+      lockBox(a, r);
+      P.anchor = [a[0], a[1] - r];
+      P.pts = [a, b];
+      const richer = d.feds && d.feds[1] > d.feds[0] * 1.3 ? 'ITS HOST THE RICHER: ENERGY RUNS TO IT' : d.feds && d.feds[0] > d.feds[1] * 1.3 ? 'IT THE RICHER: ENERGY RUNS TO ITS HOST' : 'THEIR ENERGY POOLS ALONG THE GRAFT';
+      P.label = { tone: INK, eye: 'Grafted', main: nm(d.akind), data: [`HOLDS FAST TO ${nm(d.kind)}`, `${d.count} GRAFT${d.count > 1 ? 'S' : ''} IN VIEW · ${richer}`] };
+      P.keys.push({ glyph: 'cross', text: 'HOST', tone: INK });
     } else if (d.type === 'web') {
       // the food web: a panel, its species marked in the view by their guild's glyph
       if (F.phone) return null;

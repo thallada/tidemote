@@ -196,7 +196,8 @@ class Engine {
       d.queue.writeBuffer(u, 0, new Float32Array([...band, 0, 0]));
       return u;
     });
-    b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
+    // (then a stain's colors by species, MAXK words: setStain)
+    b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX + MAXK) * 4, usage: U.STORAGE | U.COPY_DST });
     b.post = d.createBuffer({ size: (POST_MURK + 8) * 4, usage: U.UNIFORM | U.COPY_DST });
     // the sea (SEA_WGSL, src/sea.js): its uniforms, and every cascade's slope and displacement, mipmapped (its
     // amplitudes and working buffer are made with the first frame: _seaBuffers)
@@ -1011,6 +1012,15 @@ class Engine {
     f.memberN = members ? Math.min(members.length, FOCUS_MAX) : 0;
     if (kinds) this.device.queue.writeBuffer(this.b.focus, 0, kinds, 0, MAXK / 32);
     if (f.memberN) this.device.queue.writeBuffer(this.b.focus, MAXK / 32 * 4, members, 0, f.memberN);
+  }
+
+  /**
+   * A stain (Settings → Stain): colors = Uint32Array(MAXK), each species' packed rgba8 (a: how strongly it takes; the
+   * unstained show a dim gray), or null for none. Observational: it changes only how the living are drawn.
+   */
+  setStain(colors = null) {
+    this.stainOn = !!colors;
+    if (colors) this.device.queue.writeBuffer(this.b.focus, (MAXK / 32 + FOCUS_MAX) * 4, colors, 0, MAXK);
   }
 
   _ensureSpecTex(w, h) {
@@ -2502,6 +2512,7 @@ class Engine {
     v[24] = K.pond ? this.level : 1;
     // the world's light, as the composite shows it, for silt's sparkle (sunAt); none in views shown unlit
     vu[25] = lit ? 1 : 0;
+    vu[26] = this.stainOn ? 1 : 0;
     const clk = this._clock();
     v.set(this.tide, 28); v.set(clk.tidePh, 44);
     v[48] = this.season; v[49] = this.ambient; v[50] = K.pond ? this.sky : 1; v[51] = clk.t;

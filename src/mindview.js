@@ -56,7 +56,7 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
     // the cell's vitals (energy, age, warmth), filled in by the specimen panel (while a phone's sheet only peeks they ride in its header)
     h += '<div class="vitals mv-vitals"></div>';
     // conditions that shape what it does: a fixed set of lamps, lit or dark, never added or removed
-    h += `<div class="mv-lamps">${['hungry', 'full', 'threat', 'low', 'lean', 'crowd', 'shelter', ...(K.heat ? ['thermal'] : [])].map((k) => `<div class="lamp" data-k="${k}"><i></i><span class="term" data-hint="" tabindex="0"></span></div>`).join('')}</div></div>`;
+    h += `<div class="mv-lamps">${['hungry', 'full', 'threat', 'low', 'lean', 'crowd', 'graft', 'shelter', ...(K.heat ? ['thermal'] : [])].map((k) => `<div class="lamp" data-k="${k}"><i></i><span class="term" data-hint="" tabindex="0"></span></div>`).join('')}</div></div>`;
     h += `<div class="blk mv-nb">${subHead(`<i class="corner cell"></i>${term('mind-near', 'Neighbors')}`, 'within its reach')}`;
     h += `<div class="nb-row nb-head"><span></span><span>Species</span><span>Cells</span><span>Role</span><span class="nb-pull term" data-hint="How each species moves this cell: pushes it away (left) or pulls it toward them (right)." tabindex="0"><i>push</i><i>pull</i></span></div>`;
     for (let i = 0; i <= NB_ROWS; i++) h += `<div class="nb-row empty" data-i="${i}"><span class="nb-sig"></span><span class="nb-name">—</span><b class="nb-n"></b><em class="nb-role"></em><span class="dbar"><i></i></span></div>`;
@@ -167,6 +167,7 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
     if (st.key === 'starve' || mind.flags.find((x) => x.key === 'low').on) return `≈ ${Math.max(1, Math.round(m.energy / Math.max(1e-6, -net)))} s of energy left · ${signed(net)}/s`;
     if (st.key === 'divide' || st.key === 'seeksilt') return `energy ${m.energy.toFixed(2)} of ${mind.need.toFixed(2)} · ${m.siltNear ? 'silt in reach' : 'no silt in reach'}`;
     if (st.key === 'bask' || st.key === 'dark') return `light ${pct(m.light)} · ${signed(net)}/s net`;
+    if (['parasite', 'feedhost', 'cling', 'host'].includes(st.key)) return `${signed(m.graft.flow)}/s along its grafts · ${signed(net)}/s net besides`;
     return `net ${signed(net)}/s between meals`;
   }
 

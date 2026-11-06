@@ -40,6 +40,9 @@ export function parseMind(u32, f32) {
     // the energy it divides at (with the child's body), dormant (a cyst), old enough to divide,
     // how full its gut is (0..1, dropped as dung when full), producers around it
     divE: f32[58], cyst: !!(u32[59] & 1), mature: !!(u32[59] & 2), gut: f32[62], plantN: f32[63],
+    // grafts (docs/symbiosis.md): the stranger it holds (null: none), the energy its grafts move to it a second
+    // (negative: away), how many grafters hold it and the species of one
+    graft: { kind: u32[68] >= 5 && u32[68] !== NONE ? u32[68] : null, flow: f32[69] || 0, hostN: u32[70] || 0, hostKind: u32[71] >= 5 && u32[71] !== NONE ? u32[71] : null },
     nbrs,
   };
 }
@@ -76,6 +79,7 @@ const MODES = {
   blocked: 'Against stone', drift: 'Drifting', cruise: 'Cruising', idle: 'Idling',
   torpid: 'Torpid', cyst: 'Dormant', rest: 'Resting, fed', young: 'Growing up', dung: 'Dropping dung', scalding: 'Scalding', seekwarm: 'Seeking warmth', seekcool: 'Seeking cooler water', huddle: 'Keeping warm',
   seeklight: 'Following the light', shunlight: 'Seeking shade',
+  parasite: 'Living off a host', cling: 'Clinging', feedhost: 'Feeding its host', host: 'Carrying grafters',
 };
 
 /** How well a hunter's build lets it catch a prey cell (0..1), as lifeMain's catch-skill roll. */
@@ -213,6 +217,19 @@ export function interpretMind(m, g, kind, { K, genomeOf, ridden = false }) {
   if (!st && threat && g.photo <= 0.4 && -threat.sig > 0.2 * total) {
     st = { key: 'flee', target: threat.kind, text: 'Fleeing {sp}', why: `{sp} hunts cells like this one: about ${pct(threat.danger)} of their strikes would land. This cell's receptors are repelled by {sp}'s surface signature, so it is pushed away from them.` };
   }
+  // grafted: what it holds, and which way energy runs along the graft (docs/symbiosis.md)
+  const gr = m.graft || { kind: null, flow: 0, hostN: 0, hostKind: null };
+  if (!st && gr.kind != null) {
+    const f = gr.flow, rate = `${Math.abs(f).toFixed(3)}/s`;
+    st = f > 0.002
+      ? { key: 'parasite', target: gr.kind, text: 'Living off {sp}', why: `Grafted to a {sp} cell: its receptors fit that cell's surface, so it keeps a bond to it, and energy runs along the graft to it, ${rate} now. It takes as much as its graft gene draws and shares the rest as a body's cells share, so it lives off a richer host and feeds a poorer one.` }
+      : f < -0.002
+        ? { key: 'feedhost', target: gr.kind, text: 'Feeding {sp}', why: `Grafted to a {sp} cell, poorer than it: energy runs along the graft from it to its host, ${rate} now. A graft shares as a body's bonds share, and the grafter's pull is weaker than the difference.` }
+        : { key: 'cling', target: gr.kind, text: 'Clinging to {sp}', why: `Grafted to a {sp} cell: its receptors fit that cell's surface, so it keeps a bond to it and moves with it. Little energy runs along the graft now; it pools with its host's as a body's cells do.` };
+  }
+  if (!st && gr.hostN > 0 && gr.flow < -0.002 && gr.hostKind != null) {
+    st = { key: 'host', target: gr.hostKind, text: gr.hostN > 1 ? `Carrying ${gr.hostN} grafters` : 'Carrying {sp}', why: `${gr.hostN > 1 ? `${gr.hostN} cells of other species hold grafts to it, {sp} among them` : 'A {sp} cell holds a graft to it'}: their receptors fit its surface, and energy runs from it to them along the grafts, ${Math.abs(gr.flow).toFixed(3)}/s now.` };
+  }
   if (!st && m.hungry && share('diet') >= 0.25) {
     const prey = others.filter((s) => s.diet > 0).sort((a, b) => b.diet - a.diet)[0];
     if (prey) {
@@ -272,6 +289,10 @@ export function interpretMind(m, g, kind, { K, genomeOf, ridden = false }) {
     { key: 'low', label: 'Energy running out', on: left < 30, hint: left < 30 ? `About ${Math.max(1, Math.round(left))} s of energy left without ${g.photo > 0.4 ? 'more light' : 'a meal'}.` : 'Energy reserves are not running out.' },
     { key: 'lean', label: 'Saving energy', on: lean < 0.8, hint: `A cell low on energy slows its metabolism: this one burns ${pct(lean)} of its full upkeep.` },
     { key: 'crowd', label: 'Crowded by kin', on: m.kinCost > 1.01, hint: m.kinCost > 1.01 ? `Packed among ${Math.round(m.kinN)} of its own kind: upkeep +${pct(m.kinCost - 1)}.` : `Fewer than ${K.kinFree + 1} of its own kind around (bond partners aside): no crowding cost.` },
+    { key: 'graft', label: gr.kind != null ? 'Grafted' : gr.hostN > 0 ? 'Host' : 'No grafts', on: gr.kind != null || gr.hostN > 0, target: gr.kind ?? gr.hostKind,
+      hint: gr.kind != null ? `Holds a graft to {sp} (a bond to another species): energy runs ${gr.flow >= 0 ? 'to it' : 'from it'} along its grafts at ${Math.abs(gr.flow).toFixed(3)}/s.${gr.hostN > 0 ? ` ${gr.hostN} grafter${gr.hostN > 1 ? 's hold' : ' holds'} it too.` : ''}`
+        : gr.hostN > 0 ? `${gr.hostN} cell${gr.hostN > 1 ? 's' : ''} of other species ({sp}${gr.hostN > 1 ? ' among them' : ''}) hold grafts to it: energy runs ${gr.flow >= 0 ? 'to it' : 'from it'} at ${Math.abs(gr.flow).toFixed(3)}/s.`
+          : (g.graft || 0) > K.graftMin ? 'It grafts: it can bond to a cell of another species whose surface its receptors fit, and holds none now.' : 'No cell of another species holds a graft to it.' },
     { key: 'shelter', label: 'Sheltered', on: hid >= 0.05, hint: hid >= 0.05 ? `${shelter > 0 && meadow > 0 ? 'Among stone and producers' : shelter > 0 ? 'Among stone' : 'Hidden among producers'}: attacks on it miss about ${pct(hid)} of the time.` : g.photo <= 0.4 ? 'No stone or producers nearby to hide among.' : 'No stone nearby to hide among.' },
   ];
   if (K.heat) {

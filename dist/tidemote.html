@@ -1141,6 +1141,10 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-2); font-size: 11.5px; margin-top: 4px; }
 .legend i { display: inline-block; width: 10px; height: 2px; margin-right: 6px; vertical-align: 3px; }
 .ramp { display: flex; align-items: center; gap: var(--s2); color: var(--ink-3); font-size: 11px; }
+/* a stain's key (Settings → Stain): a swatch per color, one line */
+.stain-key { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); margin-left: calc(9.6em + var(--s3)); color: var(--ink-3); font-size: 11px; }
+.stain-key span { display: inline-flex; align-items: center; gap: var(--s1); white-space: nowrap; }
+.stain-key i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 /* the light map's ramp (fsComposite): deep blue, teal, sun */
 .ramp i { flex: 1; height: 6px; background: linear-gradient(90deg, #080a29 0%, #006b80 48%, #4e9a7a 62%, #ffdb52 100%); }
 /* the thermal camera's ramp (heatRamp in shaders.js): deep blue, teal, amber, white */
@@ -1725,6 +1729,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     <dt>M · − =</dt><dd>Sound · volume</dd>
     <dt>T</dt><dd>Trails</dd>
     <dt>G · E · H · C</dt><dd>Light map · heat map · tide map · currents</dd>
+    <dt>J</dt><dd>Stain the living: diet · lineage · grafts · warmth · motion · novelty</dd>
     <dt>L N Y O</dt><dd>Bonds · particles · bloom · optics</dd>
     <dt>1–8 · 0</dt><dd>The tools: loupe, touch, lamp, shade, warm, cold, needle, pipette (held down: for a moment; again: put it down) · pan, nothing in hand</dd>
     <dt>B · Esc</dt><dd>The bench · put the tool down</dd>
@@ -1898,7 +1903,9 @@ svg.niche .n-dot { fill: var(--cyan); }
   var SPL_MAP = 1;
   var SPL_CAUSE = SPL_MAP + MAXK;
   var SPL_PAIR = SPL_CAUSE + MAXK * SPL_CAUSES.length;
-  var SPL_RANGE = SPL_PAIR + SPL_WATCH * SPL_WATCH * 2;
+  var SPL_GRAFT = SPL_PAIR + SPL_WATCH * SPL_WATCH * 2;
+  var SPL_GRAFT_W = 5;
+  var SPL_RANGE = SPL_GRAFT + MAXK * SPL_GRAFT_W;
   var SPL_WORDS = SPL_RANGE + MAXK * 5;
   var SPL_RANGE_SAMPLES = 32768;
   var NOTE_MAX = 2048;
@@ -1958,7 +1965,7 @@ fn swaySlot2(id: u32, n: u32) -> u32 {
 }
 `
   );
-  var MIND_HEAD = 68;
+  var MIND_HEAD = 72;
   var MIND_NBR = 48;
   var MIND_NBR_WORDS = 8;
   var MIND_BYTES = (MIND_HEAD + MIND_NBR * MIND_NBR_WORDS) * 4;
@@ -2109,6 +2116,22 @@ fn swaySlot2(id: u32, n: u32) -> u32 {
     // spring strength of bonds between cells of one body
     adhMin: 0.15,
     // adhesion needed before a species forms bonds
+    // Grafts (docs/symbiosis.md): a cell whose graft gene passes graftMin may keep a bond to one cell of another
+    // species whose surface its receptors fit past graftFit (adhesion or not); the graft holds while they fit.
+    // Energy flows along it graftPool as readily as along a body's bond, toward the poorer cell, and besides each
+    // end draws graftTake x its graft gene of the other's energy a second (a grafter's pull: a parasite's drain, or a
+    // passenger's share of a richer host). graftFound: the share of sparks of life that graft.
+    graftMin: 0.15,
+    graftFit: 0.2,
+    graftPool: 0.5,
+    graftTake: 0.15,
+    graftFound: 0.12,
+    graftCost: 4e-3,
+    // a grafter's upkeep per second at a full gene (as adhesion's)
+    // Symbiogenesis: a grafter holding a producer, dividing, takes it in at this chance: its daughter founds a species
+    // carrying the producer's photosynthesis (engulfKeep of it, if more than its own) and its first cell type as a third
+    engulf: 4e-3,
+    engulfKeep: 0.7,
     bite: 0.5,
     // energy taken per bite from a photosynthesizing cell (big enough to outpace a patch's regrowth: booms and crashes)
     eatEvery: 6,
@@ -2712,6 +2735,8 @@ fn iceAt(p: vec2f) -> f32 { return blockAt(${3 * MAX_CELLS}u, p); }
   // photosynthesis and eating don't mix well: a cell that does both does neither efficiently
   let eatEff = (1.0 - g.photo) * (1.0 - g.photo);
   let bonding = g.adhesion > ${f(K.adhMin)};
+  // a grafter (docs/symbiosis.md) keeps a bond to one cell of another species, adhesive or not
+  let graftOn = g.tail.w > ${f(K.graftMin)};
   var dn1 = vec2f(0.0);
   var dn2 = vec2f(0.0);
 
@@ -2742,7 +2767,10 @@ fn iceAt(p: vec2f) -> f32 { return blockAt(${3 * MAX_CELLS}u, p); }
   var n1 = NONE; var n2 = NONE;
   // (K.diag: kept bonds to its own kind let go for their length)
   var torn = 0u;
-  if (bonding) {
+  // (a grafter's nearest stranger it fits, within reach, to graft to if it holds no graft: gj at gd)
+  var gj = NONE; var gd = ${f(K.linkR)};
+  var grafted = false;
+  if (bonding || graftOn) {
     let kept = bondsOf(i);
     n1 = keepBond(i, kept.x, p);
     n2 = keepBond(i, kept.y, p);
@@ -2768,6 +2796,7 @@ ${w ? "" : "    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }"}
       dn2 -= world * round(dn2 * invWorld);
       d2 = length(dn2);
     }
+    grafted = (n1 != NONE && sortedFull[n1].kind != p.kind) || (n2 != NONE && sortedFull[n2].kind != p.kind);
   }
   let keep1 = n1 != NONE; let keep2 = n2 != NONE;
   // a tree grows from its tips at the angles of its plan, bonded mother to daughter only
@@ -2956,6 +2985,7 @@ ${w ? "" : "    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }"}
               d1 = r; n1 = j; dn1 = d;
             } else if (!keep2 && r < d2) { d2 = r; n2 = j; dn2 = d; }
           }
+          if (graftOn && !grafted && !tree && qk != p.kind && qk >= FIRST_LIFE && r < gd && a > ${f(K.graftFit)} && (q.kr & (1u << 13u)) == 0u) { gj = j; gd = r; }
         }
         if (seekHunt && r < EAT_R && qk != p.kind && (q.kr & (1u << 13u)) == 0u) {
           // how far its signature is from this cell's: |s - my|^2
@@ -3030,13 +3060,21 @@ ${w ? "" : "    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }"}
   // whether a bud of a body bearing tails, if it buds now, starts a tail (none of its kind near, room ahead)
   let sprout = tails && budTurn == 0u && !budBlocked && !tailNear && rnd(&s) < g.tail.x * ${f(K.tailOdds)};
   crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride; plantN *= stride; animN *= stride;
+  // a grafter holding no graft takes the nearest stranger it fits into a free slot (it pulls once that cell holds it back)
+  if (gj != NONE && gj != n1 && gj != n2 && backOf(gj, 0u) < BACK) {
+    var dg = sortedFull[gj].pos - p.pos;
+    dg -= world * round(dg * invWorld);
+    if (n1 == NONE) { n1 = gj; dn1 = dg; d1 = length(dg); }
+    else if (n2 == NONE) { n2 = gj; dn2 = dg; d2 = length(dg); }
+  }
 
   let heavy = 1.0 - 0.7 * g.photo;
   // Persistent bonds pull on the partners' current positions, even outside the sampled scan.
   var bondF = vec2f(0.0);
   // the partners that keep this cell (a tissue's bonds pull both ways), up to BACK of them, read where
   // they are used rather than held through the scan (it is short of registers): backAt
-  let nBack = select(0u, backN(i), bonding);
+  // (a cell that does not bond may still be held by a grafter)
+  let nBack = backN(i);
   // each bond rests where its two cells touch (both agree on it: their roles' sizes summed)
   let rs1 = restTo(n1, g.size, role, tight); let rs2 = restTo(n2, g.size, role, tight);
   // (a bond pulls only once both ends hold it: one this cell took up in its scan just now, or one its
@@ -3188,15 +3226,18 @@ ${w ? "" : "    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }"}
   var nP = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
   var vP = vB1 + vB2;
   var shareE = 0.0;
-  if (n1 != NONE) { shareE += sortedFull[n1].energy - p.energy; }
-  if (n2 != NONE) { shareE += sortedFull[n2].energy - p.energy; }
+  // (a graft's flow, graftFlow, apart: once both ends hold it, and in a tree too)
+  var graftE = 0.0;
+  var hosted = false;
+  if (n1 != NONE) { let q = sortedFull[n1]; if (q.kind == p.kind) { shareE += q.energy - p.energy; } else { graftE += graftFlow(p, q) * m1; } }
+  if (n2 != NONE) { let q = sortedFull[n2]; if (q.kind == p.kind) { shareE += q.energy - p.energy; } else { graftE += graftFlow(p, q) * m2; } }
   for (var k = 0u; k < nBack; k++) {
     let nb = backAt(i, k, p, n1, n2);
     if (nb == NONE) { continue; }
     let q = sortedFull[nb];
     let w = select(1.0, 0.0, tails && orderOf(q.info) == 2u);
     vP += q.vel * w; nP += w;
-    shareE += q.energy - p.energy;
+    if (q.kind == p.kind) { shareE += q.energy - p.energy; } else { graftE += graftFlow(p, q); hosted = true;${W("mHostN += 1u; mHostK = q.kind;")} }
   }
   vP /= max(nP, 1.0);
   shareE *= shareK;
@@ -3210,6 +3251,7 @@ ${w ? "" : "    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }"}
     if (baseOn) { shareE += (sortedFull[n1].energy - p.energy) * shareK; }
     else if (n1 != NONE) { shareE += feedOf(n1, gr, keep, rate).x; }
   }
+  shareE += graftE * shareK;
   var vel = p.vel;
   var pos = p.pos;
   // a beating tree's cells are held end to end more firmly than a body's (treeBond): its beat swings them hard
@@ -3388,6 +3430,7 @@ const SPL_CAUSE = ${SPL_CAUSE}u;
 const SPL_NC = ${SPL_CAUSES.length}u;
 const SPL_PAIR = ${SPL_PAIR}u;
 const SPL_RANGE = ${SPL_RANGE}u;
+const SPL_GRAFT = ${SPL_GRAFT}u;
 const SPL_WATCH = ${SPL_WATCH}u;
 fn splBase() -> u32 { return arrayLength(&ledger) - SPL_WORDS - HAND_WORDS - NOTE_WORDS - HEAT_ACC_WORDS; }
 // The pipette's words (PIPE_* in shaders.js), between the species ledger and the heat deposits
@@ -3852,7 +3895,7 @@ fn addEnergy(guild: u32, slot: u32, e: f32) {
 fn deriveMetab(g: Genome) -> f32 {
   return (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
         + ${f(K.anchorCost)} * (1.0 - g.advect) + 0.004 * g.size + ${f(K.swimCost)} * g.swim * (1.0 - g.photo) + 0.006 * g.align + 0.004 * g.adhesion + ${f(K.calcCost)} * g.calcify
-        + ${f(K.phototaxisCost)} * abs(g.tail.z)
+        + ${f(K.phototaxisCost)} * abs(g.tail.z) + ${f(K.graftCost)} * g.tail.w
         + ${f(K.beatCost)} * g.beat.x * g.beat.y * select(0.0, 1.0, (g.dev.x >= 0x80000000u || g.tail.x > 0.0) && g.adhesion > ${f(K.adhMin)})) * ${f(K.metab)};
 }
 
@@ -3870,6 +3913,7 @@ fn claimSlot(k: u32) -> bool {
   if (!atomicCompareExchangeWeak(&ledger[META_SLOT + k], 0u, 1u).exchanged) { return false; }
   let o = splBase() + SPL_CAUSE + k * SPL_NC;
   for (var c = 0u; c < SPL_NC; c++) { atomicStore(&ledger[o + c], 0u); }
+  for (var c = 0u; c < ${SPL_GRAFT_W}u; c++) { atomicStore(&ledger[splBase() + SPL_GRAFT + k * ${SPL_GRAFT_W}u + c], 0u); }
   return true;
 }
 
@@ -3968,12 +4012,35 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   // phototaxis drifts, and now and then the habit is gained (mostly toward the light) or lost
   g.tail.z = clamp(g.tail.z + gauss(s) * m * 0.15, -1.0, 1.0);
   if (rnd(s) < m * 0.1) { g.tail.z = select(0.0, mix(-0.6, 1.0, rnd(s)), abs(g.tail.z) < 0.05); }
+  // grafting (tail.w) drifts where it is had, and now and then the habit is gained or lost
+  if (g.tail.w > 0.0) { g.tail.w = clamp(g.tail.w + gauss(s) * m * 0.15, 0.0, 1.0); }
+  if (rnd(s) < m * 0.06) { g.tail.w = select(0.0, mix(0.2, 0.8, rnd(s)), g.tail.w < 0.05); }
   g.parent = g.serial;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
   g.depth = g.depth + 1u;
   finalize(&g);
   genomes[slot] = g;
+}
+
+// Symbiogenesis (docs/symbiosis.md): a grafter's daughter founds a species (a mutant of it) that has taken its producer
+// host in: the host's photosynthesis (engulfKeep of it, where more than its own), the host's first cell type as its
+// third, its color drawn toward the host's; holding its producer within, it grafts no more. The host's serial goes to
+// the species ledger, for the chronicler.
+fn engulfInto(slot: u32, parentKind: u32, hostKind: u32, s: ptr<function, u32>) {
+  mutateInto(slot, parentKind, s);
+  var g = genomes[slot];
+  let h = genomes[hostKind];
+  g.photo = max(g.photo, h.photo * ${f(K.engulfKeep)});
+  g.sig[2] = h.sig[0];
+  var dh = h.hue - g.hue;
+  dh -= round(dh);
+  g.hue = fract(g.hue + 0.5 * dh + 1.0);
+  g.tail.w = 0.0;
+  finalize(&g);
+  genomes[slot] = g;
+  atomicStore(&ledger[splBase() + SPL_GRAFT + slot * ${SPL_GRAFT_W}u + 4u], h.serial);
+  atomicAdd(&ledger[META_DEATH + 28u], 1u);
 }
 
 // A spark of life founds a species suited to the water it sparked in (t).
@@ -4018,6 +4085,9 @@ fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
   g.tol = mix(3.0, 10.0, rnd(s));
   g.beat = vec4f(select(0.0, mix(0.15, 0.5, rnd(s)), rnd(s) < 0.25), mix(0.5, 2.5, rnd(s)), mix(0.3, 1.2, rnd(s)), select(0.0, 1.0, rnd(s) < 0.25));
   g.tail = vec4f(select(0.0, mix(0.3, 1.0, rnd(s)), rnd(s) < 0.2), rnd(s), select(0.0, mix(-0.6, 1.0, rnd(s)), rnd(s) < 0.3), 0.0);
+  // (drawn last, so every other gene's draw is as before)
+  let gf = rnd(s);
+  g.tail.w = select(0.0, mix(0.2, 1.0, rnd(s)), gf < ${f(K.graftFound)});
   g.parent = 0u;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -4681,10 +4751,39 @@ fn heatStep(c: u32) -> vec2<bool> {
 }
 
 // --------------------------------------------------------------------- life
+// A graft: a bond a cell of one species keeps to a cell of another, held while the grafter's graft gene passes
+// graftMin and its receptors fit the other's surface (its role's) past graftFit.
+fn grafts(k: u32) -> bool { return genomes[k].tail.w > ${f(K.graftMin)}; }
+fn graftHolds(a: Particle, b: Particle) -> bool {
+  if (!grafts(a.kind)) { return false; }
+  let sa = genomes[a.kind].sig[roleOf(a.info)];
+  let sb = genomes[b.kind].sig[roleOf(b.info)];
+  return (sdot(sa.z, sb.x) + sdot(sa.w, sb.y)) * ${f(K.affScale)} > ${f(K.graftFit)};
+}
+// The energy a graft moves to cell p from its partner q in a second, over bodyShare: pooled graftPool as readily as
+// a body's, and each end's pull (graftTake x its graft gene) on the other's energy.
+fn graftFlow(p: Particle, q: Particle) -> f32 {
+  let tp = select(0.0, genomes[p.kind].tail.w, grafts(p.kind));
+  let tq = select(0.0, genomes[q.kind].tail.w, grafts(q.kind));
+  return ${f(K.graftPool)} * (q.energy - p.energy) + ${f(K.graftTake)} * (tp * max(q.energy, 0.0) - tq * max(p.energy, 0.0));
+}
+// The producer a grafting cell of kind k holds (by its bonds n1, n2), which it may take in as it divides (engulfInto),
+// or NONE.
+fn engulfable(k: u32, n1: u32, n2: u32) -> u32 {
+  if (!grafts(k)) { return NONE; }
+  for (var b = 0u; b < 2u; b++) {
+    let j = select(n2, n1, b == 0u);
+    if (j == NONE) { continue; }
+    let hk = sortedFull[j].kind;
+    if (hk != k && hk >= FIRST_LIFE && genomes[hk].photo > 0.4) { return hk; }
+  }
+  return NONE;
+}
 fn keepBond(i: u32, j: u32, p: Particle) -> u32 {
   if (j >= sim.count || j == i) { return NONE; }
   let q = sortedFull[j];
-  if (q.kind != p.kind) { return NONE; }
+  // a graft holds while its grafter (either end) still fits the other
+  if (q.kind != p.kind && (q.kind < FIRST_LIFE || !(graftHolds(p, q) || graftHolds(q, p)))) { return NONE; }
   // a cell that goes dormant leaves its body: its partners let go
   if ((q.info & 15u) == CYST) { return NONE; }
   var d = q.pos - p.pos;
@@ -4962,7 +5061,7 @@ fn bondBackMain(@builtin(global_invocation_id) gid: vec3u) {
   for (var s = 0u; s < 2u; s++) {
     let j = b[s];
     // a bond both keep is counted once, by each as its own
-    if (j < sim.count && j != i && sortedFull[j].kind == k && atomicLoad(&bondsAt[j * BW]) != i && atomicLoad(&bondsAt[j * BW + 1u]) != i) {
+    if (j < sim.count && j != i && (sortedFull[j].kind == k || (sortedFull[j].kind >= FIRST_LIFE && grafts(k))) && atomicLoad(&bondsAt[j * BW]) != i && atomicLoad(&bondsAt[j * BW + 1u]) != i) {
       let c = atomicAdd(&bondsAt[j * BW + 2u], 1u);
       if (c < BACK) { atomicStore(&bondsAt[j * BW + 3u + c], i); }
     }
@@ -5226,6 +5325,21 @@ ${cellWGSL(K, false, genomePtr)}
     addEnergy(dg, 0u, photoGain * sim.dt * 60.0);
     addEnergy(dg, 5u, (upkeep - heatMaking) * sim.dt * 60.0);
     addEnergy(dg, 7u, heatMaking * sim.dt * 60.0);
+    // grafts (docs/symbiosis.md): cells of grafting species, those holding a graft, and hosts
+    if (graftOn) {
+      atomicAdd(&ledger[META_DEATH + 26u], 1u);
+      var hk = NONE;
+      if (n1 != NONE && sortedFull[n1].kind != p.kind) { hk = sortedFull[n1].kind; }
+      else if (n2 != NONE && sortedFull[n2].kind != p.kind) { hk = sortedFull[n2].kind; }
+      if (hk != NONE) {
+        atomicAdd(&ledger[META_DEATH + 25u], 1u);
+        let o = splBase() + SPL_GRAFT + p.kind * ${SPL_GRAFT_W}u;
+        atomicAdd(&ledger[o], 1u);
+        atomicStore(&ledger[o + 1u], hk);
+        atomicAdd(&ledger[o + 2u], bitcast<u32>(i32(round(clamp(graftE * ${f(K.bodyShare)}, -2.0, 2.0) * 1000.0))));
+      }
+    }
+    if (hosted) { atomicAdd(&ledger[META_DEATH + 27u], 1u); atomicAdd(&ledger[splBase() + SPL_GRAFT + p.kind * ${SPL_GRAFT_W}u + 3u], 1u); }
     if (HEAT_ON) {
       atomicAdd(&ledger[META_ENERGY + 40u + u32(clamp(Tc / ${f(HEAT_BIN)}, 0.0, ${f(HEAT_BINS - 1)}))], 1u);
       if (th.torpid) { atomicAdd(&ledger[META_ENERGY + 56u], 1u); }
@@ -5269,7 +5383,15 @@ ${cellWGSL(K, false, genomePtr)}
       if (atomicCompareExchangeWeak(&ledger[META_CLAIM + silt], 0u, i + 1u).exchanged) {
         ck = p.kind;
         cr = sampleRole(${G}, role, &s);
-        if (rnd(&s) < g.mutRate * ${f(K.mutScale)}) {
+        let ek = engulfable(p.kind, n1, n2);
+        if (ek != NONE && rnd(&s) < ${f(K.engulf)}) {
+          let slot = allocSlot(&s);
+          if (slot != NONE) {
+            engulfInto(slot, p.kind, ek, &s);
+            ck = slot;
+            atomicAdd(&ledger[3], 1u);
+          }
+        } else if (rnd(&s) < g.mutRate * ${f(K.mutScale)}) {
           let slot = allocSlot(&s);
           if (slot != NONE) {
             mutateInto(slot, p.kind, &s);
@@ -5330,7 +5452,15 @@ ${cellWGSL(K, false, genomePtr)}
         if (won) {
           ck = p.kind;
           cr = sampleRole(${G}, role, &s);
-          if (rnd(&s) < g.mutRate * ${f(K.mutScale)}) {
+          let ek = engulfable(p.kind, n1, n2);
+          if (ek != NONE && rnd(&s) < ${f(K.engulf)}) {
+            let slot = allocSlot(&s);
+            if (slot != NONE) {
+              engulfInto(slot, p.kind, ek, &s);
+              ck = slot;
+              atomicAdd(&ledger[3], 1u);
+            }
+          } else if (rnd(&s) < g.mutRate * ${f(K.mutScale)}) {
             let slot = allocSlot(&s);
             if (slot != NONE) {
               mutateInto(slot, p.kind, &s);
@@ -5675,6 +5805,8 @@ var<private> mPhoto: vec2f;
 var<private> mFl: f32;
 var<private> mMatterN: vec4f;
 var<private> mN: u32;
+var<private> mHostN: u32;
+var<private> mHostK: u32;
 
 fn mPut(o: u32, v: f32) { mind[o] = bitcast<u32>(v); }
 fn mPut2(o: u32, v: vec2f) { mind[o] = bitcast<u32>(v.x); mind[o + 1u] = bitcast<u32>(v.y); }
@@ -5769,6 +5901,14 @@ ${cellWGSL(K, true, genomePtr)}
   // phototaxis: its push up (or down) the light's slope; a ridden cell's will
   mPut2(64, mPhoto);
   mPut2(66, will);
+  // grafts (docs/symbiosis.md): the stranger it holds, the energy its grafts move to it a second, the grafters holding it
+  var gk = NONE;
+  if (n1 != NONE && sortedFull[n1].kind != p.kind) { gk = sortedFull[n1].kind; }
+  else if (n2 != NONE && sortedFull[n2].kind != p.kind) { gk = sortedFull[n2].kind; }
+  mind[68] = gk;
+  mPut(69, graftE * ${f(K.bodyShare)});
+  mind[70] = mHostN;
+  mind[71] = select(NONE, mHostK, mHostN > 0u);
 }
 `;
   }
@@ -6032,7 +6172,8 @@ fn noteMain(@builtin(global_invocation_id) gid: vec3u) {
     torpid = th.torpid;
     for (var b = 0u; b < 2u; b++) {
       let j = intent[i][b + 2u];
-      if (j < nu.count && parts[j].kind == p.kind) { partners[b] = parts[j].id; }
+      // (a graft's too, to another species: the bodies' union-find keeps to one kind, the grafts story reads them)
+      if (j < nu.count && parts[j].kind >= FIRST_LIFE) { partners[b] = parts[j].id; }
     }
   }
   let o = ${NOTE_HEAD}u + k * ${NOTE_REC}u;
@@ -6240,7 +6381,8 @@ fn inbondGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_inde
     let it = intent[i];
     for (var b = 0u; b < 2u; b++) {
       let j = select(it.z, it.w, b == 1u);
-      if (j == NONE || j == i || j >= arrayLength(&parts) || parts[j].kind != k) { continue; }
+      // (a graft's too: vsPoint draws it as a narrow neck)
+      if (j == NONE || j == i || j >= arrayLength(&parts) || parts[j].kind < FIRST_LIFE) { continue; }
       let c = atomicAdd(&bondsIn[j * 5u], 1u);
       if (c < 4u) { atomicStore(&bondsIn[j * 5u + 1u + c], i); }
     }
@@ -6658,7 +6800,8 @@ struct View {
   tightFrom: f32,
   // the pool (docs/catastrophes.md): its water level, to show cells stranded
   // lit: 1 where the world's light shows (the main view, the loupe), 0 in views shown unlit (the close-up, the stone cache)
-  level: f32, lit: u32, pad2: u32, pad3: u32,
+  // stain: 1 while a stain (Settings → Stain) colors the living by species, from the table at the focus buffer's end
+  level: f32, lit: u32, stain: u32, pad3: u32,
   // the world's light as the composite shows it (sceneLit), for silt's sparkle: the Tide's waves and phases, x the
   // season, y the open water's light, z the sky's, w the light's clock; the hand's lamp
   tide: array<vec4f, 4>,
@@ -7167,6 +7310,11 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     // life sparked from silt glows as it grows
     if (!dead && cause == 8u) { b *= 1.0 + 2.0 * max(0.0, 1.0 - p.age / BIRTH_T); }
     col = unpack4x8unorm(p.col).rgb;
+    // a stain (the page's, by species: rgb its color, a how strongly it takes; the unstained go a dim gray)
+    if (view.stain != 0u) {
+      let sc = unpack4x8unorm(focus[${MAXK / 32 + 65536}u + kind]);
+      col = mix(vec3f(0.16 + 0.25 * dot(col, vec3f(0.3, 0.5, 0.2))), sc.rgb * 1.1, sc.a);
+    }
     col = mix(col, vec3f(0.62, 0.66, 0.74) * dot(col, vec3f(0.3, 0.5, 0.2)) * 1.6, 0.5 * sleep);
     // stranded on the drying mud a cell desiccates: it shrivels, its color drains to a dull brown and it darkens;
     // caught in the ice it is frozen: still, its color drained toward a pale frosted blue-white, a little rimed
@@ -7534,13 +7682,17 @@ struct PO {
         else if (c - 2u < inN) { index = bondsIn[ii * 5u + c - 1u]; }
         if (index == NONE || index == ii || index == picked.x || index == picked.y) { continue; }
         let partner = parts[index];
-        if (partner.kind != k) { continue; }
-        let ratio = cellRadius(partner, g, index) / px;
+        // a graft (docs/symbiosis.md) joins a stranger by a narrow neck: a grafter clings, it does not fuse
+        let graft = partner.kind != k;
+        if (graft && (partner.kind < FIRST_LIFE || (g.tail.w <= ${f(DEFAULT_K.graftMin)} && genomes[partner.kind].tail.w <= ${f(DEFAULT_K.graftMin)}))) { continue; }
+        let pg = genomes[partner.kind];
+        let ratio = cellRadius(partner, pg, index) / px;
         let offset = wrapd(drawnPos(partner) - at) * view.ppu / px;
         let reach = 1.65 * (1.0 + ratio) + 0.12 * min(1.0, ratio);
         if (dot(offset, offset) > reach * reach) { continue; }
         let dir = bodyDirection(index, partner);
-        plans = (plans & ~(31u << (5u * used))) | (choosePlan(g, roleOf(partner.info)) << (5u * used));
+        if (graft) { o.neck[used] = 0.05; }
+        plans = (plans & ~(31u << (5u * used))) | (choosePlan(pg, roleOf(partner.info)) << (5u * used));
         o.bondOffset[used] = pack2x16float(offset);
         o.bondFrame[used] = pack2x16float(vec2f(ratio, atan2(dir.y, dir.x)));
         seeds[used] = renderHash(partner.id);
@@ -12062,6 +12214,8 @@ struct SV {
       born: 0,
       depth: 0
     };
+    const gf = r();
+    g.graft = gf < (K.graftFound ?? 0) ? mix(0.2, 1, r()) : 0;
     return finalizeGenome(g, K);
   }
   function growPlan(g) {
@@ -12092,7 +12246,7 @@ struct SV {
     g.dGlint /= s;
     g.dHusk /= s;
     g.dFlesh /= s;
-    g.metab = (0.012 + 32e-4 * g.force + 0.012 * g.radius + 12e-5 * g.lifespan + (K.anchorCost ?? 0) * (1 - g.advect) + 4e-3 * g.size + (K.swimCost ?? 0.018) * g.swim * (1 - g.photo) + 6e-3 * g.align + 4e-3 * (g.adhesion || 0) + (K.calcCost ?? 0) * (g.calcify || 0) + (K.phototaxisCost ?? 0) * Math.abs(g.phototaxis || 0) + (K.beatCost ?? 0) * (g.beat?.[0] ?? 0) * (g.beat?.[1] ?? 0) * (growPlan(g) || hasTails(g) ? 1 : 0)) * K.metab;
+    g.metab = (0.012 + 32e-4 * g.force + 0.012 * g.radius + 12e-5 * g.lifespan + (K.anchorCost ?? 0) * (1 - g.advect) + 4e-3 * g.size + (K.swimCost ?? 0.018) * g.swim * (1 - g.photo) + 6e-3 * g.align + 4e-3 * (g.adhesion || 0) + (K.calcCost ?? 0) * (g.calcify || 0) + (K.phototaxisCost ?? 0) * Math.abs(g.phototaxis || 0) + (K.graftCost ?? 0) * (g.graft || 0) + (K.beatCost ?? 0) * (g.beat?.[0] ?? 0) * (g.beat?.[1] ?? 0) * (growPlan(g) || hasTails(g) ? 1 : 0)) * K.metab;
     g.col = packUnorm(...roleColor(g, 0));
     return g;
   }
@@ -12153,7 +12307,7 @@ struct SV {
     f32[o + 52] = tl[0];
     f32[o + 53] = tl[1];
     f32[o + 54] = g.phototaxis || 0;
-    f32[o + 55] = 0;
+    f32[o + 55] = g.graft || 0;
   }
   var genomeSerial = (u32, slot) => u32[slot * G_WORDS + 41];
   function readGenome(u32, f32, slot) {
@@ -12204,6 +12358,7 @@ struct SV {
       beat: [f32[o + 48], f32[o + 49], f32[o + 50], f32[o + 51]],
       tail: [f32[o + 52], f32[o + 53]],
       phototaxis: f32[o + 54],
+      graft: f32[o + 55],
       thermo: (u32[o + 15] & 255) / 255,
       grow
     };
@@ -21238,7 +21393,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       return st.tap.stream;
     }
     const level = (v) => v <= 0 ? 0 : Math.pow(v, 2);
-    const ramp2 = (to, sec) => {
+    const ramp3 = (to, sec) => {
       const g = st.gain.gain, t2 = st.ctx.currentTime;
       g.cancelScheduledValues(t2);
       g.setValueAtTime(g.value, t2);
@@ -21256,9 +21411,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
           if (!st.on) return;
           if (st.away) return;
           await st.ctx.resume();
-          if (st.on) ramp2(level(st.volume), 1.2);
+          if (st.on) ramp3(level(st.volume), 1.2);
         } else if (st.gain) {
-          ramp2(0, 0.4);
+          ramp3(0, 0.4);
           setTimeout(() => {
             if (!st.on && st.ctx) st.ctx.suspend();
           }, 450);
@@ -21287,12 +21442,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
       st.away = on;
       if (!st.ctx || !st.gain || !st.on) return;
       if (on) {
-        ramp2(0, 0.5);
+        ramp3(0, 0.5);
         setTimeout(() => {
           if (st.away) st.ctx.suspend();
         }, 550);
       } else st.ctx.resume().then(() => {
-        if (st.on && !st.away) ramp2(level(st.volume), 1);
+        if (st.on && !st.away) ramp3(level(st.volume), 1);
       });
     }
     function setMix(m) {
@@ -21769,7 +21924,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         d.queue.writeBuffer(u, 0, new Float32Array([...band, 0, 0]));
         return u;
       });
-      b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
+      b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX + MAXK) * 4, usage: U.STORAGE | U.COPY_DST });
       b.post = d.createBuffer({ size: (POST_MURK + 8) * 4, usage: U.UNIFORM | U.COPY_DST });
       b.seaU = d.createBuffer({ size: 128, usage: U.UNIFORM | U.COPY_DST });
       this.seaTex = d.createTexture({
@@ -21898,7 +22053,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         heatMain: [0, 11, 18, 19, 22],
         mindMain: [0, 2, 3, 6, 10, 11, 15, 17, 18]
       };
-      this.cpDefs.bondBackMain = [0, 2, 12, 20];
+      this.cpDefs.bondBackMain = [0, 2, 10, 12, 20];
       this.cpDefs.contactMain = [0, 2, 3, 6, 10, 12];
       this.cpDefs.bodyTick = [0, 1, 2, 10, 11, 12, 15, 18, 25, 26];
       this.cpDefs.bodyArgs = [26, 27];
@@ -22724,6 +22879,14 @@ ${e.message}` : String(e?.message || e));
       f2.memberN = members ? Math.min(members.length, FOCUS_MAX) : 0;
       if (kinds) this.device.queue.writeBuffer(this.b.focus, 0, kinds, 0, MAXK / 32);
       if (f2.memberN) this.device.queue.writeBuffer(this.b.focus, MAXK / 32 * 4, members, 0, f2.memberN);
+    }
+    /**
+     * A stain (Settings → Stain): colors = Uint32Array(MAXK), each species' packed rgba8 (a: how strongly it takes; the
+     * unstained show a dim gray), or null for none. Observational: it changes only how the living are drawn.
+     */
+    setStain(colors2 = null) {
+      this.stainOn = !!colors2;
+      if (colors2) this.device.queue.writeBuffer(this.b.focus, (MAXK / 32 + FOCUS_MAX) * 4, colors2, 0, MAXK);
     }
     _ensureSpecTex(w, h) {
       if (this.specTex && this.specSize[0] === w && this.specSize[1] === h) return;
@@ -24407,6 +24570,7 @@ ${e.message}` : String(e?.message || e));
       v[23] = K.tightFrom;
       v[24] = K.pond ? this.level : 1;
       vu[25] = lit ? 1 : 0;
+      vu[26] = this.stainOn ? 1 : 0;
       const clk = this._clock();
       v.set(this.tide, 28);
       v.set(clk.tidePh, 44);
@@ -25235,6 +25399,8 @@ ${e.message}` : String(e?.message || e));
     torpor: "Far below its optimum (more than 1.25 tolerances) a cell goes torpid: it neither feeds, swims nor divides, pays a quarter of its upkeep, dims, its pulse stops and it falls silent, until the water warms.",
     scalding: "Far above its optimum a cell begins to die of the heat: a chance each second, rising steeply. A scalded cell leaves a husk. Heat-stressed cells bleach toward pale bone first.",
     phototaxis: "Some species sense which way the light grows and push themselves toward it, or, shunning it, away into the dim water. It is a motility of its own, paid for in upkeep, so even a drifting producer can follow the bands of light as they travel; grazers and hunters that follow the light find the meadows there.",
+    stain: "As a microscopist stains a slide to see what the eye alone cannot, a stain colors every living cell by what its species is: Diet (light, grazing, the dead, flesh), Lineage (a color per genus), Grafts (grafters and their hosts), Warmth (the water it wants), Motion (swimmers, drifters, the anchored) or Novelty (how new the species is). It changes only how the living are drawn. J steps through them.",
+    graft: "A graft is a bond between two species. A species with the grafting gene (past 15%) can bond to one cell of another species whose surface its receptors fit, adhesive or not, and holds it while they still fit. Energy runs along a graft as along a body’s bond, toward the poorer cell, and besides the grafter draws on its host as hard as its gene: a parasite drains a richer host, a passenger pools its fortunes with one, and a host can only escape by evolving a surface the grafter no longer fits. Grafts show as a narrow neck between two colors.",
     thermotaxis: "Swimmers away from their optimum steer up or down the warmth of the water toward it, harder the further off they are. Drifters and anchored cells cannot steer; heat sorts them by who survives where.",
     framboid: "A pyrite framboid: a sphere of tiny iron sulfide crystals, a few microns across like the cells. Framboids grow where a pile of husks rots in cool water (the rot releases the sulfide), and a few lie in the mud from the start. As one oxidizes it warms its water, burning faster the warmer that water is, so a crowded, hot cluster burns itself out; spent, it crumbles to silt. Sparks of life favor their warmth, and heat-loving species gather round them. Framboids are solid like stone.",
     poolevents: "Now and then (about once an hour of world time) the pool suffers an event: a drought, a storm, duckweed or a frost. Each lasts a few minutes, is announced in the log, and is survived by life resting as cysts. Turn them all off here, or each kind on its own.",
@@ -25430,7 +25596,8 @@ ${e.message}` : String(e?.message || e));
       html: `<p>Each species has one genome. A genome describes up to three ${t("celltype", "cell types")}, α, β and γ. Each type carries two 8-number signatures: a <b>surface</b> (how it appears to others) and a <b>receptor</b> (how it reacts). The pull of cell A on cell B is A’s receptor combined with B’s surface: above zero means attraction, below zero means repulsion. Silt and husks have surfaces too, so a cell type can be drawn toward silt or repelled by husks.</p>
 <p>Zoom in to see lobose and filose cells, crooked radiates, incised desmids, horned armour, twisted spindles, slippers, chambered whorls, crescents, stalked bells, bead chains and lattice frustules. Species have their own proportions; individuals have uneven membranes and slowly shifting outlines. A nucleus pinches as division approaches, producers carry chloroplasts, eaters carry vacuoles, and swimmers grow cilia or flagella. These visual forms are cosmetic.</p>
 <p>When a cell divides, a developmental rule picks the child’s type from the parent’s type. Where that rule settles is the ${t("bodyplan", "body plan")}, for example α 60 · β 40.</p>
-<p>Species with ${t("adhesion", "adhesion")} form ${t("bond", "bonds")}: each cell keeps up to two partners of the same species. New bonds fill empty slots with nearby cells, and children start bonded to their parent, so bodies grow by division. A bond lasts until a partner dies, changes kind or stretches too far away. Bonds are what the links show, so a web of links is one ${t("organism", "organism")}. Species without adhesion are single-celled and never show links, however closely they crowd.</p>`
+<p>Species with ${t("adhesion", "adhesion")} form ${t("bond", "bonds")}: each cell keeps up to two partners of the same species. New bonds fill empty slots with nearby cells, and children start bonded to their parent, so bodies grow by division. A bond lasts until a partner dies, changes kind or stretches too far away. Bonds are what the links show, so a web of links is one ${t("organism", "organism")}. Species without adhesion are single-celled and never show links, however closely they crowd.</p>
+<p>A few species ${t("graft", "graft")}: each cell may hold one bond to a cell of another species whose surface its receptors fit, and energy runs along it. That is how parasites and passengers come about, and hosts that evolve away from them.</p>`
     },
     {
       id: "movement",
@@ -28506,6 +28673,7 @@ ${e.message}` : String(e?.message || e));
   }
 
   // src/mind.js
+  var NONE = 4294967295;
   var HUSK = 2;
   function parseMind(u32, f32) {
     if (u32[1] !== 1) return null;
@@ -28570,6 +28738,9 @@ ${e.message}` : String(e?.message || e));
       mature: !!(u32[59] & 2),
       gut: f32[62],
       plantN: f32[63],
+      // grafts (docs/symbiosis.md): the stranger it holds (null: none), the energy its grafts move to it a second
+      // (negative: away), how many grafters hold it and the species of one
+      graft: { kind: u32[68] >= 5 && u32[68] !== NONE ? u32[68] : null, flow: f32[69] || 0, hostN: u32[70] || 0, hostKind: u32[71] >= 5 && u32[71] !== NONE ? u32[71] : null },
       nbrs
     };
   }
@@ -28628,7 +28799,11 @@ ${e.message}` : String(e?.message || e));
     seekcool: "Seeking cooler water",
     huddle: "Keeping warm",
     seeklight: "Following the light",
-    shunlight: "Seeking shade"
+    shunlight: "Seeking shade",
+    parasite: "Living off a host",
+    cling: "Clinging",
+    feedhost: "Feeding its host",
+    host: "Carrying grafters"
   };
   function catchSkill(hunter, prey, K) {
     if (!hunter || !prey) return 0;
@@ -28682,9 +28857,9 @@ ${e.message}` : String(e?.message || e));
     const drives = m.cyst ? [] : Object.entries(m.drives).map(([key, v]) => ({ key, v, mag: len(v) })).filter((d) => d.mag > 1e-4).sort((a, b) => b.mag - a.mag);
     const total = drives.reduce((s, d) => s + d.mag, 0) || 1;
     const share2 = (key) => (drives.find((d) => d.key === key)?.mag || 0) / total;
-    const groups = groupsFor(g, K, ridden).map((gr) => {
-      const v = m.cyst ? [0, 0] : gr.parts.reduce((a, k) => [a[0] + m.drives[k][0], a[1] + m.drives[k][1]], [0, 0]);
-      return { ...gr, v, mag: len(v), share: len(v) / total };
+    const groups = groupsFor(g, K, ridden).map((gr2) => {
+      const v = m.cyst ? [0, 0] : gr2.parts.reduce((a, k) => [a[0] + m.drives[k][0], a[1] + m.drives[k][1]], [0, 0]);
+      return { ...gr2, v, mag: len(v), share: len(v) / total };
     });
     const species = neighborSpecies(m, g, kind, genomeOf, K);
     const others = species.filter((s) => !s.kin);
@@ -28743,6 +28918,14 @@ ${e.message}` : String(e?.message || e));
     if (!st && threat && g.photo <= 0.4 && -threat.sig > 0.2 * total) {
       st = { key: "flee", target: threat.kind, text: "Fleeing {sp}", why: `{sp} hunts cells like this one: about ${pct(threat.danger)} of their strikes would land. This cell's receptors are repelled by {sp}'s surface signature, so it is pushed away from them.` };
     }
+    const gr = m.graft || { kind: null, flow: 0, hostN: 0, hostKind: null };
+    if (!st && gr.kind != null) {
+      const f2 = gr.flow, rate = `${Math.abs(f2).toFixed(3)}/s`;
+      st = f2 > 2e-3 ? { key: "parasite", target: gr.kind, text: "Living off {sp}", why: `Grafted to a {sp} cell: its receptors fit that cell's surface, so it keeps a bond to it, and energy runs along the graft to it, ${rate} now. It takes as much as its graft gene draws and shares the rest as a body's cells share, so it lives off a richer host and feeds a poorer one.` } : f2 < -2e-3 ? { key: "feedhost", target: gr.kind, text: "Feeding {sp}", why: `Grafted to a {sp} cell, poorer than it: energy runs along the graft from it to its host, ${rate} now. A graft shares as a body's bonds share, and the grafter's pull is weaker than the difference.` } : { key: "cling", target: gr.kind, text: "Clinging to {sp}", why: `Grafted to a {sp} cell: its receptors fit that cell's surface, so it keeps a bond to it and moves with it. Little energy runs along the graft now; it pools with its host's as a body's cells do.` };
+    }
+    if (!st && gr.hostN > 0 && gr.flow < -2e-3 && gr.hostKind != null) {
+      st = { key: "host", target: gr.hostKind, text: gr.hostN > 1 ? `Carrying ${gr.hostN} grafters` : "Carrying {sp}", why: `${gr.hostN > 1 ? `${gr.hostN} cells of other species hold grafts to it, {sp} among them` : "A {sp} cell holds a graft to it"}: their receptors fit its surface, and energy runs from it to them along the grafts, ${Math.abs(gr.flow).toFixed(3)}/s now.` };
+    }
     if (!st && m.hungry && share2("diet") >= 0.25) {
       const prey = others.filter((s) => s.diet > 0).sort((a, b) => b.diet - a.diet)[0];
       if (prey) {
@@ -28796,6 +28979,13 @@ ${e.message}` : String(e?.message || e));
       { key: "low", label: "Energy running out", on: left < 30, hint: left < 30 ? `About ${Math.max(1, Math.round(left))} s of energy left without ${g.photo > 0.4 ? "more light" : "a meal"}.` : "Energy reserves are not running out." },
       { key: "lean", label: "Saving energy", on: lean < 0.8, hint: `A cell low on energy slows its metabolism: this one burns ${pct(lean)} of its full upkeep.` },
       { key: "crowd", label: "Crowded by kin", on: m.kinCost > 1.01, hint: m.kinCost > 1.01 ? `Packed among ${Math.round(m.kinN)} of its own kind: upkeep +${pct(m.kinCost - 1)}.` : `Fewer than ${K.kinFree + 1} of its own kind around (bond partners aside): no crowding cost.` },
+      {
+        key: "graft",
+        label: gr.kind != null ? "Grafted" : gr.hostN > 0 ? "Host" : "No grafts",
+        on: gr.kind != null || gr.hostN > 0,
+        target: gr.kind ?? gr.hostKind,
+        hint: gr.kind != null ? `Holds a graft to {sp} (a bond to another species): energy runs ${gr.flow >= 0 ? "to it" : "from it"} along its grafts at ${Math.abs(gr.flow).toFixed(3)}/s.${gr.hostN > 0 ? ` ${gr.hostN} grafter${gr.hostN > 1 ? "s hold" : " holds"} it too.` : ""}` : gr.hostN > 0 ? `${gr.hostN} cell${gr.hostN > 1 ? "s" : ""} of other species ({sp}${gr.hostN > 1 ? " among them" : ""}) hold grafts to it: energy runs ${gr.flow >= 0 ? "to it" : "from it"} at ${Math.abs(gr.flow).toFixed(3)}/s.` : (g.graft || 0) > K.graftMin ? "It grafts: it can bond to a cell of another species whose surface its receptors fit, and holds none now." : "No cell of another species holds a graft to it."
+      },
       { key: "shelter", label: "Sheltered", on: hid >= 0.05, hint: hid >= 0.05 ? `${shelter > 0 && meadow > 0 ? "Among stone and producers" : shelter > 0 ? "Among stone" : "Hidden among producers"}: attacks on it miss about ${pct(hid)} of the time.` : g.photo <= 0.4 ? "No stone or producers nearby to hide among." : "No stone nearby to hide among." }
     ];
     if (K.heat) {
@@ -28881,7 +29071,7 @@ ${e.message}` : String(e?.message || e));
         ["Detail", '<b class="mv-detail">—</b>', "two"]
       ], "mv-read");
       h += '<div class="vitals mv-vitals"></div>';
-      h += `<div class="mv-lamps">${["hungry", "full", "threat", "low", "lean", "crowd", "shelter", ...K.heat ? ["thermal"] : []].map((k) => `<div class="lamp" data-k="${k}"><i></i><span class="term" data-hint="" tabindex="0"></span></div>`).join("")}</div></div>`;
+      h += `<div class="mv-lamps">${["hungry", "full", "threat", "low", "lean", "crowd", "graft", "shelter", ...K.heat ? ["thermal"] : []].map((k) => `<div class="lamp" data-k="${k}"><i></i><span class="term" data-hint="" tabindex="0"></span></div>`).join("")}</div></div>`;
       h += `<div class="blk mv-nb">${subHead(`<i class="corner cell"></i>${term("mind-near", "Neighbors")}`, "within its reach")}`;
       h += `<div class="nb-row nb-head"><span></span><span>Species</span><span>Cells</span><span>Role</span><span class="nb-pull term" data-hint="How each species moves this cell: pushes it away (left) or pulls it toward them (right)." tabindex="0"><i>push</i><i>pull</i></span></div>`;
       for (let i = 0; i <= NB_ROWS; i++) h += `<div class="nb-row empty" data-i="${i}"><span class="nb-sig"></span><span class="nb-name">—</span><b class="nb-n"></b><em class="nb-role"></em><span class="dbar"><i></i></span></div>`;
@@ -28998,6 +29188,7 @@ ${e.message}` : String(e?.message || e));
       if (st.key === "starve" || mind.flags.find((x) => x.key === "low").on) return `≈ ${Math.max(1, Math.round(m.energy / Math.max(1e-6, -net)))} s of energy left · ${signed(net)}/s`;
       if (st.key === "divide" || st.key === "seeksilt") return `energy ${m.energy.toFixed(2)} of ${mind.need.toFixed(2)} · ${m.siltNear ? "silt in reach" : "no silt in reach"}`;
       if (st.key === "bask" || st.key === "dark") return `light ${pct(m.light)} · ${signed(net)}/s net`;
+      if (["parasite", "feedhost", "cling", "host"].includes(st.key)) return `${signed(m.graft.flow)}/s along its grafts · ${signed(net)}/s net besides`;
       return `net ${signed(net)}/s between meals`;
     }
     function tick(now) {
@@ -29397,6 +29588,7 @@ ${e.message}` : String(e?.message || e));
       b += trait("Adhesion", g.adhesion || 0, 0, 1, `${Math.round((g.adhesion || 0) * 100)}%${(g.adhesion || 0) > K.adhMin ? " · bonds" : ""}`, "adhesion");
       if ((g.adhesion || 0) > K.adhMin) b += kv("Growth", describeGrowth(growPlan(g), g), "growth");
       if (g.calcify > 5e-3) b += trait("Calcifying", g.calcify, 0, 1, `${Math.round(g.calcify * 100)}%`, "calcify");
+      if ((g.graft || 0) > 5e-3) b += trait("Grafting", g.graft, 0, 1, `${Math.round(g.graft * 100)}%${g.graft > K.graftMin ? " · grafts to strangers" : ""}`, "graft");
       b += trait("Size", g.size, 0.45, 2.6, fmtLen(0.17 * g.size), "size");
       b += kv("Shape", CELL_SHAPES[cellShape(g, role)], "size");
       h += blk("Body", b);
@@ -30309,7 +30501,7 @@ ${e.message}` : String(e?.message || e));
   }
 
   // src/director.js
-  var NONE = 4294967295;
+  var NONE2 = 4294967295;
   var clamp8 = (x, a, b) => x < a ? a : x > b ? b : x;
   var lerp2 = (a, b, t2) => a + (b - a) * t2;
   var wrapD = (d, W) => d - W * Math.round(d / W);
@@ -30469,7 +30661,7 @@ ${e.message}` : String(e?.message || e));
       this.rng = rng;
       this.interest = new Interest();
       this.active = false;
-      this.trackId = NONE;
+      this.trackId = NONE2;
       this.spotlights = [];
       this.visited = [];
       this.history = [];
@@ -30508,7 +30700,7 @@ ${e.message}` : String(e?.message || e));
       this.active = false;
       this.shot = null;
       this.planning = null;
-      this.trackId = NONE;
+      this.trackId = NONE2;
       this.lastRig = null;
       this.gen = (this.gen || 0) + 1;
     }
@@ -30537,7 +30729,7 @@ ${e.message}` : String(e?.message || e));
     rehome(sh, fate) {
       if (sh.rehoming) return;
       sh.rehoming = true;
-      this.trackId = NONE;
+      this.trackId = NONE2;
       const old = sh.subject.p;
       const [x, y] = this.io.predict(old, sh.subject.t);
       const [W, H2] = this.io.world();
@@ -30566,7 +30758,7 @@ ${e.message}` : String(e?.message || e));
       let best = -1, bs = Infinity;
       for (let i = 0; i < count; i++) {
         const o = i * PICK_WORDS;
-        if (u32[o + 7] === skip || bonded && u32[o + 10] === NONE && u32[o + 11] === NONE) continue;
+        if (u32[o + 7] === skip || bonded && u32[o + 10] === NONE2 && u32[o + 11] === NONE2) continue;
         const d = Math.hypot(wrapD(f32[o] - x, W), wrapD(f32[o + 1] - y, H2));
         const s = d + 2 * f32[o + 6] / (this.io.lifespan(u32[o + 4]) || 100);
         if (s < bs) {
@@ -30581,7 +30773,7 @@ ${e.message}` : String(e?.message || e));
     lose(fate) {
       const sh = this.shot;
       if (!sh || sh.type !== "follow") return;
-      this.trackId = NONE;
+      this.trackId = NONE2;
       const lost = { slot: sh.subject.p.kind, serial: sh.why.serial, cells: sh.why.cells, fate };
       if (sh.t < sh.flight - 2) {
         const [x, y] = this.io.predict(sh.subject.p, sh.subject.t);
@@ -30685,11 +30877,11 @@ ${e.message}` : String(e?.message || e));
       } else {
         base = sh.flight ? sh.path.at(ease2(sh.t / sh.flight)) : { ...sh.target };
       }
-      const ramp2 = smooth2(sh.flight - 2, sh.flight + 5, sh.t);
+      const ramp3 = smooth2(sh.flight - 2, sh.flight + 5, sh.t);
       const w = base.w * sh.wMul;
-      sh.off.x += sh.dx * w * ramp2 * dt;
-      sh.off.y += sh.dy * w * ramp2 * dt;
-      sh.wMul *= Math.exp(sh.zr * ramp2 * dt);
+      sh.off.x += sh.dx * w * ramp3 * dt;
+      sh.off.y += sh.dy * w * ramp3 * dt;
+      sh.wMul *= Math.exp(sh.zr * ramp3 * dt);
       if (base.w * sh.wMul > wMax || base.w * sh.wMul < wMin) sh.zr = -sh.zr * 0.5;
       return { x: base.x + sh.off.x, y: base.y + sh.off.y, w: clamp8(base.w * sh.wMul, wMin, wMax) };
     }
@@ -30742,7 +30934,7 @@ ${e.message}` : String(e?.message || e));
         if (gen !== this.gen || !this.active) return;
         this.planning = null;
         this.shot = shot;
-        this.trackId = shot.subject ? shot.subject.id : NONE;
+        this.trackId = shot.subject ? shot.subject.id : NONE2;
         this.history.push(type);
         if (this.history.length > 12) this.history.shift();
         this.visited.push({ x: shot.target.x, y: shot.target.y, t: this.io.now() });
@@ -30849,7 +31041,7 @@ ${e.message}` : String(e?.message || e));
       for (let i = 0; i < count; i++) {
         const o = i * PICK_WORDS;
         if (u32[o + 4] < FIRST_LIFE) continue;
-        const bonded = u32[o + 10] !== NONE || u32[o + 11] !== NONE;
+        const bonded = u32[o + 10] !== NONE2 || u32[o + 11] !== NONE2;
         const young = clamp8(1 - f32[o + 6] / (this.io.lifespan(u32[o + 4]) || 100), 0.05, 1);
         const s = (bonded ? 2.5 : 1) * young * (0.25 + Math.min(1.5, Math.hypot(f32[o + 2], f32[o + 3]))) * (0.4 + this.rng());
         if (s > bs) {
@@ -30858,7 +31050,7 @@ ${e.message}` : String(e?.message || e));
         }
       }
       if (best < 0) return null;
-      return this.subjectShot(res, best, u32[best * PICK_WORDS + 10] !== NONE ? [5, 12] : [3, 7], { reasons: h.reasons });
+      return this.subjectShot(res, best, u32[best * PICK_WORDS + 10] !== NONE2 ? [5, 12] : [3, 7], { reasons: h.reasons });
     }
     // Visit a newly established species: a cell where its members are densest.
     async spotlightShot(spot) {
@@ -30886,7 +31078,7 @@ ${e.message}` : String(e?.message || e));
       for (let i = 0; i < count; i++) {
         const o = i * PICK_WORDS;
         if (Math.hypot(wrapD(f32[o] - cx, W), wrapD(f32[o + 1] - cy, H2)) > 2.5) continue;
-        const bonded = u32[o + 10] !== NONE || u32[o + 11] !== NONE;
+        const bonded = u32[o + 10] !== NONE2 || u32[o + 11] !== NONE2;
         const s = (bonded ? 1 : 0) - f32[o + 6] / (this.io.lifespan(u32[o + 4]) || 100);
         if (s > ps) {
           ps = s;
@@ -30899,7 +31091,7 @@ ${e.message}` : String(e?.message || e));
       const { u32, f32, count } = res.raw;
       const o = i * PICK_WORDS;
       const p = { x: f32[o], y: f32[o + 1], vx: f32[o + 2], vy: f32[o + 3], kind: u32[o + 4], energy: f32[o + 5], age: f32[o + 6], id: u32[o + 7] };
-      const tb = u32[o + 10] !== NONE || u32[o + 11] !== NONE ? traceBody(u32, f32, count, p.id) : null;
+      const tb = u32[o + 10] !== NONE2 || u32[o + 11] !== NONE2 ? traceBody(u32, f32, count, p.id) : null;
       const r = this.rng;
       return this.makeShot("follow", { x: p.x, y: p.y, w: lerp2(w0, w1, r()) }, {
         hold: lerp2(28, 55, r()),
@@ -30913,7 +31105,7 @@ ${e.message}` : String(e?.message || e));
 
   // src/notes.js
   var HUSK2 = 2;
-  var NONE2 = 4294967295;
+  var NONE3 = 4294967295;
   var EV = Object.fromEntries(NOTE_EV.map((n, i) => [n, i]).filter(([n]) => n));
   var TUNE = {
     maxOn: 2,
@@ -31348,7 +31540,7 @@ ${e.message}` : String(e?.message || e));
         if (e.t >= t2 - 8) recent.push(e);
         if ((e.ev === "bite" || e.ev === "grazed") && band !== "wide") {
           let ak = e.akind, aid = e.aid;
-          if (aid === NONE2) {
+          if (aid === NONE3) {
             const g = this._grazerOf(e);
             if (!g) continue;
             ak = g.kind;
@@ -31367,7 +31559,7 @@ ${e.message}` : String(e?.message || e));
       yield;
       if (band !== "wide") {
         if (close && !fast) for (const e of recent) {
-          if (e.ev !== "kill" || e.t < t2 - 6 || e.aid === NONE2 || !name(e.akind) || !name(e.kind)) continue;
+          if (e.ev !== "kill" || e.t < t2 - 6 || e.aid === NONE3 || !name(e.akind) || !name(e.kind)) continue;
           if (!seen(e.aid) || !seen(e.id)) continue;
           const kills = cby(EV.kill, e.akind);
           out.push({
@@ -31400,14 +31592,14 @@ ${e.message}` : String(e?.message || e));
             kind: p.kind,
             bites: p.n,
             dead: p.dead,
-            actor: pin ? p.last.aid : NONE2,
-            target: pin ? p.last.id : NONE2,
+            actor: pin ? p.last.aid : NONE3,
+            target: pin ? p.last.id : NONE3,
             track: pin ? [p.last.aid] : [],
             census: p.akind
           });
         }
         if (close && !fast) for (const e of recent) {
-          if (e.ev !== "scavenge" || e.litter || e.t < t2 - 5 || e.aid === NONE2 || !name(e.akind)) continue;
+          if (e.ev !== "scavenge" || e.litter || e.t < t2 - 5 || e.aid === NONE3 || !name(e.akind)) continue;
           if (!seen(e.aid) || !ctx.visible(e.x, e.y)) continue;
           out.push({
             type: "scavenge",
@@ -31427,7 +31619,7 @@ ${e.message}` : String(e?.message || e));
           if ((e.ev !== "birth" || e.akind === e.kind) && e.ev !== "spark") continue;
           const c = seen(e.id);
           if (!c || !isLiving(c.kind === -1 ? e.kind : c.kind)) continue;
-          const m = e.ev === "birth" && e.aid !== NONE2 ? seen(e.aid) : null;
+          const m = e.ev === "birth" && e.aid !== NONE3 ? seen(e.aid) : null;
           out.push({
             type: e.ev === "spark" ? "spark" : "newsp",
             key: `new:${e.id}`,
@@ -31435,7 +31627,7 @@ ${e.message}` : String(e?.message || e));
             strength: 1,
             one: true,
             at: e.t,
-            actor: m ? e.aid : NONE2,
+            actor: m ? e.aid : NONE3,
             target: e.id,
             kind: e.kind,
             akind: e.akind,
@@ -31551,6 +31743,10 @@ ${e.message}` : String(e?.message || e));
           const ts = performance.now(), st = this._stalk(ctx, v);
           this._part("stalk", ts);
           if (st) out.push({ type: "stalk", key: `stalk:${st.actor}`, prio: 0.7, strength: 1 / Math.max(st.dist, 0.05), ...st, track: [st.actor, st.target] });
+        }
+        if (close) {
+          const gr = this._grafts(ctx, v);
+          if (gr) out.push({ type: "graft", key: `graft:${gr.akind}:${gr.kind}`, prio: 0.62, strength: gr.count, ...gr, track: [gr.actor, gr.target] });
         }
         yield;
         const edges = /* @__PURE__ */ new Map();
@@ -31979,6 +32175,40 @@ ${e.message}` : String(e?.message || e));
     // read them), as { kind, ids, n, anchor (the member nearest its middle), its place (ax, ay), size (world units across),
     // form, speed (world units a second), lengths (body lengths a second), heading, key }, kept by key from look to look
     // (a body keeps its key while it keeps any of its cells). Once a look.
+    // The view's grafts: cells bonded to a cell of another species (as the view read their partners), the pair of species
+    // with the most of them in view: { actor (a grafter, nearest the view's middle), target (its host), akind, kind,
+    // count, feds (the pair's fullness: grafter, host) }
+    _grafts(ctx, v = this.view) {
+      const pairs = /* @__PURE__ */ new Map();
+      const [W, H2] = this.world(), cx = v.rect[0] + v.rect[2] / 2, cy = v.rect[1] + v.rect[3] / 2;
+      for (let i = 0; i < v.n; i++) {
+        if (!isLiving(v.kind[i]) || v.cause[i] === CYST) continue;
+        for (let q = 0; q < 2; q++) {
+          const pid = q ? v.p2[i] : v.p1[i];
+          if (pid === NONE3) continue;
+          const j = v.at.get(pid);
+          if (j === void 0 || v.kind[j] === v.kind[i] || !isLiving(v.kind[j])) continue;
+          if (!this.sp(v.kind[i]) || !this.sp(v.kind[j]) || !ctx.inner(v.x[i], v.y[i])) continue;
+          const key = v.kind[i] * 1024 + v.kind[j];
+          let dx = v.x[i] - cx, dy = v.y[i] - cy;
+          dx -= W * Math.round(dx / W);
+          dy -= H2 * Math.round(dy / H2);
+          const d = Math.hypot(dx, dy);
+          let p = pairs.get(key);
+          if (!p) pairs.set(key, p = { akind: v.kind[i], kind: v.kind[j], count: 0, d: Infinity, actor: 0, target: 0, feds: [0, 0] });
+          p.count++;
+          if (d < p.d) {
+            p.d = d;
+            p.actor = v.id[i];
+            p.target = pid;
+            p.feds = [v.fed[i], v.fed[j]];
+          }
+        }
+      }
+      let best = null;
+      for (const p of pairs.values()) if (!best || p.count > best.count) best = p;
+      return best;
+    }
     _bodies(v = this.view) {
       if (this._bodyView === v) return this._bodyList;
       const [W, H2] = this.world(), parent = new Int32Array(v.n).fill(-1);
@@ -31990,7 +32220,7 @@ ${e.message}` : String(e?.message || e));
         if (!isLiving(v.kind[i])) continue;
         for (let q = 0; q < 2; q++) {
           const pid = q ? v.p2[i] : v.p1[i];
-          if (pid === NONE2) continue;
+          if (pid === NONE3) continue;
           const j = v.at.get(pid);
           if (j === void 0 || v.kind[j] !== v.kind[i]) continue;
           const a = find(i), b = find(j);
@@ -32000,7 +32230,7 @@ ${e.message}` : String(e?.message || e));
       const root = new Int32Array(v.n), size = new Int32Array(v.n), groups = /* @__PURE__ */ new Map();
       for (let i = 0; i < v.n; i++) {
         root[i] = -1;
-        if (isLiving(v.kind[i]) && (v.p1[i] !== NONE2 || v.p2[i] !== NONE2)) {
+        if (isLiving(v.kind[i]) && (v.p1[i] !== NONE3 || v.p2[i] !== NONE3)) {
           root[i] = find(i);
           size[root[i]]++;
         }
@@ -32185,7 +32415,7 @@ ${e.message}` : String(e?.message || e));
       for (const i of rows) {
         mx += near(v.x[i], cx, W);
         my += near(v.y[i], cy, H2);
-        if (v.p1[i] !== NONE2 || v.p2[i] !== NONE2) bonded++;
+        if (v.p1[i] !== NONE3 || v.p2[i] !== NONE3) bonded++;
         cs += Math.hypot(v.vx[i], v.vy[i]);
       }
       mx /= rows.length;
@@ -32346,8 +32576,8 @@ ${e.message}` : String(e?.message || e));
           if (n.data.spot) keep.spot = n.data.spot;
           if (n.data.band) keep.band = n.data.band;
           for (const f2 of ["actor", "target", "anchor", "members", "track"]) {
-            const was = n.data[f2], alive = (id) => id == null || id === NONE2 || !!this.cell(id);
-            const ok = Array.isArray(was) ? was.length && was.every((id) => typeof id !== "number" || alive(id)) : was != null && was !== NONE2 && alive(was);
+            const was = n.data[f2], alive = (id) => id == null || id === NONE3 || !!this.cell(id);
+            const ok = Array.isArray(was) ? was.length && was.every((id) => typeof id !== "number" || alive(id)) : was != null && was !== NONE3 && alive(was);
             if (ok) keep[f2] = was;
           }
           Object.assign(n.data, c, keep);
@@ -32372,7 +32602,7 @@ ${e.message}` : String(e?.message || e));
         if (!this._marked({ data: c, pins: c.anchor != null ? [c.anchor] : [] }, { ...ctx, visible: ctx.inner })) return false;
         const ahead = 2 * Math.max(ctx.speed, 0.25), cv = ctx.camVel || [0, 0], seen = (ctx.zoomIn ?? 0) > 0.05 && ctx.central ? ctx.central : ctx.visible;
         for (const id of [c.actor, c.target, c.anchor]) {
-          const p = id != null && id !== NONE2 ? this.cell(id) : null;
+          const p = id != null && id !== NONE3 ? this.cell(id) : null;
           if (p && !seen(p.x + p.vx * ahead - cv[0] * 2, p.y + p.vy * ahead - cv[1] * 2)) return false;
         }
         return true;
@@ -32397,7 +32627,7 @@ ${e.message}` : String(e?.message || e));
     _goesTo(n, ctx) {
       const d = n.data, D = ctx.dest;
       if (!D) return false;
-      const ids = [d.actor, d.target, d.anchor, ...n.track || d.track || [], ...n.pins || []].filter((id) => id != null && id !== NONE2);
+      const ids = [d.actor, d.target, d.anchor, ...n.track || d.track || [], ...n.pins || []].filter((id) => id != null && id !== NONE3);
       if (!ids.length) return false;
       const [W, H2] = this.world();
       for (const id of ids) {
@@ -32430,7 +32660,7 @@ ${e.message}` : String(e?.message || e));
     _marked(n, ctx) {
       const d = n.data;
       for (const id of [d.actor, d.target, ...n.track || d.track || [], ...n.pins || []]) {
-        if (id == null || id === NONE2) continue;
+        if (id == null || id === NONE3) continue;
         const c = this.cell(id);
         if (!c || !ctx.visible(c.x, c.y)) return false;
       }
@@ -32678,7 +32908,7 @@ ${e.message}` : String(e?.message || e));
   var TAU3 = Math.PI * 2;
   var clamp9 = (v, a, b) => Math.max(a, Math.min(b, v));
   var ease3 = (u) => 1 - (1 - clamp9(u, 0, 1)) ** 3;
-  var NONE3 = 4294967295;
+  var NONE4 = 4294967295;
   var hashU2 = (id) => (Math.imul(id, 2654435761) >>> 0) / 4294967296;
   var TYPE = {
     tag: [600, 11, 0.2, "semi-expanded"],
@@ -33951,7 +34181,7 @@ ${e.message}` : String(e?.message || e));
         if (d.type === "hunt") P.keys.push({ glyph: "cross", text: "KILLED", tone: HOT });
       } else if (d.type === "graze") {
         const pts = group("g", M.rows(d.census));
-        const a = d.actor !== NONE3 ? pos(d.actor) : null, b = d.target !== NONE3 ? pos(d.target) : null;
+        const a = d.actor !== NONE4 ? pos(d.actor) : null, b = d.target !== NONE4 ? pos(d.target) : null;
         const c = a || hang(0, pts, d.akind);
         if (!c) return null;
         P.draws.push((t2) => census(pts, "plus", INK4, t2, c, glyphOf(d.akind)));
@@ -33973,14 +34203,14 @@ ${e.message}` : String(e?.message || e));
         };
         P.keys.push({ glyph: "plus", text: `${nm(d.akind)} CELL`, tone: INK4 });
         if (d.dead) {
-          const deaths = recent(/* @__PURE__ */ new Set(["grazed"]), d.kind, 10).filter((e) => e.akind === d.akind || e.aid === NONE3);
+          const deaths = recent(/* @__PURE__ */ new Set(["grazed"]), d.kind, 10).filter((e) => e.akind === d.akind || e.aid === NONE4);
           pips(deaths, HOT);
           if (deaths.length) P.keys.push({ glyph: "cross", text: "GRAZED TO DEATH", tone: HOT });
         }
       } else if (d.type === "newsp" || d.type === "spark") {
         const c = pos(d.target);
         if (!c) return null;
-        const m = d.actor !== NONE3 ? pos(d.actor) : null;
+        const m = d.actor !== NONE4 ? pos(d.actor) : null;
         P.tone = HOT;
         if (m) {
           const va = verbBox(m, c, "BUDS", 0.22);
@@ -34144,6 +34374,20 @@ ${e.message}` : String(e?.message || e));
         P.pts = [a, b];
         P.label = { tone: HOT, eye: "Hunting", main: nm(d.akind), data: [`CLOSING ON ${nm(d.kind)}`, `ITS LAST MEAL WAS ONE OF THEM · ${fmtLen(d.speed, "/s")}`] };
         P.keys.push({ glyph: "cross", text: "QUARRY", tone: INK4 });
+      } else if (d.type === "graft") {
+        const a = pos(d.actor), b = pos(d.target);
+        if (!a || !b) return null;
+        const r = F.radius(d.akind);
+        const vb = verbBox(a, b, "GRAFT", 0.12);
+        P.draws.push((t2) => link(a, b, "GRAFT", INK4, t2 - 0.3, F.now, 0.12, 9, false, vb));
+        P.draws.push((t2) => lock(a[0], a[1], r, INK4, t2));
+        P.draws.push((t2) => brackets3(b[0] - F.radius(d.kind) - 4, b[1] - F.radius(d.kind) - 4, b[0] + F.radius(d.kind) + 4, b[1] + F.radius(d.kind) + 4, rgba2(INK4, 0.8), t2 - 0.5));
+        lockBox(a, r);
+        P.anchor = [a[0], a[1] - r];
+        P.pts = [a, b];
+        const richer = d.feds && d.feds[1] > d.feds[0] * 1.3 ? "ITS HOST THE RICHER: ENERGY RUNS TO IT" : d.feds && d.feds[0] > d.feds[1] * 1.3 ? "IT THE RICHER: ENERGY RUNS TO ITS HOST" : "THEIR ENERGY POOLS ALONG THE GRAFT";
+        P.label = { tone: INK4, eye: "Grafted", main: nm(d.akind), data: [`HOLDS FAST TO ${nm(d.kind)}`, `${d.count} GRAFT${d.count > 1 ? "S" : ""} IN VIEW · ${richer}`] };
+        P.keys.push({ glyph: "cross", text: "HOST", tone: INK4 });
       } else if (d.type === "web") {
         if (F.phone) return null;
         P.panel = { draw: (x, y, t2) => web(d, x, y, t2, F) };
@@ -35118,6 +35362,7 @@ ${e.message}` : String(e?.message || e));
         prevVer: -1,
         prevSlot: null,
         prevCause: null,
+        prevGraft: null,
         tokens: T.storyCap,
         lastStory: -1e9,
         lastReal: -1e9,
@@ -35153,7 +35398,7 @@ ${e.message}` : String(e?.message || e));
     reset();
     function track(sp) {
       if (!S.sp.has(sp.serial)) {
-        S.sp.set(sp.serial, { serial: sp.serial, s: [], l: [], acc: new Array(NC).fill(0), cum: new Array(NC).fill(0), rng: [], diet: /* @__PURE__ */ new Map(), eaters: /* @__PURE__ */ new Map(), lastL: -1e9, reign: 0, low: null });
+        S.sp.set(sp.serial, { serial: sp.serial, s: [], l: [], acc: new Array(NC).fill(0), cum: new Array(NC).fill(0), rng: [], diet: /* @__PURE__ */ new Map(), eaters: /* @__PURE__ */ new Map(), lastL: -1e9, reign: 0, low: null, graft: [], hosts: /* @__PURE__ */ new Map() });
       }
     }
     function popAgo(st, t2, ago) {
@@ -35229,6 +35474,30 @@ ${e.message}` : String(e?.message || e));
         }
       }
       S.prevCause = cause.slice();
+      const graft = spl.subarray(SPL_GRAFT, SPL_GRAFT + MAXK * SPL_GRAFT_W);
+      if (S.prevGraft) {
+        for (let k = FIRST_LIFE; k < MAXK; k++) {
+          const serial = slotSerial[k], st = serial && S.sp.get(serial);
+          if (!st) continue;
+          const same = S.prevSlot[k] === serial, o = k * SPL_GRAFT_W;
+          if (graft[o + 4] && !st.symbiont) st.symbiont = graft[o + 4];
+          const held = same ? graft[o] - S.prevGraft[o] >>> 0 : graft[o];
+          const hosted = same ? graft[o + 3] - S.prevGraft[o + 3] >>> 0 : graft[o + 3];
+          const flow = same ? graft[o + 2] - S.prevGraft[o + 2] | 0 : graft[o + 2] | 0;
+          if (held > 1e8 || hosted > 1e8) continue;
+          if (held || hosted) st.graft.push([t2, held, flow / 1e3, hosted]);
+          const host = graft[o + 1] >= FIRST_LIFE && graft[o + 1] < MAXK ? slotSerial[graft[o + 1]] : 0;
+          if (held && host) {
+            for (const [h, v] of st.hosts) {
+              if (v < 2) st.hosts.delete(h);
+              else st.hosts.set(h, v * 0.97);
+            }
+            st.hosts.set(host, (st.hosts.get(host) || 0) + held);
+          }
+          trim(st.graft, t2 - 20 * MIN);
+        }
+      }
+      S.prevGraft = graft.slice();
       S.prevSlot = slotSerial.slice();
       const ver = spl[0], ser = S.versions.get(ver);
       const pairs = spl.subarray(SPL_PAIR, SPL_PAIR + SPL_WATCH * SPL_WATCH * 2);
@@ -35317,7 +35586,7 @@ ${e.message}` : String(e?.message || e));
       for (const [k, p] of S.pairs) if (!p.bins.length) S.pairs.delete(k);
       return choose(cands, obs);
     }
-    const toldAt = (key) => S.told.get(key) ?? -1e9;
+    const toldAt = (key) => S.told.get(key) ?? -Infinity;
     function choose(cands, obs) {
       const { t: t2 } = obs;
       const now = obs.now ?? 0;
@@ -36116,8 +36385,50 @@ ${e.message}` : String(e?.message || e));
         }
       }
     }
+    function detectGrafts(ctx, add) {
+      const { reg, t: t2, living } = ctx;
+      if (t2 < T.warm) return;
+      for (const st of S.sp.values()) {
+        const sp = reg.get(st.serial);
+        if (sp && sp.alive && sp.established && st.symbiont && !st.symbioTold) {
+          const host2 = reg.get(st.symbiont), parent = sp.ancestor && reg.get(sp.ancestor);
+          const hostName = host2 ? L(reg, host2.serial) : "a producer since vanished from the record";
+          add({
+            kind: "symbio",
+            score: 0.8,
+            col: sp.genome.col,
+            subjects: [sp.serial, ...host2 ? [host2.serial] : []],
+            key: `symbio:${sp.serial}`,
+            keyGap: Infinity,
+            html: `<b>A new kind of life:</b> ${L(reg, sp.serial)} was born of a union. Its first cells, grafted to ${hostName}${parent ? ` as their parents of ${L(reg, parent.serial)} had been` : ""}, took their host into themselves, and now carry its light within: they photosynthesize ${Math.round(sp.genome.photo * 100)}%, and grow its cells' kind as their own.`,
+            onTold: () => {
+              st.symbioTold = true;
+            }
+          });
+        }
+        if (!sp || !sp.alive || !sp.established || sp.pop < Math.max(30, 4e-3 * living) || !st.graft.length) continue;
+        let held = 0, flow = 0, from = Infinity;
+        for (const x of st.graft) if (x[0] > t2 - 6 * MIN) {
+          held += x[1];
+          flow += x[2];
+          from = Math.min(from, x[0]);
+        }
+        const span2 = t2 - Math.max(from - T.sample, t2 - 6 * MIN);
+        const share2 = held / Math.max(1, sp.pop * span2);
+        if (!(share2 >= 0.3) || held < 200) continue;
+        const [host, hm, hsum] = topBy(st.hosts);
+        const hsp = host && reg.get(host);
+        if (!hsp || hm < 0.5 * hsum || hsp.genus === sp.genus) continue;
+        const per = flow / held, up = sp.genome.upkeep ?? sp.genome.metab ?? 0.03;
+        const role = per > 0.25 * up ? "parasite" : per < -0.25 * up ? "giver" : "passenger";
+        const first = !S.firsts.has("graft");
+        const pct = shareWords(share2);
+        const html = role === "parasite" ? `${first ? "<b>Never before in this world:</b> a parasite. " : ""}${L(reg, sp.serial)} has taken to living upon ${L(reg, hsp.serial)}: ${pct} of its cells hang fast to theirs by grafts, ${vary("graft-p", ["drawing their energy away", "drinking from them as they live", "feeding at their expense"])}.` : role === "giver" ? `${first ? "<b>Never before in this world:</b> one species grafted to another. " : ""}${L(reg, sp.serial)} clings to ${L(reg, hsp.serial)} and ${vary("graft-g", ["feeds it", "gives more than it takes"])}: ${pct} of its cells are grafted to theirs, and energy runs from them into their hosts.` : `${first ? "<b>Never before in this world:</b> two species living as one. " : ""}${L(reg, sp.serial)} and ${L(reg, hsp.serial)} ${vary("graft-m", ["now live as one", "have joined their fortunes", "have made a compact"])}: ${pct} of the cells of ${L(reg, sp.serial)} are grafted to theirs, and their energy pools between them as within a single body.`;
+        add({ kind: "graft", score: first ? 0.75 : 0.55 + 0.1 * Math.min(1, sp.pop / living / 0.03), col: sp.genome.col, subjects: [sp.serial, hsp.serial], key: `graft:${sp.serial}:${hsp.serial}`, keyGap: Infinity, moment: role, html, onTold: () => S.firsts.add("graft") });
+      }
+    }
     const FAST = [detectCollapse, detectGuilds, detectExtinctions, detectReign, detectSwings, detectFirsts];
-    const SLOW = [detectArms, detectDiets, detectCycles, detectRanges, detectRadiation, detectTrends, detectMisc];
+    const SLOW = [detectArms, detectDiets, detectCycles, detectRanges, detectRadiation, detectTrends, detectMisc, detectGrafts];
     function snapshot(reg, living) {
       const pops = /* @__PURE__ */ new Map(), cum = /* @__PURE__ */ new Map(), guilds = { producer: 0, grazer: 0, scavenger: 0, predator: 0 }, genera = /* @__PURE__ */ new Set(), generaPop = /* @__PURE__ */ new Map();
       for (const sp of reg.values()) {
@@ -36339,7 +36650,7 @@ ${e.message}` : String(e?.message || e));
       latest: (serial) => S.latest.get(serial) || null,
       /** What a saved world keeps of the chronicler (the stories' memory, not the ledger's baselines). */
       save() {
-        const keep = { ...S, prevPairs: null, prevVer: -1, prevSlot: null, prevCause: null, pending: null, versions: /* @__PURE__ */ new Map(), lastReal: -1e9 };
+        const keep = { ...S, prevPairs: null, prevVer: -1, prevSlot: null, prevCause: null, prevGraft: null, pending: null, versions: /* @__PURE__ */ new Map(), lastReal: -1e9 };
         keep.firsts = [...S.firsts];
         keep.eraMark = S.eraMark ? { ...S.eraMark, snap: null, pending: null } : null;
         keep.eventMark = null;
@@ -36361,6 +36672,79 @@ ${e.message}` : String(e?.message || e));
       if (sp && sp.alive && sp.slot >= FIRST_LIFE && sp.slot < MAXK) out[sp.slot] = i + 1;
     });
     return out;
+  }
+
+  // src/stain.js
+  var STAINS = [
+    { id: "none", name: "None" },
+    { id: "diet", name: "Diet", hint: "What each species lives on: light (green), grazing (gold), the dead (violet), flesh (red), mixed in proportion." },
+    { id: "clade", name: "Lineage", hint: "Each genus its own color: relatives share one, so the mosaic of lineages across the pool shows." },
+    { id: "graft", name: "Grafts", hint: "Species that graft to others (magenta) and the species they hold fast to (cyan); everything else dimmed." },
+    { id: "warmth", name: "Warmth", hint: "The water each species works best in: cold (blue) through temperate (green) to hot (red)." },
+    { id: "motion", name: "Motion", hint: "How each species moves: swimmers (cyan), drifters (pale), anchored and sessile life (amber)." },
+    { id: "age", name: "Novelty", hint: "How new each species is: those born in the last minutes burn white and gold, the old ones deep blue." }
+  ];
+  var clamp10 = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+  var pack2 = (r, g, b, a = 1) => (Math.round(clamp10(r) * 255) | Math.round(clamp10(g) * 255) << 8 | Math.round(clamp10(b) * 255) << 16 | Math.round(clamp10(a) * 255) << 24) >>> 0;
+  var mix32 = (a, b, t2) => [a[0] + (b[0] - a[0]) * t2, a[1] + (b[1] - a[1]) * t2, a[2] + (b[2] - a[2]) * t2];
+  function hsl(h, s, l) {
+    const k = (n) => (n + h * 12) % 12, a = s * Math.min(l, 1 - l);
+    const f2 = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1));
+    return [f2(0), f2(8), f2(4)];
+  }
+  function hueOf2(s) {
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return (h >>> 0) * 0.618033988749895 % 1;
+  }
+  function ramp2(stops, t2) {
+    t2 = clamp10(t2);
+    for (let i = 1; i < stops.length; i++) if (t2 <= stops[i][0]) return mix32(stops[i - 1][1], stops[i][1], (t2 - stops[i - 1][0]) / (stops[i][0] - stops[i - 1][0]));
+    return stops.at(-1)[1];
+  }
+  var DIET = { light: [0.45, 1, 0.3], graze: [1, 0.82, 0.2], husk: [0.68, 0.45, 1], flesh: [1, 0.25, 0.22] };
+  var WARM = [[0, [0.25, 0.45, 1]], [0.35, [0.3, 0.95, 0.85]], [0.5, [0.55, 1, 0.35]], [0.7, [1, 0.8, 0.2]], [1, [1, 0.22, 0.15]]];
+  var AGE = [[0, [1, 1, 0.95]], [0.25, [1, 0.78, 0.25]], [0.55, [0.85, 0.3, 0.55]], [1, [0.22, 0.3, 0.85]]];
+  function stainOf(id, sp, slot, ctx = {}, K = DEFAULT_K) {
+    const g = sp.genome;
+    if (id === "diet") {
+      const p = clamp10(g.photo), e = 1 - p;
+      const c = [0, 1, 2].map((i) => p * DIET.light[i] + e * (g.dGlint * DIET.graze[i] + g.dHusk * DIET.husk[i] + g.dFlesh * DIET.flesh[i]));
+      return [...c, 1];
+    }
+    if (id === "clade") return [...hsl(hueOf2(sp.genus || String(g.serial)), 0.85, 0.6), 1];
+    if (id === "graft") {
+      if ((g.graft || 0) > K.graftMin) return [1, 0.3, 0.9, 1];
+      if (ctx.hosts?.has(slot)) return [0.3, 0.9, 1, 1];
+      return [0, 0, 0, 0];
+    }
+    if (id === "warmth") return [...ramp2(WARM, (g.topt ?? 19) / 40), 1];
+    if (id === "motion") {
+      const swim = g.swim * (1 - g.photo);
+      if (swim > 0.25) return [...mix32([0.55, 0.85, 1], [0.2, 0.95, 1], clamp10((swim - 0.25) / 1.2)), 1];
+      if (g.advect < 0.25) return [1, 0.7, 0.25, 1];
+      return [0.82, 0.86, 0.8, 0.85];
+    }
+    if (id === "age") return [...ramp2(AGE, Math.sqrt(Math.max(0, (ctx.t ?? 0) - (sp.born ?? 0)) / 3600)), 1];
+    return [0, 0, 0, 0];
+  }
+  function stainColors(id, slots, ctx = {}, K = DEFAULT_K, out = new Uint32Array(MAXK)) {
+    out.fill(0);
+    for (const [slot, sp] of slots) if (sp?.genome) out[slot] = pack2(...stainOf(id, sp, slot, ctx, K));
+    return out;
+  }
+  function stainKey(id) {
+    const css = (c) => `rgb(${c.map((v) => Math.round(clamp10(v) * 255)).join(",")})`;
+    if (id === "diet") return [[css(DIET.light), "light"], [css(DIET.graze), "grazing"], [css(DIET.husk), "the dead"], [css(DIET.flesh), "flesh"]];
+    if (id === "graft") return [[css([1, 0.3, 0.9]), "grafters"], [css([0.3, 0.9, 1]), "their hosts"]];
+    if (id === "warmth") return [[css(ramp2(WARM, 0)), "0°"], [css(ramp2(WARM, 0.5)), "20°"], [css(ramp2(WARM, 1)), "40°"]];
+    if (id === "motion") return [[css([0.2, 0.95, 1]), "swimmers"], [css([0.82, 0.86, 0.8]), "drifters"], [css([1, 0.7, 0.25]), "anchored"]];
+    if (id === "age") return [[css(ramp2(AGE, 0)), "new"], [css(ramp2(AGE, 0.25)), "4 min"], [css(ramp2(AGE, 0.55)), "20 min"], [css(ramp2(AGE, 1)), "1 h+"]];
+    if (id === "clade") return [[css(hsl(0, 0.85, 0.6)), "one color"], [css(hsl(0.33, 0.85, 0.6)), "per"], [css(hsl(0.66, 0.85, 0.6)), "genus"]];
+    return [];
   }
 
   // src/achievements.js
@@ -36612,7 +36996,8 @@ ${e.message}` : String(e?.message || e));
     }
     const origin = sp.founder ? sp.serial > founders ? `sparked from silt at ${fmtClock(sp.born || 0)}` : "a founding lineage" : "an ancestor too rare to be named";
     const swim = g.swim * (1 - g.photo), div = divEnergy(g, K);
-    const tags = [f2.diet === "photosynth" ? "photosynth" : f2.diet, f2.schooling ? "schooling" : f2.mobility, f2.body === "multicellular" ? `${f2.types > 1 ? `${f2.types} cell types` : "many-celled"}` : "single cells"];
+    const grafter = (g.graft || 0) > K.graftMin;
+    const tags = [f2.diet === "photosynth" ? "photosynth" : f2.diet, f2.schooling ? "schooling" : f2.mobility, f2.body === "multicellular" ? `${f2.types > 1 ? `${f2.types} cell types` : "many-celled"}${grafter ? ", grafting" : ""}` : grafter ? "grafter" : "single cells"];
     const body = [
       ["Speed", share(swim, 0, 2.2), swim < 0.05 ? "still" : swim.toFixed(2)],
       ["Size", share(g.size, 0.4, 1.8), fmtLen(0.17 * g.size)],
@@ -37799,7 +38184,7 @@ ${e.message}` : String(e?.message || e));
   var CUT = 0.32;
   var EASE = { lamp: [0.35, 0.3], stage: [0.25, 0.25], dip: [0.3, 0.08] };
   var WAKE = { n: 20, every: 0.1, life: 1.2, couple: 0.6, max: 8, turn: 1.5 };
-  var NONE4 = 4294967295;
+  var NONE5 = 4294967295;
   function createHand(words, ids, { reach = REACH.def, drops }) {
     const ease4 = (v, to, [up, down], dt) => v + (to - v) * (1 - Math.exp(-dt / (Math.abs(to) > Math.abs(v) ? up : down)));
     const h = {
@@ -37823,7 +38208,7 @@ ${e.message}` : String(e?.message || e));
       lamp: { x: 0, y: 0, r: reach, v: 0 },
       stage: { x: 0, y: 0, r: reach, v: 0 },
       // the ridden cell and where it is steered: [x, y, strength]; the pipette's draw: [x, y, reach, speed] (the page's)
-      rider: NONE4,
+      rider: NONE5,
       will: null,
       suck: null,
       // the record: one entry per act (a tool held, or a run of taps and pricks in one place), its times simulated
@@ -37840,7 +38225,7 @@ ${e.message}` : String(e?.message || e));
       reset(acts = []) {
         h.up();
         h.acts = acts;
-        h.rider = NONE4;
+        h.rider = NONE5;
         h.will = null;
         h.suck = null;
         h.lamp.v = h.stage.v = h.dip = 0;
@@ -37896,7 +38281,7 @@ ${e.message}` : String(e?.message || e));
        */
       steer(id, vx = 0, vy = 0, s = 0, t2 = null, at = null) {
         h.rider = id >>> 0;
-        h.will = h.rider === NONE4 ? null : [vx, vy, s];
+        h.will = h.rider === NONE5 ? null : [vx, vy, s];
         if (s > 0 && t2 != null && at) act(t2, at[0], at[1], 0, "ride");
       },
       /** Ease the lamp, stage and rod toward what the hand is doing at simulated time t, and write the engine's words. */
@@ -38306,12 +38691,12 @@ ${e.message}` : String(e?.message || e));
 
   // src/pipette.js
   var PIPE_LIMIT = 2048;
-  var NONE5 = 4294967295;
+  var NONE6 = 4294967295;
   function bodiesOf(recs) {
     const at = new Map(recs.map((r, i) => [r.id, i]));
     const near = recs.map(() => []);
     recs.forEach((r, i) => r.partners.forEach((p) => {
-      const j = p !== NONE5 ? at.get(p) : void 0;
+      const j = p !== NONE6 ? at.get(p) : void 0;
       if (j != null && j !== i) {
         near[i].push(j);
         near[j].push(i);
@@ -38855,7 +39240,7 @@ ${e.message}` : String(e?.message || e));
   var isCoarse = matchMedia("(pointer: coarse)").matches;
   var touchOnly = !matchMedia("(any-hover: hover)").matches;
   var throttles = navigator.userAgentData?.mobile ?? (/Android|iPhone|iPad|Mobile/.test(navigator.userAgent) || isCoarse && !matchMedia("(any-pointer: fine)").matches);
-  var NONE6 = 4294967295;
+  var NONE7 = 4294967295;
   var TAU4 = Math.PI * 2;
   var genomeOfWords = (w) => {
     const u = Uint32Array.from(w);
@@ -38903,9 +39288,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "42154c828450f4c0") return;
+      if (localStorage.getItem(key) === "30abacfa85ab1cdb") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "42154c828450f4c0");
+      if (res) localStorage.setItem(key, "30abacfa85ab1cdb");
     } catch {
     }
   }
@@ -39030,6 +39415,8 @@ ${e.message}` : String(e?.message || e));
       events: { ...EVENTS_ON(), ...prefs.events },
       songMarks: prefs.songMarks ?? 1,
       // mark the cells that sing: 0 off, 1 the picked species, 2 all
+      stain: 0,
+      // a stain coloring the living by species (STAINS in stain.js; 0 none), never kept between visits
       notes: prefs.notes ?? 1,
       // live annotations (docs/annotations.md): 0 off, 1 with the auto camera, 2 always
       water: prefs.water ?? 2,
@@ -39681,7 +40068,7 @@ ${e.message}` : String(e?.message || e));
     }
     const focus = { key: null, label: "", pred: null, roleMask: 7, stateMode: 0, matter: [false, false, false, false, false] };
     let members = null;
-    let memberKind = NONE6;
+    let memberKind = NONE7;
     function pushFocus() {
       let kinds = null;
       if (focus.key) {
@@ -39810,7 +40197,7 @@ ${e.message}` : String(e?.message || e));
     function setMembers(ids, kind) {
       members = ids && ids.length ? ids : null;
       if (!members && sel) sel.box = null;
-      memberKind = members ? kind : NONE6;
+      memberKind = members ? kind : NONE7;
       pushFocus();
     }
     function gdist(a, b) {
@@ -40142,7 +40529,29 @@ ${e.message}` : String(e?.message || e));
     };
     const slotSerial = new Uint32Array(MAXK);
     const viewedSerial = () => spView != null ? spView : sel && sel.particle && sel.particle.kind >= FIRST_LIFE ? genomeFor(sel.particle.kind)?.serial : null;
+    const stainHosts = /* @__PURE__ */ new Set();
+    let stainPrevHosted = null;
+    function applyStain(c = life.lastCensus) {
+      const id = STAINS[state.stain]?.id;
+      if (!id || id === "none" || !c) {
+        eng.setStain(null);
+        return;
+      }
+      if (c.spl) {
+        const h = c.spl.subarray(SPL_GRAFT, SPL_GRAFT + MAXK * SPL_GRAFT_W), W = SPL_GRAFT_W;
+        stainHosts.clear();
+        if (stainPrevHosted) for (let s = FIRST_LIFE; s < MAXK; s++) {
+          const d = h[s * W + 3] - stainPrevHosted[s] >>> 0;
+          if (c.pop[s] && d > 0 && d < 1e8) stainHosts.add(s);
+        }
+        stainPrevHosted = Uint32Array.from({ length: MAXK }, (_, s) => h[s * W + 3]);
+      }
+      const slots = [];
+      for (let s = FIRST_LIFE; s < MAXK; s++) if (c.pop[s]) slots.push([s, life.reg.get(genomeSerial(c.genomeU32, s))]);
+      eng.setStain(stainColors(id, slots, { t: c.simTime, hosts: stainHosts }, K));
+    }
     function tellStories(c) {
+      if (state.stain) applyStain(c);
       if (c.spl) for (let s = FIRST_LIFE; s < MAXK; s++) slotSerial[s] = c.pop[s] ? genomeSerial(c.genomeU32, s) : 0;
       const x = climate.excursion, t2 = c.simTime;
       const told = chron.observe({
@@ -40249,7 +40658,7 @@ ${e.message}` : String(e?.message || e));
       if (ride.on) toggleRide(false, false);
       sel = null;
       spView = null;
-      eng.trackId = NONE6;
+      eng.trackId = NONE7;
       state.follow = false;
       if (specimen) specimen.close();
       setMembers(null);
@@ -40272,7 +40681,7 @@ ${e.message}` : String(e?.message || e));
         state.follow = true;
         ride.cam = createRideCam(viewShort());
       } else {
-        hand.steer(NONE6);
+        hand.steer(NONE7);
         state.follow = false;
         ride.cam = null;
         rideBody(null);
@@ -40332,7 +40741,7 @@ ${e.message}` : String(e?.message || e));
       if (ride.cam) ride.cam.manual = true;
     };
     async function nearestKin(kind, at, not) {
-      const res = await eng.requestPick(at, 4, NONE6, { kind });
+      const res = await eng.requestPick(at, 4, NONE7, { kind });
       const [W, H2] = eng.grid;
       const kin = (res?.entries || []).filter((c) => c.id !== not && c.kind === kind).map((c) => ({ c, d: Math.hypot(wrapD2(c.x - at[0], W), wrapD2(c.y - at[1], H2)) }));
       const young = kin.filter((k) => k.d < 1.2).sort((a, b) => a.c.age - b.c.age)[0];
@@ -40381,7 +40790,7 @@ ${e.message}` : String(e?.message || e));
       const [wx, wy] = world || toWorldShown(sx, sy);
       const p = pxPerWorld || cssPPU();
       const radius = Math.max(3, 40 / p);
-      const res = await eng.requestPick([wx, wy], radius, NONE6);
+      const res = await eng.requestPick([wx, wy], radius, NONE7);
       if (!res) return;
       const [W, H2] = eng.grid;
       let bestLife = null, bl = Infinity, bestAny = null, ba = Infinity;
@@ -40506,7 +40915,7 @@ ${e.message}` : String(e?.message || e));
       if (!sel || r.id !== sel.id || sel.lost) return;
       if (!r.found) {
         sel.lost = true;
-        eng.trackId = NONE6;
+        eng.trackId = NONE7;
         setMembers(null);
         story(sel.particle && sel.particle.kind === 0 ? "Built into a new cell by a parent nearby. Lost track." : "Lost track.");
         return;
@@ -41181,7 +41590,7 @@ ${e.message}` : String(e?.message || e));
       }
       if (ride.on) toggleRide(false, false);
       sel = null;
-      eng.trackId = NONE6;
+      eng.trackId = NONE7;
       state.follow = false;
       setMembers(null);
       spView = serial;
@@ -41191,7 +41600,7 @@ ${e.message}` : String(e?.message || e));
     }
     async function bestMember(sp, maxOut = sp.pop * 1.25 + 2048) {
       const [W, H2] = eng.grid;
-      const res = await eng.requestPick([W / 2, H2 / 2], Math.hypot(W, H2), NONE6, { kind: sp.slot, maxOut, raw: true });
+      const res = await eng.requestPick([W / 2, H2 / 2], Math.hypot(W, H2), NONE7, { kind: sp.slot, maxOut, raw: true });
       if (!res || !res.raw.count) return null;
       const { u32, f32, count: n } = res.raw, x = (k) => f32[k * PICK_WORDS], y = (k) => f32[k * PICK_WORDS + 1];
       const dist = (i, j) => Math.hypot(wrapD2(x(j) - x(i), W), wrapD2(y(j) - y(i), H2));
@@ -41349,7 +41758,7 @@ ${e.message}` : String(e?.message || e));
       let confirming = false;
       function display() {
         const s = eng.settings;
-        return group("picture", "Picture", choice("microlook", "Microscope", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.look, "microlook") + (state.look ? choice("grain", "Film grain", "", [[0, "Off"], [1, "Fine"], [2, "Heavy"]], state.grain, "filmgrain") : "") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("bloom", "Bloom", "Y", s.bloom > 0, "bloom") + choice("water", "Water surface", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.water, "watersurface") + (state.water ? choice("waves", "Wave motion", "", [[0, "Slow"], [1, "Normal"], [2, "Lively"]], state.waves, "wavemotion") : "") + choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("lod", "Zoom detail", "", s.lod, "lod")) + group("overlays", "Overlays", onoff("tide", "Light map", "G", s.tide > 0, "light") + (s.tide ? rampHtml(MAPS[0]) : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : "") + onoff("bands", "Tide map", "H", s.bands > 0, "tidemap") + (s.bands ? rampHtml(MAPS[2]) : "") + onoff("currents", "Currents", "C", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks") + choice("notes", "Annotations", "", [[1, "Auto camera"], [2, "Always"], [0, "Off"]], state.notes, "annotations")) + group("view", "View", (isCoarse ? "" : onoff("ui", "Interface", "U", state.ui, "interface")) + onoff("closeup", "Live close-up", "", state.closeup, "closeup") + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", "Film")} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === "idle" ? '<button type="button" class="chip" data-o="film" data-v="now">Now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : ""));
+        return group("picture", "Picture", choice("microlook", "Microscope", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.look, "microlook") + (state.look ? choice("grain", "Film grain", "", [[0, "Off"], [1, "Fine"], [2, "Heavy"]], state.grain, "filmgrain") : "") + onoff("optics", "Optics", "O", s.optics > 0, "optics") + onoff("bloom", "Bloom", "Y", s.bloom > 0, "bloom") + choice("water", "Water surface", "", [[0, "Off"], [1, "Subtle"], [2, "Normal"], [3, "Strong"]], state.water, "watersurface") + (state.water ? choice("waves", "Wave motion", "", [[0, "Slow"], [1, "Normal"], [2, "Lively"]], state.waves, "wavemotion") : "") + choice("trails", "Trails", "T", trailNames.map((n, i) => [i, n]), trailIdx) + onoff("specks", "Suspension", "", s.specks, "specks") + onoff("lod", "Zoom detail", "", s.lod, "lod")) + group("overlays", "Overlays", onoff("tide", "Light map", "G", s.tide > 0, "light") + (s.tide ? rampHtml(MAPS[0]) : "") + (K.heat ? choice("heat", "Heat map", "E", [[0, "Off"], [1, "Shimmer"], [2, "Full"]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : "") + onoff("bands", "Tide map", "H", s.bands > 0, "tidemap") + (s.bands ? rampHtml(MAPS[2]) : "") + onoff("currents", "Currents", "C", state.currents) + onoff("links", "Bonds", "L", s.links, "bond") + onoff("nodes", "Particles", "N", s.nodes) + choice("stain", "Stain", "J", STAINS.map((st, i) => [i, st.name]), state.stain, "stain") + (state.stain ? `<div class="stain-key" data-hint="${STAINS[state.stain].hint}">${stainKey(STAINS[state.stain].id).map(([c, l]) => `<span><i style="background:${c}"></i>${l}</span>`).join("")}</div>` : "") + choice("songmarks", "Song marks", "", [[0, "Off"], [1, "Picked"], [2, "All"]], state.songMarks, "songmarks") + choice("notes", "Annotations", "", [[1, "Auto camera"], [2, "Always"], [0, "Off"]], state.notes, "annotations")) + group("view", "View", (isCoarse ? "" : onoff("ui", "Interface", "U", state.ui, "interface")) + onoff("closeup", "Live close-up", "", state.closeup, "closeup") + onoff("auto", "Auto when idle", "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", "Film")} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="Film">${film.state === "idle" ? '<button type="button" class="chip" data-o="film" data-v="now">Now</button><button type="button" class="chip" data-o="film" data-v="scene">Next scene</button>' : '<button type="button" class="chip" data-o="film" data-v="stop">Stop filming</button>'}</div></div>` : ""));
       }
       function audio_() {
         const m = sound.mix, mix4 = (k) => choice(`mix-${k}`, MIX[k].name, "", MIX[k].choices.map(([label3], i) => [i, label3]), m[k], `audio${k}`);
@@ -41605,7 +42014,10 @@ ${e.message}` : String(e?.message || e));
           s.trails = trailLevels[trailIdx];
         } else if (id === "tide") s.tide = +v;
         else if (id === "heat") s.heat = +v;
-        else if (id === "bands") s.bands = +v;
+        else if (id === "stain") {
+          state.stain = +v;
+          applyStain();
+        } else if (id === "bands") s.bands = +v;
         else if (id === "currents") state.currents = !!+v;
         else if (id === "links") s.links = !!+v;
         else if (id === "nodes") s.nodes = !!+v;
@@ -41969,7 +42381,7 @@ ${e.message}` : String(e?.message || e));
     let handBusy = false;
     async function nearCounts(a) {
       if (eng.pickReq) return null;
-      const res = await eng.requestPick([a.x, a.y], Math.max(2 * a.r, 3), NONE6);
+      const res = await eng.requestPick([a.x, a.y], Math.max(2 * a.r, 3), NONE7);
       if (!res) return null;
       const m = /* @__PURE__ */ new Map();
       for (const c of res.entries) {
@@ -42091,7 +42503,7 @@ ${e.message}` : String(e?.message || e));
         pull.taken.add(r.id);
         pull.drawn.delete(r.id);
       }
-      for (const r of recs) for (const q of r.partners) if (q !== NONE6 && !pull.taken.has(q)) pull.drawn.add(q);
+      for (const r of recs) for (const q of r.partners) if (q !== NONE7 && !pull.taken.has(q)) pull.drawn.add(q);
       eng.setDrawn(pull.drawn);
       pull.last = performance.now();
       if (life.lastCensus) hand.note("pipette", ...pull.tip, eng.simTime, recs.length);
@@ -42205,7 +42617,7 @@ ${e.message}` : String(e?.message || e));
       if (!res) return;
       let got = 0, off = 0;
       for (const x of items) {
-        const m = x.n || x.made, slot = res.slots[job.of.indexOf(x.sp)], k = slot === NONE6 ? 0 : Math.max(0, Math.min(m, res.placed - off));
+        const m = x.n || x.made, slot = res.slots[job.of.indexOf(x.sp)], k = slot === NONE7 ? 0 : Math.max(0, Math.min(m, res.placed - off));
         off += m;
         if (!k) continue;
         const run2 = x.sp;
@@ -42309,7 +42721,7 @@ ${e.message}` : String(e?.message || e));
         hand.tap(wx, wy, eng.simTime);
         hear("tap");
       } else if (hand.tool === "needle") {
-        const p = cssPPU(), res = await eng.requestPick([wx, wy], Math.max(0.5, 30 / p), NONE6);
+        const p = cssPPU(), res = await eng.requestPick([wx, wy], Math.max(0.5, 30 / p), NONE7);
         if (!res) return;
         const [W, H2] = eng.grid;
         let best = null, bd = Math.max(isCoarse ? 36 : 14, 0.12 * p);
@@ -42547,6 +42959,11 @@ ${e.message}` : String(e?.message || e));
       } else if (k === "g" || k === "G") {
         eng.settings.tide = eng.settings.tide ? 0 : 1;
         flash(eng.settings.tide ? "Light map" : "Light map off");
+        mapsChanged();
+      } else if (k === "j" || k === "J") {
+        state.stain = (state.stain + 1) % STAINS.length;
+        applyStain();
+        flash(state.stain ? `Stain: ${STAINS[state.stain].name}` : "Stain off");
         mapsChanged();
       } else if ((k === "e" || k === "E") && K.heat) {
         eng.settings.heat = (eng.settings.heat + 1) % 3;
@@ -43678,7 +44095,7 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
     const director = new Director({
       world: () => eng.grid,
       widths: viewWidths,
-      pick: (center, radius, opts) => eng.requestPick(center, radius, NONE6, opts),
+      pick: (center, radius, opts) => eng.requestPick(center, radius, NONE7, opts),
       predict: predictAt,
       species: (slot) => {
         const c = life.lastCensus;
@@ -44418,11 +44835,11 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
         drawBore(R2, dt);
         if (R2 && (hand.tool === "warm" || hand.tool === "cold") && K.heat) eng.lens.set([...toWorld(R2.sx, R2.sy), 1.5 * R2.r / cssPPU(), 1]);
         else eng.lens.fill(0);
-        eng.trackId = sel && !sel.lost ? sel.id : NONE6;
-        eng.trackId2 = director.active ? director.trackId : NONE6;
+        eng.trackId = sel && !sel.lost ? sel.id : NONE7;
+        eng.trackId2 = director.active ? director.trackId : NONE7;
         watchNotes();
         watchMarks(performance.now());
-        eng.mindId = sel && !sel.lost && !sel.film && sel.particle.kind >= FIRST_LIFE && specimen.isOpen() && state.ui ? sel.id : NONE6;
+        eng.mindId = sel && !sel.lost && !sel.film && sel.particle.kind >= FIRST_LIFE && specimen.isOpen() && state.ui ? sel.id : NONE7;
         const cur = { x: cam.x, y: cam.y, zoom: cam.zoom, t: viewSimTime };
         const seen = inflight && shownFrame ? shownFrame : cur;
         Object.assign(cam, { x: seen.x, y: seen.y, zoom: seen.zoom });
@@ -44451,7 +44868,7 @@ Saved from Settings → Worlds, on any device"${busy ? " disabled" : ""}>${busy 
           steps: step.steps,
           time: now / 1e3,
           dpr,
-          selId: sel ? sel.id : NONE6,
+          selId: sel ? sel.id : NONE7,
           loupe: L ? { x: L.sx * dpr, y: L.sy * dpr, r: L.R * dpr, ppu: L.cssPPU * dpr, cx: L.cx, cy: L.cy } : null,
           // the close-up only when the world is drawn: a canvas not given a new texture keeps its last image
           // (a portrait takes the close-up's place for one frame)

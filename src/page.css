@@ -1085,6 +1085,10 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-2); font-size: 11.5px; margin-top: 4px; }
 .legend i { display: inline-block; width: 10px; height: 2px; margin-right: 6px; vertical-align: 3px; }
 .ramp { display: flex; align-items: center; gap: var(--s2); color: var(--ink-3); font-size: 11px; }
+/* a stain's key (Settings → Stain): a swatch per color, one line */
+.stain-key { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); margin-left: calc(9.6em + var(--s3)); color: var(--ink-3); font-size: 11px; }
+.stain-key span { display: inline-flex; align-items: center; gap: var(--s1); white-space: nowrap; }
+.stain-key i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 /* the light map's ramp (fsComposite): deep blue, teal, sun */
 .ramp i { flex: 1; height: 6px; background: linear-gradient(90deg, #080a29 0%, #006b80 48%, #4e9a7a 62%, #ffdb52 100%); }
 /* the thermal camera's ramp (heatRamp in shaders.js): deep blue, teal, amber, white */
