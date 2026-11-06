@@ -254,6 +254,7 @@ export const DEFAULT_K = {
   graftCost: 0.004,   // a grafter's upkeep per second at a full gene (as adhesion's)
   // Symbiogenesis: a grafter holding a producer, dividing, takes it in at this chance: its daughter founds a species
   // carrying the producer's photosynthesis (engulfKeep of it, if more than its own) and its first cell type as a third
+  graftRoom: 2,       // bonds back a host keeps free for its own kind: a grafter takes a cell only with more room than this
   graftArmor: 0,      // a cell held by a grafter resists being eaten as a body's adhesion this much past adhMin would
   engulf: 0.004,
   engulfKeep: 0.7,
@@ -1111,8 +1112,9 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
   // whether a bud of a body bearing tails, if it buds now, starts a tail (none of its kind near, room ahead)
   let sprout = tails && budTurn == 0u && !budBlocked && !tailNear && rnd(&s) < g.tail.x * ${f(K.tailOdds)};
   crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride; plantN *= stride; animN *= stride;
-  // a grafter holding no graft takes the nearest stranger it fits into a free slot (it pulls once that cell holds it back)
-  if (gj != NONE && gj != n1 && gj != n2 && backOf(gj, 0u) < BACK) {
+  // a grafter holding no graft takes the nearest stranger it fits into a free slot (it pulls once that cell holds it back),
+  // if no other grafter holds it and it keeps room for its own kind's bonds (a host's body is not torn by its grafters)
+  if (gj != NONE && gj != n1 && gj != n2 && backOf(gj, 0u) + ${K.graftRoom | 0}u < BACK && !guarded(gj, sortedFull[gj].kind)) {
     var dg = sortedFull[gj].pos - p.pos;
     dg -= world * round(dg * invWorld);
     if (n1 == NONE) { n1 = gj; dn1 = dg; d1 = length(dg); }
