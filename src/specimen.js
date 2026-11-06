@@ -343,7 +343,8 @@ export function createSpecimen(api) {
       s += kv('Peak', sp ? fmt(sp.peak) : '—');
     }
     if (src) {
-      s += kv('Arose', `${fmtClock(src.born || 0)}${src.founder ? ` · ${api.originWord(src)}` : ''}`);
+      const host = src.symbiont && life.reg.get(src.symbiont);
+      s += kv('Arose', `${fmtClock(src.born || 0)}${src.founder ? ` · ${api.originWord(src)}` : ''}${src.symbiont ? ` · taking in ${host ? spLink(host.serial, host.name) : 'a producer'}` : ''}`, src.symbiont ? 'symbiogenesis' : undefined);
       const gen = life.genera.get(src.genus);
       s += kv('Genus', gen ? `${esc(gen.name)}${gen.from ? ` · split from ${esc(gen.from)}` : ''}` : '–', 'genus');
       s += kv('Mutations', `${g.depth} from its founder`, 'depth');

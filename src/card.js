@@ -31,7 +31,8 @@ export function cardData(sp, { reg, K, story = null, simTime = 0, founders = 0, 
   const lineage = [];
   let a = sp.ancestor && reg.get(sp.ancestor);
   while (a && lineage.length < 4) { lineage.push(a.name); a = a.ancestor && reg.get(a.ancestor); }
-  const origin = sp.founder ? (sp.serial > founders ? `sparked from silt at ${fmtClock(sp.born || 0)}` : 'a founding lineage') : 'an ancestor too rare to be named';
+  const host = sp.symbiont && reg.get(sp.symbiont);
+  const origin = sp.symbiont ? `born of a union with ${host ? host.name : 'a producer'}` : sp.founder ? (sp.serial > founders ? `sparked from silt at ${fmtClock(sp.born || 0)}` : 'a founding lineage') : 'an ancestor too rare to be named';
   const swim = g.swim * (1 - g.photo), div = divEnergy(g, K);
   // what it is, in a word or two each: its diet, how it moves, its body
   const grafter = (g.graft || 0) > K.graftMin; // (docs/symbiosis.md)

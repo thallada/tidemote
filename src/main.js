@@ -1135,6 +1135,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         director.spotlight(s, g.serial, { signal: true });
       }
       audio.push([s, g]);
+      // born of symbiogenesis (docs/symbiosis.md): the producer its first cells took in, from the species ledger
+      if (c.spl && sp.symbiont == null && c.spl[SPL_GRAFT + s * SPL_GRAFT_W + 4]) sp.symbiont = c.spl[SPL_GRAFT + s * SPL_GRAFT_W + 4];
       sp.slot = s;
       sp.genome = g;
       sp.pop = p;
@@ -1153,7 +1155,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
             pushEvent(`New genus <b>${esc(gen.name)}</b> splits from ${esc(gen.from)}: ${spLink(sp.serial, sp.name)} · ${describe(g, K)}`, g.col, 'genus');
           } else {
             const anc = sp.ancestor && life.reg.get(sp.ancestor);
-            const origin = sp.founder ? originWord(sp) : anc ? `from ${spLink(anc.serial, anc.name)}` : 'from an unrecorded ancestor';
+            const host = sp.symbiont && life.reg.get(sp.symbiont);
+            const origin = (sp.founder ? originWord(sp) : anc ? `from ${spLink(anc.serial, anc.name)}` : 'from an unrecorded ancestor') + (sp.symbiont ? `, taking in ${host ? spLink(host.serial, host.name) : 'a producer'}` : '');
             pushEvent(`${spLink(sp.serial, sp.name)} established · ${describe(g, K)} · ${origin}`, g.col, 'est');
           }
         }
