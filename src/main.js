@@ -871,8 +871,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
   ];
   const rampHtml = (m) => { const [cls, lo, hi] = m.ramp(); return `<div class="ramp ${cls}"><span>${lo}</span><i></i><span>${hi}</span></div>`; };
   const mapsOn = () => MAPS.filter((m) => m.on(eng.settings));
+  // a stain's key (stain.js), in the bar and under its setting
+  const stainKeyHtml = () => `<div class="stain-key" data-hint="${STAINS[state.stain].hint}">${stainKey(STAINS[state.stain].id).map(([c, l]) => `<span><i style="background:${c}"></i>${l}</span>`).join('')}</div>`;
   function clearMaps() {
     for (const m of mapsOn()) m.close(eng.settings);
+    if (state.stain) { state.stain = 0; applyStain(); }
     mapsChanged();
   }
   function toggleMap(m) {
@@ -884,12 +887,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function mapsChanged() { persist(); renderMaps(); view.render(); }
   // the bar and the gauges' lit state, updated in place
   function renderMaps() {
-    const on = mapsOn();
+    const on = mapsOn(), st = state.stain ? STAINS[state.stain] : null;
     for (const m of MAPS) $(m.gauge).classList.toggle('on', on.includes(m));
-    $('maps').hidden = !on.length;
-    if (!on.length) return;
-    const html = on.length === 1 ? rampHtml(on[0]) : '';
-    const label = on.map((m) => m.name).join(' · ');
+    $('maps').hidden = !on.length && !st;
+    if (!on.length && !st) return;
+    // (a stain shows its key when it is all there is; a map its ramp)
+    const html = on.length === 1 && !st ? rampHtml(on[0]) : st && !on.length ? stainKeyHtml() : '';
+    const label = [...on.map((m) => m.name), ...(st ? [`${st.name} stain`] : [])].join(' · ');
     setLive($('maps-label'), label);
     setHTML($('maps-ramp'), html);
     $('maps-ramp').hidden = !html;
@@ -2347,7 +2351,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + onoff('links', 'Bonds', 'L', s.links, 'bond')
         + onoff('nodes', 'Particles', 'N', s.nodes)
         + choice('stain', 'Stain', 'J', STAINS.map((st, i) => [i, st.name]), state.stain, 'stain')
-        + (state.stain ? `<div class="stain-key" data-hint="${STAINS[state.stain].hint}">${stainKey(STAINS[state.stain].id).map(([c, l]) => `<span><i style="background:${c}"></i>${l}</span>`).join('')}</div>` : '')
+        + (state.stain ? stainKeyHtml() : '')
         + choice('songmarks', 'Song marks', '', [[0, 'Off'], [1, 'Picked'], [2, 'All']], state.songMarks, 'songmarks')
         + choice('notes', 'Annotations', '', [[1, 'Auto camera'], [2, 'Always'], [0, 'Off']], state.notes, 'annotations'))
         + group('view', 'View', (isCoarse ? '' : onoff('ui', 'Interface', 'U', state.ui, 'interface'))
@@ -2617,7 +2621,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (id === 'trails') { trailIdx = +v; s.trails = trailLevels[trailIdx]; }
       else if (id === 'tide') s.tide = +v;
       else if (id === 'heat') s.heat = +v;
-      else if (id === 'stain') { state.stain = +v; applyStain(); }
+      else if (id === 'stain') { state.stain = +v; applyStain(); renderMaps(); }
       else if (id === 'bands') s.bands = +v;
       else if (id === 'currents') state.currents = !!+v;
       else if (id === 'links') s.links = !!+v;

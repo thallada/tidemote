@@ -1086,7 +1086,9 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .legend i { display: inline-block; width: 10px; height: 2px; margin-right: 6px; vertical-align: 3px; }
 .ramp { display: flex; align-items: center; gap: var(--s2); color: var(--ink-3); font-size: 11px; }
 /* a stain's key (Settings → Stain): a swatch per color, one line */
-.stain-key { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); margin-left: calc(9.6em + var(--s3)); color: var(--ink-3); font-size: 11px; }
+.stain-key { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); color: var(--ink-3); font-size: 11px; }
+.opts .stain-key { margin-left: calc(9.6em + var(--s3)); }
+.focus.maps .stain-key { flex-wrap: nowrap; }
 .stain-key span { display: inline-flex; align-items: center; gap: var(--s1); white-space: nowrap; }
 .stain-key i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 /* the light map's ramp (fsComposite): deep blue, teal, sun */
