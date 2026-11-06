@@ -1445,3 +1445,4 @@ svg.niche .n-curve { fill: none; stroke: #ff8a3a; stroke-width: 1.4; vector-effe
 svg.niche .n-one { stroke: var(--line); stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; }
 svg.niche .n-water { stroke: var(--cyan); stroke-dasharray: 1 3; vector-effect: non-scaling-stroke; }
 svg.niche .n-dot { fill: var(--cyan); }
+.tk-log li.empty { display: block; color: var(--ink-3, var(--ink-2)); }

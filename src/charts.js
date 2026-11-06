@@ -447,6 +447,7 @@ export function drawRiver(cv, rows, shown, t0, t1, label, eras, ghost = null) {
   g.fillStyle = AXIS;
   g.textAlign = 'left';
   g.fillText(label, 0, 10);
+  if (rows.length < 2) g.fillText('collecting samples…', box.l + 4, box.t + 14);
   cv._ch = {
     redraw: () => drawRiver(cv, rows, shown, t0, t1, label, eras, ghost),
     at(px, py) {

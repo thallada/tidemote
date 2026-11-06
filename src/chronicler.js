@@ -955,7 +955,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       if ((sp.genome.toxin || 0) < 0.1) {
         // a mimic: its lineage came to the model's colors (its ancestor wore others)
         if (!anc || near(anc, model)) continue;
-        add({ kind: 'mimic', score: 0.6 + 0.15 * Math.min(1, sp.pop / living / 0.05), col: sp.genome.col, subjects: [sp.serial, model.serial], key: `mimic:${sp.serial}`, keyGap: Infinity,
+        add({ kind: 'mimic', score: 0.5 + 0.1 * Math.min(1, sp.pop / living / 0.05), col: sp.genome.col, subjects: [sp.serial, model.serial], key: `mimic:${sp.serial}`, keyGap: Infinity,
           html: `${L(reg, sp.serial)} has put on the ${hueWord(model.genome.hue)} of ${L(reg, model.serial)}, though it carries no poison of its own. Its ancestor ${L(reg, anc.serial)} went in ${hueWord(anc.genome.hue)}; now the eaters that ${L(reg, model.serial)} has sickened pass the impostor by.` });
       } else if ((sp.genome.toxin || 0) > 0.4 && sp.serial < model.serial) {
         add({ kind: 'mimic', score: 0.5, col: sp.genome.col, subjects: [sp.serial, model.serial], key: `share:${sp.genus}|${model.genus}`, keyGap: 60 * MIN,
