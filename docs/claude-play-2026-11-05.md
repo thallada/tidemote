@@ -13,10 +13,25 @@ play with myself: color that means something, and a way to ask whether a world h
 2. **Takes** (docs/takes.md): mark a moment (J), let the world go on, then replay it from the mark under the same
    weather with fresh chance, as often as you like. The Lab's Takes pane draws, per take, a river of who inherits
    the water (the lines of descent alive at the mark) and how alike the takes stay.
-3. A fix on main's last commit: saves made since the ice-as-drawn change (b66a121) could not be loaded.
+3. **Bioluminescence**: toxic cells flash blue-green in dim water as they are bitten or killed (observational).
+4. Two bug fixes that matter on main too:
+   - saves made since the ice-as-drawn change (b66a121) could not be loaded ("does not match its version"): the
+     snapshot kept the whole heat buffer, past `THERMAL_WORDS`;
+   - the chronicler never told a story kept to once a world (`keyGap: Infinity`): the world's firsts ("Never before
+     in this world…"), life sparked from silt taking a tenth of the pool, a descendant overtaking its ancestor, a
+     diet bound to one species, the elders. `toldAt` defaulted to -1e9 and `t + 1e9 >= Infinity` is false.
+     A 60-minute chronicle run after the fix still told 2 stories an hour.
 
 ## Log
 
 - Toxins, first version (flat upkeep): toxins swept the food chain in 40 minutes; grazers evolved the toxin to be
   resistant to their food, and hunters were poisoned out of most worlds (docs/signals.md, What happened). Fixed in
   spirit with a growth–defense tax on everything a toxic cell takes in (`toxTax`).
+- Takes, first looks (262k particles): marked at 5:00 and run 7 minutes, take 2 stayed ~95% alike to take 1;
+  marked at 2:10 and run to 15:40, three takes stayed ~90% alike, differing at the margins (one green line
+  thriving in one take and not another). At the scale of lines of descent in a large world, ecology outweighs
+  chance over a quarter of an hour. Same era boundary in every take, as designed.
+- UI audit (l1366, p390) with a Takes state added to tools/ui-audit.mjs: no text under 11 px, no target under
+  24 px, no overflow on the Takes pane.
+- Bioluminescence: implemented, but I did not catch a flash on film (with the tax, toxic producers were scarce
+  where I looked). Unverified visually.
