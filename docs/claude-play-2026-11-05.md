@@ -45,3 +45,6 @@ play with myself: color that means something, and a way to ask whether a world h
 - `toxTax` 0.6 (`runs/play/gate-tax06`): **passes the gate**, borderline: effective species 112 → 89 (holm 0.051),
   Hill 2 and outcome variety lower, populations steadier; persistence and food web 100%, more leader changes, hunters
   in 3 worlds of 32. Grazers 43% toxic, producers 17%. Made the default.
+- Two hours, aversion on against off (6 seeds each): mimicry ratio 1.22 against 1.05 in the second hour (a hint,
+  not significant); without aversion toxins vanish from some worlds, so aversion is what makes them pay.
+- Still owed: the 6-tick long-run check CLAUDE.md asks of lifeMain changes (`ensemble.mjs --runs 128 --step 6`).

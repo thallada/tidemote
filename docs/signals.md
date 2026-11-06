@@ -67,5 +67,9 @@ The default is `toxTax` 0.6 (`runs/play/gate-tax06`): the gate passes (no gated 
 web 100%, three worlds in 32 with hunters, leader changes 6.4 → 7.4), but diversity is lower than the baseline's
 (effective species 112 → 89, p = 0.007, holm 0.051; Hill 2 38 → 27), the living steadier (CV 0.31 → 0.17) and
 the outcomes fewer (5.8 → 3.5, producer+grazer in 18 worlds). At 30 minutes producers are 17% toxic, grazers 43%.
-Mimicry, by the `mimicry` ratio, is not yet distinguishable from descent at 30–40 minutes; it should be measured
-over hours against `aversion: 0`.
+Two hours, 6 seeds × 2 at 32k, aversion on against off (`runs/play/mimic2h`): in the second hour the `mimicry` ratio
+averaged 1.22 with aversion (two worlds near 1.9) against 1.05 without: a hint of mimicry, not yet a result (six
+seeds, noisy). Without aversion toxins do not pay: in two worlds of six no toxic species was left. With it, mean
+effective species over the two hours was lower (71 against 91). To make mimicry stronger and plainer, next ideas:
+count how many eaters are sick at a time (a diag slot), narrow the hue's mutation step relative to `toxHue`, and
+measure mimicry within a guild (grazers wearing toxic grazers' colors) rather than over all harmless cells.
