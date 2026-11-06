@@ -51,5 +51,7 @@ if (g.best) {
   await shot('graft-stain-close');
   await setSpeed(0);
 }
+fs.writeFileSync(path.join(v.out, 'book.html'), await page.evaluate(() => globalThis.__tidemote.bookHtml()));
+console.log('stories:', await page.evaluate(() => globalThis.__tidemote.life().chronicle.filter((e) => e.type === 'story').map((e) => e.text)));
 console.log('page errors:', errors.length ? errors : 'none');
 await close();
