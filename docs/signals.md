@@ -73,3 +73,6 @@ seeds, noisy). Without aversion toxins do not pay: in two worlds of six no toxic
 effective species over the two hours was lower (71 against 91). To make mimicry stronger and plainer, next ideas:
 count how many eaters are sick at a time (a diag slot), narrow the hue's mutation step relative to `toxHue`, and
 measure mimicry within a guild (grazers wearing toxic grazers' colors) rather than over all harmless cells.
+
+At 6-tick coarse steps (`runs/play/gate-step6`, 32 runs) the ecology matches this rule's normal-step gate on every
+metric (effective species 89 → 84, p 0.29), so fast speeds keep it.

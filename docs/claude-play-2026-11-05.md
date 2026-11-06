@@ -47,4 +47,6 @@ play with myself: color that means something, and a way to ask whether a world h
   in 3 worlds of 32. Grazers 43% toxic, producers 17%. Made the default.
 - Two hours, aversion on against off (6 seeds each): mimicry ratio 1.22 against 1.05 in the second hour (a hint,
   not significant); without aversion toxins vanish from some worlds, so aversion is what makes them pay.
-- Still owed: the 6-tick long-run check CLAUDE.md asks of lifeMain changes (`ensemble.mjs --runs 128 --step 6`).
+- 6-tick coarse steps (`runs/play/gate-step6`, 32 × 30 min, `--step 6`) against this branch's own normal-step gate
+  (`gate-tax06`): every metric the same (effective species 89 → 84, p 0.29; food web 1 → 0.94, p 0.25). The toxin
+  rules keep the ecology of normal steps at fast speeds. (32 runs, not the 128 CLAUDE.md suggests.)
