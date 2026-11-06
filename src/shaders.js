@@ -193,6 +193,7 @@ export const DEFAULT_K = {
                       // against growth, so a producer pays in proportion to how well it lives
   toxHarm: 1.5,       // share of a meal an eater throws up (as dung) per unit of toxin it is not resistant to...
   toxSick: 0.4,       // ...and the energy it loses (as heat) per unit
+  toxResist: 1,       // how much of an eater's own toxin counts against a meal's (1: an eater as toxic is unharmed)
   aversion: 0.85,     // chance a poisoned eater passes up living prey that looks like what poisoned it (same hue)...
   toxHue: 0.07,       // ...fading out at this distance in hue (of the whole wheel, 1)
   toxForget: 0.2,     // chance a meal of harmless prey makes a sick eater forget what poisoned it
@@ -3203,7 +3204,7 @@ fn mealDue(fk: u32, meal: u32) -> bool {
 
 // Warning colors (docs/signals.md). The toxin a meal of living kind fk carries for eater g: what it holds beyond
 // the eater's own (an eater as toxic is resistant to it).
-fn toxicFor(fk: u32, myTox: f32) -> f32 { return max(0.0, genomes[fk].tail.w - myTox); }
+fn toxicFor(fk: u32, myTox: f32) -> f32 { return max(0.0, genomes[fk].tail.w - ${f(K.toxResist)} * myTox); }
 // How alike two hues look (1 the same, 0 from toxHue apart), around the wheel.
 fn lookAlike(a: f32, b: f32) -> f32 {
   return 1.0 - smoothstep(${f(K.toxHue * 0.4)}, ${f(K.toxHue)}, abs(fract(a - b + 0.5) - 0.5));
