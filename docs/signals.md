@@ -92,3 +92,11 @@ sample's `toxins.hues`), means over the last 10 minutes: effective colors (exp o
 23%; the mean hue vector's length 0.34 against 0.46. Worlds stay as colorful, and each keeps a palette of its own (no
 hue is a warning color across worlds). Mimicry did not replicate: 0.97 against 1.48 (the off arm's few toxic species
 make its ratio noise). Grazers were half or more toxic in 5 worlds of 8; in 3, toxins had all but gone.
+
+Resistance as a gene of its own (`runs/play/gate-chem`, before `toxLearn`): the gate passes against the October
+baseline, effective species 88 (as with the toxin as resistance, 89), the living steadier (CV 0.17), outcomes 4.3
+(3.5 before), hunters in 5 worlds of 32 (3 before). In a 65k world at 15 minutes, producers were 29% toxic and
+eaters 29% resistant but only 2.6% toxic: grazers no longer turn toxic to eat. But the October baseline is not
+main as it stands: main's own recent gates (`runs/ice-gate`, `runs/swimfix/gate-tg`) keep hunters in 11–12 worlds of
+32 at effective species 100–112 and CV 0.25–0.28, so the comparison that matters is against a gate of main itself
+(`runs/play/gate-main`).
