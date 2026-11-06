@@ -10,6 +10,8 @@ const { values: v, positionals } = parseArgs({ allowPositionals: true, options: 
   seeds: { type: 'string', default: '4' }, minutes: { type: 'string', default: '10' },
   n: { type: 'string', default: '8192' }, jobs: { type: 'string', default: '2' },
   cpu: { type: 'boolean' }, chrome: { type: 'boolean' }, out: { type: 'string', default: 'runs' },
+  // the first seed (later ones follow it): seeds already run elsewhere need not run again
+  from: { type: 'string', default: '1' },
 } });
 const seeds = +v.seeds, jobs = +v.jobs;
 if (![seeds, jobs].every((n) => Number.isInteger(n) && n > 0)) throw new Error('--seeds and --jobs must be positive integers');
@@ -24,7 +26,7 @@ for (let i = 0; i < positionals.length; i += 2) {
   configs.push({ name, config, runs: [], failed: [] });
 }
 fs.mkdirSync(v.out, { recursive: true });
-const tasks = configs.flatMap((c) => Array.from({ length: seeds }, (_, i) => ({ c, seed: i + 1 })));
+const tasks = configs.flatMap((c) => Array.from({ length: seeds }, (_, i) => ({ c, seed: i + +v.from })));
 const sim = fileURLToPath(new URL('./sim.mjs', import.meta.url));
 const threads = String(Math.max(1, Math.floor(availableParallelism() / jobs)));
 let next = 0;
