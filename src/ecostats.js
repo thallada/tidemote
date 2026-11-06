@@ -26,11 +26,11 @@ export function toxinSample(species, K) {
   const guilds = {}, toxic = [];
   const guildOf = (g) => (g.photo > 0.55 ? 'producer' : g.dFlesh >= Math.max(g.dHusk, g.dGlint) ? 'predator' : g.dHusk >= g.dGlint ? 'scavenger' : 'grazer');
   for (const { pop, genome: g } of species) {
-    const a = (guilds[guildOf(g)] ??= { n: 0, mean: 0, share: 0 });
-    a.n += pop; a.mean += pop * (g.toxin || 0); if ((g.toxin || 0) > 0.3) a.share += pop;
+    const a = (guilds[guildOf(g)] ??= { n: 0, mean: 0, share: 0, resist: 0 });
+    a.n += pop; a.mean += pop * (g.toxin || 0); if ((g.toxin || 0) > 0.3) a.share += pop; if ((g.resist || 0) > 0.3) a.resist += pop;
     if ((g.toxin || 0) > 0.3 && pop >= 20) toxic.push(g.hue);
   }
-  for (const a of Object.values(guilds)) { a.mean /= a.n || 1; a.share /= a.n || 1; delete a.n; }
+  for (const a of Object.values(guilds)) { a.mean /= a.n || 1; a.share /= a.n || 1; a.resist /= a.n || 1; delete a.n; }
   const near = (h) => toxic.some((t) => Math.abs(((h - t + 1.5) % 1) - 0.5) < 0.5 * (K.toxHue ?? 0.07));
   let harmless = 0, mimics = 0, cover = 0;
   for (const { pop, genome: g } of species) if ((g.toxin || 0) <= 0.3) { harmless += pop; if (near(g.hue)) mimics += pop; }

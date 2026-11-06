@@ -57,11 +57,12 @@ can tell before reading the world). A save opens only in a version of its own ma
   6.0.0: the head keeps Sets, Infinity/NaN/-0, undefined and shared objects exactly (pack refuses what it cannot keep); a Set saved as {} had frozen loaded worlds at their next climate event.
   7.0.0: a genome's born is on the GPU's clock (simulated time modulo SIM_CLOCK, shaders.js), raindrops' times kept in f64.
   8.0.0: the heat buffer keeps the water's ice (a fourth block, each cell's frozen share, then how many cells hold ice).
+  9.0.0: a genome is 60 words (`G_WORDS`): a fourth vec4 of chemistry (`chem`: toxin, resistance; docs/signals.md),
+  `tail.w` spare again; cards of 56 words no longer load.
 - minor: additions a version of the same major can do without (a head field, a buffer it does not
   know; `openWorld` keeps only the buffers it knows). A newer version must give old saves of its
   major a default for what it added.
-  8.1.0: a genome's last word (`tail.w`, spare before) is its toxin (docs/signals.md), 0 in older saves; the climate
-  keeps its random stream (`climate.rs`), a fresh one for older saves.
+  8.1.0: the climate keeps its random stream (`climate.rs`), a fresh one for older saves.
   7.1.0: the page's record keeps the hand's acts and the pipette's contents (`life.hand`, `life.pipette`; empty
   when absent) and a save's meta whether its world was touched.
 - patch: fixes that change nothing a reader sees.

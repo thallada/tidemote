@@ -128,8 +128,8 @@ export const STUDIO_N = 64; // a mini-card's portrait drawn alone (setStudio): t
 export const LOUPE_FIELD = 1.1;
 export const ORGANS = 12; // organelles per resolved cell (fsPoint), directions per species (organDirs)
 export const PICK_WORDS = 12; // Particle's 10 words, then two partner IDs (NONE if absent).
-export const G_BYTES = 224;
-export const G_WORDS = 56;
+export const G_BYTES = 240;
+export const G_WORDS = 60;
 export const LITE_BYTES = 32;
 // a cell's drawn motion and events (ANIM_WGSL's Sway)
 export const SWAY_BYTES = 56;
@@ -185,15 +185,17 @@ export const DEFAULT_K = {
   flee: 0.5,          // an animal that does not hunt is pushed away from hunters within reach at this × its swimming
   recognize: 0.4,     // living prey (and plants) escape an eater whose receptors do not match their surface: up to this
                     // share of attempts on a perfectly mismatched one (coevolution, frequency-dependent predation)
-  // warning colors (docs/signals.md): a toxin gene (tail.w) poisons whoever eats or bites its cells, less an eater as
-  // toxic as it is (resistance); a poisoned eater keeps the toxic species as its search image, sick of it, and passes
+  // warning colors (docs/signals.md): a toxin gene (chem.x) poisons whoever eats or bites its cells, less the eater's
+  // resistance (chem.y, a gene of its own); a poisoned eater keeps the toxic species as its search image, sick of it, and passes
   // up living prey of a like hue (the color the viewer sees), so a toxic species' look protects it and its mimics
   toxCost: 0.016,     // upkeep of a fully toxic cell (× metab)...
   toxTax: 0.6,        // ...and the share of all it takes in (light, meals) a fully toxic cell spends making its poison: defense
                       // against growth, so a producer pays in proportion to how well it lives
   toxHarm: 1.5,       // share of a meal an eater throws up (as dung) per unit of toxin it is not resistant to...
   toxSick: 0.4,       // ...and the energy it loses (as heat) per unit
-  toxResist: 1,       // how much of an eater's own toxin counts against a meal's (1: an eater as toxic is unharmed)
+  toxResist: 0,       // how much of an eater's own toxin also counts as resistance (0: only the resistance gene does)
+  resCost: 0.008,     // upkeep of full resistance (× metab)...
+  resTax: 0.3,        // ...and the share of every meal of living prey a fully resistant eater spends breaking toxins down
   aversion: 0.85,     // chance a poisoned eater passes up living prey that looks like what poisoned it (same hue)...
   toxHue: 0.07,       // ...fading out at this distance in hue (of the whole wheel, 1)
   toxForget: 0.2,     // chance a meal of harmless prey makes a sick eater forget what poisoned it
@@ -548,8 +550,10 @@ struct Genome {
   adhesion: f32, calcify: f32, topt: f32, tol: f32,
   beat: vec4f,
   // a packed body's tails: how readily its edge buds one (x), how long one grows (y); z phototaxis
-  // (-1..1: toward the light, or away from it, negative); w toxin (0..1: docs/signals.md)
+  // (-1..1: toward the light, or away from it, negative); w spare
   tail: vec4f,
+  // chemistry (docs/signals.md): x toxin (0..1), y resistance to others' toxins (0..1); z, w spare
+  chem: vec4f,
 };
 
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
@@ -1358,7 +1362,7 @@ ${w ? `  if (sub) { bondF += bendOn(i, gr) * ${f(K.growStiff)}; mSwim = select(n
     // Allee effect: a producer thrives among its own kind; a lone one grows slowly, so grazed-bare water stays bare a while
     * (1.0 - ${f(K.allee)} + ${f(K.allee)} * min(kinN / 3.0, 1.0))
     // a toxic cell spends a share of its light making its poison
-    * (1.0 - ${f(K.toxTax)} * g.tail.w)
+    * (1.0 - ${f(K.toxTax)} * g.chem.x)
     // no light reaches a stranded cell's chloroplasts through a drying film
     * select(1.0, 0.0, stranded);
   let bonds = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
@@ -1933,7 +1937,7 @@ fn addEnergy(guild: u32, slot: u32, e: f32) {
 fn deriveMetab(g: Genome) -> f32 {
   return (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
         + ${f(K.anchorCost)} * (1.0 - g.advect) + 0.004 * g.size + ${f(K.swimCost)} * g.swim * (1.0 - g.photo) + 0.006 * g.align + 0.004 * g.adhesion + ${f(K.calcCost)} * g.calcify
-        + ${f(K.phototaxisCost)} * abs(g.tail.z) + ${f(K.toxCost)} * g.tail.w
+        + ${f(K.phototaxisCost)} * abs(g.tail.z) + ${f(K.toxCost)} * g.chem.x + ${f(K.resCost)} * g.chem.y
         + ${f(K.beatCost)} * g.beat.x * g.beat.y * select(0.0, 1.0, (g.dev.x >= 0x80000000u || g.tail.x > 0.0) && g.adhesion > ${f(K.adhMin)})) * ${f(K.metab)};
 }
 
@@ -2049,9 +2053,11 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   // phototaxis drifts, and now and then the habit is gained (mostly toward the light) or lost
   g.tail.z = clamp(g.tail.z + gauss(s) * m * 0.15, -1.0, 1.0);
   if (rnd(s) < m * 0.1) { g.tail.z = select(0.0, mix(-0.6, 1.0, rnd(s)), abs(g.tail.z) < 0.05); }
-  // the toxin drifts, and now and then it is gained or lost
-  g.tail.w = clamp(g.tail.w + gauss(s) * m * 0.15, 0.0, 1.0);
-  if (rnd(s) < m * 0.08) { g.tail.w = select(0.0, mix(0.3, 1.0, rnd(s)), g.tail.w < 0.05); }
+  // the toxin and the resistance drift, and now and then each is gained or lost
+  g.chem.x = clamp(g.chem.x + gauss(s) * m * 0.15, 0.0, 1.0);
+  if (rnd(s) < m * 0.08) { g.chem.x = select(0.0, mix(0.3, 1.0, rnd(s)), g.chem.x < 0.05); }
+  g.chem.y = clamp(g.chem.y + gauss(s) * m * 0.15, 0.0, 1.0);
+  if (rnd(s) < m * 0.08) { g.chem.y = select(0.0, mix(0.3, 1.0, rnd(s)), g.chem.y < 0.05); }
   g.parent = g.serial;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -2101,7 +2107,8 @@ fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
   g.topt = clamp(t + gauss(s) * 3.0, 0.0, 45.0);
   g.tol = mix(3.0, 10.0, rnd(s));
   g.beat = vec4f(select(0.0, mix(0.15, 0.5, rnd(s)), rnd(s) < 0.25), mix(0.5, 2.5, rnd(s)), mix(0.3, 1.2, rnd(s)), select(0.0, 1.0, rnd(s) < 0.25));
-  g.tail = vec4f(select(0.0, mix(0.3, 1.0, rnd(s)), rnd(s) < 0.2), rnd(s), select(0.0, mix(-0.6, 1.0, rnd(s)), rnd(s) < 0.3), select(0.0, mix(0.3, 1.0, rnd(s)), rnd(s) < 0.15));
+  g.tail = vec4f(select(0.0, mix(0.3, 1.0, rnd(s)), rnd(s) < 0.2), rnd(s), select(0.0, mix(-0.6, 1.0, rnd(s)), rnd(s) < 0.3), 0.0);
+  g.chem = vec4f(select(0.0, mix(0.3, 1.0, rnd(s)), rnd(s) < 0.15), select(0.0, mix(0.3, 1.0, rnd(s)), rnd(s) < 0.1), 0.0, 0.0);
   g.parent = 0u;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -3202,25 +3209,26 @@ fn mealDue(fk: u32, meal: u32) -> bool {
   return fk < FIRST_LIFE || meal % select(${K.killEvery | 0}u, ${K.biteEvery | 0}u, genomes[fk].photo > 0.4) == 0u;
 }
 
-// Warning colors (docs/signals.md). The toxin a meal of living kind fk carries for eater g: what it holds beyond
-// the eater's own (an eater as toxic is resistant to it).
-fn toxicFor(fk: u32, myTox: f32) -> f32 { return max(0.0, genomes[fk].tail.w - ${f(K.toxResist)} * myTox); }
+// Warning colors (docs/signals.md). The toxin a meal of living kind fk carries for an eater of resistance myRes
+// (resistOf): what it holds beyond what the eater can break down.
+fn toxicFor(fk: u32, myRes: f32) -> f32 { return max(0.0, genomes[fk].chem.x - myRes); }
+fn resistOf(chem: vec4f) -> f32 { return max(chem.y, ${f(K.toxResist)} * chem.x); }
 // How alike two hues look (1 the same, 0 from toxHue apart), around the wheel.
 fn lookAlike(a: f32, b: f32) -> f32 {
   return 1.0 - smoothstep(${f(K.toxHue * 0.4)}, ${f(K.toxHue)}, abs(fract(a - b + 0.5) - 0.5));
 }
 // Whether a cell's search image (info) is a species that poisoned it: sick of it, it passes up its look.
-fn sickOf(image: u32, myTox: f32) -> bool { return image >= FIRST_LIFE && image < MAXK && toxicFor(image, myTox) > 0.05; }
+fn sickOf(image: u32, myRes: f32) -> bool { return image >= FIRST_LIFE && image < MAXK && toxicFor(image, myRes) > 0.05; }
 // The eater's memory after a meal of living kind fk: the prey becomes its search image, unless it is sick of a
 // toxic species, which a harmless meal makes it forget only now and then (a toxic one replaces it at once).
-fn remember(info: u32, fk: u32, myTox: f32, s: ptr<function, u32>) -> u32 {
-  let keep = sickOf((info >> 6u) & 1023u, myTox) && toxicFor(fk, myTox) <= 0.05 && rnd(s) >= ${f(K.toxForget)};
+fn remember(info: u32, fk: u32, myRes: f32, s: ptr<function, u32>) -> u32 {
+  let keep = sickOf((info >> 6u) & 1023u, myRes) && toxicFor(fk, myRes) <= 0.05 && rnd(s) >= ${f(K.toxForget)};
   return select((info & 0xffff003fu) | (fk << 6u), info, keep);
 }
 // A toxic meal: the eater throws up toxHarm × the toxin of it (into its gut, dropped as dung) and is sick, losing
 // toxSick × the toxin of its energy as heat. Returns what it keeps of the meal's gain.
-fn poisoned(fk: u32, myTox: f32, gain: f32, gut: ptr<function, f32>, E: ptr<function, f32>, at: vec2f) -> f32 {
-  let tx = toxicFor(fk, myTox);
+fn poisoned(fk: u32, myRes: f32, gain: f32, gut: ptr<function, f32>, E: ptr<function, f32>, at: vec2f) -> f32 {
+  let tx = toxicFor(fk, myRes);
   if (tx <= 0.0) { return gain; }
   let lost = gain * min(1.0, tx * ${f(K.toxHarm)});
   *gut = min(*gut + lost, ${f(K.dungE)});
@@ -3236,7 +3244,7 @@ fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, plantN: f
   let armored = fk >= FIRST_LIFE && rnd(s) * (1.0 + ${f(K.armor)} * max(0.0, genomes[fk].adhesion - ${f(K.adhMin)})) > 1.0;
   let image = (info >> 6u) & 1023u;
   // a sick eater has no search image: it passes up what looks like the species that poisoned it instead
-  let sick = sickOf(image, g.tail.w);
+  let sick = sickOf(image, resistOf(g.chem));
   let unfamiliar = ${f(K.searchImage)} > 0.0 && fk >= FIRST_LIFE && image != 0u && image != fk && rnd(s) < ${f(K.searchImage)} && !sick;
   let averse = sick && fk >= FIRST_LIFE && rnd(s) < ${f(K.aversion)} * lookAlike(genomes[fk].hue, genomes[image].hue);
   let unskilled = ${f(K.catchSkill)} > 0.0 && fk >= FIRST_LIFE && rnd(s) >= min(1.0, eatEff * select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, genomes[fk].photo > 0.4) / ${f(K.catchSkill)});
@@ -3427,8 +3435,8 @@ ${cellWGSL(K, false, genomePtr)}
         } else {
           gain = (${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)}) * min(1.0, spec(g.dFlesh) * eatEff * th.perf * ${f(K.assimilate)}) + take(max(fp.energy, 0.0), spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u); gut = min(gut + max(0.0, (${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)} + max(fp.energy, 0.0)) - gain), ${f(K.dungE)});
         }
-        if (fk >= FIRST_LIFE) { gain = poisoned(fk, g.tail.w, gain, &gut, &E, p.pos); info = remember(info, fk, g.tail.w, &s); }
-        gain *= 1.0 - ${f(K.toxTax)} * g.tail.w;
+        if (fk >= FIRST_LIFE) { gain = poisoned(fk, resistOf(g.chem), gain, &gut, &E, p.pos) * (1.0 - ${f(K.resTax)} * g.chem.y); info = remember(info, fk, resistOf(g.chem), &s); }
+        gain *= 1.0 - ${f(K.toxTax)} * g.chem.x;
         E += gain;
         addEnergy(dg, select(select(4u, 2u, act == 3u), 3u, fp.kind == HUSK), gain);
       }
@@ -3511,10 +3519,10 @@ ${cellWGSL(K, false, genomePtr)}
           }
           if (fp.kind >= FIRST_LIFE) {
             atomicAdd(&ledger[META_DEATH + 32u + 5u * ledgerGuild(${G}) + ledgerGuild(genomes[fp.kind])], 1u);
-            gain = poisoned(fp.kind, g.tail.w, gain, &gut, &E, p.pos);
-            info = remember(info, fp.kind, g.tail.w, &s);
+            gain = poisoned(fp.kind, resistOf(g.chem), gain, &gut, &E, p.pos) * (1.0 - ${f(K.resTax)} * g.chem.y);
+            info = remember(info, fp.kind, resistOf(g.chem), &s);
           }
-          gain *= 1.0 - ${f(K.toxTax)} * g.tail.w;
+          gain *= 1.0 - ${f(K.toxTax)} * g.chem.x;
           E += gain;
           addEnergy(dg, slot, gain);
           break;
@@ -5347,10 +5355,10 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     // Bioluminescence (docs/signals.md): in dim water a toxic species' cells flash blue-green as they are bitten or
     // killed, a warning only the viewer sees (eaters go by color). A flash is quick, then fades; only cells drawn
     // in detail keep the record that says they were bitten, and a kill flares as it bursts.
-    if (g.tail.w > 0.3) {
+    if (g.chem.x > 0.3) {
       let dark = 1.0 - smoothstep(0.12, 0.55, sunAt(p.pos));
       let hit = select(exp(-a.bit / 0.35), select(0.0, 1.0 - smoothstep(0.0, 0.45, gh.t), gh.how == 1u), dead);
-      let flash = dark * hit * smoothstep(0.3, 0.7, g.tail.w);
+      let flash = dark * hit * smoothstep(0.3, 0.7, g.chem.x);
       col = mix(col, vec3f(0.3, 0.85, 1.0), 0.75 * flash);
       b *= 1.0 + 3.0 * flash;
     }
@@ -6221,8 +6229,8 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
       detail += 0.12 * (cellGrain(q * 8.0, p.id) - cellGrain(q * 8.0 + 31.7, p.id + 3u));
       // a toxic cell keeps its poison in dark granules, crowded among paler cytoplasm (the same shaping of a fine
       // field and a broad one, so its light is unchanged on average); the eaters cannot see them, only the viewer
-      if (g.tail.w > 0.05) {
-        detail += 0.3 * g.tail.w * (smoothstep(0.3, 0.5, cellGrain(q * 5.0 + 11.0, p.id + 29u)) - smoothstep(0.3, 0.5, cellGrain(q * 17.0, p.id + 17u)));
+      if (g.chem.x > 0.05) {
+        detail += 0.3 * g.chem.x * (smoothstep(0.3, 0.5, cellGrain(q * 5.0 + 11.0, p.id + 29u)) - smoothstep(0.3, 0.5, cellGrain(q * 17.0, p.id + 17u)));
       }
       hue = mix(vec3f(1.0), vec3f(1.25, 1.0, 0.65), inside * smoothstep(0.1, 0.6, cellGrain(q * 3.0 + 5.0, p.id + 13u)));
       // relief: the dome near the membrane, then each organelle's own bulge or hollow
