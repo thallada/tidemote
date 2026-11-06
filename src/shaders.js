@@ -248,12 +248,13 @@ export const DEFAULT_K = {
   // passenger's share of a richer host). graftFound: the share of sparks of life that graft.
   graftMin: 0.15,
   graftFit: 0.2,
-  graftPool: 0.5,
-  graftTake: 0.15,
+  graftPool: 0.1,
+  graftTake: 0.01,
   graftFound: 0.12,
   graftCost: 0.004,   // a grafter's upkeep per second at a full gene (as adhesion's)
   // Symbiogenesis: a grafter holding a producer, dividing, takes it in at this chance: its daughter founds a species
   // carrying the producer's photosynthesis (engulfKeep of it, if more than its own) and its first cell type as a third
+  graftArmor: 0,      // a cell held by a grafter resists being eaten as a body's adhesion this much past adhMin would
   engulf: 0.004,
   engulfKeep: 0.7,
   bite: 0.5,        // energy taken per bite from a photosynthesizing cell (big enough to outpace a patch's regrowth: booms and crashes)
@@ -3264,8 +3265,10 @@ fn mealDue(fk: u32, meal: u32) -> bool {
 
 // Whether an attack on food of kind fk misses: armour, an unfamiliar quarry, too little skill, or prey
 // hiding among stone. Every roll is drawn whatever the outcome, so the random stream stays the same.
-fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, plantN: f32, animN: f32, rivals: f32, sg: vec4u, full: f32, s: ptr<function, u32>) -> bool {
-  let armored = fk >= FIRST_LIFE && rnd(s) * (1.0 + ${f(K.armor)} * max(0.0, genomes[fk].adhesion - ${f(K.adhMin)})) > 1.0;
+fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, plantN: f32, animN: f32, rivals: f32, sg: vec4u, full: f32, s: ptr<function, u32>, food: u32) -> bool {
+  // (a cell held by a grafter of another species is guarded by it, graftArmor: docs/symbiosis.md)
+  let guard = select(0.0, ${f(K.graftArmor)}, ${K.graftArmor > 0 ? 'true' : 'false'} && fk >= FIRST_LIFE && guarded(food, fk));
+  let armored = fk >= FIRST_LIFE && rnd(s) * (1.0 + ${f(K.armor)} * max(0.0, genomes[fk].adhesion - ${f(K.adhMin)}) + guard) > 1.0;
   let image = (info >> 6u) & 1023u;
   let unfamiliar = ${f(K.searchImage)} > 0.0 && fk >= FIRST_LIFE && image != 0u && image != fk && rnd(s) < ${f(K.searchImage)};
   let unskilled = ${f(K.catchSkill)} > 0.0 && fk >= FIRST_LIFE && rnd(s) >= min(1.0, eatEff * select(g.dFlesh, ${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh, genomes[fk].photo > 0.4) / ${f(K.catchSkill)});
@@ -3292,6 +3295,14 @@ fn mealMissed(fk: u32, info: u32, g: Genome, eatEff: f32, stoneN: f32, plantN: f
   return armored || unfamiliar || unskilled || sheltered || hidden || jostled || fumbled || unrecognized || rested;
 }
 
+// Whether cell j (of kind k) is held by a cell of another species (a grafter: docs/symbiosis.md)
+fn guarded(j: u32, k: u32) -> bool {
+  for (var b = 0u; b < backN(j); b++) {
+    let c = backOf(j, 1u + b);
+    if (c < sim.count && sortedFull[c].kind != k && sortedFull[c].kind >= FIRST_LIFE) { return true; }
+  }
+  return false;
+}
 // K.diag: count v into a guild's slot k
 fn diagAdd(dg: u32, k: u32, v: u32) { atomicAdd(&ledger[META_DIAG + DIAG_STRIDE * dg + k], v); }
 fn isAnimal(j: u32) -> bool { return j != NONE && sortedFull[j].kind >= FIRST_LIFE && genomes[sortedFull[j].kind].photo <= 0.4; }
@@ -3460,7 +3471,7 @@ ${cellWGSL(K, false, genomePtr)}
     // a meal opportunity every K.eatEvery ticks, in the cell's own phase
     } else if (food != NONE && (sim.tick + p.id) % ${K.eatEvery | 0}u == 0u && mealDue(sortedFull[food].kind, (sim.tick + p.id) / ${K.eatEvery | 0}u)) {
       let fk = sortedFull[food].kind;
-      let missed = mealMissed(fk, info, ${G}, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, E / (divE * ${f(K.satietyAt)}), &s);
+      let missed = mealMissed(fk, info, ${G}, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, E / (divE * ${f(K.satietyAt)}), &s, food);
       let won = !missed && atomicCompareExchangeWeak(&ledger[META_CLAIM + food], 0u, i + 1u).exchanged;
       if (DIAG && canHunt && isAnimal(food)) { diagAdd(dg, 15u, 1u); diagAdd(dg, select(select(17u, 18u, won), 16u, missed), 1u); }
       if (fk >= FIRST_LIFE) { splPair(p.kind, fk, won); }
@@ -3540,7 +3551,7 @@ ${cellWGSL(K, false, genomePtr)}
           let fp = sortedFull[fd];
           // handling time, or a miss (armour, an unfamiliar quarry, skill, shelter), ends this opportunity
           if (!mealDue(fp.kind, mi)) { break; }
-          if (mealMissed(fp.kind, info, ${G}, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, E / (divE * ${f(K.satietyAt)}), &s)) {
+          if (mealMissed(fp.kind, info, ${G}, eatEff, stoneN, plantN, animN, max(0.0, kinN - bonds), sg, E / (divE * ${f(K.satietyAt)}), &s, fd)) {
             if (hunt && isAnimal(fd)) { diagAdd(dg, 16u, 1u); }
             if (fp.kind >= FIRST_LIFE) { splPair(p.kind, fp.kind, false); }
             break;

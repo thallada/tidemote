@@ -2,7 +2,7 @@
 import fs from 'node:fs'; import path from 'node:path';
 const args = process.argv.slice(2), si = args.indexOf('--seeds');
 const seeds = si >= 0 ? new Set(args[si + 1].split(',').map(Number)) : null;
-const dirs = args.filter((a, i) => !a.startsWith('--') && i !== si + 1);
+const dirs = args.filter((a, i) => !a.startsWith('--') && !(si >= 0 && i === si + 1));
 const rows = {};
 for (const d of dirs) for (const f of fs.readdirSync(d).filter((f) => /-seed\d+\.json$/.test(f))) {
   const [cfg, sd] = f.replace('.json', '').split('-seed');
