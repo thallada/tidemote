@@ -2,7 +2,8 @@ import { GUIDE } from './guide.js';
 import { fmt, fmtClock, esc, cssCol, term, spLink, ROLE, LIVING_CSS } from './fmt.js';
 import { voiceOf } from './audio/mapping.js';
 import { sigilSVG } from './song.js';
-import { drawLines, drawNiches, sparkPath, onTap } from './charts.js';
+import { drawLines, drawNiches, drawHues, drawRiver, drawAlike, sparkPath, onTap } from './charts.js';
+import { mimicModel } from './genome.js';
 import { lineageModel, cut } from './lineage/model.js';
 import { drawMuller, drawTree, layoutTree, target } from './lineage/draw.js';
 import { ancestry, strandLead, history, sameLoc, fitCrumbs } from './lineage/nav.js';
@@ -588,9 +589,11 @@ export function createLab(api) {
     p.scroll.innerHTML = `<div class="legend"><span><i style="background:var(--sun);height:6px;width:1px"></i>dotted lines mark a new era</span></div>`
       + CHARTS.map(([t, tip, s], i) => block(t, `<canvas class="dyn chart" data-i="${i}" aria-label="${esc(t)}"></canvas><div class="legend">${s.map((x) => `<span><i style="background:${x.col}"></i>${x.label}</span>`).join('')}</div>`, { tip })).join('')
       + (api.eng.K.heat ? block('Thermal niches', `<canvas class="niches chart" aria-label="Each species by the temperature it prefers and its population. Point at a dot to name its species; click to open it."></canvas><div class="legend"><span><i style="background:#ff8a3a;opacity:.4"></i>warmth the living feel</span><span><i style="background:#ff8a3a;height:6px;width:1px"></i>background temperature</span><span>dot size: tolerance · ring: ${term('heatmaker', 'heat-maker')}</span></div>`, { tip: 'optimum' }) : '')
+      + block('Warning colors', `<canvas class="hues chart" aria-label="Each species by its color and population. Point at a dot to name its species; click to open it."></canvas><div class="legend"><span><i style="background:#ff5f3a"></i>ring: ${term('toxin', 'toxic')}</span><span><i style="background:#ff5f3a;opacity:.3"></i>wedge: what eaters it sickened pass up (${term('mimicry', 'mimics')})</span></div>`, { tip: 'toxin' })
       + block('Eras', '<ol class="eras" id="eras"></ol>');
     const cvs = [...p.scroll.querySelectorAll('canvas.dyn')];
     const niches = p.scroll.querySelector('canvas.niches');
+    const hues = p.scroll.querySelector('canvas.hues');
     let erasN = -1, excN = 0;
     function update() {
       const life = api.life(), hist = life.history, eras = api.climate().history;
@@ -604,6 +607,15 @@ export function createLab(api) {
         if (now && (!felt1 || c.simTime - felt1.t > 30 || c.simTime < felt1.t)) felt1 = { t: c.simTime, n: now };
         drawNiches(niches, sp, api.eng.tbg, now ? now.map((v, b) => (v - felt0.n[b]) >>> 0) : [], HEAT_BIN);
       }
+      {
+        const living = [];
+        for (const s of life.reg.values()) if (s.alive && s.established && s.pop > 0) living.push(s);
+        const toxic = living.filter((s) => (s.genome.toxin || 0) > 0.3);
+        drawHues(hues, living.map((s) => {
+          const m = (s.genome.toxin || 0) <= 0.3 && mimicModel(s.genome, toxic, api.eng.K);
+          return { serial: s.serial, name: s.name, hue: s.genome.hue, pop: s.pop, toxin: s.genome.toxin || 0, col: s.genome.col, mimic: m ? m.name : null };
+        }), api.eng.K.toxHue * 0.7);
+      }
       const exc = eras.filter((h) => h.excursion).length;
       if (eras.length !== erasN || exc !== excN) {
         erasN = eras.length; excN = exc;
@@ -612,6 +624,60 @@ export function createLab(api) {
       }
     }
     let felt0 = null, felt1 = null;
+    return { ...p, update };
+  }
+
+  // ---------------------------------------------------------- takes
+  // Replaying the tape (takes.js, docs/takes.md): mark a moment, let the world go on, go back and run it again under
+  // the same weather with fresh dice. Each take's river is the share of the living held by each line alive at the
+  // mark; how alike the takes are is how alike those shares.
+  const TAKE_COLS = ['#a3bdbe', '#ffb45e', '#5fd4c4', '#c9b8ff', '#ff8a6b', '#7fe0b0'];
+  function buildTakes() {
+    const p = pane(`<div class="row takes-ctl"><button type="button" class="chip" id="tk-mark" data-hint="Keep the world as it is now, to come back to · J">Mark this moment</button><button type="button" class="chip" id="tk-replay" disabled data-hint="Put the world back as it was at the mark and let it run again, under the same weather, with fresh chance">Replay from the mark</button></div>`);
+    p.scroll.classList.add('stack');
+    const T = api.takes;
+    p.ctl.addEventListener('click', (e) => {
+      if (e.target.closest('#tk-mark')) api.markTake();
+      else if (e.target.closest('#tk-replay')) api.replayTake();
+    });
+    let shape = '';
+    function update() {
+      const m = T.marked, takes = T.takes();
+      const replay = p.ctl.querySelector('#tk-replay');
+      replay.disabled = !m;
+      setText(replay, m ? `Replay from ${fmtClock(m.t)}` : 'Replay from the mark');
+      const key = m ? `${m.t}:${takes.length}` : 'none';
+      if (key !== shape) {
+        shape = key;
+        if (!m) {
+          p.scroll.innerHTML = block('Replaying the tape', `<div class="note">Would the same world, run again from the same moment, come out the same? Mark a moment and let the world go on: that is take 1. Then go back and replay it. The weather will be the same, era for era, but every birth, meal and mutation is left to chance again.</div><div class="note">Each take is followed by the lines of descent living at the mark: who inherits the water, and how much the takes come to differ.</div>`, { tip: 'takes' });
+        } else {
+          p.scroll.innerHTML = block('The tape', `<div class="kv"><span>Marked</span><b id="tk-at"></b></div><div class="kv"><span>Now</span><b id="tk-now"></b></div>`, { tip: 'takes' })
+            + block('Who inherits the water', takes.map((k) => `<canvas class="river chart" data-n="${k.n}" aria-label="Take ${k.n}: the share of the living held by each line alive at the mark, over time. Point at a band to name its line."></canvas>`).join('') + '<div class="legend" id="tk-legend"></div>')
+            + (takes.length > 1 ? block('How alike', '<canvas class="alike chart" aria-label="How alike each take has gone to take 1"></canvas>') : '')
+            + takes.slice().reverse().map((k) => block(`Take ${k.n}${k === T.current() ? ' · now' : ''}`, `<div class="kv"><span>Led by</span><b data-lead="${k.n}"></b></div><ol class="log tk-log" data-log="${k.n}"></ol>`)).join('');
+        }
+      }
+      if (!m) return;
+      const cur = T.current(), t0 = m.t, t1 = Math.max(t0 + 60, ...takes.map((k) => k.until));
+      setText(p.scroll.querySelector('#tk-at'), fmtClock(m.t));
+      setHTML(p.scroll.querySelector('#tk-now'), `take ${cur.n}, ${fmtClock(Math.max(0, cur.until - m.t))} on`);
+      const shown = T.stocks(9), eras = api.climate().history;
+      p.scroll.querySelectorAll('canvas.river').forEach((cv) => {
+        const k = takes.find((x) => x.n === +cv.dataset.n);
+        if (k) drawRiver(cv, T.river(k, shown), shown, t0, t1, `Take ${k.n}${k === cur ? ' · now' : ''}`, eras);
+      });
+      setHTML(p.scroll.querySelector('#tk-legend'), shown.map((x) => `<span><i style="background:${cssCol(x.col)}"></i>${api.life().reg.get(x.serial) ? spLink(x.serial, x.name) : esc(x.name)}</span>`).join('') + '<span><i style="background:rgba(130,150,152,.5)"></i>other lines</span>');
+      const alike = p.scroll.querySelector('canvas.alike');
+      if (alike) drawAlike(alike, takes.slice(1).map((k) => ({ label: `take ${k.n}`, col: TAKE_COLS[(k.n - 1) % TAKE_COLS.length], pts: T.alike(takes[0], k) })), t0, t1);
+      for (const k of takes) {
+        const ld = T.leader(k), sp = ld && m.stock.get(ld.serial);
+        setHTML(p.scroll.querySelector(`[data-lead="${k.n}"]`), sp ? `the line of ${k === cur && api.life().reg.get(ld.serial) ? spLink(ld.serial, sp.name) : esc(sp.name)}, ${Math.round(ld.share * 100)}%` : '–');
+        // the live take's stories link their species; an earlier take's serials now name others, so it is told as text
+        const told = k.stories.filter((e) => e.type !== 'est').slice(0, 5);
+        setHTML(p.scroll.querySelector(`[data-log="${k.n}"]`), told.length ? told.map((e) => `<li class="${esc(e.type)}"><time>${fmtClock(e.t)}</time><span>${k === cur ? e.html : esc(e.text)}</span></li>`).join('') : '<li class="empty">nothing told yet</li>');
+      }
+    }
     return { ...p, update };
   }
 
@@ -720,7 +786,7 @@ export function createLab(api) {
     return { ...p, update };
   }
 
-  const builders = { cabinet: buildCabinet, species: buildSpecies, lineage: buildLineage, census: buildCensus, charts: buildCharts, log: buildLog, guide: buildGuide };
+  const builders = { cabinet: buildCabinet, species: buildSpecies, lineage: buildLineage, census: buildCensus, charts: buildCharts, takes: buildTakes, log: buildLog, guide: buildGuide };
 
   apply();
   if (st.open) show();
@@ -741,6 +807,8 @@ export function createLab(api) {
   }
   return {
     open, close, toggle, render, reset, isOpen: () => st.open, tab: () => st.tab,
+    // redraw the pane on show now (a take marked or replayed)
+    refresh: () => render(true),
     // open on one of the records (wider than the census)
     isWide: () => st.open && st.tab !== 'census',
     // back to the census, as the column it was before a record was opened

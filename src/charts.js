@@ -334,6 +334,163 @@ export function drawNiches(cv, species, tbg, felt, binW) {
   };
 }
 
+/**
+ * Warning colors (docs/signals.md): each species on the color wheel, at its hue's angle and further out the more
+ * cells it has (log). A toxic species is ringed, with a faint wedge where its look protects (±near, K.toxHue):
+ * harmless species inside a wedge are its mimics. species: { serial, name, hue, pop, toxin, col }.
+ */
+export function drawHues(cv, species, near) {
+  const f = fit(cv);
+  if (!f) return;
+  const { g, w, h } = f;
+  const cx = w / 2, cy = h / 2 + 6, R = Math.min(w / 2 - 8, h / 2 - 14), r0 = R * 0.22;
+  const pmax = Math.max(10, ...species.map((s) => s.pop));
+  const rad = (p) => r0 + (Math.log10(Math.max(1, p)) / Math.log10(pmax)) * (R - 8 - r0);
+  // angles: red at the top, around clockwise
+  const ang = (hue) => (hue - 0.25) * Math.PI * 2;
+  const P = (s) => [cx + Math.cos(ang(s.hue)) * rad(s.pop), cy + Math.sin(ang(s.hue)) * rad(s.pop)];
+  // the wheel's rim in its own colors, and rings at each decade of cells
+  for (let k = 0; k < 120; k++) {
+    const a0 = ang(k / 120), a1 = ang((k + 1.05) / 120);
+    g.strokeStyle = `hsla(${k * 3}, 70%, 60%, 0.55)`; g.lineWidth = 3;
+    g.beginPath(); g.arc(cx, cy, R, a0, a1); g.stroke();
+  }
+  g.strokeStyle = GRID; g.lineWidth = 1;
+  for (let d = 1; 10 ** d <= pmax; d++) { g.beginPath(); g.arc(cx, cy, rad(10 ** d), 0, Math.PI * 2); g.stroke(); }
+  const toxic = species.filter((s) => s.toxin > 0.3);
+  // warning wedges: where an eater sick of a toxic species passes prey up
+  for (const s of toxic) {
+    g.fillStyle = `rgba(255,95,58,${(0.16 * Math.sqrt(s.pop / pmax)).toFixed(3)})`;
+    g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, R - 2, ang(s.hue - near), ang(s.hue + near)); g.closePath(); g.fill();
+  }
+  const hot = cv._hot && cv._hot.serial;
+  let hotS = null;
+  const dotR = (s) => 2 + Math.min(3, Math.log10(Math.max(1, s.pop)) * 0.8);
+  for (const s of species) { if (s.serial === hot) { hotS = s; continue; } dot(s, hot == null ? 0.9 : 0.45); }
+  if (hotS) {
+    dot(hotS, 1);
+    const [x, y] = P(hotS);
+    g.strokeStyle = 'rgba(226,241,240,0.95)'; g.lineWidth = 1.25;
+    g.beginPath(); g.arc(x, y, dotR(hotS) + (hotS.toxin > 0.3 ? 5 : 2.5), 0, Math.PI * 2); g.stroke();
+  }
+  function dot(s, a) {
+    const [x, y] = P(s), r = dotR(s);
+    g.globalAlpha = a;
+    g.fillStyle = cssCol(s.col);
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+    if (s.toxin > 0.3) {
+      g.strokeStyle = '#ff5f3a'; g.lineWidth = 1 + s.toxin;
+      g.beginPath(); g.arc(x, y, r + 2.5, 0, Math.PI * 2); g.stroke();
+    }
+    g.globalAlpha = 1;
+  }
+  g.fillStyle = AXIS;
+  g.textAlign = 'left';
+  g.fillText('species by color · out: more cells (log)', 0, 10);
+  g.textAlign = 'right';
+  g.fillText(`${toxic.length} toxic`, w, 10);
+  g.textAlign = 'left';
+  cv._ch = {
+    redraw: () => drawHues(cv, species, near),
+    at(px, py) {
+      let best = null, bd = Infinity;
+      for (const s of species) {
+        const [x, y] = P(s);
+        const d = Math.hypot(px - x, py - y) - dotR(s);
+        if (d < 6 && d < bd) { bd = d; best = s; }
+      }
+      return best && { key: best.serial, serial: best.serial, s: best };
+    },
+    plate: ({ s }) => namePlate(s.col, s.name, `${fmt(s.pop)}${s.toxin > 0.3 ? ` · toxic ${Math.round(s.toxin * 100)}%` : s.mimic ? ` · looks like ${esc(s.mimic)}` : ''}`),
+  };
+}
+
+/**
+ * A take's river (docs/takes.md): the shares of the living held by the lineages alive at the mark (shown, the same
+ * order and colors in every take, then the rest in gray), stacked over the time since the mark, t0..t1 (every take
+ * on one clock, so the rivers line up). rows: [{ t, shares }]; label: the take's name, top left.
+ */
+export function drawRiver(cv, rows, shown, t0, t1, label, eras) {
+  const f = fit(cv);
+  if (!f) return;
+  const { g, w, h } = f;
+  const box = { l: 2, t: 14, r: w - 1, b: h - XLAB };
+  const X = (t) => box.l + ((t - t0) / Math.max(1, t1 - t0)) * (box.r - box.l);
+  const Y = (v) => box.b - v * (box.b - box.t);
+  const n = shown.length;
+  const hot = cv._hot ? cv._hot.k : null;
+  if (rows.length > 1) {
+    for (let k = n; k >= 0; k--) {
+      // band k: from the sum below it to the sum through it
+      g.beginPath();
+      rows.forEach((r, i) => { let v = 0; for (let j = 0; j <= k; j++) v += r.shares[j]; const x = X(r.t), y = Y(v); if (i) g.lineTo(x, y); else g.moveTo(x, y); });
+      for (let i = rows.length - 1; i >= 0; i--) { let v = 0; for (let j = 0; j < k; j++) v += rows[i].shares[j]; g.lineTo(X(rows[i].t), Y(v)); }
+      g.closePath();
+      g.fillStyle = k === n ? 'rgba(130,150,152,0.28)' : cssCol(shown[k].col);
+      g.globalAlpha = hot == null || hot === k ? (k === n ? 1 : 0.82) : 0.3;
+      g.fill();
+      g.globalAlpha = 1;
+    }
+  }
+  clock(g, box, t0, t1, eras);
+  g.fillStyle = AXIS;
+  g.textAlign = 'left';
+  g.fillText(label, 0, 10);
+  cv._ch = {
+    redraw: () => drawRiver(cv, rows, shown, t0, t1, label, eras),
+    at(px, py) {
+      if (rows.length < 2 || px < box.l || px > box.r || py < box.t || py > box.b) return null;
+      const t = t0 + ((px - box.l) / (box.r - box.l)) * (t1 - t0);
+      let i = 0;
+      while (i < rows.length - 1 && rows[i + 1].t <= t) i++;
+      if (t > rows[rows.length - 1].t + 20) return null;
+      const v = (box.b - py) / (box.b - box.t);
+      let acc = 0;
+      for (let k = 0; k <= n; k++) {
+        acc += rows[i].shares[k];
+        if (v <= acc) return k === n ? { key: 'other', k, share: rows[i].shares[k], t: rows[i].t } : { key: shown[k].serial, k, serial: shown[k].serial, share: rows[i].shares[k], t: rows[i].t };
+      }
+      return null;
+    },
+    plate: (hit) => (hit.k === n ? namePlate(0xff989690, 'Other lineages', `${Math.round(hit.share * 100)}% · ${fmtClock(hit.t)}`)
+      : namePlate(shown[hit.k].col, shown[hit.k].name, `its line ${Math.round(hit.share * 100)}% of the living · ${fmtClock(hit.t)}`)),
+  };
+}
+
+/** How alike each later take has gone to the first, over time: series [{ label, col, pts: [[t, 0..1]] }]. */
+export function drawAlike(cv, series, t0, t1) {
+  const f = fit(cv);
+  if (!f) return;
+  const { g, w, h } = f;
+  const labels = ['100%', '50%', '0%'];
+  const box = plotBox(g, w, h, labels, 22);
+  const X = (t) => box.l + ((t - t0) / Math.max(1, t1 - t0)) * (box.r - box.l);
+  const Y = (v) => box.b - v * (box.b - box.t);
+  grid(g, box, [1, 0.5, 0].map((v, i) => ({ y: Y(v), label: labels[i] })));
+  for (const s of series) {
+    if (s.pts.length < 2) continue;
+    g.strokeStyle = s.col; g.lineWidth = 1.5;
+    g.beginPath();
+    s.pts.forEach(([t, v], i) => (i ? g.lineTo(X(t), Y(v)) : g.moveTo(X(t), Y(v))));
+    g.stroke();
+  }
+  clock(g, box, t0, t1);
+  g.fillStyle = AXIS;
+  g.textAlign = 'left';
+  g.fillText('how alike to take 1 (its lines’ shares of the living)', 0, 10);
+  cv._ch = {
+    redraw: () => drawAlike(cv, series, t0, t1),
+    at(px) {
+      if (px < box.l || px > box.r) return null;
+      const t = t0 + ((px - box.l) / (box.r - box.l)) * (t1 - t0);
+      const vals = series.map((s) => { let b = null; for (const p of s.pts) if (!b || Math.abs(p[0] - t) < Math.abs(b[0] - t)) b = p; return b && { s, p: b }; }).filter(Boolean);
+      return vals.length ? { key: Math.round(t / 10), vals, t } : null;
+    },
+    rows: true,
+    plate: (hit) => `<b class="pl-t">${fmtClock(hit.t)}</b>${hit.vals.map(({ s, p }) => `<i style="background:${s.col}"></i><span>${esc(s.label)}</span><em>${Math.round(p[1] * 100)}%</em>`).join('')}`,
+  };
+}
+
 // ------------------------------------------------------------------ pointing
 /**
  * Call fn(e) on a tap or click on el: the pointer pressed and lifted in about the same place within a

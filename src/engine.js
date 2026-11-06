@@ -112,6 +112,9 @@ class Engine {
     this.tide = new Float32Array([1, 1, 0.021, 1, 2, -1, -0.017, 1, -1, 3, 0.013, 0.7, 1, -2, 0.011, 0]);
     this.tidePh = Float32Array.from(TIDE_PHASE);
     this.seedValue = 1;
+    // salts the GPU's dice (sim.seed) without touching the world's seed: a take replayed from a moment (src/takes.js)
+    // rolls them anew, where the frame count it starts from would otherwise roll the first take's again
+    this.chance = 0;
     this.censusEvery = 20;
     this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 0, heat: 1, bands: 0, optics: 1, specks: true, lod: true };
     // The dressing the page's tuner picks (src/tuner.js; Settings → Performance), on top of the viewer's settings,
@@ -1097,6 +1100,7 @@ class Engine {
     this._clearSubMarks();
     this.tick = 0;
     this.seedValue = (rng() * 0xffffffff) >>> 0;
+    this.chance = 0;
     this.sorted = false;
     this.ambient = mix(0.12, 0.3, rng());
     this.temp = mix(10, 22, rng());
@@ -1495,7 +1499,7 @@ class Engine {
     f[6] = this.dt || 1 / 60; f[7] = clk.t;
     // a coarse step keeps per-second rates: the per-step abiogenesis chance scales with its length
     f[8] = this.season; f[9] = Math.min(1, this.abio * this.ticks);
-    u[10] = (this.seedValue + this.frameNo * 7919) >>> 0; f[11] = this.K.maxSpeed;
+    u[10] = (this.seedValue + this.frameNo * 7919 + Math.imul(this.chance, 0x9e3779b1)) >>> 0; f[11] = this.K.maxSpeed;
     u[12] = extra.seedKinds || 1; f[13] = extra.pSilt || 0; f[14] = clk.wavePh[0]; f[15] = extra.pHusk || 0;
     f[16] = this.ambient; f[17] = clk.wavePh[1]; f[18] = clk.wavePh[2]; f[19] = clk.wavePh[3];
     f.set(this.waves, 20);
@@ -1631,8 +1635,9 @@ class Engine {
     const enc = d.createCommandEncoder();
     const keep = { gpu: {} };
     for (const k of ['parts', 'genomes', 'intent', 'ledger', 'thermal']) {
-      // the ledger without the species ledger at its end (observational: a world's record does not keep it)
-      const size = k === 'ledger' ? this._splAt() : b[k].size;
+      // the ledger without the species ledger at its end (observational: a world's record does not keep it), the heat
+      // field without the ice as drawn past THERMAL_WORDS (the view's, eased at once on a load)
+      const size = k === 'ledger' ? this._splAt() : k === 'thermal' ? THERMAL_WORDS * 4 : b[k].size;
       keep.gpu[k] = d.createBuffer({ size, usage: U.COPY_SRC | U.COPY_DST });
       enc.copyBufferToBuffer(b[k], 0, keep.gpu[k], 0, size);
     }

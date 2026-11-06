@@ -34,6 +34,7 @@ export function describe(g, K) {
 export function tagsOf(g, K) {
   const f = facets(g, K);
   const tags = [[f.diet, f.diet]];
+  if ((g.toxin || 0) > 0.3) tags.push(['toxic', 'toxin']);
   const multi = f.body === 'multicellular';
   tags.push([f.body, multi ? 'adhesion' : 'singlecelled']);
   if (f.types > 1) tags.push([`${f.types} cell types`, multi ? 'bodyplan' : 'morphs']);

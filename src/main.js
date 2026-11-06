@@ -4,6 +4,7 @@ import { signalAt } from './audio/motif.js';
 import { V_SCALE } from './audio/listen.js';
 import { createEngine, MAXK, FIRST_LIFE, MAX_STEPS, compactState } from './engine.js';
 import { genomeSerial, readGenome, writeGenome, parseParticle, thermalGuild, dietGuild, mimicModel } from './genome.js';
+import { createTakes } from './takes.js';
 import { seasonAt, createClimate, abioRate, EVENT_TYPES, excursionAt } from './climate.js';
 import { countPools } from './geography.js';
 import { createLab } from './lab.js';
@@ -587,6 +588,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const chron = createChronicler({ K, link: spLink, tune: { debug: (t, all, live) => all.length && globalThis.__tidemote?.chronDebug?.push({ t, all: all.map((c) => [c.kind, +c.rank.toFixed(2), c.html.replace(/<[^>]+>/g, '').slice(0, 90)]), live: live.length }) } });
   let watchVer = -1;
   const watchSlots = new Uint32Array(MAXK);
+  const takes = createTakes(); // replaying the tape (takes.js; markTake, replayTake below)
   function resetLife() {
     life = {
       reg: new Map(), genera: new Map(), orphan: new Map(), chronicle: [], history: [], histEvery: 3, lastHist: -1e9,
@@ -629,6 +631,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     deselect();
     clearFocus();
     warmDue = true;
+    takes.forget();
   }
 
   async function allocDown(n) {
@@ -769,6 +772,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // eras and the camera), kept in this browser (worlds.js) or, in the desktop app, as files.
   const worldStore = desk ? desk.worlds : createWorldStore();
   async function saveWorld(name) {
+    const { meta, bytes } = await encodeCurrent(name);
+    // in the desktop app, a picture of the view for the Workshop
+    const preview = desk ? await takeView().then((px) => px && encodeBytes(px, 'image/jpeg', 0.88)).catch(() => null) : null;
+    await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes, preview || undefined);
+  }
+  // the world running as a save's bytes, and its meta
+  async function encodeCurrent(name) {
     // the page's record and the GPU's copy are taken together, before anything awaits
     const { lastCensus, genera, ...keepLife } = life;
     // a genus none of whose species is still in the registry no longer needs its founder's genome
@@ -783,9 +793,45 @@ function run(eng, device, ctx, specCtx, hasTS) {
       simTime: eng.simTime, count: eng.count, thriving: life.thriving, cols: top.slice(0, 4).map((s) => s.genome.col), touched: hand.touched };
     const st = await eng.readState();
     const bytes = await encodeWorld({ meta, cpu: st.cpu, ...compactState(st), page });
-    // in the desktop app, a picture of the view for the Workshop
-    const preview = desk ? await takeView().then((px) => px && encodeBytes(px, 'image/jpeg', 0.88)).catch(() => null) : null;
-    await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes, preview || undefined);
+    return { meta, bytes };
+  }
+
+  // ------------------------------------------------------------ takes
+  // Replaying the tape (takes.js, docs/takes.md): the world at a marked moment, kept in memory, put back to run
+  // again under the same weather with fresh dice; the Lab's Takes pane compares how each take went.
+  let taking = false; // a mark or a replay under way
+  async function markTake() {
+    if (taking || state.phase !== 'running') return;
+    taking = true;
+    flash('Marking this moment…');
+    try {
+      const t = eng.simTime;
+      const reg = new Map([...life.reg].map(([k, sp]) => [k, { ...sp }]));
+      const { bytes } = await encodeCurrent(`Take mark at ${fmtClock(t)}`);
+      takes.mark(t, reg, bytes, life.chronicle.length);
+      eng.chance = 0;
+      flash(`Marked ${fmtClock(t)}: the world goes on as take 1`);
+      lab.refresh?.();
+    } catch (e) { console.error('[tidemote] marking a take:', e); flash('Could not mark this moment'); }
+    taking = false;
+  }
+  async function replayTake() {
+    const m = takes.marked;
+    if (taking || !m || state.phase !== 'running') return;
+    taking = true;
+    try {
+      const w = await openWorld(m.bytes);
+      const speed = state.speed;
+      const n = takes.replay();
+      if (await loadWorld(w, { quiet: true })) {
+        // the same weather (the climate's stream came back with the world), fresh dice
+        eng.chance = n;
+        if (speed !== state.speed) setSpeed(speed);
+        flash(`Take ${n}: back to ${fmtClock(m.t)}. Will it go the same way?`);
+        lab.open('takes');
+      }
+    } catch (e) { console.error('[tidemote] replaying a take:', e); flash('Could not go back to the mark'); }
+    taking = false;
   }
   // a world as file bytes, read and checked before the one running is touched
   async function openWorld(bytes) {
@@ -825,7 +871,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     drawWorldChart();
     renderWorld();
   }
-  async function loadWorld(w) {
+  async function loadWorld(w, { quiet = false } = {}) {
     state.phase = 'calibrating';
     state.busy = true;
     try {
@@ -849,7 +895,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     state.busy = false;
     state.phase = 'running';
-    flash(`${w.meta.name} loaded`);
+    if (!quiet) { flash(`${w.meta.name} loaded`); takes.forget(); }
     return true;
   }
 
@@ -1281,6 +1327,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       drawWorldChart();
     }
     tellStories(c);
+    takes.observe(t, life.reg, life.chronicle);
     if (focus.key && focus.pred) pushFocus();
     renderWorld();
     lab.render(false);
@@ -2313,7 +2360,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     onFold: (on, keep) => { if (!phone() && !keep) { state.labOpen = on; persist(); } drawWorldChart(); },
     onCensusShown: drawWorldChart,
     life: () => life, facets: facetsOf, groups, climate: () => climate,
-    openSpecies, focusFacet,
+    openSpecies, focusFacet, takes, markTake, replayTake,
     focusKey: () => focus.key,
     focusPredicate: (label, pred) => setFocus(`pred:${label}`, label, { pred }),
     relabel,
@@ -3369,6 +3416,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if ((k === 'Enter' || k === 'Tab') && sel && !ride.on && sel.rideEnded && sel.memory) rideRelative();
     else if (k === 'Enter' && sel) toggleRide();
     else if (k === 'Tab' && ride.on) hopRide();
+    else if (k === 'j' || k === 'J') { if (!takes.marked || e.shiftKey) markTake(); else lab.open('takes'); }
     else if (k === 'p' || k === 'P') playAuto();
     else if ((k === 'x' || k === 'X') && director.active) nextScene();
     else if (k === 'r' || k === 'R') filmAct();
@@ -5319,7 +5367,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     sound.away(document.hidden);
   });
   // a handle for tools/perf, which profiles the page in a real browser
-  globalThis.__tidemote = { state, cam, perf, eng, notes, noteView, sound, lab, life: () => life, climate: () => climate, renderScale: () => renderScale, maxZoom, setSpeed, findMember, deselect,
+  globalThis.__tidemote = { state, cam, perf, eng, notes, noteView, sound, lab, life: () => life, climate: () => climate, renderScale: () => renderScale, maxZoom, setSpeed, findMember, deselect, takes, markTake, replayTake,
     chron, cards, film, filmAct, openSpecies, director, saveWorld, worlds: worldStore, boot: bootTimes, pruned,
     setScale(v) { state.perf.scale = v; if (v !== 'auto') renderScale = v; resetAdapt(); fit(); },
     // the tuner's knobs' levels; setEffects('low' | 'high' | 'auto') fixes them all cheapest or best, or leaves them to Auto

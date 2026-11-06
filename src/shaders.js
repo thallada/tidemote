@@ -188,7 +188,9 @@ export const DEFAULT_K = {
   // warning colors (docs/signals.md): a toxin gene (tail.w) poisons whoever eats or bites its cells, less an eater as
   // toxic as it is (resistance); a poisoned eater keeps the toxic species as its search image, sick of it, and passes
   // up living prey of a like hue (the color the viewer sees), so a toxic species' look protects it and its mimics
-  toxCost: 0.016,     // upkeep of a fully toxic cell (× metab)
+  toxCost: 0.016,     // upkeep of a fully toxic cell (× metab)...
+  toxTax: 0.3,        // ...and the share of all it takes in (light, meals) a fully toxic cell spends making its poison: defense
+                      // against growth, so a producer pays in proportion to how well it lives
   toxHarm: 1.5,       // share of a meal an eater throws up (as dung) per unit of toxin it is not resistant to...
   toxSick: 0.4,       // ...and the energy it loses (as heat) per unit
   aversion: 0.85,     // chance a poisoned eater passes up living prey that looks like what poisoned it (same hue)...
@@ -1354,6 +1356,8 @@ ${w ? `  if (sub) { bondF += bendOn(i, gr) * ${f(K.growStiff)}; mSwim = select(n
     * (1.0 + ${f(K.flowFeed)} * (1.0 - g.advect) * min(length(flowHere) / 0.2, 2.0))
     // Allee effect: a producer thrives among its own kind; a lone one grows slowly, so grazed-bare water stays bare a while
     * (1.0 - ${f(K.allee)} + ${f(K.allee)} * min(kinN / 3.0, 1.0))
+    // a toxic cell spends a share of its light making its poison
+    * (1.0 - ${f(K.toxTax)} * g.tail.w)
     // no light reaches a stranded cell's chloroplasts through a drying film
     * select(1.0, 0.0, stranded);
   let bonds = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
@@ -3423,6 +3427,7 @@ ${cellWGSL(K, false, genomePtr)}
           gain = (${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)}) * min(1.0, spec(g.dFlesh) * eatEff * th.perf * ${f(K.assimilate)}) + take(max(fp.energy, 0.0), spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u); gut = min(gut + max(0.0, (${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)} + max(fp.energy, 0.0)) - gain), ${f(K.dungE)});
         }
         if (fk >= FIRST_LIFE) { gain = poisoned(fk, g.tail.w, gain, &gut, &E, p.pos); info = remember(info, fk, g.tail.w, &s); }
+        gain *= 1.0 - ${f(K.toxTax)} * g.tail.w;
         E += gain;
         addEnergy(dg, select(select(4u, 2u, act == 3u), 3u, fp.kind == HUSK), gain);
       }
@@ -3508,6 +3513,7 @@ ${cellWGSL(K, false, genomePtr)}
             gain = poisoned(fp.kind, g.tail.w, gain, &gut, &E, p.pos);
             info = remember(info, fp.kind, g.tail.w, &s);
           }
+          gain *= 1.0 - ${f(K.toxTax)} * g.tail.w;
           E += gain;
           addEnergy(dg, slot, gain);
           break;
@@ -6201,6 +6207,11 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
       // fields, so a cell's light is unchanged on average), and stained here and there by what the
       // cell has eaten or stored
       detail += 0.12 * (cellGrain(q * 8.0, p.id) - cellGrain(q * 8.0 + 31.7, p.id + 3u));
+      // a toxic cell keeps its poison in dark granules, crowded among paler cytoplasm (the same shaping of a fine
+      // field and a broad one, so its light is unchanged on average); the eaters cannot see them, only the viewer
+      if (g.tail.w > 0.05) {
+        detail += 0.3 * g.tail.w * (smoothstep(0.3, 0.5, cellGrain(q * 5.0 + 11.0, p.id + 29u)) - smoothstep(0.3, 0.5, cellGrain(q * 17.0, p.id + 17u)));
+      }
       hue = mix(vec3f(1.0), vec3f(1.25, 1.0, 0.65), inside * smoothstep(0.1, 0.6, cellGrain(q * 3.0 + 5.0, p.id + 13u)));
       // relief: the dome near the membrane, then each organelle's own bulge or hollow
       // kept to the membrane's own band, clear of the outline's medial axis in narrow arms

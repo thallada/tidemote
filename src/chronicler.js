@@ -15,7 +15,7 @@
 // Pure: no DOM, no GPU. The page calls observe() on every census and note() on the climate's news,
 // and pushes what they return into the log. Tested in test/chronicler.test.js.
 
-import { dietGuild, mobilityGuild, thermalGuild, growPlan, roleShares, affinity } from './genome.js';
+import { dietGuild, mobilityGuild, thermalGuild, growPlan, roleShares, affinity, lookAlike } from './genome.js';
 import { fmt, fmtClock, esc, UM_PER_UNIT } from './fmt.js';
 import { MAXK, FIRST_LIFE, SPL_WATCH, SPL_CAUSE, SPL_CAUSES, SPL_PAIR, SPL_RANGE, DEFAULT_K } from './shaders.js';
 
@@ -104,8 +104,15 @@ export function firstsOf(g, K = DEFAULT_K) {
   if (K.heat && (g.topt ?? 19) > 38) out.push(['thermophile', 'thermophile, at home in water above 38°']);
   if (K.heat && (g.topt ?? 19) < 10) out.push(['cold', 'cold-lover, at home in water below 10°']);
   if (roleShares(g).filter((v) => v > 0.1).length === 3) out.push(['types3', 'species to grow three kinds of cell']);
+  if ((g.toxin || 0) > 0.3) out.push(['toxin', `species to carry a poison, and to warn its eaters off by its ${hueWord(g.hue)}`]);
+  if ((g.toxin || 0) > 0.3 && guild === 'predator') out.push(['toxhunter', 'hunter to carry a poison of its own']);
   return out;
 }
+
+// A color's name by its hue (0..1, the wheel from red).
+const HUES = ['red', 'vermilion', 'orange', 'amber', 'yellow', 'chartreuse', 'green', 'green', 'jade', 'teal', 'cyan', 'azure',
+  'blue', 'blue', 'indigo', 'violet', 'purple', 'magenta', 'rose', 'crimson'];
+export const hueWord = (h) => HUES[Math.floor((((h % 1) + 1) % 1) * HUES.length) % HUES.length];
 
 /** A circular mean on the torus from summed (cos + 1) * 127 terms: [position 0..1, concentration 0..1]. */
 function circ(sc, ss, n) {
@@ -930,8 +937,34 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     }
   }
 
+  // Warning colors (docs/signals.md): a harmless species come to wear a toxic one's colors (a mimic), or two toxic
+  // species of different genera sharing one warning.
+  function detectWarnings(ctx, add) {
+    const { reg, t, living } = ctx;
+    if (t < T.warm || !(K.aversion > 0)) return;
+    const big = [...reg.values()].filter((sp) => sp.alive && sp.established && sp.pop >= 0.005 * living);
+    const toxic = big.filter((sp) => (sp.genome.toxin || 0) > 0.4);
+    if (!toxic.length) return;
+    const near = (a, b) => lookAlike(a.genome.hue, b.genome.hue, K) > 0.6;
+    for (const sp of big) {
+      if (sp.pop < 0.01 * living) continue;
+      const model = toxic.filter((m) => m !== sp && m.genus !== sp.genus && near(sp, m)).sort((a, b) => b.pop - a.pop)[0];
+      if (!model) continue;
+      const anc = sp.ancestor && reg.get(sp.ancestor);
+      if ((sp.genome.toxin || 0) < 0.1) {
+        // a mimic: its lineage came to the model's colors (its ancestor wore others)
+        if (!anc || near(anc, model)) continue;
+        add({ kind: 'mimic', score: 0.6 + 0.15 * Math.min(1, sp.pop / living / 0.05), col: sp.genome.col, subjects: [sp.serial, model.serial], key: `mimic:${sp.serial}`, keyGap: Infinity,
+          html: `${L(reg, sp.serial)} has put on the ${hueWord(model.genome.hue)} of ${L(reg, model.serial)}, though it carries no poison of its own. Its ancestor ${L(reg, anc.serial)} went in ${hueWord(anc.genome.hue)}; now the eaters that ${L(reg, model.serial)} has sickened pass the impostor by.` });
+      } else if ((sp.genome.toxin || 0) > 0.4 && sp.serial < model.serial) {
+        add({ kind: 'mimic', score: 0.5, col: sp.genome.col, subjects: [sp.serial, model.serial], key: `share:${sp.genus}|${model.genus}`, keyGap: 60 * MIN,
+          html: `Two poisons, one warning: ${L(reg, sp.serial)} and ${L(reg, model.serial)}, of different stock, both go in ${hueWord(sp.genome.hue)}, and an eater sickened by either learns to leave both alone.` });
+      }
+    }
+  }
+
   const FAST = [detectCollapse, detectGuilds, detectExtinctions, detectReign, detectSwings, detectFirsts];
-  const SLOW = [detectArms, detectDiets, detectCycles, detectRanges, detectRadiation, detectTrends, detectMisc];
+  const SLOW = [detectArms, detectDiets, detectCycles, detectRanges, detectRadiation, detectTrends, detectMisc, detectWarnings];
 
   // ------------------------------------------------------------------ the climate's news
   function snapshot(reg, living) {

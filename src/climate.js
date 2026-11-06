@@ -100,14 +100,25 @@ export function makeEvent(type, t, rng, w, h, K = DEFAULT_K) {
 export const eventSpan = (ev) => (ev.type === 'drought' ? ev.fall + ev.hold + ev.refill + 120 : ev.type === 'storm' ? ev.dur + 240
   : ev.type === 'frost' ? ev.cool + ev.grow + ev.hold + ev.thaw + 120 : ev.dur);
 
-export function createClimate(eng, rng = Math.random) {
+export function createClimate(eng, given = null) {
   // allowed: the event types the climate may draw (the page's Settings → Climate), all of them by default
   const climate = { tick, reset, onEra: null, onExcursion: null, onEvent: null, force, allowed: new Set(EVENT_TYPES) };
+  // Without a stream of its own (the page), the climate draws from one it keeps in its state (climate.rs, a
+  // mulberry32 state saved with the world), so a world replayed from a moment (a take, src/takes.js) meets the same
+  // eras and events again; the raindrops, drawn as frames fall, take Math.random.
+  const rng = given || (() => {
+    let t = climate.rs = (climate.rs + 0x6d2b79f5) >>> 0;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  });
+  const drops = given || Math.random;
   const K = { ...DEFAULT_K, ...eng.K };
   const plan = () => String(K.eventPlan || '').split(',').filter(Boolean).map((x) => { const [type, at] = x.split('@'); return { type, at: +at }; });
   // the first event comes no sooner than eventFirst minutes, then one about every eventEvery (0: none)
   const gap = () => climateMix(0.5, 1.5, rng()) * K.eventEvery * 60;
   function reset() {
+    climate.rs = (Math.random() * 4294967296) >>> 0;
     Object.assign(climate, {
       name: 'The First Tides', started: 0, next: climateMix(600, 900, rng()),
       ambientTo: eng.ambient, tideTo: Array.from(eng.tide.filter((_, i) => i % 4 === 3)),
@@ -164,9 +175,9 @@ export function createClimate(eng, rng = Math.random) {
     eng.parch = e.parch;
     if (e.duck) eng.duck.set(e.duck); else eng.duck.fill(0);
     // raindrops: each a ring wave from where it fell, about one a second in full rain, four at a time at most
-    if (e.rain > 0 && rng() < e.rain * 1.2 * K.rainDrops * dt) {
+    if (e.rain > 0 && drops() < e.rain * 1.2 * K.rainDrops * dt) {
       const k = climate.dropSlot = ((climate.dropSlot ?? -1) + 1) % 4;
-      eng.drops.set([rng() * eng.grid[0], rng() * eng.grid[1], t, climateMix(1.0, 3.0, rng())], k * 4);
+      eng.drops.set([drops() * eng.grid[0], drops() * eng.grid[1], t, climateMix(1.0, 3.0, drops())], k * 4);
     }
   }
   function startEra() {
