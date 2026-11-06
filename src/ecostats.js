@@ -15,6 +15,31 @@ const GUILD_TRAITS = ['swim', 'size', 'adhesion', 'advect', 'lifespan', 'reproE'
 const PLAN_TRAITS = ['tree', 'tips', 'beater', 'tadpole', 'tailed'];
 
 /** One census of the community. species: [{ pop, genome }] for every living slot. */
+/**
+ * Warning colors (docs/signals.md): each guild's mean toxin and toxic share (cells with toxin past 0.3), and how
+ * much harmless life looks like the toxic: `mimicShare`, the share of harmless cells whose species' hue lies within
+ * half of K.toxHue of a toxic species' (at least 20 cells of it), against `cover`, the share of the hue wheel
+ * that close to one; `mimicry` is their ratio (1: harmless hues fall near toxic ones by chance alone; descent alone
+ * raises it, since a toxic species' relatives share its hue, so compare runs against aversion 0).
+ */
+export function toxinSample(species, K) {
+  const guilds = {}, toxic = [];
+  const guildOf = (g) => (g.photo > 0.55 ? 'producer' : g.dFlesh >= Math.max(g.dHusk, g.dGlint) ? 'predator' : g.dHusk >= g.dGlint ? 'scavenger' : 'grazer');
+  for (const { pop, genome: g } of species) {
+    const a = (guilds[guildOf(g)] ??= { n: 0, mean: 0, share: 0 });
+    a.n += pop; a.mean += pop * (g.toxin || 0); if ((g.toxin || 0) > 0.3) a.share += pop;
+    if ((g.toxin || 0) > 0.3 && pop >= 20) toxic.push(g.hue);
+  }
+  for (const a of Object.values(guilds)) { a.mean /= a.n || 1; a.share /= a.n || 1; delete a.n; }
+  const near = (h) => toxic.some((t) => Math.abs(((h - t + 1.5) % 1) - 0.5) < 0.5 * (K.toxHue ?? 0.07));
+  let harmless = 0, mimics = 0, cover = 0;
+  for (const { pop, genome: g } of species) if ((g.toxin || 0) <= 0.3) { harmless += pop; if (near(g.hue)) mimics += pop; }
+  for (let b = 0; b < 720; b++) if (near((b + 0.5) / 720)) cover++;
+  cover /= 720;
+  const mimicShare = harmless ? mimics / harmless : 0;
+  return { guilds, toxicSpecies: toxic.length, mimicShare, cover, mimicry: cover > 0 ? mimicShare / cover : null };
+}
+
 export function communitySample(species, adhMin) {
   let living = 0, entropy = 0, simpson = 0, bodies = 0;
   const diet = Object.fromEntries(DIETS.map((k) => [k, 0]));

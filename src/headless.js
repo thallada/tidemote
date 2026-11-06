@@ -30,7 +30,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
     Math.random = rng; // Archetype initialization also uses Math.random.
     const E = await import('./engine.js');
     const { genomeSerial, readGenome } = await import('./genome.js');
-    const { communitySample, summarizeRun, packing, spatial } = await import('./ecostats.js');
+    const { communitySample, summarizeRun, packing, spatial, toxinSample } = await import('./ecostats.js');
     const { bodyCensus, morphMix } = await import('./bodies.js');
     const { dietGuild: guildOfG } = await import('./genome.js');
     let spatialPrev = null, spatialT = 0, latestSpatial = null;
@@ -83,11 +83,12 @@ export async function runHeadless(device, config, { print, width = 640, height =
         a.n += p; a.mean += p * (g.phototaxis || 0); if (Math.abs(g.phototaxis || 0) > 0.05) a.share += p;
       }
       for (const a of Object.values(photoTaxis)) { a.mean /= a.n || 1; a.share /= a.n || 1; delete a.n; }
+      const toxins = toxinSample(species, eng.K);
       latest = { t, silt: pop[0], glint: pop[1], husk: pop[2], stone: pop[3], framboid: pop[4], ...community,
         ambient: eng.ambient, season: eng.season,
         // the pool (docs/catastrophes.md): its water level (the dry share of the floor is 1 - level), rain, the event's phase
         pond: { level: eng.level, rain: eng.rain, sky: eng.sky, frost: eng.frost, phase: climate.phase ?? null },
-        era: climate.name, photoTaxis,
+        era: climate.name, photoTaxis, toxins,
         thermal: { tbg: eng.tbg, temp: eng.temp, excursion: eng.excursion, toptMean, toptSD: n ? Math.sqrt(Math.max(0, sq / n - toptMean ** 2)) : null, makerShare: n ? makers / n : 0, tolMean: n ? tol / n : null } };
       if (t - lastSample >= config.sample - 1e-6 || c.frameNo === frames) record(c);
       if (t - lastPrint >= config.print - 1e-6) {

@@ -375,6 +375,9 @@ export function createSpecimen(api) {
     b += trait('Adhesion', g.adhesion || 0, 0, 1, `${Math.round((g.adhesion || 0) * 100)}%${(g.adhesion || 0) > K.adhMin ? ' · bonds' : ''}`, 'adhesion');
     if ((g.adhesion || 0) > K.adhMin) b += kv('Growth', describeGrowth(growPlan(g), g), 'growth');
     if (g.calcify > 0.005) b += trait('Calcifying', g.calcify, 0, 1, `${Math.round(g.calcify * 100)}%`, 'calcify');
+    if ((g.toxin || 0) > 0.005) b += trait('Toxic', g.toxin, 0, 1, `${Math.round(g.toxin * 100)}%`, 'toxin');
+    const model = api.mimicOf?.(g);
+    if (model) b += kv('Resembles', `${spLink(model.serial, model.name)}${(g.toxin || 0) > 0.3 ? ', toxic like it' : ', which is toxic'}`, 'mimicry');
     b += trait('Size', g.size, 0.45, 2.6, fmtLen(0.17 * g.size), 'size');
     b += kv('Shape', CELL_SHAPES[cellShape(g, role)], 'size');
     h += blk('Body', b);
