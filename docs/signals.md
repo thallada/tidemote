@@ -100,3 +100,13 @@ eaters 29% resistant but only 2.6% toxic: grazers no longer turn toxic to eat. B
 main as it stands: main's own recent gates (`runs/ice-gate`, `runs/swimfix/gate-tg`) keep hunters in 11–12 worlds of
 32 at effective species 100–112 and CV 0.25–0.28, so the comparison that matters is against a gate of main itself
 (`runs/play/gate-main`).
+
+Against main itself (`runs/play/gate-main`, b66a121, then `runs/play/gate-learn`, this rule with `toxLearn` and
+the resistance gene, gated against it): **passes**, every gated metric the same. Effective species 103 → 91 (p 0.10,
+holm 0.72; every gate of the rule has landed near 90, so the drop is likely real though small), Hill 2 32 → 29, CV
+0.25 → 0.22, guilds 3.4 → 3.6, outcomes 5.6 → 4.1. Hunters are not lost but capped: their late share is 13% on
+main and 11% here (P(branch > main) 0.46), present (≥ 10%) in 19 worlds against 16, but at ≥ 20% (the outcome
+label's "predator") in 9 against 2: no world turns hunter-heavy. Grazers fall (44% → 36% of the living), producers
+and scavengers rise (33 → 38%, 10 → 14%: the vomit goes to the gut, which scavengers eat). That is the cascade a
+plant defense should cause: resistance taxes grazers, and fewer grazers feed fewer hunters. At 30 minutes the
+arms race is still running (toxic producers 21% at 10 minutes, 40% at 30; resistant grazers 10% → 48%).
