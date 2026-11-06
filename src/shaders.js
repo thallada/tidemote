@@ -236,6 +236,17 @@ export const DEFAULT_K = {
   align: 3.0,
   bond: 60,         // spring strength of bonds between cells of one body
   adhMin: 0.15,     // adhesion needed before a species forms bonds
+  // Grafts (docs/symbiosis.md): a cell whose graft gene passes graftMin may keep a bond to one cell of another
+  // species whose surface its receptors fit past graftFit (adhesion or not); the graft holds while they fit.
+  // Energy flows along it graftPool as readily as along a body's bond, toward the poorer cell, and besides each
+  // end draws graftTake x its graft gene of the other's energy a second (a grafter's pull: a parasite's drain, or a
+  // passenger's share of a richer host). graftFound: the share of sparks of life that graft.
+  graftMin: 0.15,
+  graftFit: 0.2,
+  graftPool: 0.5,
+  graftTake: 0.15,
+  graftFound: 0.12,
+  graftCost: 0.004,   // a grafter's upkeep per second at a full gene (as adhesion's)
   bite: 0.5,        // energy taken per bite from a photosynthesizing cell (big enough to outpace a patch's regrowth: booms and crashes)
   eatEvery: 6,      // frames between meals
   dietMin: 0.15,    // share of the diet a food must have before a cell bothers to eat it
@@ -765,6 +776,8 @@ function cellWGSL(K, w, gp) {
   // photosynthesis and eating don't mix well: a cell that does both does neither efficiently
   let eatEff = (1.0 - g.photo) * (1.0 - g.photo);
   let bonding = g.adhesion > ${f(K.adhMin)};
+  // a grafter (docs/symbiosis.md) keeps a bond to one cell of another species, adhesive or not
+  let graftOn = g.tail.w > ${f(K.graftMin)};
   var dn1 = vec2f(0.0);
   var dn2 = vec2f(0.0);
 
@@ -795,7 +808,10 @@ function cellWGSL(K, w, gp) {
   var n1 = NONE; var n2 = NONE;
   // (K.diag: kept bonds to its own kind let go for their length)
   var torn = 0u;
-  if (bonding) {
+  // (a grafter's nearest stranger it fits, within reach, to graft to if it holds no graft: gj at gd)
+  var gj = NONE; var gd = ${f(K.linkR)};
+  var grafted = false;
+  if (bonding || graftOn) {
     let kept = bondsOf(i);
     n1 = keepBond(i, kept.x, p);
     n2 = keepBond(i, kept.y, p);
@@ -821,6 +837,7 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
       dn2 -= world * round(dn2 * invWorld);
       d2 = length(dn2);
     }
+    grafted = (n1 != NONE && sortedFull[n1].kind != p.kind) || (n2 != NONE && sortedFull[n2].kind != p.kind);
   }
   let keep1 = n1 != NONE; let keep2 = n2 != NONE;
   // a tree grows from its tips at the angles of its plan, bonded mother to daughter only
@@ -1009,6 +1026,7 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
               d1 = r; n1 = j; dn1 = d;
             } else if (!keep2 && r < d2) { d2 = r; n2 = j; dn2 = d; }
           }
+          if (graftOn && !grafted && !tree && qk != p.kind && qk >= FIRST_LIFE && r < gd && a > ${f(K.graftFit)} && (q.kr & (1u << 13u)) == 0u) { gj = j; gd = r; }
         }
         if (seekHunt && r < EAT_R && qk != p.kind && (q.kr & (1u << 13u)) == 0u) {
           // how far its signature is from this cell's: |s - my|^2
@@ -1083,13 +1101,21 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
   // whether a bud of a body bearing tails, if it buds now, starts a tail (none of its kind near, room ahead)
   let sprout = tails && budTurn == 0u && !budBlocked && !tailNear && rnd(&s) < g.tail.x * ${f(K.tailOdds)};
   crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride; plantN *= stride; animN *= stride;
+  // a grafter holding no graft takes the nearest stranger it fits into a free slot (it pulls once that cell holds it back)
+  if (gj != NONE && gj != n1 && gj != n2 && backOf(gj, 0u) < BACK) {
+    var dg = sortedFull[gj].pos - p.pos;
+    dg -= world * round(dg * invWorld);
+    if (n1 == NONE) { n1 = gj; dn1 = dg; d1 = length(dg); }
+    else if (n2 == NONE) { n2 = gj; dn2 = dg; d2 = length(dg); }
+  }
 
   let heavy = 1.0 - 0.7 * g.photo;
   // Persistent bonds pull on the partners' current positions, even outside the sampled scan.
   var bondF = vec2f(0.0);
   // the partners that keep this cell (a tissue's bonds pull both ways), up to BACK of them, read where
   // they are used rather than held through the scan (it is short of registers): backAt
-  let nBack = select(0u, backN(i), bonding);
+  // (a cell that does not bond may still be held by a grafter)
+  let nBack = backN(i);
   // each bond rests where its two cells touch (both agree on it: their roles' sizes summed)
   let rs1 = restTo(n1, g.size, role, tight); let rs2 = restTo(n2, g.size, role, tight);
   // (a bond pulls only once both ends hold it: one this cell took up in its scan just now, or one its
@@ -1241,15 +1267,18 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
   var nP = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
   var vP = vB1 + vB2;
   var shareE = 0.0;
-  if (n1 != NONE) { shareE += sortedFull[n1].energy - p.energy; }
-  if (n2 != NONE) { shareE += sortedFull[n2].energy - p.energy; }
+  // (a graft's flow, graftFlow, apart: once both ends hold it, and in a tree too)
+  var graftE = 0.0;
+  var hosted = false;
+  if (n1 != NONE) { let q = sortedFull[n1]; if (q.kind == p.kind) { shareE += q.energy - p.energy; } else { graftE += graftFlow(p, q) * m1; } }
+  if (n2 != NONE) { let q = sortedFull[n2]; if (q.kind == p.kind) { shareE += q.energy - p.energy; } else { graftE += graftFlow(p, q) * m2; } }
   for (var k = 0u; k < nBack; k++) {
     let nb = backAt(i, k, p, n1, n2);
     if (nb == NONE) { continue; }
     let q = sortedFull[nb];
     let w = select(1.0, 0.0, tails && orderOf(q.info) == 2u);
     vP += q.vel * w; nP += w;
-    shareE += q.energy - p.energy;
+    if (q.kind == p.kind) { shareE += q.energy - p.energy; } else { graftE += graftFlow(p, q); hosted = true; }
   }
   vP /= max(nP, 1.0);
   shareE *= shareK;
@@ -1263,6 +1292,7 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
     if (baseOn) { shareE += (sortedFull[n1].energy - p.energy) * shareK; }
     else if (n1 != NONE) { shareE += feedOf(n1, gr, keep, rate).x; }
   }
+  shareE += graftE * shareK;
   var vel = p.vel;
   var pos = p.pos;
   // a beating tree's cells are held end to end more firmly than a body's (treeBond): its beat swings them hard
@@ -1908,7 +1938,7 @@ fn addEnergy(guild: u32, slot: u32, e: f32) {
 fn deriveMetab(g: Genome) -> f32 {
   return (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
         + ${f(K.anchorCost)} * (1.0 - g.advect) + 0.004 * g.size + ${f(K.swimCost)} * g.swim * (1.0 - g.photo) + 0.006 * g.align + 0.004 * g.adhesion + ${f(K.calcCost)} * g.calcify
-        + ${f(K.phototaxisCost)} * abs(g.tail.z)
+        + ${f(K.phototaxisCost)} * abs(g.tail.z) + ${f(K.graftCost)} * g.tail.w
         + ${f(K.beatCost)} * g.beat.x * g.beat.y * select(0.0, 1.0, (g.dev.x >= 0x80000000u || g.tail.x > 0.0) && g.adhesion > ${f(K.adhMin)})) * ${f(K.metab)};
 }
 
@@ -2024,6 +2054,9 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   // phototaxis drifts, and now and then the habit is gained (mostly toward the light) or lost
   g.tail.z = clamp(g.tail.z + gauss(s) * m * 0.15, -1.0, 1.0);
   if (rnd(s) < m * 0.1) { g.tail.z = select(0.0, mix(-0.6, 1.0, rnd(s)), abs(g.tail.z) < 0.05); }
+  // grafting (tail.w) drifts where it is had, and now and then the habit is gained or lost
+  if (g.tail.w > 0.0) { g.tail.w = clamp(g.tail.w + gauss(s) * m * 0.15, 0.0, 1.0); }
+  if (rnd(s) < m * 0.06) { g.tail.w = select(0.0, mix(0.2, 0.8, rnd(s)), g.tail.w < 0.05); }
   g.parent = g.serial;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -2074,6 +2107,9 @@ fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
   g.tol = mix(3.0, 10.0, rnd(s));
   g.beat = vec4f(select(0.0, mix(0.15, 0.5, rnd(s)), rnd(s) < 0.25), mix(0.5, 2.5, rnd(s)), mix(0.3, 1.2, rnd(s)), select(0.0, 1.0, rnd(s) < 0.25));
   g.tail = vec4f(select(0.0, mix(0.3, 1.0, rnd(s)), rnd(s) < 0.2), rnd(s), select(0.0, mix(-0.6, 1.0, rnd(s)), rnd(s) < 0.3), 0.0);
+  // (drawn last, so every other gene's draw is as before)
+  let gf = rnd(s);
+  g.tail.w = select(0.0, mix(0.2, 1.0, rnd(s)), gf < ${f(K.graftFound)});
   g.parent = 0u;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -2737,10 +2773,27 @@ fn heatStep(c: u32) -> vec2<bool> {
 }
 
 // --------------------------------------------------------------------- life
+// A graft: a bond a cell of one species keeps to a cell of another, held while the grafter's graft gene passes
+// graftMin and its receptors fit the other's surface (its role's) past graftFit.
+fn grafts(k: u32) -> bool { return genomes[k].tail.w > ${f(K.graftMin)}; }
+fn graftHolds(a: Particle, b: Particle) -> bool {
+  if (!grafts(a.kind)) { return false; }
+  let sa = genomes[a.kind].sig[roleOf(a.info)];
+  let sb = genomes[b.kind].sig[roleOf(b.info)];
+  return (sdot(sa.z, sb.x) + sdot(sa.w, sb.y)) * ${f(K.affScale)} > ${f(K.graftFit)};
+}
+// The energy a graft moves to cell p from its partner q in a second, over bodyShare: pooled graftPool as readily as
+// a body's, and each end's pull (graftTake x its graft gene) on the other's energy.
+fn graftFlow(p: Particle, q: Particle) -> f32 {
+  let tp = select(0.0, genomes[p.kind].tail.w, grafts(p.kind));
+  let tq = select(0.0, genomes[q.kind].tail.w, grafts(q.kind));
+  return ${f(K.graftPool)} * (q.energy - p.energy) + ${f(K.graftTake)} * (tp * max(q.energy, 0.0) - tq * max(p.energy, 0.0));
+}
 fn keepBond(i: u32, j: u32, p: Particle) -> u32 {
   if (j >= sim.count || j == i) { return NONE; }
   let q = sortedFull[j];
-  if (q.kind != p.kind) { return NONE; }
+  // a graft holds while its grafter (either end) still fits the other
+  if (q.kind != p.kind && (q.kind < FIRST_LIFE || !(graftHolds(p, q) || graftHolds(q, p)))) { return NONE; }
   // a cell that goes dormant leaves its body: its partners let go
   if ((q.info & 15u) == CYST) { return NONE; }
   var d = q.pos - p.pos;
@@ -3018,7 +3071,7 @@ fn bondBackMain(@builtin(global_invocation_id) gid: vec3u) {
   for (var s = 0u; s < 2u; s++) {
     let j = b[s];
     // a bond both keep is counted once, by each as its own
-    if (j < sim.count && j != i && sortedFull[j].kind == k && atomicLoad(&bondsAt[j * BW]) != i && atomicLoad(&bondsAt[j * BW + 1u]) != i) {
+    if (j < sim.count && j != i && (sortedFull[j].kind == k || (sortedFull[j].kind >= FIRST_LIFE && grafts(k))) && atomicLoad(&bondsAt[j * BW]) != i && atomicLoad(&bondsAt[j * BW + 1u]) != i) {
       let c = atomicAdd(&bondsAt[j * BW + 2u], 1u);
       if (c < BACK) { atomicStore(&bondsAt[j * BW + 3u + c], i); }
     }
@@ -3282,6 +3335,12 @@ ${cellWGSL(K, false, genomePtr)}
     addEnergy(dg, 0u, photoGain * sim.dt * 60.0);
     addEnergy(dg, 5u, (upkeep - heatMaking) * sim.dt * 60.0);
     addEnergy(dg, 7u, heatMaking * sim.dt * 60.0);
+    // grafts (docs/symbiosis.md): cells of grafting species, those holding a graft, and hosts
+    if (graftOn) {
+      atomicAdd(&ledger[META_DEATH + 26u], 1u);
+      if ((n1 != NONE && sortedFull[n1].kind != p.kind) || (n2 != NONE && sortedFull[n2].kind != p.kind)) { atomicAdd(&ledger[META_DEATH + 25u], 1u); }
+    }
+    if (hosted) { atomicAdd(&ledger[META_DEATH + 27u], 1u); }
     if (HEAT_ON) {
       atomicAdd(&ledger[META_ENERGY + 40u + u32(clamp(Tc / ${f(HEAT_BIN)}, 0.0, ${f(HEAT_BINS - 1)}))], 1u);
       if (th.torpid) { atomicAdd(&ledger[META_ENERGY + 56u], 1u); }
@@ -4324,7 +4383,8 @@ fn inbondGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_inde
     let it = intent[i];
     for (var b = 0u; b < 2u; b++) {
       let j = select(it.z, it.w, b == 1u);
-      if (j == NONE || j == i || j >= arrayLength(&parts) || parts[j].kind != k) { continue; }
+      // (a graft's too: vsPoint draws it as a narrow neck)
+      if (j == NONE || j == i || j >= arrayLength(&parts) || parts[j].kind < FIRST_LIFE) { continue; }
       let c = atomicAdd(&bondsIn[j * 5u], 1u);
       if (c < 4u) { atomicStore(&bondsIn[j * 5u + 1u + c], i); }
     }
@@ -5620,13 +5680,17 @@ struct PO {
         else if (c - 2u < inN) { index = bondsIn[ii * 5u + c - 1u]; }
         if (index == NONE || index == ii || index == picked.x || index == picked.y) { continue; }
         let partner = parts[index];
-        if (partner.kind != k) { continue; }
-        let ratio = cellRadius(partner, g, index) / px;
+        // a graft (docs/symbiosis.md) joins a stranger by a narrow neck: a grafter clings, it does not fuse
+        let graft = partner.kind != k;
+        if (graft && (partner.kind < FIRST_LIFE || (g.tail.w <= ${f(DEFAULT_K.graftMin)} && genomes[partner.kind].tail.w <= ${f(DEFAULT_K.graftMin)}))) { continue; }
+        let pg = genomes[partner.kind];
+        let ratio = cellRadius(partner, pg, index) / px;
         let offset = wrapd(drawnPos(partner) - at) * view.ppu / px;
         let reach = 1.65 * (1.0 + ratio) + 0.12 * min(1.0, ratio);
         if (dot(offset, offset) > reach * reach) { continue; }
         let dir = bodyDirection(index, partner);
-        plans = (plans & ~(31u << (5u * used))) | (choosePlan(g, roleOf(partner.info)) << (5u * used));
+        if (graft) { o.neck[used] = 0.05; }
+        plans = (plans & ~(31u << (5u * used))) | (choosePlan(pg, roleOf(partner.info)) << (5u * used));
         o.bondOffset[used] = pack2x16float(offset);
         o.bondFrame[used] = pack2x16float(vec2f(ratio, atan2(dir.y, dir.x)));
         seeds[used] = renderHash(partner.id);
