@@ -40674,7 +40674,7 @@ ${e.message}` : String(e?.message || e));
     const viewedSerial = () => spView != null ? spView : sel && sel.particle && sel.particle.kind >= FIRST_LIFE ? genomeFor(sel.particle.kind)?.serial : null;
     const stainHosts = /* @__PURE__ */ new Set();
     let stainPrevHosted = null;
-    function applyStain(c = life.lastCensus) {
+    function applyStain(c = life?.lastCensus) {
       const id = STAINS[state.stain]?.id;
       if (!id || id === "none" || !c) {
         eng.setStain(null);

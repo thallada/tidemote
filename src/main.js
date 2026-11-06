@@ -1244,7 +1244,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // hosts from the species ledger: the species whose cells held up a grafter since the last copy of it)
   const stainHosts = new Set();
   let stainPrevHosted = null;
-  function applyStain(c = life.lastCensus) {
+  function applyStain(c = life?.lastCensus) {
     const id = STAINS[state.stain]?.id;
     if (!id || id === 'none' || !c) { eng.setStain(null); return; }
     if (c.spl) {
