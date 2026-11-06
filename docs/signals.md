@@ -6,20 +6,27 @@ water come to mean something, and a viewer can watch a mimic put on a model's co
 
 ## The rule
 
-- **A toxin gene**, `tail.w` in the genome (the word was spare, so saves keep their layout; 0 in older saves),
-  0..1. It drifts by mutation and is now and then gained or lost (`mutateInto`), like calcification. 15% of sparks
-  of life and 15% of founders (hunters aside) carry one.
+- **A toxin gene**, `chem.x` in the genome (a fourth vec4 of chemistry, 0..1). It drifts by mutation and is now
+  and then gained or lost (`mutateInto`), like calcification. 15% of sparks of life and 15% of founders (hunters
+  aside) carry one.
 - **It costs.** A flat upkeep (`toxCost` × metab) and, mostly, a tax on everything the cell takes in (`toxTax`, 0.6:
   light and meals): the plant growth–defense trade-off, which makes a producer pay in proportion to how well it
   lives. Without the tax (upkeep only) toxins swept the food chain (below).
 - **Eating it hurts.** An eater that bites or kills a toxic cell throws up `toxHarm` × the toxin of the meal (into
   its gut: the dung scavengers eat) and is sick, losing `toxSick` × the toxin of its energy as heat. What counts is
-  the prey's toxin beyond the eater's own: an eater as toxic is resistant (`toxicFor`).
-- **It remembers the look.** A poisoned eater keeps the toxic species as its search image, *sick of it* (`sickOf`:
-  its image is a species more toxic than itself). While sick it has no search image (it no longer misses the
-  unfamiliar), and it passes up living prey whose hue is close to the one that poisoned it (`aversion`, fading over
-  `toxHue` of the color wheel; `lookAlike`). A harmless meal makes it forget only now and then (`toxForget`); a
-  toxic one replaces the memory at once (`remember`).
+  the prey's toxin beyond the eater's **resistance** (`toxicFor`).
+- **Resistance is a gene of its own**, `chem.y` (10% of sparks and founders carry some): a meal's toxin harms an
+  eater only beyond it. It costs an upkeep (`resCost`) and a share of every meal of living prey (`resTax`, 0.3), so
+  it pays only where toxic prey is common. An eater's own toxin is no defense (`toxResist` 0). In the first version
+  it was the only one, so grazers turned toxic to eat toxic plants and then poisoned the hunters that ate them
+  (below); apart, a grazer can eat toxic plants without becoming toxic itself.
+- **It remembers the look.** An eater poisoned by a meal carrying more than `toxLearn` (0.2) of toxin beyond its
+  resistance keeps the toxic species as its search image, *sick of it* (`sickOf`). While sick it has no search image
+  (it no longer misses the unfamiliar), and it passes up living prey whose hue is close to the one that poisoned it
+  (`aversion`, fading over `toxHue` of the color wheel; `lookAlike`). A harmless meal makes it forget only now and
+  then (`toxForget`); a toxic one replaces the memory at once (`remember`). A trace of toxin (which drifts into many
+  species by mutation) costs an eater a little but teaches nothing: before `toxLearn`, over a quarter of eaters could
+  be sick at once, each without the search image that keeps predation frequency-dependent.
 
 So a toxic species is protected by its look: a cell of it dies teaching the lesson, and its kin, which share its
 color, are spared. Anything that looks like it is spared too: a harmless species near a toxic one's hue is a
@@ -27,12 +34,14 @@ color, are spared. Anything that looks like it is spared too: a harmless species
 model's signal (an eater that eats a harmless mimic forgets now and then), so a model gains by drifting away from its
 mimics and the mimics by following: a chase around the color wheel.
 
-Eaters cannot see the toxin, only the color; the viewer can: toxic cells keep dark granules in their cytoplasm
-when drawn close (`cellColor`, zero-mean like the mottling).
+Eaters cannot see the toxin, only the color; the viewer can. Toxic cells keep dark granules in their cytoplasm when
+drawn close (`cellColor`, zero-mean like the mottling) and flash blue-green as they are bitten or killed, brightest
+in dim water. A sick eater sours toward olive while it stays sick and retches, pale and shrunken, just after a meal
+(`spriteOf`); selected, its mind says *Wary of* the prey it passes up (`mind.js`).
 
 ## What the page shows
 
-- The specimen panel: a **Toxic** tag and gauge, and **Resembles**: the toxic species of most weight whose color it
+- The specimen panel: **Toxic** and **Resistant** gauges, and **Resembles**: the toxic species of most weight whose color it
   wears (`mimicModel` in `genome.js`).
 - The Lab's Charts: **Warning colors**, every established species on the color wheel at its hue, further out the
   more cells it has; toxic species ringed, with a faint wedge where their look protects. Harmless dots inside a
