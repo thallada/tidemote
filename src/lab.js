@@ -663,9 +663,10 @@ export function createLab(api) {
       setText(p.scroll.querySelector('#tk-at'), fmtClock(m.t));
       setHTML(p.scroll.querySelector('#tk-now'), `take ${cur.n}, ${fmtClock(Math.max(0, cur.until - m.t))} on`);
       const shown = T.stocks(9), eras = api.climate().history;
+      const first = T.river(takes[0], shown);
       p.scroll.querySelectorAll('canvas.river').forEach((cv) => {
         const k = takes.find((x) => x.n === +cv.dataset.n);
-        if (k) drawRiver(cv, T.river(k, shown), shown, t0, t1, `Take ${k.n}${k === cur ? ' · now' : ''}`, eras);
+        if (k) drawRiver(cv, k === takes[0] ? first : T.river(k, shown), shown, t0, t1, `Take ${k.n}${k === cur ? ' · now' : ''}${k !== takes[0] ? ' · dotted: take 1' : ''}`, eras, k === takes[0] ? null : first);
       });
       setHTML(p.scroll.querySelector('#tk-legend'), shown.map((x) => `<span><i style="background:${cssCol(x.col)}"></i>${api.life().reg.get(x.serial) ? spLink(x.serial, x.name) : esc(x.name)}</span>`).join('') + '<span><i style="background:rgba(130,150,152,.5)"></i>other lines</span>');
       const alike = p.scroll.querySelector('canvas.alike');

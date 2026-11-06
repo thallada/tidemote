@@ -410,7 +410,7 @@ export function drawHues(cv, species, near) {
  * order and colors in every take, then the rest in gray), stacked over the time since the mark, t0..t1 (every take
  * on one clock, so the rivers line up). rows: [{ t, shares }]; label: the take's name, top left.
  */
-export function drawRiver(cv, rows, shown, t0, t1, label, eras) {
+export function drawRiver(cv, rows, shown, t0, t1, label, eras, ghost = null) {
   const f = fit(cv);
   if (!f) return;
   const { g, w, h } = f;
@@ -432,12 +432,23 @@ export function drawRiver(cv, rows, shown, t0, t1, label, eras) {
       g.globalAlpha = 1;
     }
   }
+  // the first take's band edges over a later take's bands: where this take parts from it
+  if (ghost && ghost.length > 1) {
+    g.strokeStyle = 'rgba(226,241,240,0.55)'; g.lineWidth = 1;
+    g.setLineDash([2, 3]);
+    for (let k = 0; k < n; k++) {
+      g.beginPath();
+      ghost.forEach((r, i) => { let v = 0; for (let j = 0; j <= k; j++) v += r.shares[j]; const x = X(r.t), y = Y(v); if (i) g.lineTo(x, y); else g.moveTo(x, y); });
+      g.stroke();
+    }
+    g.setLineDash([]);
+  }
   clock(g, box, t0, t1, eras);
   g.fillStyle = AXIS;
   g.textAlign = 'left';
   g.fillText(label, 0, 10);
   cv._ch = {
-    redraw: () => drawRiver(cv, rows, shown, t0, t1, label, eras),
+    redraw: () => drawRiver(cv, rows, shown, t0, t1, label, eras, ghost),
     at(px, py) {
       if (rows.length < 2 || px < box.l || px > box.r || py < box.t || py > box.b) return null;
       const t = t0 + ((px - box.l) / (box.r - box.l)) * (t1 - t0);
