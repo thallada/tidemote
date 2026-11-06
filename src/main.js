@@ -1327,7 +1327,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       drawWorldChart();
     }
     tellStories(c);
-    takes.observe(t, life.reg, life.chronicle);
+    takes.observe(t, life.reg, life.chronicle, { acts: life.hand });
     if (focus.key && focus.pred) pushFocus();
     renderWorld();
     lab.render(false);

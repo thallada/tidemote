@@ -48,7 +48,7 @@ function world(seed = 1) {
         const put = (i, a) => { spl[o + i] = Math.round((R * Math.cos(a) + 1) * 127 * n); spl[o + i + 1] = Math.round((R * Math.sin(a) + 1) * 127 * n); };
         put(0, at[0] * 2 * Math.PI); put(2, at[1] * 2 * Math.PI); spl[o + 4] = n;
       }
-      return { t: w.t, now: w.now, reg, living: [...reg.values()].reduce((a, sp) => a + (sp.alive ? sp.pop : 0), 0), est: 30, founders: 24,
+      return { t: w.t, now: w.now, reg, living: [...reg.values()].reduce((a, sp) => a + (sp.alive ? sp.pop : 0), 0), est: 30, founders: w.founders ?? 1e9,
         slotSerial, spl: w.splOn === false ? null : spl, temp: 19, light: 0.25, world: [256, 144], stone: 1000, count: 65536, era: 'The First Tides', ...extra };
     },
   };
@@ -313,4 +313,18 @@ test('the hand is told as weather: what it did, where, and who came of it; a wry
   assert.equal(ch.observe({ t: 4620, reg, now: 4e7 }).find((x) => x.kind === 'hand'), undefined);
   ch.note('hand', { t: 5900, act: { ...act, tool: 'needle', n: 7, at: 5800, end: 5810 }, before: new Map(), after: new Map(), world: [100, 60] });
   assert.match(ch.observe({ t: 5920, reg, now: 5e7 }).find((x) => x.kind === 'hand').html, /^A needle went through the western waters, and seven cells burst\.$/);
+});
+
+test('a harmless species come to wear a toxic one’s colors is told as a mimic', () => {
+  const ch = createChronicler();
+  const w = world(7);
+  const model = w.add('plankton', { genus: 'Venen', pop: 3000, mut: (g) => { g.toxin = 0.8; g.hue = 0.12; } });
+  const anc = w.add('grazer', { genus: 'Mimo', pop: 500, mut: (g) => { g.toxin = 0; g.hue = 0.6; } });
+  w.add('grazer', { genus: 'Mimo', pop: 2500, ancestor: anc.serial, mut: (g) => { g.toxin = 0; g.hue = 0.125; } });
+  w.add('scavenger', { genus: 'Other', pop: 4000, mut: (g) => { g.toxin = 0; g.hue = 0.4; } });
+  const told = run(ch, w, 120, 10);
+  const m = told.find((s) => s.kind === 'mimic');
+  assert.ok(m, 'a mimic story');
+  assert.match(m.html, /put on the (amber|orange) of Venen plankton\d+, though it carries no poison/);
+  assert.match(m.html, /ancestor Mimo grazer\d+ went in (blue|azure)/);
 });

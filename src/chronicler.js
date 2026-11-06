@@ -324,7 +324,8 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
   }
 
   // ------------------------------------------------------------------ telling
-  const toldAt = (key) => S.told.get(key) ?? -1e9;
+  // (never told: -Infinity, so a story kept to once a world, keyGap Infinity, may still be told the first time)
+  const toldAt = (key) => S.told.get(key) ?? -Infinity;
   function choose(cands, obs) {
     const { t } = obs;
     const now = obs.now ?? 0;

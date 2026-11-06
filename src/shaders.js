@@ -5184,9 +5184,9 @@ fn packRoom(pack: f32, size: f32) -> f32 {
 // far a newborn has grown and its offset toward its mother, how far it has curled up into a cyst, its
 // fullness (eased, so giving birth or being bitten dims it smoothly), a bite out of its side (its size
 // and world angle) and the swell of a meal.
-struct Anim { grow: f32, shift: vec2f, sleep: f32, fed: f32, mark: f32, markAt: f32, gulp: f32, ate: f32, novel: f32, born: bool, seen: bool };
+struct Anim { grow: f32, shift: vec2f, sleep: f32, fed: f32, mark: f32, markAt: f32, gulp: f32, ate: f32, novel: f32, born: bool, seen: bool, bit: f32 };
 fn animOf(p: Particle, g: Genome) -> Anim {
-  var a = Anim(1.0, vec2f(0.0), select(0.0, 1.0, (p.info & 15u) == CYST), p.energy / max(g.reproE, 0.01), 0.0, 0.0, 0.0, 99.0, 0.0, false, false);
+  var a = Anim(1.0, vec2f(0.0), select(0.0, 1.0, (p.info & 15u) == CYST), p.energy / max(g.reproE, 0.01), 0.0, 0.0, 0.0, 99.0, 0.0, false, false, 99.0);
   let st = swayOf(p);
   if (st.id != p.id) { return a; }
   a.seen = true;
@@ -5202,6 +5202,7 @@ fn animOf(p: Particle, g: Genome) -> Anim {
   a.markAt = f32((st.look >> 13u) & 255u) / 256.0 * TAU;
   a.gulp = select(0.0, sin(3.14159265 * ev.y / GULP_T), ev.y < GULP_T);
   a.ate = ev.y;
+  a.bit = ev.x;
   if ((st.look & LOOK_NOVEL) != 0u) { a.novel = max(0.0, 1.0 - p.age / NOVEL_T); }
   return a;
 }
@@ -5289,7 +5290,7 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
   var shape = 0u;
   var swim = 0.0;
   var kind = k;
-  var a = Anim(1.0, vec2f(0.0), 0.0, 0.0, 0.0, 0.0, 0.0, 99.0, 0.0, false, false);
+  var a = Anim(1.0, vec2f(0.0), 0.0, 0.0, 0.0, 0.0, 0.0, 99.0, 0.0, false, false, 99.0);
   let gh = ghostOf(p);
   let cause = p.info & 15u;
   if (k >= FIRST_LIFE || gh.kind != 0u) {
@@ -5342,6 +5343,16 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
       b *= 1.0 + 0.15 * iceN;
     }
     if (th.torpid) { col = mix(col, vec3f(0.55, 0.7, 0.95) * dot(col, vec3f(0.33)), 0.5); b *= 0.6; }
+    // Bioluminescence (docs/signals.md): in dim water a toxic species' cells flash blue-green as they are bitten or
+    // killed, a warning only the viewer sees (eaters go by color). A flash is quick, then fades; only cells drawn
+    // in detail keep the record that says they were bitten, and a kill flares as it bursts.
+    if (g.tail.w > 0.3) {
+      let dark = 1.0 - smoothstep(0.12, 0.55, sunAt(p.pos));
+      let hit = select(exp(-a.bit / 0.35), select(0.0, 1.0 - smoothstep(0.0, 0.45, gh.t), gh.how == 1u), dead);
+      let flash = dark * hit * smoothstep(0.3, 0.7, g.tail.w);
+      col = mix(col, vec3f(0.3, 0.85, 1.0), 0.75 * flash);
+      b *= 1.0 + 3.0 * flash;
+    }
     // heat stress bleaches a cell toward pale bone; a heat-maker glows faintly warm
     col = mix(col, vec3f(1.0, 0.96, 0.9) * max(0.45, dot(col, vec3f(0.3, 0.5, 0.2))), 0.6 * smoothstep(0.3, 1.0, th.x));
     col = mix(col, col * vec3f(1.25, 0.92, 0.72) + vec3f(0.12, 0.04, 0.0), 0.7 * thermo);

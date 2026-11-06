@@ -655,7 +655,7 @@ export function createLab(api) {
           p.scroll.innerHTML = block('The tape', `<div class="kv"><span>Marked</span><b id="tk-at"></b></div><div class="kv"><span>Now</span><b id="tk-now"></b></div>`, { tip: 'takes' })
             + block('Who inherits the water', takes.map((k) => `<canvas class="river chart" data-n="${k.n}" aria-label="Take ${k.n}: the share of the living held by each line alive at the mark, over time. Point at a band to name its line."></canvas>`).join('') + '<div class="legend" id="tk-legend"></div>')
             + (takes.length > 1 ? block('How alike', '<canvas class="alike chart" aria-label="How alike each take has gone to take 1"></canvas><div class="note two" id="tk-sum"></div>') : '')
-            + takes.slice().reverse().map((k) => block(`Take ${k.n}${k === T.current() ? ' · now' : ''}`, `<div class="kv"><span>Led by</span><b data-lead="${k.n}"></b></div><ol class="log tk-log" data-log="${k.n}"></ol>`)).join('');
+            + takes.slice().reverse().map((k) => block(`Take ${k.n}${k === T.current() ? ' · now' : ''}`, `<div class="kv"><span>Led by</span><b data-lead="${k.n}"></b></div><div class="kv"><span>The hand</span><b data-acts="${k.n}"></b></div><ol class="log tk-log" data-log="${k.n}"></ol>`)).join('');
         }
       }
       if (!m) return;
@@ -679,6 +679,8 @@ export function createLab(api) {
       for (const k of takes) {
         const ld = T.leader(k), sp = ld && m.stock.get(ld.serial);
         setHTML(p.scroll.querySelector(`[data-lead="${k.n}"]`), sp ? `the line of ${k === cur && api.life().reg.get(ld.serial) ? spLink(ld.serial, sp.name) : esc(sp.name)}, ${Math.round(ld.share * 100)}%` : '–');
+        const tools = [...new Set(k.acts.map((a) => a.tool))];
+        setText(p.scroll.querySelector(`[data-acts="${k.n}"]`), tools.length ? `${tools.join(', ')} (${k.acts.length} time${k.acts.length > 1 ? 's' : ''}, first at ${fmtClock(k.acts[0].at)})` : 'untouched');
         // the live take's stories link their species; an earlier take's serials now name others, so it is told as text
         const told = k.stories.filter((e) => e.type !== 'est').slice(0, 5);
         setHTML(p.scroll.querySelector(`[data-log="${k.n}"]`), told.length ? told.map((e) => `<li class="${esc(e.type)}"><time>${fmtClock(e.t)}</time><span>${k === cur ? e.html : esc(e.text)}</span></li>`).join('') : '<li class="empty">nothing told yet</li>');

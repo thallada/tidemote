@@ -53,14 +53,17 @@ export function createTakes() {
     S.takes = [];
     S.next = 1;
     begin();
-    observe(t, reg, [], true);
+    observe(t, reg, [], { force: true });
   }
   function begin() {
-    S.takes.push({ n: S.next++, samples: [], stories: [], memo: new Map(), until: S.mark.t });
+    S.takes.push({ n: S.next++, samples: [], stories: [], acts: [], memo: new Map(), until: S.mark.t });
   }
 
-  /** A census: t, the registry, and the chronicle's newest entries first (the page's life.chronicle). */
-  function observe(t, reg, chronicle = [], force = false) {
+  /**
+   * A census: t, the registry, the chronicle's newest entries first (the page's life.chronicle) and the hand's acts on
+   * the world (life.hand: { tool, at }), so a take can say what the viewer did in it (a take is an experiment too).
+   */
+  function observe(t, reg, chronicle = [], { acts = [], force = false } = {}) {
     const k = cur();
     if (!S.mark || !k) return;
     if (t < S.mark.t - 1) return; // (a world loaded from before it: not this tape)
@@ -78,6 +81,7 @@ export function createTakes() {
     k.samples.push({ t, living, stocks });
     // what the chronicler told since the mark, newest first (kept for the take once it is set aside)
     k.stories = chronicle.filter((e) => e.t >= S.mark.t && e.t <= t).slice(0, 60).map((e) => ({ t: e.t, type: e.type, html: e.html, text: e.text, col: e.col }));
+    k.acts = acts.filter((a) => a.at >= S.mark.t && a.at <= t).map((a) => ({ tool: a.tool, at: a.at }));
   }
 
   /** The world is being put back as it was at the mark: the take running is set aside and a new one begins. */
