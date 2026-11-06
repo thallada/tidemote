@@ -19,7 +19,9 @@ const server = http.createServer((req, res) => { res.writeHead(200, { 'content-t
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const args = ['--enable-unsafe-webgpu', '--disable-background-timer-throttling', '--disable-renderer-backgrounding'];
 const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(), 'tidemote-chronicle-')),
-  { viewport: { width: W, height: H }, ...(vkOn ? vkLaunch(args) : { headless: true, args }) });
+  { viewport: { width: W, height: H }, ...(vkOn ? vkLaunch(args) : { headless: true, args,
+    // under WSL (tools/gpu-node.sh) Windows Chrome, on the GPU
+    ...(process.platform === 'win32' ? { executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' } : {}) }) });
 const page = ctx.pages()[0] || await ctx.newPage();
 page.setDefaultTimeout(0);
 page.on('pageerror', (e) => console.log(`[page error] ${e.message}`));

@@ -195,6 +195,15 @@ for (const s of SIZES) {
   await page.evaluate(() => globalThis.__tidemote.lab.open('lineage'));
   await snap('lineage');
   if (!s.touch) rec.axeLineage = await axeRun(page);
+  // the Takes pane with a moment marked (docs/takes.md; an older build, --page, may have none)
+  if (await page.evaluate(() => !!globalThis.__tidemote.markTake)) {
+    await page.evaluate(() => globalThis.__tidemote.markTake());
+    await page.waitForTimeout(5000);
+    await page.evaluate(() => globalThis.__tidemote.lab.open('takes'));
+    await page.waitForTimeout(1500);
+    await snap('takes');
+    if (!s.touch) rec.axeTakes = await axeRun(page);
+  }
   if (s.touch) await page.evaluate(() => globalThis.__tidemote.lab.close()); else await page.evaluate(() => globalThis.__tidemote.lab.narrow());
   await open('#set-btn, [aria-controls="settings"]');
   await snap('settings');
@@ -247,6 +256,6 @@ for (const [id, r] of Object.entries(report.sizes)) {
       + `  hscroll: ${m.hscroll ? 'YES' : 'no'}  offscreen: ${m.offscreen.map((o) => o.id).join(',') || '-'}  clipped: ${m.clipped.length}`
       + (m.boxes.specBody ? `  spec scroll h: ${m.boxes.specBody.h}` : '') + (m.compass ? `  compass: ${m.compass.ok ? 'ok' : m.compass.na ? `n/a, ${m.compass.na}${m.compass.na === 'peek' ? '' : ` (below the fold: ${m.compass.compassBottom} > ${m.compass.visibleBottom})`}` : `HIDDEN (${m.compass.compassBottom} > ${m.compass.visibleBottom})`}` : ''));
   }
-  for (const a of [...(r.axe || []), ...(r.axeCell || []), ...(r.axeCard || []), ...(r.axeBench || []), ...(r.axeFilm || []), ...(r.axeLineage || [])]) console.log(`  axe ${a.impact} ${a.id} ×${a.n}: ${a.help}`);
+  for (const a of [...(r.axe || []), ...(r.axeCell || []), ...(r.axeCard || []), ...(r.axeBench || []), ...(r.axeFilm || []), ...(r.axeLineage || []), ...(r.axeTakes || [])]) console.log(`  axe ${a.impact} ${a.id} ×${a.n}: ${a.help}`);
 }
 console.log(`\n${out}`);
