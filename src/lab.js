@@ -654,7 +654,7 @@ export function createLab(api) {
         } else {
           p.scroll.innerHTML = block('The tape', `<div class="kv"><span>Marked</span><b id="tk-at"></b></div><div class="kv"><span>Now</span><b id="tk-now"></b></div>`, { tip: 'takes' })
             + block('Who inherits the water', takes.map((k) => `<canvas class="river chart" data-n="${k.n}" aria-label="Take ${k.n}: the share of the living held by each line alive at the mark, over time. Point at a band to name its line."></canvas>`).join('') + '<div class="legend" id="tk-legend"></div>')
-            + (takes.length > 1 ? block('How alike', '<canvas class="alike chart" aria-label="How alike each take has gone to take 1"></canvas>') : '')
+            + (takes.length > 1 ? block('How alike', '<canvas class="alike chart" aria-label="How alike each take has gone to take 1"></canvas><div class="note two" id="tk-sum"></div>') : '')
             + takes.slice().reverse().map((k) => block(`Take ${k.n}${k === T.current() ? ' · now' : ''}`, `<div class="kv"><span>Led by</span><b data-lead="${k.n}"></b></div><ol class="log tk-log" data-log="${k.n}"></ol>`)).join('');
         }
       }
@@ -670,6 +670,12 @@ export function createLab(api) {
       setHTML(p.scroll.querySelector('#tk-legend'), shown.map((x) => `<span><i style="background:${cssCol(x.col)}"></i>${api.life().reg.get(x.serial) ? spLink(x.serial, x.name) : esc(x.name)}</span>`).join('') + '<span><i style="background:rgba(130,150,152,.5)"></i>other lines</span>');
       const alike = p.scroll.querySelector('canvas.alike');
       if (alike) drawAlike(alike, takes.slice(1).map((k) => ({ label: `take ${k.n}`, col: TAKE_COLS[(k.n - 1) % TAKE_COLS.length], pts: T.alike(takes[0], k) })), t0, t1);
+      const sum = p.scroll.querySelector('#tk-sum');
+      if (sum) {
+        const c = T.compare(takes[0], cur), nm = (k) => esc(m.stock.get(k)?.name || 'a lost line'), pc = (v) => `${Math.round(v * 100)}%`;
+        setHTML(sum, !c ? 'Take ' + cur.n + ' has only begun.' : `At ${fmtClock(c.t)}, take ${cur.n} is ${pc(c.alike)} the world take 1 was. ${c.leadA === c.leadB
+          ? `The line of ${nm(c.leadA)} leads in both.` : `Take 1 was led by the line of ${nm(c.leadA)}; this take by ${nm(c.leadB)}.`}${c.up && c.up.b - c.up.a > 0.03 ? ` ${nm(c.up.serial)}’s line holds ${pc(c.up.b)} of the living, against ${pc(c.up.a)} in take 1.` : ''}`);
+      }
       for (const k of takes) {
         const ld = T.leader(k), sp = ld && m.stock.get(ld.serial);
         setHTML(p.scroll.querySelector(`[data-lead="${k.n}"]`), sp ? `the line of ${k === cur && api.life().reg.get(ld.serial) ? spLink(ld.serial, sp.name) : esc(sp.name)}, ${Math.round(ld.share * 100)}%` : '–');

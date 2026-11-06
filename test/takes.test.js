@@ -42,6 +42,10 @@ test('takes: a mark, a first take, a replay that goes another way', () => {
   const a = T.alike(one, two);
   assert.equal(a[0][1], 1, 'both start at the mark');
   assert.ok(a.at(-1)[1] < 0.2, 'and come out differently');
+  const c = T.compare(one, two);
+  assert.equal(c.leadA, 1); assert.equal(c.leadB, 2);
+  assert.equal(c.up.serial, 2); assert.equal(c.down.serial, 1);
+  assert.ok(c.alike < 0.2);
   const shown = T.stocks(5);
   assert.deepEqual(shown.map((s) => s.serial).sort(), [1, 2]);
   const r = T.river(two, shown);

@@ -138,8 +138,24 @@ export function createTakes() {
     return best && { serial: best.serial, share: best.v / Math.max(1, s.living) };
   }
 
+  /**
+   * Take b against take a at the latest moment both have reached: { t, alike, leadA, leadB, up, down }, up and down the
+   * stocks b holds most more and less of than a ({ serial, a, b } shares), or null.
+   */
+  function compare(a, b) {
+    const last = b.samples[b.samples.length - 1];
+    const t = last && Math.min(last.t, a.until);
+    const sa = t != null && at(a, t), sb = t != null && at(b, t);
+    if (!sa || !sb || t <= S.mark.t) return null;
+    const share = (s, k) => (s.stocks[k] || 0) / Math.max(1, s.living);
+    const keys = new Set([...Object.keys(sa.stocks), ...Object.keys(sb.stocks)].map(Number).filter((k) => k !== OTHER));
+    const diffs = [...keys].map((k) => ({ serial: k, a: share(sa, k), b: share(sb, k) })).sort((x, y) => (y.b - y.a) - (x.b - x.a));
+    const lead = (s) => { let best = null; for (const k of keys) if (!best || share(s, k) > share(s, best)) best = k; return best; };
+    return { t, alike: similarity(sa, sb), leadA: lead(sa), leadB: lead(sb), up: diffs[0] || null, down: diffs[diffs.length - 1] || null };
+  }
+
   return {
-    mark, observe, replay, alike, stocks, river, leader, at,
+    mark, observe, replay, alike, stocks, river, leader, at, compare,
     get marked() { return S.mark; },
     takes: () => S.takes,
     current: cur,
