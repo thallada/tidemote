@@ -1379,7 +1379,8 @@ ${w ? `  if (sub) { bondF += bendOn(i, gr) * ${f(K.growStiff)}; mSwim = select(n
     * (1.0 - ${f(K.allee)} + ${f(K.allee)} * min(kinN / 3.0, 1.0))
     // no light reaches a stranded cell's chloroplasts through a drying film
     * select(1.0, 0.0, stranded);
-  let bonds = select(0.0, 1.0, n1 != NONE) + select(0.0, 1.0, n2 != NONE);
+  // (bonds to its own kind: a graft is no body, and spares its grafter neither crowding nor upkeep)
+  let bonds = select(0.0, 1.0, n1 != NONE && sortedFull[n1].kind == p.kind) + select(0.0, 1.0, n2 != NONE && sortedFull[n2].kind == p.kind);
   // cells packed among their own kind sicken (species-specific disease, Janzen-Connell); a body's bond partners do not count
   let kinCost = 1.0 + ${f(K.kinCrowd)} * max(0.0, kinN - bonds - ${f(K.kinFree)});
   let thrift = 1.0 - ${f(K.bodyThrift)} * 0.5 * bonds;
