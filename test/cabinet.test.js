@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { encodeCard, decodeCard, cardLink, cardFromHash, pngText, cardFromPng, cardIntoPng, filterCards } from '../src/cabinet.js';
 import { G_WORDS } from '../src/shaders.js';
+import { BODY_MAX } from '../src/studio.js';
 import { qr } from '../src/qr.js';
 import { PNG } from 'pngjs';
 
@@ -19,6 +20,14 @@ test('a card carries its genome, its name and home water, and whether its world 
   assert.equal(long.name, 'Ψυχή'.repeat(6));
   assert.equal(long.home, '深い海'.repeat(5) + '深');
   assert.ok(!/\uFFFD/.test(long.name + long.home));
+});
+
+test('a card carries its body: each cell\'s role and its bonds to the cells before it', () => {
+  const body = [{ role: 0, bonds: [] }, { role: 2, bonds: [0] }, { role: 1, bonds: [1, 0] }, { role: 3, bonds: [2, 1, 0] }];
+  assert.deepEqual(decodeCard(encodeCard({ words, name: 'A', home: 'B', body })).body, body);
+  assert.equal(decodeCard(encodeCard({ words, name: 'A', home: 'B' })).body, null);
+  const most = Array.from({ length: BODY_MAX }, (_, i) => ({ role: 1, bonds: i ? [i - 1] : [] }));
+  assert.deepEqual(decodeCard(encodeCard({ words, name: 'A', home: 'B', body: most })).body, most);
 });
 
 test('a damaged card, another kind of file, or another format is refused', () => {
@@ -50,10 +59,12 @@ test('its link and its PNG text chunk give it back', () => {
   assert.deepEqual(decodeCard(cardFromPng(withCard)).words, words);
   // still a PNG that decodes
   assert.equal(PNG.sync.read(Buffer.from(withCard)).width, 4);
-  // the link fits a QR code of modest size: its digits in numeric mode, version 11 for a typical card
+  // the link fits a QR code of modest size: its digits in numeric mode, version 11 for a single-celled species'
+  // card, at most 12 for a body of BODY_MAX cells, each bonded to two before it (13 with the longest name and home)
   assert.equal(qr(link).version, 11);
-  const longest = cardLink(encodeCard({ words, name: 'x'.repeat(48), home: 'y'.repeat(48) }));
-  assert.ok(qr(longest).version <= 12);
+  const mat = Array.from({ length: BODY_MAX }, (_, i) => ({ role: i % 3, bonds: [i - 1, i - 2].filter((j) => j >= 0) }));
+  assert.ok(qr(cardLink(encodeCard({ words, name: 'Vorath iss', home: 'Salt Reach', body: mat }))).version <= 12);
+  assert.ok(qr(cardLink(encodeCard({ words, name: 'x'.repeat(48), home: 'y'.repeat(48), body: mat }))).version <= 13);
 });
 
 test('the cabinet filters: from this world, other waters; search; newest first', () => {

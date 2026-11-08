@@ -1,8 +1,9 @@
 // The cabinet (docs/hand.md): every species card saved, in every world, kept in this browser beside the saved worlds,
-// and the genome a card carries so a species can leave its world: a versioned payload (TMG1, the genome's format
-// and length, the species' name and home water, whether its world was touched, the words, a checksum) in the
-// card's PNG (a text chunk) and in its QR code (a link that opens Tidemote with the card). Pure but the store.
+// and the genome a card carries so a species can leave its world: a versioned payload (TMG2, the genome's format
+// and length, the species' name and home water, whether its world was touched, the words, its body, a checksum) in
+// the card's PNG (a text chunk) and in its QR code (a link that opens Tidemote with the card). Pure but the store.
 import { G_WORDS } from './shaders.js';
+import { BODY_MAX } from './studio.js';
 import { SAVE_VERSION } from './worlds.js';
 
 // a card's link: its payload as digits, which a QR code holds in numeric mode (3.3 bits a digit, against 8 for a
@@ -10,7 +11,7 @@ import { SAVE_VERSION } from './worlds.js';
 const CARD_URL = 'https://tidemote.com/#c=';
 // the genome's format: a card from a world whose genomes differ (another major, another length) is refused
 const FORMAT = +SAVE_VERSION.split('.')[0];
-const MAGIC = [0x54, 0x4d, 0x47, 0x31]; // TMG1
+const MAGIC = [0x54, 0x4d, 0x47, 0x32]; // TMG2
 const FLAG_TOUCHED = 1; // (the other flag bits reserved)
 
 const fnv = (b) => { let h = 0x811c9dc5; for (const x of b) h = Math.imul(h ^ x, 0x01000193) >>> 0; return h; };
@@ -19,10 +20,36 @@ const unb64 = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/'
 // (UTF-8 in at most max bytes, cut between characters)
 const text = (s, max) => { const b = new Uint8Array(max); return b.subarray(0, new TextEncoder().encodeInto(String(s || ''), b).written); };
 
-/** A card's payload: { words (G_WORDS), name, home, touched } -> bytes. */
-export function encodeCard({ words, name, home, touched = false }) {
-  const n = text(name, 48), h = text(home, 48);
-  const out = new Uint8Array(4 + 4 + n.length + 1 + h.length + G_WORDS * 4 + 4);
+// A body (studio.js bodyOf: [{ role, bonds }], or null for single cells) packed: its count of cells, then each
+// cell's role (2 bits), how many cells before it it is bonded to (2 bits) and which (5 bits each).
+const IX = Math.log2(BODY_MAX);
+function packBody(body) {
+  const bits = [], put = (v, n) => { for (let i = n - 1; i >= 0; i--) bits.push((v >> i) & 1); };
+  for (const c of body || []) { put(c.role, 2); put(c.bonds.length, 2); for (const j of c.bonds) put(j, IX); }
+  const out = new Uint8Array(1 + Math.ceil(bits.length / 8));
+  out[0] = body ? body.length : 0;
+  bits.forEach((v, i) => { out[1 + (i >> 3)] |= v << (7 - (i & 7)); });
+  return out;
+}
+// (the body, and the bytes after it) or null where the bytes hold none that makes sense
+function unpackBody(b, o) {
+  const n = b[o++];
+  if (n > BODY_MAX) return null;
+  let at = o * 8;
+  const get = (k) => { let v = 0; for (let i = 0; i < k; i++, at++) v = (v << 1) | ((b[at >> 3] >> (7 - (at & 7))) & 1); return v; };
+  const body = [];
+  for (let i = 0; i < n; i++) {
+    const role = get(2), bonds = Array.from({ length: get(2) }, () => get(IX));
+    if (at > b.length * 8 || bonds.some((j) => j >= i)) return null;
+    body.push({ role, bonds });
+  }
+  return { body: n ? body : null, end: Math.ceil(at / 8) };
+}
+
+/** A card's payload: { words (G_WORDS), name, home, touched, body } -> bytes. */
+export function encodeCard({ words, name, home, touched = false, body = null }) {
+  const n = text(name, 48), h = text(home, 48), bd = packBody(body);
+  const out = new Uint8Array(4 + 4 + n.length + 1 + h.length + G_WORDS * 4 + bd.length + 4);
   const dv = new DataView(out.buffer);
   out.set(MAGIC, 0);
   out[4] = FORMAT; out[5] = G_WORDS; out[6] = touched ? FLAG_TOUCHED : 0; out[7] = n.length;
@@ -31,10 +58,11 @@ export function encodeCard({ words, name, home, touched = false }) {
   out[o++] = h.length; out.set(h, o); o += h.length;
   words.forEach((w, i) => dv.setUint32(o + i * 4, w >>> 0, true));
   o += G_WORDS * 4;
+  out.set(bd, o); o += bd.length;
   dv.setUint32(o, fnv(out.subarray(0, o)), true);
   return out;
 }
-/** bytes -> { words, name, home, touched }, or throws with why it is refused. */
+/** bytes -> { words, name, home, touched, body }, or throws with why it is refused. */
 export function decodeCard(b) {
   if (b.length < 12 || MAGIC.some((m, i) => b[i] !== m)) throw new Error('This is not a Tidemote species card.');
   if (b[4] !== FORMAT || b[5] !== G_WORDS) throw new Error(b[4] > FORMAT ? 'This card is from a newer Tidemote.' : 'This card is from an older Tidemote, whose genomes this one cannot read.');
@@ -43,9 +71,10 @@ export function decodeCard(b) {
   const name = dec.decode(b.subarray(8, o));
   const hl = b[o++], home = dec.decode(b.subarray(o, o + hl));
   o += hl;
-  if (b.length !== o + G_WORDS * 4 + 4 || dv.getUint32(o + G_WORDS * 4, true) !== fnv(b.subarray(0, o + G_WORDS * 4))) throw new Error('This card is damaged.');
+  const bd = o + G_WORDS * 4 < b.length ? unpackBody(b, o + G_WORDS * 4) : null;
+  if (!bd || b.length !== bd.end + 4 || dv.getUint32(bd.end, true) !== fnv(b.subarray(0, bd.end))) throw new Error('This card is damaged.');
   const words = Array.from({ length: G_WORDS }, (_, i) => dv.getUint32(o + i * 4, true));
-  return { words, name, home, touched: !!(b[6] & FLAG_TOUCHED) };
+  return { words, name, home, touched: !!(b[6] & FLAG_TOUCHED), body: bd.body };
 }
 // bytes as digits: seven bytes (56 bits) in seventeen digits, a last few in as many as they need (DIGITS[n]); each
 // length its own, so the digits say how many bytes they hold

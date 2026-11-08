@@ -131,12 +131,25 @@ card not saved yet, one after another, counting them. It holds 2,048 cells.
 
 ## The cabinet
 
-A species card carries its genome: a payload (`TMG1`, the save format's major, `G_WORDS`, its name and home water,
-whether its world was touched, the words, a checksum; `src/cabinet.js`) in the PNG's text chunk and in the QR code in
+A species card carries its genome and its body: a payload (`TMG2`, the save format's major, `G_WORDS`, its name and
+home water, whether its world was touched, the words, the body its portrait shows, a checksum; `src/cabinet.js`) in the
+PNG's text chunk and in the QR code in
 its corner, which holds a link (`https://tidemote.com/#c=…`, the payload as digits) that opens Tidemote with the card: a phone's camera
 pointed at a laptop's screen carries a species from one world to another with no server. The link shows the card
-first, drawn without the GPU (`strangerCard`), to save or go on; the world starts, its shaders compiling, only then,
-and the card goes into the cabinet. A card of another format
+first, drawn without the GPU (`strangerCard`, its sigil for its portrait), to save or go on; then, where there is a
+GPU, the card page's studio (`src/studiorender.js`) draws its species alone from what the card carries, as a
+mini-card's portrait shows a stranger (`portraitCells`, `stage` in `src/studio.js`), and the card is drawn again with
+it. The body (`bodyOf`) is the middle of the one its portrait shows, its first `BODY_MAX` (32) cells, each its role
+(2 bits) and its bonds to the cells before it (at most three, 5 bits each), about 2 bytes a cell: its cells are drawn
+healthy in their roles' colors (`roleColor`) and laid out by their bonds (`layOut`); a single-celled species carries
+none and is drawn as a few newborns. A card keeps the body it was made with (the cabinet's `body`); a species' card
+not yet kept, its last portrait's (`fulls`). With a body the code is version 12 (13 with the longest name and home).
+The studio makes only the three pipelines that takes (`organDirs`, `vsStudio` with `fsPoint`, `fsPlain` reading the
+cells' light alone: no stone) on a device of its own, gone once the portrait is read back; the line under the card
+says each stage, or, with an alert, why its sigil stands in (its hint the error). The world starts, its shaders
+compiling, only once the card is put aside, and the card goes into the cabinet as it was drawn by then.
+`test/linked.test.mjs` drives the page as built (the card at once, the stages, the portrait swapped in, its QR code
+read back, Save, Open, no WebGPU, a broken link); `test/studiorender.test.mjs` the studio under Dawn. A card of another format
 is refused, as an old save is. The QR encoder is `src/qr.js` (level L; the link's head in byte mode, its digits in
 numeric mode, 3.3 bits a digit against base64's 8 bits a character, so a typical card's code is version 11, 61
 modules, rather than 13), drawn in the card's dark on a tile of its cyan with a quiet zone of at least three modules,

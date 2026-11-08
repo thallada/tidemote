@@ -14,15 +14,17 @@ import { LOOK_WORDS } from './look.js';
 // where the post uniforms' hand words begin (struct Post: the lamp, the lens), after the sea's
 const POST_LAMP = 100 + 4 * SEA_CASCADES;
 // the look's words (Post.look, src/look.js) after the hand's
-const POST_LOOK = POST_LAMP + 16;
+export const POST_LOOK = POST_LAMP + 16;
 // the draw's view uniforms (struct View in DRAW_WGSL), the world's light at their end
-const VIEW_BYTES = 224;
+export const VIEW_BYTES = 224;
 // then the murk's cameras (Post.murk, murkB: _murkCam)
 const POST_MURK = POST_LOOK + LOOK_WORDS;
+// the post uniforms' floats (struct Post)
+export const POST_WORDS = POST_MURK + 8;
 // how much slower than the focal plane each of the murk's layers pans (MUD_DEPTH in POST_WGSL)
 const MUD_DEPTH = [0.93, 0.85, 0.76];
 
-const HDR = 'rgba16float';
+export const HDR = 'rgba16float';
 const BLOOM_LEVELS = 6;
 // the longest step bodyTick has substep slots for (the page takes at most 6 ticks; tools may ask more)
 const SUB_TICKS = 16;
@@ -87,6 +89,41 @@ const FLOOR_MS = 2;
 // the real-time clock's period on the GPU (= SIM_WRAP in ANIM_WGSL, which the sway pass corrects for)
 const REAL_WRAP = 4096;
 
+// The draw's view uniforms (struct View in DRAW_WGSL) into data (VIEW_BYTES): the view (cam, its size in pixels W × H,
+// dpr, the real time, the selected cell, whether cells show their insides, culled, splat, lit) and the world it shows
+// (w: its grid, the exposure, the focus, the pool's level, interiors, the tide and its phases, the season, the open
+// water's light, the sky, the simulated clock, the hand's lamp). Engine._writeView, and the card page's studio.
+export function viewWords(data, K, { cam, W, H, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false }, w) {
+  const ppu = cam.ppu;
+  // a cell keeps one world size at every zoom, so zooming in only resolves it
+  const pointSize = Math.max(1.1 * dpr, 0.085 * ppu);
+  const perArea = K.density / (ppu * ppu);
+  const overlapAll = perArea * pointSize * pointSize * 0.5;
+  const lineCov = (K.density * 0.25 * dpr) / ppu;
+  const v = new Float32Array(data);
+  const vu = new Uint32Array(data);
+  v[0] = cam.x; v[1] = cam.y; v[2] = w.grid[0]; v[3] = w.grid[1];
+  v[4] = W; v[5] = H; v[6] = ppu; v[7] = pointSize;
+  v[8] = 0.95 * w.exposure;
+  v[9] = (0.55 / (1 + lineCov * 0.6)) * w.exposure;
+  v[10] = K.linkR; v[11] = time; vu[12] = selId >>> 0;
+  v[13] = (0.075 / (1 + overlapAll * 0.9)) * w.exposure;
+  const f = w.focus;
+  vu[14] = f.on; vu[15] = f.roleMask; vu[16] = f.stateMode; v[17] = f.mute; vu[18] = f.memberKind; vu[19] = f.memberN;
+  vu[20] = detail ? 1 : 0;
+  vu[21] = culled ? 1 : 0;
+  v[22] = splat;
+  v[23] = K.tightFrom;
+  v[24] = w.level;
+  // the world's light, as the composite shows it, for silt's sparkle (sunAt); none in views shown unlit
+  vu[25] = lit ? 1 : 0;
+  // the radius from which listMain gives cells their insides (none when the tuner leaves them out)
+  v[26] = w.interiors ? 12 : 1e9;
+  v.set(w.tide, 28); v.set(w.tidePh, 44);
+  v[48] = w.season; v[49] = w.ambient; v[50] = w.sky; v[51] = w.t;
+  v.set(w.hand.subarray(0, 4), 52);
+}
+
 class Engine {
   constructor(device, format, hasTimestamps, K, late = false) {
     this.device = device;
@@ -150,7 +187,7 @@ class Engine {
     this.viewDataL = new ArrayBuffer(VIEW_BYTES);
     this.viewDataC = new ArrayBuffer(VIEW_BYTES); // the stone cache's view (_stoneStale)
     // (after the sea's: the hand's lamp, the warm stage's lens, the instrument)
-    this.postData = new Float32Array(POST_MURK + 8);
+    this.postData = new Float32Array(POST_WORDS);
     // the look (src/look.js): its words, set by the page (all 0: the bare view)
     this.look = new Float32Array(LOOK_WORDS);
     // the warm stage's or cold probe's lens (center, radius, 1 shown), set by the page: the thermal camera inside the
@@ -215,7 +252,7 @@ class Engine {
       return u;
     });
     b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
-    b.post = d.createBuffer({ size: (POST_MURK + 8) * 4, usage: U.UNIFORM | U.COPY_DST });
+    b.post = d.createBuffer({ size: POST_WORDS * 4, usage: U.UNIFORM | U.COPY_DST });
     // the sea (SEA_WGSL, src/sea.js): its uniforms, and every cascade's slope and displacement, mipmapped (its
     // amplitudes and working buffer are made with the first frame: _seaBuffers)
     b.seaU = d.createBuffer({ size: 128, usage: U.UNIFORM | U.COPY_DST });
@@ -2544,36 +2581,11 @@ class Engine {
 
   // detail: resolve cells as they grow on screen (false keeps the distant sprite at every zoom)
   _writeView(buf, data, cam, W, H, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false) {
-    const K = this.K;
-    const ppu = cam.ppu;
-    // a cell keeps one world size at every zoom, so zooming in only resolves it
-    const pointSize = Math.max(1.1 * dpr, 0.085 * ppu);
-    const perArea = K.density / (ppu * ppu);
-    const overlapAll = perArea * pointSize * pointSize * 0.5;
-    const lineCov = (K.density * 0.25 * dpr) / ppu;
-    const v = new Float32Array(data);
-    const vu = new Uint32Array(data);
-    v[0] = cam.x; v[1] = cam.y; v[2] = this.grid[0]; v[3] = this.grid[1];
-    v[4] = W; v[5] = H; v[6] = ppu; v[7] = pointSize;
-    v[8] = 0.95 * this.settings.exposure;
-    v[9] = (0.55 / (1 + lineCov * 0.6)) * this.settings.exposure;
-    v[10] = K.linkR; v[11] = time; vu[12] = selId >>> 0;
-    v[13] = (0.075 / (1 + overlapAll * 0.9)) * this.settings.exposure;
-    const f = this.focus;
-    vu[14] = f.on; vu[15] = f.roleMask; vu[16] = f.stateMode; v[17] = f.mute; vu[18] = f.memberKind; vu[19] = f.memberN;
-    vu[20] = detail ? 1 : 0;
-    vu[21] = culled ? 1 : 0;
-    v[22] = splat;
-    v[23] = K.tightFrom;
-    v[24] = K.pond ? this.level : 1;
-    // the world's light, as the composite shows it, for silt's sparkle (sunAt); none in views shown unlit
-    vu[25] = lit ? 1 : 0;
-    // the radius from which listMain gives cells their insides (none when the tuner leaves them out)
-    v[26] = this.fx.interiors ? 12 : 1e9;
     const clk = this._clock();
-    v.set(this.tide, 28); v.set(clk.tidePh, 44);
-    v[48] = this.season; v[49] = this.ambient; v[50] = K.pond ? this.sky : 1; v[51] = clk.t;
-    v.set(this.hand.subarray(0, 4), 52);
+    viewWords(data, this.K, { cam, W, H, dpr, time, selId, detail, culled, splat, lit }, {
+      grid: this.grid, exposure: this.settings.exposure, focus: this.focus, level: this.K.pond ? this.level : 1,
+      interiors: this.fx.interiors, tide: this.tide, tidePh: clk.tidePh, season: this.season, ambient: this.ambient,
+      sky: this.K.pond ? this.sky : 1, t: clk.t, hand: this.hand });
     this.device.queue.writeBuffer(buf, 0, data);
   }
 

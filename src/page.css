@@ -576,7 +576,7 @@ body.spec-open .caption, body.lab-open .caption { max-width: max(240px, min(520p
 body.ui-off :is(#hud, #spec, #lab, #help, #card, #tip, #plate) { visibility: hidden !important; opacity: 0 !important; }
 
 .tip {
-  position: fixed; z-index: 40; pointer-events: none; max-width: 300px;
+  position: fixed; z-index: 60; pointer-events: none; max-width: 300px;
   background: var(--panel-solid); border: 1px solid var(--line-2); border-left: 2px solid var(--cyan);
   color: var(--ink); padding: 8px 11px; font-size: 12.5px; line-height: 1.5; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
 }
@@ -1199,7 +1199,20 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .linked { position: fixed; inset: 0; z-index: 55; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s2); padding: 16px; background: var(--bg); overflow-y: auto; }
 .linked h1 { margin: 0; font-size: 22px; font-weight: 300; letter-spacing: .06em; text-align: center; }
 .linked .lbl { margin: 0; color: var(--cyan); }
-.linked img { display: block; width: auto; max-width: 100%; height: auto; max-height: calc(100dvh - 210px); min-height: 0; }
+.linked img { display: block; width: auto; max-width: 100%; height: auto; max-height: calc(100dvh - 240px); min-height: 0; }
+/* the card's portrait as it is drawn (under the card, never on it): a spinner and the stage, a tick when done (then
+   gone, its line kept), an alert and why where it cannot be (the error in its hint) */
+.linked-status { display: flex; align-items: center; gap: 8px; height: 20px; margin: 0; color: var(--ink-3); font-size: 12px; letter-spacing: .04em; transition: opacity .6s; }
+.linked-status:not([data-state]) { visibility: hidden; }
+.linked-status i { flex: none; width: 12px; height: 12px; box-sizing: border-box; }
+.linked-status[data-state="busy"] i { border: 2px solid var(--line-2); border-top-color: var(--cyan); border-radius: 50%; animation: linked-spin .8s linear infinite; }
+.linked-status[data-state="done"] { opacity: 0; transition-delay: 1.5s; }
+.linked-status[data-state="done"] i { width: 6px; height: 11px; margin: 0 3px 2px; border: solid var(--cyan); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.linked-status[data-state="fail"] { color: var(--ink-2); cursor: help; }
+.linked-status[data-state="fail"] i { width: 14px; height: 13px; background: var(--sun); clip-path: polygon(50% 0, 100% 100%, 0 100%); position: relative; }
+.linked-status[data-state="fail"] i::after { content: '!'; position: absolute; inset: 1px 0 0; color: var(--bg); font: normal 700 10px/13px system-ui, sans-serif; text-align: center; }
+@keyframes linked-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .linked-status[data-state="busy"] i { animation-duration: 2.4s; } }
 .linked p#linked-note { margin: 0; max-width: 46ch; text-align: center; color: var(--ink-2); font-size: 13px; }
 .linked-act { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--s3); }
 .linked-act .btn { height: 40px; padding: 0 18px; }

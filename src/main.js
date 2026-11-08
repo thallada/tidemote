@@ -35,7 +35,8 @@ import { createBench } from './bench.js';
 import { createLadder } from './ladder.js';
 import { createPipette, setDownJob, mergeJobs, bodiesOf, PIPE_LIMIT } from './pipette.js';
 import { miniCard, setThumb, hasThumb, dropThumb } from './minicard.js';
-import { layOut, frameCells, records } from './studio.js';
+import { stage, bodyOf, portraitCells } from './studio.js';
+import { studioPortrait } from './studiorender.js';
 import { encodeImages, encodeBytes } from './encode.js';
 import { KNOBS, decide, costOf } from './tuner.js';
 import { trackGlass } from './glass.js';
@@ -1870,12 +1871,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // its species' cells (genome words; cells [{ e, a, col, info, partners }]) laid out still: its pixels
   // (cells with a place, at: [x, y], as they lay in the water, keep it; the rest are laid out by their bonds)
   function takeStudio(words, cells) {
-    const g = genomeOfWords(words), r = cells.map((c) => cellRadius({ role: (c.info >> 4) & 3 }, g, 1));
-    const pos = cells[0]?.at ? cells.map((c) => c.at) : layOut(cells.map((c, i) => ({ r: r[i], partners: c.partners }))), f = frameCells(pos, r, PORTRAIT);
-    const [W, H] = eng.grid;
-    eng.setStudio(records(cells, pos, [W / 2 - f.cx, H / 2 - f.cy]), cells.length, Uint32Array.from(words));
+    const [W, H] = eng.grid, { parts, ppu } = stage(genomeOfWords(words), cells, PORTRAIT, [W / 2, H / 2]);
+    eng.setStudio(parts, cells.length, Uint32Array.from(words));
     if (portraitJob) portraitJob.resolve(null);
-    return new Promise((resolve) => { portraitJob = { studio: true, cx: W / 2, cy: H / 2, size: PORTRAIT, ppu: f.ppu, resolve, at: performance.now() }; });
+    return new Promise((resolve) => { portraitJob = { studio: true, cx: W / 2, cy: H / 2, size: PORTRAIT, ppu, resolve, at: performance.now() }; });
   }
   // A picture of what the view shows (the screen's shorter side, square): a save's preview.
   function takeView() {
@@ -1933,13 +1932,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const worldId = () => eng.seedValue;
   const cardFacets = new WeakMap();
   const savedCard = (serial) => cabinet.cards.find((c) => c.world === worldId() && c.serial === serial) || null;
-  // what a species' card carries: its genome's words (exact from the census while it lives), its home water
+  // what a species' card carries: its genome's words (exact from the census while it lives), its home water, its
+  // body as its portrait shows it (its card's kept one, if it has a card)
   function carry(serial) {
     const sp = life.reg.get(serial), slot = sp?.alive ? sp.slot : -1;
     const words = slot >= FIRST_LIFE && life.lastCensus && genomeSerial(life.lastCensus.genomeU32, slot) === serial ? wordsOf(slot) : genomeWords(sp.genome);
     const home = sp.home || climate.name, touched = hand.touched || !!sp.carried;
-    const bytes = encodeCard({ words, name: sp.name, home, touched });
-    return { words, home, touched, bytes, link: cardLink(bytes) };
+    const body = savedCard(serial)?.body ?? fulls.get(`s${serial}`)?.body ?? null;
+    const bytes = encodeCard({ words, name: sp.name, home, touched, body });
+    return { words, home, touched, body, bytes, link: cardLink(bytes) };
   }
   // the card as a PNG that carries its genome
   async function cardPng(cv, serial) {
@@ -1961,16 +1962,16 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const portraitQ = new Map(); // key -> { words, serial, stored, wait: [resolve], tries }
   let portraitBusy = false, portraitGen = 0;
   // a portrait asked for (words: the genome's; serial: its species of this world; stored: a card's kept portrait,
-  // JPEG bytes): its mini-card's shown when it comes; resolves to the picture (full: taken again if only the
-  // mini-card's is kept) or null
+  // JPEG bytes; body: the body a card carries, studio.js bodyOf): its mini-card's shown when it comes; resolves to the
+  // picture (full: taken again if only the mini-card's is kept) or null
   function portrait(key, words, serial = null, full = false, stored = null) {
     if (fulls.has(key) || (!full && hasThumb(key))) return Promise.resolve(fulls.get(key)?.bmp ?? null);
     const w = ask(key, words, serial, stored);
     return new Promise((r) => w.wait.push(r));
   }
-  function ask(key, words, serial = null, stored = null) {
+  function ask(key, words, serial = null, stored = null, body = null) {
     let w = portraitQ.get(key);
-    if (!w) { portraitQ.set(key, (w = { words, serial, stored, wait: [], tries: 0 })); setTimeout(pumpPortraits, 0); }
+    if (!w) { portraitQ.set(key, (w = { words, serial, stored, body, wait: [], tries: 0 })); setTimeout(pumpPortraits, 0); }
     return w;
   }
   // this world's species' (its card's kept one, if it has a card): the picture, for its card
@@ -1985,7 +1986,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function cabThumb(c) {
     if (c.world === worldId()) return speciesThumb(c.serial, c.words);
     const key = `c${c.id}`;
-    if (!hasThumb(key)) { if (c.thumb?.length) setThumb(key, c.thumb); else ask(key, c.words); }
+    if (!hasThumb(key)) { if (c.thumb?.length) setThumb(key, c.thumb); else ask(key, c.words, null, null, c.body); }
     return key;
   }
   // a card's PNG's portrait, as a mini-card's (the square the card shows the middle of, cut by the browser as it
@@ -2018,17 +2019,16 @@ function run(eng, device, ctx, specCtx, hasTS) {
       partners: m.body ? m.edges[k].filter((j) => local.has(j)).map((j) => local.get(j)) : [], at: [at(k, 0, W), at(k, 1, H)] }));
   }
   // What a species' portrait shows from what is to hand: its largest body in the pipette (the first STUDIO_N of its
-  // cells, as they hold together), else a few of its single cells there, else (none held) a few newborns of its
-  // genome: [{ e, a, col, info, partners }]
-  function heldCells(words, serial) {
+  // cells, as they hold together), else a few of its single cells there, else (none held) the body its card carries,
+  // else a few newborns of its genome: [{ e, a, col, info, partners }]
+  function heldCells(words, serial, body = null) {
     const orgs = serial == null ? [] : [...pipette.species.filter((x) => !x.stranger && x.serial === serial).flatMap((x) => x.orgs),
       ...(pull.got.length ? incoming().filter((x) => x.g.serial === serial).flatMap((x) => bodiesOf(x.recs)) : [])];
     const cell = (c, n) => ({ e: c[0], a: c[1], col: c[2], info: c[3], partners: c.slice(4).filter((j) => j >= 0 && j < n) });
     const big = orgs.reduce((a, o) => (!a || o.cells.length > a.cells.length ? o : a), null);
     if (big && big.cells.length > 1) { const n = Math.min(STUDIO_N, big.cells.length); return big.cells.slice(0, n).map((c) => cell(c, n)); }
     if (orgs.length) return orgs.slice(0, 5).map((o) => cell(o.cells[0], 0));
-    const [e, col, info] = newborn({ words });
-    return Array.from({ length: 5 }, () => ({ e, a: 0, col, info, partners: [] }));
+    return portraitCells(genomeOfWords(words), body);
   }
   // one at a time (a frame each), a few tries each
   async function pumpPortraits() {
@@ -2047,9 +2047,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
       } else {
         // (as it looks in the water, where it lives; else from what is to hand)
         const seen = w.serial != null ? await worldCells(w.serial).catch(() => null) : null;
-        const px = !portraitJob && gen === portraitGen ? await takeStudio(w.words, seen || heldCells(w.words, w.serial)) : null;
+        const cells = seen || heldCells(w.words, w.serial, w.body);
+        const px = !portraitJob && gen === portraitGen ? await takeStudio(w.words, cells) : null;
         const got = px && await encodeImages(px, [thumbOut, { type: 'image/jpeg', quality: 0.85 }], true);
-        if (got) p = { bmp: got.bitmap, thumb: await bytes(got.files[0]), full: await bytes(got.files[1]) };
+        // (and the body it shows, for its card to carry)
+        if (got) p = { bmp: got.bitmap, thumb: await bytes(got.files[0]), full: await bytes(got.files[1]), body: bodyOf(cells) };
       }
     } catch { p = null; }
     portraitBusy = false;
@@ -2088,7 +2090,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const blob = cv && await cardPng(cv, serial);
     if (!blob) { flash('Could not draw its card'); return; }
     const c = carry(serial);
-    await keepCard({ id: newKey('c'), serial, name: sp.name, words: c.words, home: c.home, world: worldId(),
+    await keepCard({ id: newKey('c'), serial, name: sp.name, words: c.words, home: c.home, body: c.body, world: worldId(),
       savedAt: Date.now(), touched: c.touched, png: new Uint8Array(await blob.arrayBuffer()), thumb: p?.thumb ?? null, portrait: p?.full ?? null }, quiet);
     if (quiet) return;
     flyCard(cv); flash(`${sp.name} is in the cabinet`);
@@ -2149,7 +2151,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // genome, without one (its species drawn alone stands in)
     const thumb = png && await pngThumb(png).catch(() => null);
     png ??= await strangerPng(bytes).catch(() => null);
-    await keepCard({ id: newKey('c'), serial: 0, name: c.name, words: c.words, home: c.home, world: null,
+    await keepCard({ id: newKey('c'), serial: 0, name: c.name, words: c.words, home: c.home, body: c.body, world: null,
       savedAt: Date.now(), touched: c.touched, png, thumb });
     lab.open('cabinet');
     flash(`${c.name}, from ${c.home}, is in the cabinet`);
@@ -2301,7 +2303,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }, { passive: false });
 
   // ------------------------------------------------------------ hints
-  const tips = createTips($('tip'));
+  const tips = pageTips();
 
   // ------------------------------------------------------------ lab
   lab = createLab({
@@ -5355,32 +5357,73 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }).catch((e) => fail('Could not start the simulation', String(e.message || e), [RELOAD]));
 }
 
-// A card's link opened (a phone's camera on a card's QR code): the card first, drawn without the GPU; the world
-// starts, its shaders compiling, only once the card is put aside, and the card goes into the cabinet then (run).
+// A card's link opened (a phone's camera on a card's QR code): the card first, drawn without the GPU, its sigil for
+// its portrait; then, where there is a GPU, its species drawn alone in the studio (studiorender.js: a few pipelines
+// of the page's, on a device of its own) and the card drawn again with it. The world starts, its shaders compiling,
+// only once the card is put aside, and the card goes into the cabinet then (run), as it was drawn by then.
 // (its PNG kept for the cabinet)
 let linkedPng = null;
-// a card from another world (its payload's bytes) drawn from its genome alone, as a PNG that carries it
-async function strangerPng(bytes) {
+// a card from another world (its payload's bytes) drawn from its genome alone, as a PNG that carries it (portrait:
+// its species drawn alone, else its sigil stands in)
+async function strangerPng(bytes, portrait = null) {
   const c = decodeCard(bytes);
-  const cv = await strangerCard({ ...c, genome: genomeOfWords(c.words) }, cardLink(bytes), DEFAULT_K);
+  const cv = await strangerCard({ ...c, genome: genomeOfWords(c.words) }, cardLink(bytes), DEFAULT_K, portrait);
   const blob = await new Promise((res) => cv.toBlob(res, 'image/png'));
   return cardIntoPng(new Uint8Array(await blob.arrayBuffer()), bytes);
 }
+// the card page's word on its portrait (under the card, never on it): each stage as it goes, then a moment of
+// done; or why it is drawn with its sigil, the error in its hint
+const PORTRAIT_STEPS = { gpu: 'Looking for a GPU', compile: 'Compiling the studio', draw: 'Drawing its portrait' };
+function portraitStatus(state, text, hint = '') {
+  const el = $('linked-status');
+  el.dataset.state = state;
+  el.querySelector('span').textContent = text;
+  // (a term: its hint opens on a hover, a tap or focus)
+  if (hint) el.dataset.hint = hint; else delete el.dataset.hint;
+  el.classList.toggle('term', !!hint);
+  el.tabIndex = hint ? 0 : -1;
+}
 async function linkedCard(bytes) {
   const c = decodeCard(bytes);
-  linkedPng = await strangerPng(bytes);
-  const png = new Blob([linkedPng], { type: 'image/png' });
-  const img = $('linked-img'), url = URL.createObjectURL(png);
-  img.src = url;
+  const img = $('linked-img');
+  let url = null, left = false;
+  const show = (png) => {
+    linkedPng = png;
+    if (url) URL.revokeObjectURL(url);
+    img.src = url = URL.createObjectURL(new Blob([png], { type: 'image/png' }));
+  };
+  show(await strangerPng(bytes));
   img.alt = `The species card of ${c.name}`;
   $('linked-h').textContent = c.name;
   $('linked-note').textContent = `A species from ${c.home}. Open Tidemote to keep its card in your cabinet and set it down in a world of your own.`;
-  $('linked-png').onclick = () => saveFile(png, `${c.name.replace(/[^\w -]+/g, '').trim() || 'species'}.png`);
+  $('linked-png').onclick = () => saveFile(new Blob([linkedPng], { type: 'image/png' }), `${c.name.replace(/[^\w -]+/g, '').trim() || 'species'}.png`);
+  pageTips();
   $('linked').hidden = false;
+  // (its portrait, while the card is shown; what comes after it is put aside is let go)
+  const g = genomeOfWords(c.words), steps = Object.keys(PORTRAIT_STEPS);
+  studioPortrait(Uint32Array.from(c.words), g, portraitCells(g, c.body), (k) => { if (!left) portraitStatus('busy', `${PORTRAIT_STEPS[k]} (${steps.indexOf(k) + 1} of ${steps.length})`); })
+    .then(async (px) => {
+      if (left) return;
+      const bmp = await createImageBitmap(new ImageData(px.data, px.w, px.h));
+      const png = await strangerPng(bytes, bmp);
+      bmp.close();
+      if (left) return;
+      show(png);
+      portraitStatus('done', 'Portrait drawn');
+    })
+    .catch((e) => {
+      console.warn('[tidemote] the linked card\'s portrait:', e);
+      if (!left) portraitStatus('fail', e?.noGpu ? 'Its sigil stands in: no GPU here to draw its portrait' : 'Its sigil stands in: its portrait could not be drawn',
+        `Its portrait is drawn on the GPU, through WebGPU.\n${e?.message || e}`);
+    });
   await new Promise((res) => { $('linked-go').onclick = res; });
+  left = true;
   $('linked').hidden = true;
   URL.revokeObjectURL(url);
 }
+// the page's hints (tip.js), made once: the card page's before the world runs, then the world's
+let tipsMade = null;
+const pageTips = () => (tipsMade ??= createTips($('tip')));
 async function start() {
   const bytes = cardFromHash(location.hash);
   if (bytes) {

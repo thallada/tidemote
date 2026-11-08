@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { layOut, frameCells, records, bondsOf, SHOWN } from '../src/studio.js';
+import { layOut, frameCells, records, bondsOf, bodyOf, portraitCells, SHOWN, BODY_MAX } from '../src/studio.js';
+import { archetypeGenome, roleColor, packUnorm } from '../src/genome.js';
 import { FIRST_LIFE } from '../src/shaders.js';
 
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -57,4 +58,23 @@ test('the records are still cells of the studio genome, where they were laid out
   assert.equal(u[17], (0 | (1023 << 10) | (1023 << 20)) >>> 0);
   assert.equal(u[27], none >>> 0);
   assert.ok(f[12] < 0 && Math.abs(f[13]) < 1e-9);
+});
+
+test('a card carries a body as roles and bonds, and its portrait is drawn from them', () => {
+  // a branching body (bonds kept either way round), roles in its info
+  const cells = [{ info: 0, partners: [1] }, { info: 1 << 4, partners: [2] }, { info: 2 << 4, partners: [] }, { info: 0, partners: [1] }];
+  const body = bodyOf(cells);
+  assert.deepEqual(body, [{ role: 0, bonds: [] }, { role: 1, bonds: [0] }, { role: 2, bonds: [1] }, { role: 0, bonds: [1] }]);
+  // single cells carry none; a long body its first BODY_MAX cells, its bonds among them
+  assert.equal(bodyOf([{ info: 0, partners: [] }, { info: 0, partners: [] }]), null);
+  const long = bodyOf(Array.from({ length: 50 }, (_, i) => ({ info: 0, partners: i ? [i - 1] : [] })));
+  assert.equal(long.length, BODY_MAX);
+  assert.ok(long.every((c, i) => c.bonds.every((j) => j < i)));
+  // its cells: bonded as carried, each in its role's color, healthy; no body, a few newborns
+  const g = archetypeGenome('reef', () => 0.5), back = portraitCells(g, body);
+  assert.deepEqual(back.map((c) => [(c.info >> 4) & 3, c.partners]), body.map((c) => [c.role, c.bonds]));
+  assert.deepEqual(back.map((c) => c.col), body.map((c) => packUnorm(...roleColor(g, c.role))));
+  assert.deepEqual(bondsOf(back), bondsOf(cells));
+  assert.ok(back.every((c) => c.e > 0.5 * g.reproE));
+  assert.deepEqual(portraitCells(g, null).map((c) => c.partners), [[], [], [], [], []]);
 });

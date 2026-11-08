@@ -2,6 +2,8 @@
 // bonds) or, unbonded, a few side by side, framed to fill what a card shows of its portrait, as records the engine
 // draws as it draws a body in the water (setStudio: struct Particle, vsStudio). Pure.
 import { FIRST_LIFE } from './shaders.js';
+import { cellRadius } from './fmt.js';
+import { packUnorm, roleColor } from './genome.js';
 
 // what a mini-card shows of its portrait (a plate's middle band, as page.css crops it): its share across and down
 export const SHOWN = [0.6, 0.38];
@@ -78,4 +80,33 @@ export function records(cells, pos, at) {
     u[o + 7] = [0, 1, 2].reduce((id, k) => id | ((near[i][k] ?? 1023) << (10 * k)), 0) >>> 0;
   });
   return f;
+}
+
+// A body as a card carries it (cabinet.js): each cell's role and its bonds to the cells before it (at most
+// BODY_BONDS), its first BODY_MAX cells (the portrait's middle: more would make its QR code's modules smaller); where
+// it lies is left to layOut.
+const BODY_BONDS = 3;
+export const BODY_MAX = 32;
+/** The body cells [{ info, partners }] make ([{ role, bonds }]), or null where none is bonded (single cells). */
+export function bodyOf(cells) {
+  const n = Math.min(cells.length, BODY_MAX), body = cells.slice(0, n).map((c) => ({ role: (c.info >> 4) & 3, bonds: [] }));
+  for (const [i, j] of bondsOf(cells.slice(0, n))) if (body[j].bonds.length < BODY_BONDS) body[j].bonds.push(i);
+  return body.some((c) => c.bonds.length) ? body : null;
+}
+/** What a card tells of its species (genome g): its body's cells, as healthy ones of its kind, else (single cells)
+ * a few newborns: [{ e, a, col, info, partners }]. */
+export const portraitCells = (g, body) => (body
+  ? body.map((c) => ({ e: 0.75 * (g.reproE || 1), a: 0, col: packUnorm(...roleColor(g, c.role)), info: c.role << 4, partners: c.bonds }))
+  : Array.from({ length: 5 }, () => ({ e: 0.5 * (g.reproE || 1), a: 0, col: g.col, info: 0, partners: [] })));
+
+/**
+ * A portrait's scene: cells [{ e, a, col, info, partners, at? }] of genome g (cells with a place keep it, the rest are
+ * laid out by their bonds) framed to fill what a card shows of a size-pixel portrait centered on c ([x, y], world
+ * units): { parts (records), ppu }.
+ */
+export function stage(g, cells, size, c) {
+  const r = cells.map((x) => cellRadius({ role: (x.info >> 4) & 3 }, g, 1));
+  const pos = cells[0]?.at ? cells.map((x) => x.at) : layOut(cells.map((x, i) => ({ r: r[i], partners: x.partners })));
+  const f = frameCells(pos, r, size);
+  return { parts: records(cells, pos, [c[0] - f.cx, c[1] - f.cy]), ppu: f.ppu };
 }

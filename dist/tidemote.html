@@ -632,7 +632,7 @@ body.spec-open .caption, body.lab-open .caption { max-width: max(240px, min(520p
 body.ui-off :is(#hud, #spec, #lab, #help, #card, #tip, #plate) { visibility: hidden !important; opacity: 0 !important; }
 
 .tip {
-  position: fixed; z-index: 40; pointer-events: none; max-width: 300px;
+  position: fixed; z-index: 60; pointer-events: none; max-width: 300px;
   background: var(--panel-solid); border: 1px solid var(--line-2); border-left: 2px solid var(--cyan);
   color: var(--ink); padding: 8px 11px; font-size: 12.5px; line-height: 1.5; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
 }
@@ -1255,7 +1255,20 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .linked { position: fixed; inset: 0; z-index: 55; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s2); padding: 16px; background: var(--bg); overflow-y: auto; }
 .linked h1 { margin: 0; font-size: 22px; font-weight: 300; letter-spacing: .06em; text-align: center; }
 .linked .lbl { margin: 0; color: var(--cyan); }
-.linked img { display: block; width: auto; max-width: 100%; height: auto; max-height: calc(100dvh - 210px); min-height: 0; }
+.linked img { display: block; width: auto; max-width: 100%; height: auto; max-height: calc(100dvh - 240px); min-height: 0; }
+/* the card's portrait as it is drawn (under the card, never on it): a spinner and the stage, a tick when done (then
+   gone, its line kept), an alert and why where it cannot be (the error in its hint) */
+.linked-status { display: flex; align-items: center; gap: 8px; height: 20px; margin: 0; color: var(--ink-3); font-size: 12px; letter-spacing: .04em; transition: opacity .6s; }
+.linked-status:not([data-state]) { visibility: hidden; }
+.linked-status i { flex: none; width: 12px; height: 12px; box-sizing: border-box; }
+.linked-status[data-state="busy"] i { border: 2px solid var(--line-2); border-top-color: var(--cyan); border-radius: 50%; animation: linked-spin .8s linear infinite; }
+.linked-status[data-state="done"] { opacity: 0; transition-delay: 1.5s; }
+.linked-status[data-state="done"] i { width: 6px; height: 11px; margin: 0 3px 2px; border: solid var(--cyan); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.linked-status[data-state="fail"] { color: var(--ink-2); cursor: help; }
+.linked-status[data-state="fail"] i { width: 14px; height: 13px; background: var(--sun); clip-path: polygon(50% 0, 100% 100%, 0 100%); position: relative; }
+.linked-status[data-state="fail"] i::after { content: '!'; position: absolute; inset: 1px 0 0; color: var(--bg); font: normal 700 10px/13px system-ui, sans-serif; text-align: center; }
+@keyframes linked-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .linked-status[data-state="busy"] i { animation-duration: 2.4s; } }
 .linked p#linked-note { margin: 0; max-width: 46ch; text-align: center; color: var(--ink-2); font-size: 13px; }
 .linked-act { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--s3); }
 .linked-act .btn { height: 40px; padding: 0 18px; }
@@ -1804,6 +1817,7 @@ svg.niche .n-dot { fill: var(--cyan); }
   <p class="lbl">A species card</p>
   <h1 id="linked-h" translate="no"></h1>
   <img id="linked-img" alt="">
+  <p class="linked-status" id="linked-status" role="status" aria-live="polite"><i aria-hidden="true"></i><span></span></p>
   <p id="linked-note"></p>
   <div class="linked-act"><button type="button" class="btn go" id="linked-go">Open Tidemote</button><button type="button" class="btn" id="linked-png">Save the card</button></div>
 </div>
@@ -21733,6 +21747,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var POST_LOOK = POST_LAMP + 16;
   var VIEW_BYTES = 224;
   var POST_MURK = POST_LOOK + LOOK_WORDS;
+  var POST_WORDS = POST_MURK + 8;
   var MUD_DEPTH = [0.93, 0.85, 0.76];
   var HDR = "rgba16float";
   var BLOOM_LEVELS = 6;
@@ -21771,6 +21786,50 @@ registerProcessor("tidemote-sound", TidemoteSound);
   var SEA_WIND_EASE = 30;
   var FLOOR_MS = 2;
   var REAL_WRAP = 4096;
+  function viewWords(data, K, { cam, W, H: H2, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false }, w) {
+    const ppu = cam.ppu;
+    const pointSize = Math.max(1.1 * dpr, 0.085 * ppu);
+    const perArea = K.density / (ppu * ppu);
+    const overlapAll = perArea * pointSize * pointSize * 0.5;
+    const lineCov = K.density * 0.25 * dpr / ppu;
+    const v = new Float32Array(data);
+    const vu = new Uint32Array(data);
+    v[0] = cam.x;
+    v[1] = cam.y;
+    v[2] = w.grid[0];
+    v[3] = w.grid[1];
+    v[4] = W;
+    v[5] = H2;
+    v[6] = ppu;
+    v[7] = pointSize;
+    v[8] = 0.95 * w.exposure;
+    v[9] = 0.55 / (1 + lineCov * 0.6) * w.exposure;
+    v[10] = K.linkR;
+    v[11] = time;
+    vu[12] = selId >>> 0;
+    v[13] = 0.075 / (1 + overlapAll * 0.9) * w.exposure;
+    const f2 = w.focus;
+    vu[14] = f2.on;
+    vu[15] = f2.roleMask;
+    vu[16] = f2.stateMode;
+    v[17] = f2.mute;
+    vu[18] = f2.memberKind;
+    vu[19] = f2.memberN;
+    vu[20] = detail ? 1 : 0;
+    vu[21] = culled ? 1 : 0;
+    v[22] = splat;
+    v[23] = K.tightFrom;
+    v[24] = w.level;
+    vu[25] = lit ? 1 : 0;
+    v[26] = w.interiors ? 12 : 1e9;
+    v.set(w.tide, 28);
+    v.set(w.tidePh, 44);
+    v[48] = w.season;
+    v[49] = w.ambient;
+    v[50] = w.sky;
+    v[51] = w.t;
+    v.set(w.hand.subarray(0, 4), 52);
+  }
   var Engine = class {
     constructor(device, format, hasTimestamps, K, late = false) {
       this.device = device;
@@ -21825,7 +21884,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.viewData = new ArrayBuffer(VIEW_BYTES);
       this.viewDataL = new ArrayBuffer(VIEW_BYTES);
       this.viewDataC = new ArrayBuffer(VIEW_BYTES);
-      this.postData = new Float32Array(POST_MURK + 8);
+      this.postData = new Float32Array(POST_WORDS);
       this.look = new Float32Array(LOOK_WORDS);
       this.lens = new Float32Array(4);
       this.tool = new Float32Array(8);
@@ -21871,7 +21930,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
         return u;
       });
       b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
-      b.post = d.createBuffer({ size: (POST_MURK + 8) * 4, usage: U.UNIFORM | U.COPY_DST });
+      b.post = d.createBuffer({ size: POST_WORDS * 4, usage: U.UNIFORM | U.COPY_DST });
       b.seaU = d.createBuffer({ size: 128, usage: U.UNIFORM | U.COPY_DST });
       this.seaTex = d.createTexture({
         size: [SEA_N, SEA_N, SEA_CASCADES],
@@ -24532,50 +24591,21 @@ ${e.message}` : String(e?.message || e));
     }
     // detail: resolve cells as they grow on screen (false keeps the distant sprite at every zoom)
     _writeView(buf, data, cam, W, H2, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false) {
-      const K = this.K;
-      const ppu = cam.ppu;
-      const pointSize = Math.max(1.1 * dpr, 0.085 * ppu);
-      const perArea = K.density / (ppu * ppu);
-      const overlapAll = perArea * pointSize * pointSize * 0.5;
-      const lineCov = K.density * 0.25 * dpr / ppu;
-      const v = new Float32Array(data);
-      const vu = new Uint32Array(data);
-      v[0] = cam.x;
-      v[1] = cam.y;
-      v[2] = this.grid[0];
-      v[3] = this.grid[1];
-      v[4] = W;
-      v[5] = H2;
-      v[6] = ppu;
-      v[7] = pointSize;
-      v[8] = 0.95 * this.settings.exposure;
-      v[9] = 0.55 / (1 + lineCov * 0.6) * this.settings.exposure;
-      v[10] = K.linkR;
-      v[11] = time;
-      vu[12] = selId >>> 0;
-      v[13] = 0.075 / (1 + overlapAll * 0.9) * this.settings.exposure;
-      const f2 = this.focus;
-      vu[14] = f2.on;
-      vu[15] = f2.roleMask;
-      vu[16] = f2.stateMode;
-      v[17] = f2.mute;
-      vu[18] = f2.memberKind;
-      vu[19] = f2.memberN;
-      vu[20] = detail ? 1 : 0;
-      vu[21] = culled ? 1 : 0;
-      v[22] = splat;
-      v[23] = K.tightFrom;
-      v[24] = K.pond ? this.level : 1;
-      vu[25] = lit ? 1 : 0;
-      v[26] = this.fx.interiors ? 12 : 1e9;
       const clk = this._clock();
-      v.set(this.tide, 28);
-      v.set(clk.tidePh, 44);
-      v[48] = this.season;
-      v[49] = this.ambient;
-      v[50] = K.pond ? this.sky : 1;
-      v[51] = clk.t;
-      v.set(this.hand.subarray(0, 4), 52);
+      viewWords(data, this.K, { cam, W, H: H2, dpr, time, selId, detail, culled, splat, lit }, {
+        grid: this.grid,
+        exposure: this.settings.exposure,
+        focus: this.focus,
+        level: this.K.pond ? this.level : 1,
+        interiors: this.fx.interiors,
+        tide: this.tide,
+        tidePh: clk.tidePh,
+        season: this.season,
+        ambient: this.ambient,
+        sky: this.K.pond ? this.sky : 1,
+        t: clk.t,
+        hand: this.hand
+      });
       this.device.queue.writeBuffer(buf, 0, data);
     }
     // the stone field for one view: every grain of stone adds its kernel (see vsStone)
@@ -27301,6 +27331,109 @@ ${e.message}` : String(e?.message || e));
     else l.replaceWith(n.cloneNode(true));
   }
 
+  // src/studio.js
+  var SHOWN = [0.6, 0.38];
+  var BOND = 0.95;
+  var APART = 0.9;
+  function bondsOf(cells) {
+    const seen = /* @__PURE__ */ new Set(), out = [];
+    cells.forEach((c, i) => {
+      for (const j of c.partners) if (j !== i && j >= 0 && j < cells.length) {
+        const a = Math.min(i, j), b = Math.max(i, j);
+        if (!seen.has(a * 4096 + b)) {
+          seen.add(a * 4096 + b);
+          out.push([a, b]);
+        }
+      }
+    });
+    return out;
+  }
+  var hash = (i) => {
+    let h = Math.imul(i ^ 2654435769, 2246822507);
+    h ^= h >>> 13;
+    h = Math.imul(h, 3266489909);
+    return ((h ^ h >>> 16) >>> 0) / 4294967296;
+  };
+  function layOut(cells) {
+    const n = cells.length;
+    const rMax = Math.max(...cells.map((c) => c.r));
+    const pos = cells.map((c, k) => {
+      const a = k * 2.39996, d = 2.1 * rMax * Math.sqrt(k);
+      return [Math.cos(a) * d, Math.sin(a) * d];
+    });
+    const bonds = bondsOf(cells);
+    for (let it = 0; it < 160; it++) {
+      const k = it < 120 ? 0.5 : 0.25;
+      for (const [i, j] of bonds) {
+        const dx = pos[j][0] - pos[i][0], dy = pos[j][1] - pos[i][1], d = Math.hypot(dx, dy) || 1e-6;
+        const f2 = k * (d - BOND * (cells[i].r + cells[j].r)) / d / 2;
+        pos[i][0] += dx * f2;
+        pos[i][1] += dy * f2;
+        pos[j][0] -= dx * f2;
+        pos[j][1] -= dy * f2;
+      }
+      for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+        const dx = pos[j][0] - pos[i][0], dy = pos[j][1] - pos[i][1], d = Math.hypot(dx, dy) || 1e-6, m = APART * (cells[i].r + cells[j].r);
+        if (d >= m) continue;
+        const f2 = (m - d) / d / 2;
+        pos[i][0] -= dx * f2;
+        pos[i][1] -= dy * f2;
+        pos[j][0] += dx * f2;
+        pos[j][1] += dy * f2;
+      }
+    }
+    return pos;
+  }
+  function frameCells(pos, r, size) {
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    pos.forEach(([x, y], i) => {
+      x0 = Math.min(x0, x - r[i]);
+      x1 = Math.max(x1, x + r[i]);
+      y0 = Math.min(y0, y - r[i]);
+      y1 = Math.max(y1, y + r[i]);
+    });
+    const w = (x1 - x0) * 1.2, h = (y1 - y0) * 1.2;
+    return { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, ppu: Math.min(SHOWN[0] * size / w, SHOWN[1] * size / h) };
+  }
+  function records(cells, pos, at) {
+    const f2 = new Float32Array(cells.length * 10), u = new Uint32Array(f2.buffer);
+    const near = cells.map(() => []);
+    for (const [i, j] of bondsOf(cells)) {
+      near[i].push(j);
+      near[j].push(i);
+    }
+    cells.forEach((c, i) => {
+      const o = i * 10, m = near[i][0];
+      let th = 2 * Math.PI * hash(i * 7919 + 13);
+      if (m != null) th = Math.atan2(pos[i][1] - pos[m][1], pos[i][0] - pos[m][0]);
+      f2[o] = at[0] + pos[i][0];
+      f2[o + 1] = at[1] + pos[i][1];
+      f2[o + 2] = Math.cos(th) * 1e-5;
+      f2[o + 3] = Math.sin(th) * 1e-5;
+      u[o + 4] = FIRST_LIFE;
+      f2[o + 5] = c.e;
+      f2[o + 6] = c.a;
+      u[o + 8] = c.col;
+      u[o + 9] = c.info;
+      u[o + 7] = [0, 1, 2].reduce((id, k) => id | (near[i][k] ?? 1023) << 10 * k, 0) >>> 0;
+    });
+    return f2;
+  }
+  var BODY_BONDS = 3;
+  var BODY_MAX = 32;
+  function bodyOf2(cells) {
+    const n = Math.min(cells.length, BODY_MAX), body = cells.slice(0, n).map((c) => ({ role: c.info >> 4 & 3, bonds: [] }));
+    for (const [i, j] of bondsOf(cells.slice(0, n))) if (body[j].bonds.length < BODY_BONDS) body[j].bonds.push(i);
+    return body.some((c) => c.bonds.length) ? body : null;
+  }
+  var portraitCells = (g, body) => body ? body.map((c) => ({ e: 0.75 * (g.reproE || 1), a: 0, col: packUnorm(...roleColor(g, c.role)), info: c.role << 4, partners: c.bonds })) : Array.from({ length: 5 }, () => ({ e: 0.5 * (g.reproE || 1), a: 0, col: g.col, info: 0, partners: [] }));
+  function stage(g, cells, size, c) {
+    const r = cells.map((x) => cellRadius({ role: x.info >> 4 & 3 }, g, 1));
+    const pos = cells[0]?.at ? cells.map((x) => x.at) : layOut(cells.map((x, i) => ({ r: r[i], partners: x.partners })));
+    const f2 = frameCells(pos, r, size);
+    return { parts: records(cells, pos, [c[0] - f2.cx, c[1] - f2.cy]), ppu: f2.ppu };
+  }
+
   // src/worlds.js
   var SAVE_VERSION = "8.0.0";
   var MAGIC = [84, 77, 87, 83];
@@ -27533,7 +27666,7 @@ ${e.message}` : String(e?.message || e));
   // src/cabinet.js
   var CARD_URL = "https://tidemote.com/#c=";
   var FORMAT = +SAVE_VERSION.split(".")[0];
-  var MAGIC2 = [84, 77, 71, 49];
+  var MAGIC2 = [84, 77, 71, 50];
   var FLAG_TOUCHED = 1;
   var fnv = (b) => {
     let h = 2166136261;
@@ -27546,9 +27679,43 @@ ${e.message}` : String(e?.message || e));
     const b = new Uint8Array(max);
     return b.subarray(0, new TextEncoder().encodeInto(String(s || ""), b).written);
   };
-  function encodeCard({ words, name, home, touched = false }) {
-    const n = text(name, 48), h = text(home, 48);
-    const out = new Uint8Array(4 + 4 + n.length + 1 + h.length + G_WORDS * 4 + 4);
+  var IX = Math.log2(BODY_MAX);
+  function packBody(body) {
+    const bits = [], put = (v, n) => {
+      for (let i = n - 1; i >= 0; i--) bits.push(v >> i & 1);
+    };
+    for (const c of body || []) {
+      put(c.role, 2);
+      put(c.bonds.length, 2);
+      for (const j of c.bonds) put(j, IX);
+    }
+    const out = new Uint8Array(1 + Math.ceil(bits.length / 8));
+    out[0] = body ? body.length : 0;
+    bits.forEach((v, i) => {
+      out[1 + (i >> 3)] |= v << 7 - (i & 7);
+    });
+    return out;
+  }
+  function unpackBody(b, o) {
+    const n = b[o++];
+    if (n > BODY_MAX) return null;
+    let at = o * 8;
+    const get = (k) => {
+      let v = 0;
+      for (let i = 0; i < k; i++, at++) v = v << 1 | b[at >> 3] >> 7 - (at & 7) & 1;
+      return v;
+    };
+    const body = [];
+    for (let i = 0; i < n; i++) {
+      const role = get(2), bonds = Array.from({ length: get(2) }, () => get(IX));
+      if (at > b.length * 8 || bonds.some((j) => j >= i)) return null;
+      body.push({ role, bonds });
+    }
+    return { body: n ? body : null, end: Math.ceil(at / 8) };
+  }
+  function encodeCard({ words, name, home, touched = false, body = null }) {
+    const n = text(name, 48), h = text(home, 48), bd = packBody(body);
+    const out = new Uint8Array(4 + 4 + n.length + 1 + h.length + G_WORDS * 4 + bd.length + 4);
     const dv = new DataView(out.buffer);
     out.set(MAGIC2, 0);
     out[4] = FORMAT;
@@ -27562,6 +27729,8 @@ ${e.message}` : String(e?.message || e));
     o += h.length;
     words.forEach((w, i) => dv.setUint32(o + i * 4, w >>> 0, true));
     o += G_WORDS * 4;
+    out.set(bd, o);
+    o += bd.length;
     dv.setUint32(o, fnv(out.subarray(0, o)), true);
     return out;
   }
@@ -27573,9 +27742,10 @@ ${e.message}` : String(e?.message || e));
     const name = dec.decode(b.subarray(8, o));
     const hl = b[o++], home = dec.decode(b.subarray(o, o + hl));
     o += hl;
-    if (b.length !== o + G_WORDS * 4 + 4 || dv.getUint32(o + G_WORDS * 4, true) !== fnv(b.subarray(0, o + G_WORDS * 4))) throw new Error("This card is damaged.");
+    const bd = o + G_WORDS * 4 < b.length ? unpackBody(b, o + G_WORDS * 4) : null;
+    if (!bd || b.length !== bd.end + 4 || dv.getUint32(bd.end, true) !== fnv(b.subarray(0, bd.end))) throw new Error("This card is damaged.");
     const words = Array.from({ length: G_WORDS }, (_, i) => dv.getUint32(o + i * 4, true));
-    return { words, name, home, touched: !!(b[6] & FLAG_TOUCHED) };
+    return { words, name, home, touched: !!(b[6] & FLAG_TOUCHED), body: bd.body };
   }
   var DIGITS = [0, 3, 5, 8, 10, 13, 15, 17];
   function toDigits(u8) {
@@ -31724,7 +31894,7 @@ ${e.message}` : String(e?.message || e));
           if (b.n >= this.T.body && (!big || b.n > big.n)) big = b;
           if (b.n >= 3 && b.lengths >= this.T.swim && (!fastest || b.lengths > fastest.lengths)) fastest = b;
         }
-        const bodyOf2 = (b, type, prio) => ({
+        const bodyOf3 = (b, type, prio) => ({
           type,
           key: `${type}:${b.key}`,
           prio,
@@ -31740,8 +31910,8 @@ ${e.message}` : String(e?.message || e));
           anchor: b.anchor,
           track: [b.anchor]
         });
-        if (fastest) out.push(bodyOf2(fastest, "swim", 0.58));
-        if (big && big !== fastest) out.push(bodyOf2(big, "body", 0.5));
+        if (fastest) out.push(bodyOf3(fastest, "swim", 0.58));
+        if (big && big !== fastest) out.push(bodyOf3(big, "body", 0.5));
         yield;
         if (close && !fast) {
           const ts = performance.now(), st = this._stalk(ctx, v);
@@ -37072,7 +37242,7 @@ ${e.message}` : String(e?.message || e));
       ctx.textAlign = "left";
       y += 34;
     }
-    const Q = 142, fw = w - Q - 24, qx = R2 - Q, qy = H2 - 24 - Q, FY = qy - 12;
+    const Q = 150, fw = w - Q - 24, qx = R2 - Q, qy = H2 - 20 - Q, FY = qy - 12;
     ctx.fillStyle = LINE2;
     ctx.fillRect(M, FY, w, 1);
     const ties = [d.eats ? `eats ${d.eats}` : "", d.eatenBy ? `eaten by ${d.eatenBy}` : ""].filter(Boolean).join(" · ").replace(/^./, (c) => c.toUpperCase());
@@ -37099,7 +37269,7 @@ ${e.message}` : String(e?.message || e));
     }
     ctx.restore();
   }
-  async function strangerCard(card, link, K) {
+  async function strangerCard(card, link, K, portrait = null) {
     const sp = { serial: 0, name: card.name, binomial: card.name, genome: card.genome, alive: false, founder: true, born: 0, peak: 0, pop: 0, genus: card.name.split(" ")[0], established: true };
     const d = cardData(sp, { reg: /* @__PURE__ */ new Map(), K });
     Object.assign(d, {
@@ -37109,7 +37279,7 @@ ${e.message}` : String(e?.message || e));
       home: card.home,
       qr: qr(link)
     });
-    return cardCanvas(d, { sigil: await sigilArt(card.genome), portrait: null });
+    return cardCanvas(d, { sigil: await sigilArt(card.genome), portrait });
   }
   async function sigilArt(genome) {
     const sigil = await svgImage(sigilSVG(voiceOf(genome), genome, { size: 240 }));
@@ -38713,93 +38883,104 @@ ${e.message}` : String(e?.message || e));
     return { species, of, cells, earlier, bonds };
   }
 
-  // src/studio.js
-  var SHOWN = [0.6, 0.38];
-  var BOND = 0.95;
-  var APART = 0.9;
-  function bondsOf(cells) {
-    const seen = /* @__PURE__ */ new Set(), out = [];
-    cells.forEach((c, i) => {
-      for (const j of c.partners) if (j !== i && j >= 0 && j < cells.length) {
-        const a = Math.min(i, j), b = Math.max(i, j);
-        if (!seen.has(a * 4096 + b)) {
-          seen.add(a * 4096 + b);
-          out.push([a, b]);
-        }
-      }
-    });
-    return out;
-  }
-  var hash = (i) => {
-    let h = Math.imul(i ^ 2654435769, 2246822507);
-    h ^= h >>> 13;
-    h = Math.imul(h, 3266489909);
-    return ((h ^ h >>> 16) >>> 0) / 4294967296;
-  };
-  function layOut(cells) {
-    const n = cells.length;
-    const rMax = Math.max(...cells.map((c) => c.r));
-    const pos = cells.map((c, k) => {
-      const a = k * 2.39996, d = 2.1 * rMax * Math.sqrt(k);
-      return [Math.cos(a) * d, Math.sin(a) * d];
-    });
-    const bonds = bondsOf(cells);
-    for (let it = 0; it < 160; it++) {
-      const k = it < 120 ? 0.5 : 0.25;
-      for (const [i, j] of bonds) {
-        const dx = pos[j][0] - pos[i][0], dy = pos[j][1] - pos[i][1], d = Math.hypot(dx, dy) || 1e-6;
-        const f2 = k * (d - BOND * (cells[i].r + cells[j].r)) / d / 2;
-        pos[i][0] += dx * f2;
-        pos[i][1] += dy * f2;
-        pos[j][0] -= dx * f2;
-        pos[j][1] -= dy * f2;
-      }
-      for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
-        const dx = pos[j][0] - pos[i][0], dy = pos[j][1] - pos[i][1], d = Math.hypot(dx, dy) || 1e-6, m = APART * (cells[i].r + cells[j].r);
-        if (d >= m) continue;
-        const f2 = (m - d) / d / 2;
-        pos[i][0] -= dx * f2;
-        pos[i][1] -= dy * f2;
-        pos[j][0] += dx * f2;
-        pos[j][1] += dy * f2;
-      }
+  // src/studiorender.js
+  var GRID3 = [64, 64];
+  var STUDIO_SIZE = 1280;
+  async function studioPortrait(words, g, cells, step = () => {
+  }) {
+    step("gpu");
+    const noGpu = (message) => Object.assign(new Error(message), { noGpu: true });
+    if (!navigator.gpu) throw noGpu("This browser has no WebGPU.");
+    const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
+    if (!adapter) throw noGpu("WebGPU offered no graphics adapter (hardware acceleration may be off).");
+    const d = await adapter.requestDevice();
+    try {
+      step("compile");
+      const mod = (code, label3) => d.createShaderModule({ code, label: label3 });
+      const draw = mod(DRAW_WGSL, "draw"), post = mod(POST_WGSL, "post");
+      const [organs, cellsP, plain] = await Promise.all([
+        d.createComputePipelineAsync({ layout: "auto", compute: { module: mod(INBOND_WGSL, "inbond"), entryPoint: "organDirs" } }),
+        d.createRenderPipelineAsync({
+          layout: "auto",
+          primitive: { topology: "triangle-strip" },
+          vertex: { module: draw, entryPoint: "vsStudio" },
+          fragment: { module: draw, entryPoint: "fsPoint", targets: [{ format: HDR, blend: { color: { srcFactor: "one", dstFactor: "one", operation: "add" }, alpha: { srcFactor: "one", dstFactor: "one", operation: "add" } } }] }
+        }),
+        d.createRenderPipelineAsync({
+          layout: "auto",
+          primitive: { topology: "triangle-list" },
+          vertex: { module: post, entryPoint: "vsFull" },
+          fragment: { module: post, entryPoint: "fsPlain", targets: [{ format: "rgba8unorm" }] }
+        })
+      ]);
+      step("draw");
+      const S = STUDIO_SIZE, U2 = GPUBufferUsage, T = GPUTextureUsage;
+      const buf = (size, usage, data) => {
+        const b2 = d.createBuffer({ size, usage: usage | U2.COPY_DST });
+        if (data) d.queue.writeBuffer(b2, 0, data);
+        return b2;
+      };
+      const { parts, ppu } = stage(g, cells, S, [GRID3[0] / 2, GRID3[1] / 2]);
+      const all = new Float32Array(STUDIO_N * P_BYTES / 4);
+      all.set(parts.subarray(0, all.length));
+      const genome = new Uint32Array((FIRST_LIFE + 1) * G_BYTES / 4);
+      genome.set(words, FIRST_LIFE * G_BYTES / 4);
+      const view = new ArrayBuffer(VIEW_BYTES);
+      viewWords(view, DEFAULT_K, { cam: { x: GRID3[0] / 2, y: GRID3[1] / 2, ppu }, W: S, H: S, dpr: 1, time: 0, selId: 4294967295 }, {
+        grid: GRID3,
+        exposure: 1,
+        focus: { on: 0, roleMask: 7, stateMode: 0, mute: 0.16, memberKind: 4294967295, memberN: 0 },
+        level: 1,
+        interiors: true,
+        tide: new Float32Array(16),
+        tidePh: new Float32Array(4),
+        season: 1,
+        ambient: 0.17,
+        sky: 1,
+        t: 0,
+        hand: new Float32Array(4)
+      });
+      const pd = new Float32Array(POST_WORDS);
+      pd[0] = S;
+      pd[1] = S;
+      pd[3] = 1;
+      pd[10] = GRID3[0];
+      pd[11] = GRID3[1];
+      pd.set(packLook({ ...DARKFIELD, grain: 0.25 }, 1), POST_LOOK);
+      const b = {
+        view: buf(VIEW_BYTES, U2.UNIFORM, view),
+        post: buf(POST_WORDS * 4, U2.UNIFORM, pd),
+        parts: buf(all.byteLength, U2.STORAGE, all),
+        genomes: buf(genome.byteLength, U2.STORAGE, genome),
+        organs: buf((FIRST_LIFE + 1) * ORGANS * 4, U2.STORAGE)
+      };
+      const lit = d.createTexture({ size: [S, S], format: HDR, usage: T.RENDER_ATTACHMENT | T.TEXTURE_BINDING });
+      const out = d.createTexture({ size: [S, S], format: "rgba8unorm", usage: T.RENDER_ATTACHMENT | T.COPY_SRC });
+      const read = d.createBuffer({ size: S * S * 4, usage: U2.COPY_DST | U2.MAP_READ });
+      const group = (p, entries) => d.createBindGroup({ layout: p.getBindGroupLayout(0), entries: entries.map(([binding, resource]) => ({ binding, resource: resource.size ? { buffer: resource } : resource })) });
+      const enc = d.createCommandEncoder();
+      const cp = enc.beginComputePass();
+      cp.setPipeline(organs);
+      cp.setBindGroup(0, group(organs, [[7, b.genomes], [9, b.organs]]));
+      cp.dispatchWorkgroups(Math.ceil((FIRST_LIFE + 1) * ORGANS / 64));
+      cp.end();
+      let pass = enc.beginRenderPass({ colorAttachments: [{ view: lit.createView(), loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" }] });
+      pass.setPipeline(cellsP);
+      pass.setBindGroup(0, group(cellsP, [[0, b.view], [1, b.parts], [2, b.genomes], [10, b.organs]]));
+      pass.draw(4, cells.length);
+      pass.end();
+      pass = enc.beginRenderPass({ colorAttachments: [{ view: out.createView(), loadOp: "clear", clearValue: [0, 0, 0, 1], storeOp: "store" }] });
+      pass.setPipeline(plain);
+      pass.setBindGroup(0, group(plain, [[0, d.createSampler({ magFilter: "linear", minFilter: "linear" })], [1, lit.createView()], [2, b.post], [6, b.view]]));
+      pass.draw(3);
+      pass.end();
+      enc.copyTextureToBuffer({ texture: out }, { buffer: read, bytesPerRow: S * 4 }, [S, S]);
+      d.queue.submit([enc.finish()]);
+      await read.mapAsync(GPUMapMode.READ);
+      return { data: new Uint8ClampedArray(read.getMappedRange().slice(0)), w: S, h: S };
+    } finally {
+      d.destroy();
     }
-    return pos;
-  }
-  function frameCells(pos, r, size) {
-    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-    pos.forEach(([x, y], i) => {
-      x0 = Math.min(x0, x - r[i]);
-      x1 = Math.max(x1, x + r[i]);
-      y0 = Math.min(y0, y - r[i]);
-      y1 = Math.max(y1, y + r[i]);
-    });
-    const w = (x1 - x0) * 1.2, h = (y1 - y0) * 1.2;
-    return { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, ppu: Math.min(SHOWN[0] * size / w, SHOWN[1] * size / h) };
-  }
-  function records(cells, pos, at) {
-    const f2 = new Float32Array(cells.length * 10), u = new Uint32Array(f2.buffer);
-    const near = cells.map(() => []);
-    for (const [i, j] of bondsOf(cells)) {
-      near[i].push(j);
-      near[j].push(i);
-    }
-    cells.forEach((c, i) => {
-      const o = i * 10, m = near[i][0];
-      let th = 2 * Math.PI * hash(i * 7919 + 13);
-      if (m != null) th = Math.atan2(pos[i][1] - pos[m][1], pos[i][0] - pos[m][0]);
-      f2[o] = at[0] + pos[i][0];
-      f2[o + 1] = at[1] + pos[i][1];
-      f2[o + 2] = Math.cos(th) * 1e-5;
-      f2[o + 3] = Math.sin(th) * 1e-5;
-      u[o + 4] = FIRST_LIFE;
-      f2[o + 5] = c.e;
-      f2[o + 6] = c.a;
-      u[o + 8] = c.col;
-      u[o + 9] = c.info;
-      u[o + 7] = [0, 1, 2].reduce((id, k) => id | (near[i][k] ?? 1023) << 10 * k, 0) >>> 0;
-    });
-    return f2;
   }
 
   // src/encode.js
@@ -39220,9 +39401,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "3678ad822299cb56") return;
+      if (localStorage.getItem(key) === "f5c9d90c7284151a") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "3678ad822299cb56");
+      if (res) localStorage.setItem(key, "f5c9d90c7284151a");
     } catch {
     }
   }
@@ -41135,13 +41316,11 @@ ${e.message}` : String(e?.message || e));
     let portraitJob = null;
     const PORTRAIT = 1280, THUMB = 192;
     function takeStudio(words, cells) {
-      const g = genomeOfWords(words), r = cells.map((c) => cellRadius({ role: c.info >> 4 & 3 }, g, 1));
-      const pos = cells[0]?.at ? cells.map((c) => c.at) : layOut(cells.map((c, i) => ({ r: r[i], partners: c.partners }))), f2 = frameCells(pos, r, PORTRAIT);
-      const [W, H2] = eng.grid;
-      eng.setStudio(records(cells, pos, [W / 2 - f2.cx, H2 / 2 - f2.cy]), cells.length, Uint32Array.from(words));
+      const [W, H2] = eng.grid, { parts, ppu: ppu2 } = stage(genomeOfWords(words), cells, PORTRAIT, [W / 2, H2 / 2]);
+      eng.setStudio(parts, cells.length, Uint32Array.from(words));
       if (portraitJob) portraitJob.resolve(null);
       return new Promise((resolve) => {
-        portraitJob = { studio: true, cx: W / 2, cy: H2 / 2, size: PORTRAIT, ppu: f2.ppu, resolve, at: performance.now() };
+        portraitJob = { studio: true, cx: W / 2, cy: H2 / 2, size: PORTRAIT, ppu: ppu2, resolve, at: performance.now() };
       });
     }
     function takeView() {
@@ -41217,8 +41396,9 @@ ${e.message}` : String(e?.message || e));
       const sp = life.reg.get(serial), slot = sp?.alive ? sp.slot : -1;
       const words = slot >= FIRST_LIFE && life.lastCensus && genomeSerial(life.lastCensus.genomeU32, slot) === serial ? wordsOf(slot) : genomeWords(sp.genome);
       const home = sp.home || climate.name, touched = hand.touched || !!sp.carried;
-      const bytes = encodeCard({ words, name: sp.name, home, touched });
-      return { words, home, touched, bytes, link: cardLink(bytes) };
+      const body = savedCard(serial)?.body ?? fulls.get(`s${serial}`)?.body ?? null;
+      const bytes = encodeCard({ words, name: sp.name, home, touched, body });
+      return { words, home, touched, body, bytes, link: cardLink(bytes) };
     }
     async function cardPng(cv, serial) {
       const png = await encodeBytes(cv, "image/png").catch(() => null);
@@ -41237,10 +41417,10 @@ ${e.message}` : String(e?.message || e));
       const w = ask(key, words, serial, stored);
       return new Promise((r) => w.wait.push(r));
     }
-    function ask(key, words, serial = null, stored = null) {
+    function ask(key, words, serial = null, stored = null, body = null) {
       let w = portraitQ.get(key);
       if (!w) {
-        portraitQ.set(key, w = { words, serial, stored, wait: [], tries: 0 });
+        portraitQ.set(key, w = { words, serial, stored, body, wait: [], tries: 0 });
         setTimeout(pumpPortraits, 0);
       }
       return w;
@@ -41256,7 +41436,7 @@ ${e.message}` : String(e?.message || e));
       const key = `c${c.id}`;
       if (!hasThumb(key)) {
         if (c.thumb?.length) setThumb(key, c.thumb);
-        else ask(key, c.words);
+        else ask(key, c.words, null, null, c.body);
       }
       return key;
     }
@@ -41294,7 +41474,7 @@ ${e.message}` : String(e?.message || e));
         at: [at(k, 0, W), at(k, 1, H2)]
       }));
     }
-    function heldCells(words, serial) {
+    function heldCells(words, serial, body = null) {
       const orgs = serial == null ? [] : [
         ...pipette.species.filter((x) => !x.stranger && x.serial === serial).flatMap((x) => x.orgs),
         ...pull.got.length ? incoming().filter((x) => x.g.serial === serial).flatMap((x) => bodiesOf(x.recs)) : []
@@ -41306,8 +41486,7 @@ ${e.message}` : String(e?.message || e));
         return big.cells.slice(0, n).map((c) => cell(c, n));
       }
       if (orgs.length) return orgs.slice(0, 5).map((o) => cell(o.cells[0], 0));
-      const [e, col, info] = newborn({ words });
-      return Array.from({ length: 5 }, () => ({ e, a: 0, col, info, partners: [] }));
+      return portraitCells(genomeOfWords(words), body);
     }
     async function pumpPortraits() {
       if (portraitBusy || !portraitQ.size) return;
@@ -41326,9 +41505,10 @@ ${e.message}` : String(e?.message || e));
           p = { bmp: bitmap, thumb: await bytes(files[0]), full: w.stored };
         } else {
           const seen = w.serial != null ? await worldCells(w.serial).catch(() => null) : null;
-          const px = !portraitJob && gen === portraitGen ? await takeStudio(w.words, seen || heldCells(w.words, w.serial)) : null;
+          const cells = seen || heldCells(w.words, w.serial, w.body);
+          const px = !portraitJob && gen === portraitGen ? await takeStudio(w.words, cells) : null;
           const got = px && await encodeImages(px, [thumbOut, { type: "image/jpeg", quality: 0.85 }], true);
-          if (got) p = { bmp: got.bitmap, thumb: await bytes(got.files[0]), full: await bytes(got.files[1]) };
+          if (got) p = { bmp: got.bitmap, thumb: await bytes(got.files[0]), full: await bytes(got.files[1]), body: bodyOf2(cells) };
         }
       } catch {
         p = null;
@@ -41381,6 +41561,7 @@ ${e.message}` : String(e?.message || e));
         name: sp.name,
         words: c.words,
         home: c.home,
+        body: c.body,
         world: worldId(),
         savedAt: Date.now(),
         touched: c.touched,
@@ -41462,6 +41643,7 @@ ${e.message}` : String(e?.message || e));
         name: c.name,
         words: c.words,
         home: c.home,
+        body: c.body,
         world: null,
         savedAt: Date.now(),
         touched: c.touched,
@@ -41646,7 +41828,7 @@ ${e.message}` : String(e?.message || e));
       e.preventDefault();
       state.specCells = clamp6(state.specCells * Math.exp(e.deltaY * 15e-4), 0.8, 14);
     }, { passive: false });
-    const tips = createTips($2("tip"));
+    const tips = pageTips();
     lab = createLab({
       eng,
       state,
@@ -45114,29 +45296,67 @@ Tidemote ${SAVE_VERSION} · world time ${fmtClock(eng.simTime)} · ${eng.count} 
     }).catch((e) => fail("Could not start the simulation", String(e.message || e), [RELOAD]));
   }
   var linkedPng = null;
-  async function strangerPng(bytes) {
+  async function strangerPng(bytes, portrait = null) {
     const c = decodeCard(bytes);
-    const cv = await strangerCard({ ...c, genome: genomeOfWords(c.words) }, cardLink(bytes), DEFAULT_K);
+    const cv = await strangerCard({ ...c, genome: genomeOfWords(c.words) }, cardLink(bytes), DEFAULT_K, portrait);
     const blob = await new Promise((res) => cv.toBlob(res, "image/png"));
     return cardIntoPng(new Uint8Array(await blob.arrayBuffer()), bytes);
   }
+  var PORTRAIT_STEPS = { gpu: "Looking for a GPU", compile: "Compiling the studio", draw: "Drawing its portrait" };
+  function portraitStatus(state, text2, hint = "") {
+    const el2 = $2("linked-status");
+    el2.dataset.state = state;
+    el2.querySelector("span").textContent = text2;
+    if (hint) el2.dataset.hint = hint;
+    else delete el2.dataset.hint;
+    el2.classList.toggle("term", !!hint);
+    el2.tabIndex = hint ? 0 : -1;
+  }
   async function linkedCard(bytes) {
     const c = decodeCard(bytes);
-    linkedPng = await strangerPng(bytes);
-    const png = new Blob([linkedPng], { type: "image/png" });
-    const img = $2("linked-img"), url = URL.createObjectURL(png);
-    img.src = url;
+    const img = $2("linked-img");
+    let url = null, left = false;
+    const show = (png) => {
+      linkedPng = png;
+      if (url) URL.revokeObjectURL(url);
+      img.src = url = URL.createObjectURL(new Blob([png], { type: "image/png" }));
+    };
+    show(await strangerPng(bytes));
     img.alt = `The species card of ${c.name}`;
     $2("linked-h").textContent = c.name;
     $2("linked-note").textContent = `A species from ${c.home}. Open Tidemote to keep its card in your cabinet and set it down in a world of your own.`;
-    $2("linked-png").onclick = () => saveFile(png, `${c.name.replace(/[^\w -]+/g, "").trim() || "species"}.png`);
+    $2("linked-png").onclick = () => saveFile(new Blob([linkedPng], { type: "image/png" }), `${c.name.replace(/[^\w -]+/g, "").trim() || "species"}.png`);
+    pageTips();
     $2("linked").hidden = false;
+    const g = genomeOfWords(c.words), steps = Object.keys(PORTRAIT_STEPS);
+    studioPortrait(Uint32Array.from(c.words), g, portraitCells(g, c.body), (k) => {
+      if (!left) portraitStatus("busy", `${PORTRAIT_STEPS[k]} (${steps.indexOf(k) + 1} of ${steps.length})`);
+    }).then(async (px) => {
+      if (left) return;
+      const bmp = await createImageBitmap(new ImageData(px.data, px.w, px.h));
+      const png = await strangerPng(bytes, bmp);
+      bmp.close();
+      if (left) return;
+      show(png);
+      portraitStatus("done", "Portrait drawn");
+    }).catch((e) => {
+      console.warn("[tidemote] the linked card's portrait:", e);
+      if (!left) portraitStatus(
+        "fail",
+        e?.noGpu ? "Its sigil stands in: no GPU here to draw its portrait" : "Its sigil stands in: its portrait could not be drawn",
+        `Its portrait is drawn on the GPU, through WebGPU.
+${e?.message || e}`
+      );
+    });
     await new Promise((res) => {
       $2("linked-go").onclick = res;
     });
+    left = true;
     $2("linked").hidden = true;
     URL.revokeObjectURL(url);
   }
+  var tipsMade = null;
+  var pageTips = () => tipsMade ??= createTips($2("tip"));
   async function start() {
     const bytes = cardFromHash(location.hash);
     if (bytes) {

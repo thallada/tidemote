@@ -229,7 +229,7 @@ export function drawCard(ctx, d, art = {}) {
 
   // the foot: whom it eats and who eats it, the chronicler's latest word on it; its home water; its QR code
   // (without the chronicler's word, its line of descent)
-  const Q = 142, fw = w - Q - 24, qx = R - Q, qy = H - 24 - Q, FY = qy - 12;
+  const Q = 150, fw = w - Q - 24, qx = R - Q, qy = H - 20 - Q, FY = qy - 12;
   ctx.fillStyle = LINE; ctx.fillRect(M, FY, w, 1);
   const ties = [d.eats ? `eats ${d.eats}` : '', d.eatenBy ? `eaten by ${d.eatenBy}` : ''].filter(Boolean).join(' · ').replace(/^./, (c) => c.toUpperCase());
   let ly = FY + 32;
@@ -242,8 +242,8 @@ export function drawCard(ctx, d, art = {}) {
   label(fit(ctx, d.home, fw - 20), M, H - 30, INK3);
   if (d.qr) {
     // dark modules on a cyan tile (many phone cameras read no light-on-dark code), whole device pixels a module
-    // (crisp edges read best), a quiet zone of at least three modules (a typical code, version 11 or 12, gets two
-    // units a module)
+    // (crisp edges read best), a quiet zone of at least three modules (a code up to version 13, a card with a body
+    // and a long name, gets two units a module)
     const k = Math.max(1, Math.floor((Q * CARD_SCALE) / (d.qr.size + 6))) / CARD_SCALE, side = d.qr.size * k;
     const ox = Math.round((qx + (Q - side) / 2) * CARD_SCALE) / CARD_SCALE, oy = Math.round((qy + (Q - side) / 2) * CARD_SCALE) / CARD_SCALE;
     ctx.fillStyle = '#7fd6df';
@@ -257,16 +257,17 @@ export function drawCard(ctx, d, art = {}) {
 /**
  * A card that came from another world by its link alone (cabinet.js: its genome, name and home water): drawn from
  * what its genome says, its home water for its record, on a canvas of its own. card.genome: the genome read from
- * its words; link: the link its QR code holds. Needs no world (nor the GPU): a phone that scanned it sees it at once.
+ * its words; link: the link its QR code holds; portrait: its species drawn alone (the card page's studio,
+ * studiorender.js), else its sigil stands in. Needs no world (nor the GPU): a phone that scanned it sees it at once.
  */
-export async function strangerCard(card, link, K) {
+export async function strangerCard(card, link, K, portrait = null) {
   const sp = { serial: 0, name: card.name, binomial: card.name, genome: card.genome, alive: false, founder: true, born: 0, peak: 0, pop: 0, genus: card.name.split(' ')[0], established: true };
   const d = cardData(sp, { reg: new Map(), K });
   Object.assign(d, {
     stats: [['Home water', card.home], ['Genus', d.genus], ['Mutations', String(card.genome.depth)]], lineage: [], origin: `carried from ${card.home}`,
     home: card.home, qr: qr(link),
   });
-  return cardCanvas(d, { sigil: await sigilArt(card.genome), portrait: null });
+  return cardCanvas(d, { sigil: await sigilArt(card.genome), portrait });
 }
 
 // a genome's sigil as an image, the card's font loaded
