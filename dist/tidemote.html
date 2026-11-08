@@ -2448,6 +2448,9 @@ fn sqr(x: f32) -> f32 { return x * x; }
 // an angle: atan2(0, 0) is NaN on Metal (0 on Windows), and a NaN mixed in at weight 0 is still NaN, so the drawing's
 // angles of vectors that may be zero (a still cell's velocity, a squash not yet begun) take 0 there
 fn atan2z(y: f32, x: f32) -> f32 { return select(atan2(y, x), 0.0, x == 0.0 && y == 0.0); }
+// a direction: normalize of a zero vector is NaN, and of one under about 1e-19 infinite on Metal (fast math), so a
+// vector that may be still (a cell's velocity) takes +x there
+fn dirz(v: vec2f) -> vec2f { return select(vec2f(1.0, 0.0), normalize(v), dot(v, v) > 1e-20); }
 // Relief, as in DIC microscopy: one light from the upper left (screen y down) for every resolved shape.
 const TO_LIGHT = vec2f(-0.633, -0.774);
 const MAXK = ${MAXK}u;
@@ -4876,7 +4879,8 @@ fn turnOfCell(gr: Grow, x: u32) -> f32 { let q = sortedFull[x]; return turnAngle
 fn bendAt(gr: Grow, m: u32, a: u32, b: u32) -> vec4f {
   let A = treeRel(m, a); let B = treeRel(m, b);
   let want = select(turnOfCell(gr, b) - turnOfCell(gr, a), 3.14159265 + turnOfCell(gr, b), a == treeMom(m));
-  var e = atan2(A.x * B.y - A.y * B.x, dot(A, B)) - want;
+  // (atan2z: two cells exactly together are NaN on Metal, a NaN push that would spread through the body)
+  var e = atan2z(A.x * B.y - A.y * B.x, dot(A, B)) - want;
   e -= TAU * round(e / TAU);
   let s = e * length(A) * length(B);
   return vec4f(vec2f(-A.y, A.x) * (s / max(dot(A, A), 1e-8)), vec2f(B.y, -B.x) * (s / max(dot(B, B), 1e-8)));
@@ -7696,7 +7700,7 @@ fn soloCell(p: Particle, ii: u32) -> PO {
   o.index = ii;
   let species = vec2f(renderHash(g.serial ^ g.sig[0].y), renderHash(g.serial ^ g.sig[1].x ^ 917u));
   o.morph = species;
-  o.geom = vec4f(soloPx(g, p.info), bodyArea(plan, species), normalize(p.vel));
+  o.geom = vec4f(soloPx(g, p.info), bodyArea(plan, species), dirz(p.vel));
   o.jelly = vec3f(1.0, 0.0, 0.0);
   o.bondSeeds = vec2u(0u, 0x7fffu);
   o.neck = vec4f(0.12, 0.12, 0.12, p.energy / max(g.reproE, 0.01));
@@ -7736,7 +7740,7 @@ fn soloCell(p: Particle, ii: u32) -> PO {
     let offset = (q.pos - p.pos) * view.ppu / px;
     let reach = 1.65 * (1.0 + ratio) + 0.12 * min(1.0, ratio);
     if (dot(offset, offset) > reach * reach) { continue; }
-    let dir = normalize(q.vel);
+    let dir = dirz(q.vel);
     plans = (plans & ~(31u << (5u * used))) | (choosePlan(g, roleOf(q.info)) << (5u * used));
     o.bondOffset[used] = pack2x16float(offset);
     o.bondFrame[used] = pack2x16float(vec2f(ratio, atan2z(dir.y, dir.x)));
@@ -39216,9 +39220,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "655c531f902d9ef7") return;
+      if (localStorage.getItem(key) === "3678ad822299cb56") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "655c531f902d9ef7");
+      if (res) localStorage.setItem(key, "3678ad822299cb56");
     } catch {
     }
   }
