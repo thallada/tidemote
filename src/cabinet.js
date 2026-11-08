@@ -5,7 +5,9 @@
 import { G_WORDS } from './shaders.js';
 import { SAVE_VERSION } from './worlds.js';
 
-const CARD_URL = 'https://tidemote.com/#card=';
+// a card's link: its payload as digits, which a QR code holds in numeric mode (3.3 bits a digit, against 8 for a
+// base64 character in byte mode; qr.js), for a code of fewer, bigger modules a phone reads from further off.
+const CARD_URL = 'https://tidemote.com/#c=';
 // the genome's format: a card from a world whose genomes differ (another major, another length) is refused
 const FORMAT = +SAVE_VERSION.split('.')[0];
 const MAGIC = [0x54, 0x4d, 0x47, 0x31]; // TMG1
@@ -45,9 +47,33 @@ export function decodeCard(b) {
   const words = Array.from({ length: G_WORDS }, (_, i) => dv.getUint32(o + i * 4, true));
   return { words, name, home, touched: !!(b[6] & FLAG_TOUCHED) };
 }
-/** A card's link (its QR code), and the payload read back from one (the page's #card=...), or null. */
-export const cardLink = (bytes) => CARD_URL + b64(bytes);
-export const cardFromHash = (hash) => { const m = /#card=([A-Za-z0-9_-]+)/.exec(hash || ''); return m ? unb64(m[1]) : null; };
+// bytes as digits: seven bytes (56 bits) in seventeen digits, a last few in as many as they need (DIGITS[n]); each
+// length its own, so the digits say how many bytes they hold
+const DIGITS = [0, 3, 5, 8, 10, 13, 15, 17];
+function toDigits(u8) {
+  let s = '';
+  for (let i = 0; i < u8.length; i += 7) {
+    const c = u8.subarray(i, i + 7);
+    s += c.reduce((n, b) => (n << 8n) | BigInt(b), 0n).toString().padStart(DIGITS[c.length], '0');
+  }
+  return s;
+}
+function fromDigits(s) {
+  const full = Math.floor(s.length / 17), rest = DIGITS.indexOf(s.length - full * 17);
+  if (rest < 0) return null;
+  const out = new Uint8Array(full * 7 + rest);
+  for (let i = 0, o = 0; o < out.length; i += 17) {
+    const n = Math.min(7, out.length - o);
+    let v = BigInt(s.slice(i, i + DIGITS[n]));
+    if (v >> BigInt(8 * n)) return null;
+    for (let k = n - 1; k >= 0; k--) { out[o + k] = Number(v & 255n); v >>= 8n; }
+    o += n;
+  }
+  return out;
+}
+/** A card's link (its QR code), and the payload read back from one (the page's #c=...), or null. */
+export const cardLink = (bytes) => CARD_URL + toDigits(bytes);
+export const cardFromHash = (hash) => { const m = /#c=(\d+)/.exec(hash || ''); return m ? fromDigits(m[1]) : null; };
 
 // ---- a PNG's text chunk (tEXt), where a card's PNG keeps its payload
 const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });

@@ -2139,7 +2139,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (at) { startSpit(...at, run); flash(`A colony of ${name} set down`); } else flash(`A colony of ${name} in the pipette · Dispense sets it down`);
     bench.render();
   }
-  // a card arriving from elsewhere: a link's #card=, or a card's PNG dropped on the page
+  // a card arriving from elsewhere: a link's #c=, or a card's PNG dropped on the page
   async function receiveCard(bytes, png = null) {
     let c;
     try { c = decodeCard(bytes); } catch (e) { flash(e.message); return; }

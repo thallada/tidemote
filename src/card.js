@@ -19,7 +19,7 @@ export const CARD_W = 660, CARD_H = 1050; // about a bridge card's shape
 export const CARD_SCALE = 2; // drawn (and saved) at twice that, for sharp text
 // where a card's portrait is (card units), and how much of the portrait (a square, its subject framed in the middle
 // that a mini-card shows: studio.js SHOWN) it shows across, the middle of it
-export const PORTRAIT_BOX = { x: 30, y: 118, w: 600, h: 340 };
+export const PORTRAIT_BOX = { x: 30, y: 118, w: 600, h: 328 };
 export const PORTRAIT_SHOWN = 0.78;
 
 // a gauge's share of its range: where v lies between lo and hi (on a log scale if log)
@@ -116,7 +116,7 @@ const fit = (ctx, text, w) => { if (ctx.measureText(text).width <= w) return tex
 export function drawCard(ctx, d, art = {}) {
   const W = CARD_W, H = CARD_H, F = 'Saira, Bahnschrift, "Segoe UI", system-ui, sans-serif';
   const M = 30, R = W - M, w = R - M;
-  const INK = '#e2f1f0', INK2 = '#a3bdbe', INK3 = '#7d999b', LINE = 'rgba(130,205,214,0.22)', TICK = 'rgba(150,222,230,0.55)';
+  const INK = '#e2f1f0', INK2 = '#a3bdbe', INK3 = '#7d999b', LINE = 'rgba(130,205,214,0.22)';
   const label = (t, x, y, col = INK3, size = 17) => { ctx.fillStyle = col; ctx.font = `600 ${size}px ${F}`; ctx.letterSpacing = '0.08em'; ctx.fillText(t.toUpperCase(), x, y); ctx.letterSpacing = '0px'; };
   const text = (t, x, y, size, col = INK, weight = 400, maxW = Infinity) => { ctx.fillStyle = col; ctx.font = `${weight} ${size}px ${F}`; ctx.fillText(fit(ctx, t, maxW), x, y); };
   ctx.save();
@@ -229,7 +229,7 @@ export function drawCard(ctx, d, art = {}) {
 
   // the foot: whom it eats and who eats it, the chronicler's latest word on it; its home water; its QR code
   // (without the chronicler's word, its line of descent)
-  const Q = 112, fw = w - Q - 24, qx = R - Q, qy = H - 34 - Q, FY = qy - 14;
+  const Q = 142, fw = w - Q - 24, qx = R - Q, qy = H - 24 - Q, FY = qy - 12;
   ctx.fillStyle = LINE; ctx.fillRect(M, FY, w, 1);
   const ties = [d.eats ? `eats ${d.eats}` : '', d.eatenBy ? `eaten by ${d.eatenBy}` : ''].filter(Boolean).join(' · ').replace(/^./, (c) => c.toUpperCase());
   let ly = FY + 32;
@@ -239,15 +239,17 @@ export function drawCard(ctx, d, art = {}) {
   const lines = line ? wrap(ctx, line, fw) : [], room = ties ? 2 : 3;
   lines.slice(0, room).forEach((l, i) => text(i === room - 1 && lines.length > room ? `${l} …` : l, M, ly + i * 26, 18, d.story ? '#e8dcc0' : INK3, d.story ? 'italic 400' : 400, fw));
   ctx.font = `600 17px ${F}`;
-  label(fit(ctx, d.home, fw - 20), M, H - 36, INK3);
+  label(fit(ctx, d.home, fw - 20), M, H - 30, INK3);
   if (d.qr) {
-    // whole device pixels a module (crisp edges read best), a quiet zone of two modules inside the frame
-    const k = Math.max(1, Math.floor((Q * CARD_SCALE) / (d.qr.size + 4))) / CARD_SCALE, side = (d.qr.size + 4) * k;
-    const ox = Math.round((qx + (Q - side) / 2 + 2 * k) * CARD_SCALE) / CARD_SCALE, oy = Math.round((qy + (Q - side) / 2 + 2 * k) * CARD_SCALE) / CARD_SCALE;
+    // dark modules on a cyan tile (many phone cameras read no light-on-dark code), whole device pixels a module
+    // (crisp edges read best), a quiet zone of at least three modules (a typical code, version 11 or 12, gets two
+    // units a module)
+    const k = Math.max(1, Math.floor((Q * CARD_SCALE) / (d.qr.size + 6))) / CARD_SCALE, side = d.qr.size * k;
+    const ox = Math.round((qx + (Q - side) / 2) * CARD_SCALE) / CARD_SCALE, oy = Math.round((qy + (Q - side) / 2) * CARD_SCALE) / CARD_SCALE;
     ctx.fillStyle = '#7fd6df';
+    ctx.beginPath(); ctx.roundRect(qx, qy, Q, Q, 4); ctx.fill();
+    ctx.fillStyle = '#06090a';
     for (let yy = 0; yy < d.qr.size; yy++) for (let xx = 0; xx < d.qr.size; xx++) if (d.qr.at(xx, yy)) ctx.fillRect(ox + xx * k, oy + yy * k, k, k);
-    ctx.strokeStyle = TICK; ctx.lineWidth = 1;
-    corners(ctx, qx - 2, qy - 2, qx + Q + 2, qy + Q + 2, 9);
   }
   ctx.restore();
 }
@@ -262,7 +264,7 @@ export async function strangerCard(card, link, K) {
   const d = cardData(sp, { reg: new Map(), K });
   Object.assign(d, {
     stats: [['Home water', card.home], ['Genus', d.genus], ['Mutations', String(card.genome.depth)]], lineage: [], origin: `carried from ${card.home}`,
-    home: card.home, qr: qr(new TextEncoder().encode(link)),
+    home: card.home, qr: qr(link),
   });
   return cardCanvas(d, { sigil: await sigilArt(card.genome), portrait: null });
 }
@@ -303,7 +305,7 @@ export function createCards(api) {
   let qrLink = null, qrCode = null;
   function data(sp) {
     const L = api.life(), c = api.carry(sp.serial);
-    if (qrLink !== c.link) { qrLink = c.link; qrCode = qr(new TextEncoder().encode(c.link)); }
+    if (qrLink !== c.link) { qrLink = c.link; qrCode = qr(c.link); }
     return { ...cardData(sp, { reg: L.reg, K: api.K, story: api.chron.latest(sp.serial), relations: api.chron.relations(sp.serial), history: L.history, simTime: api.eng.simTime, founders: api.eng.founders }),
       home: c.home, qr: qrCode };
   }

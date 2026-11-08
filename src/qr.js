@@ -1,7 +1,8 @@
-// A QR code (ISO/IEC 18004) of some bytes, for a species card's corner (docs/hand.md): byte mode, error correction
-// level L (a card is read off a clean screen or print: the smallest code), the smallest version that holds them (up
-// to 25, 1,273 bytes), the mask with the lowest penalty.
-// After Project Nayuki's QR Code generator (MIT). qr(bytes) -> { size, at(x, y) -> dark }.
+// A QR code (ISO/IEC 18004) of some text, for a species card's corner (docs/hand.md): error correction level L (a card
+// is read off a clean screen or print: the smallest code), the smallest version that holds it (up to 25), the mask
+// with the lowest penalty. The text goes in byte mode but for a run of digits at its end, in numeric mode (three
+// digits in ten bits: a card's link carries its payload as digits, cardLink, for a smaller code).
+// After Project Nayuki's QR Code generator (MIT). qr(text) -> { size, version, at(x, y) -> dark }.
 
 // error correction codewords per block, and blocks, at level L, by version (1-based)
 const ECC = [0, 7, 10, 15, 20, 26, 18, 20, 24, 30, 18, 20, 24, 26, 30, 22, 24, 28, 30, 28, 28, 28, 28, 30, 30, 26];
@@ -41,16 +42,35 @@ function rsRemainder(data, div) {
   return r;
 }
 
-export function qr(bytes) {
+// the text's segments: { bytes } in byte mode, its trailing digits { digits } in numeric mode
+function segmentsOf(text) {
+  const m = /\d+$/.exec(text), head = m ? text.slice(0, m.index) : text, segs = [];
+  if (head) segs.push({ bytes: new TextEncoder().encode(head) });
+  if (m) segs.push({ digits: m[0] });
+  return segs;
+}
+// (a segment's bits: mode, count, data)
+const countBits = (seg, v) => (seg.digits ? (v < 10 ? 10 : v < 27 ? 12 : 14) : v < 10 ? 8 : 16);
+const dataBits = (seg) => (seg.digits ? Math.floor(seg.digits.length / 3) * 10 + [0, 4, 7][seg.digits.length % 3] : seg.bytes.length * 8);
+
+export function qr(text) {
+  const segs = segmentsOf(text);
   let v = 1;
-  const need = (ver) => 4 + (ver < 10 ? 8 : 16) + bytes.length * 8;
+  const need = (ver) => segs.reduce((n, sg) => n + 4 + countBits(sg, ver) + dataBits(sg), 0);
   while (v < ECC.length - 1 && need(v) > dataCodewords(v) * 8) v++;
   if (need(v) > dataCodewords(v) * 8) throw new Error('Too much for a QR code');
-  // the bits: byte mode, the count, the bytes, a terminator, padding
+  // the bits: each segment's mode, count and data, a terminator, padding
   const bits = [];
   const put = (val, n) => { for (let i = n - 1; i >= 0; i--) bits.push((val >>> i) & 1); };
-  put(4, 4); put(bytes.length, v < 10 ? 8 : 16);
-  for (const b of bytes) put(b, 8);
+  for (const sg of segs) {
+    if (sg.digits) {
+      put(1, 4); put(sg.digits.length, countBits(sg, v));
+      for (let i = 0; i < sg.digits.length; i += 3) { const g = sg.digits.slice(i, i + 3); put(+g, [0, 4, 7, 10][g.length]); }
+    } else {
+      put(4, 4); put(sg.bytes.length, countBits(sg, v));
+      for (const b of sg.bytes) put(b, 8);
+    }
+  }
   const cap = dataCodewords(v) * 8;
   put(0, Math.min(4, cap - bits.length));
   put(0, (8 - (bits.length % 8)) % 8);

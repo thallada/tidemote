@@ -69,6 +69,8 @@ const STAGE = { hot: 115, cold: -20, rate: 0.8 };
 const BOIL = 100;
 // dissolved air comes out of water warmer than this (bubSet); a step counts the cells near it (heatMain, HOT_N)
 const GAS_FROM = 42;
+// the share of the light the hand's shade takes, pressed (hand.js; shadeOver shows it)
+export const SHADE = 0.9;
 // The needle in the water (docs/hand.md): its shaft's half-width, the length over which it tapers to its point, how
 // much of it is in the water (it comes down steeply from above: the rest is over the water, out of focus, and
 // touches nothing), and how near its point a cell must come to be pricked (world units)
@@ -9026,6 +9028,21 @@ fn lightPost(wp: vec2f, S: f32) -> f32 {
   return withLamp((post.ambient + (1.0 - post.ambient) * S * post.season) * lightPassed(wp), lampAt(wp));
 }
 fn lampAt(wp: vec2f) -> f32 { return lampOf(wp, post.lamp, post.world); }
+// The hand's shade as it is seen (docs/hand.md): sceneLit dims only what lies under it, and only a little, so
+// everything under its disc (the dark water and murk too) dims to SHADE_SEEN of itself and cools, its edge soft, and a
+// faint pale rim just outside marks its reach. s: its share of full strength (SHADE), a quarter while it hovers.
+const SHADE_SEEN = 0.25;
+fn shadeOver(c: vec3f, wp: vec2f) -> vec3f {
+  let lp = post.lamp;
+  if (lp.w >= 0.0) { return c; }
+  var d = wp - lp.xy;
+  d -= post.world * round(d / post.world);
+  let u = length(d) / max(lp.z, 1e-4);
+  let s = clamp(-lp.w / ${SHADE}, 0.0, 1.0);
+  let dark = s * (1.0 - smoothstep(0.8, 1.0, u));
+  let rim = exp(-sqr((u - 1.03) * 16.0)) * s;
+  return c * mix(vec3f(1.0), vec3f(0.8, 0.9, 1.15) * SHADE_SEEN, dark) + vec3f(0.006, 0.009, 0.014) * rim;
+}
 // The scene's light at wp (docs/look.md, Light): the light lifeMain gives producers there (lightAt: the Tide's bands by
 // the season over the era's baseline, under the sky and any duckweed, and the hand's lamp or shade) lights what is
 // seen, so the bands and the lamp show on what they fall on. r: how bright, in log, between the open water's light (0)
@@ -9433,6 +9450,7 @@ struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location
   c = pondSpecks(c, hdr, i.pos.xy, min(1.0, live.a), litGain(lit, 0.0));
   c = poolOver(c, wp, post.ppu, k, behind, surf.slope, litGain(lit, 0.0));
   c = extremes(c, water, behind, bub);
+  c = shadeOver(c, wp);
   c = instrument(c, wp, post.ppu);
   // the eyepiece's field stop and the dust on its optics (opticsMain, as the frame's size and the look leave them)
   let op = textureLoad(opticsTex, vec2i(i.pos.xy), 0);
@@ -9517,6 +9535,7 @@ fn loupeScene(r: vec2f) -> vec3f {
   // the drought's dry floor and its rain, the frost's ice, the storm's waves, duckweed
   c = poolOver(c, wp, loupe.ppu, k, behind, surf.slope, litGain(lit, 0.0));
   c = extremes(c, water, behind, bub);
+  c = shadeOver(c, wp);
   c = lookDisplay(pow(max(c, vec3f(0.0)), vec3f(1.0 / 2.2)), i.pos.xy);
   let vign = smoothstep(1.0, 0.75, d);
   c *= mix(mix(0.55, 0.75, k), 1.0, vign);

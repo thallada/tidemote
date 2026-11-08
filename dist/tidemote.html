@@ -1925,6 +1925,7 @@ svg.niche .n-dot { fill: var(--cyan); }
   var STAGE = { hot: 115, cold: -20, rate: 0.8 };
   var BOIL = 100;
   var GAS_FROM = 42;
+  var SHADE = 0.9;
   var NEEDLE = { w: 0.45, taper: 3, wet: 1.2, kill: 0.12 };
   var PIPETTE_DOF = { wet: 0.6, rate: 0.035, raised: 0.5 };
   var PIPE_MAX = 2048;
@@ -10949,6 +10950,21 @@ fn lightPost(wp: vec2f, S: f32) -> f32 {
   return withLamp((post.ambient + (1.0 - post.ambient) * S * post.season) * lightPassed(wp), lampAt(wp));
 }
 fn lampAt(wp: vec2f) -> f32 { return lampOf(wp, post.lamp, post.world); }
+// The hand's shade as it is seen (docs/hand.md): sceneLit dims only what lies under it, and only a little, so
+// everything under its disc (the dark water and murk too) dims to SHADE_SEEN of itself and cools, its edge soft, and a
+// faint pale rim just outside marks its reach. s: its share of full strength (SHADE), a quarter while it hovers.
+const SHADE_SEEN = 0.25;
+fn shadeOver(c: vec3f, wp: vec2f) -> vec3f {
+  let lp = post.lamp;
+  if (lp.w >= 0.0) { return c; }
+  var d = wp - lp.xy;
+  d -= post.world * round(d / post.world);
+  let u = length(d) / max(lp.z, 1e-4);
+  let s = clamp(-lp.w / ${SHADE}, 0.0, 1.0);
+  let dark = s * (1.0 - smoothstep(0.8, 1.0, u));
+  let rim = exp(-sqr((u - 1.03) * 16.0)) * s;
+  return c * mix(vec3f(1.0), vec3f(0.8, 0.9, 1.15) * SHADE_SEEN, dark) + vec3f(0.006, 0.009, 0.014) * rim;
+}
 // The scene's light at wp (docs/look.md, Light): the light lifeMain gives producers there (lightAt: the Tide's bands by
 // the season over the era's baseline, under the sky and any duckweed, and the hand's lamp or shade) lights what is
 // seen, so the bands and the lamp show on what they fall on. r: how bright, in log, between the open water's light (0)
@@ -11356,6 +11372,7 @@ struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location
   c = pondSpecks(c, hdr, i.pos.xy, min(1.0, live.a), litGain(lit, 0.0));
   c = poolOver(c, wp, post.ppu, k, behind, surf.slope, litGain(lit, 0.0));
   c = extremes(c, water, behind, bub);
+  c = shadeOver(c, wp);
   c = instrument(c, wp, post.ppu);
   // the eyepiece's field stop and the dust on its optics (opticsMain, as the frame's size and the look leave them)
   let op = textureLoad(opticsTex, vec2i(i.pos.xy), 0);
@@ -11440,6 +11457,7 @@ fn loupeScene(r: vec2f) -> vec3f {
   // the drought's dry floor and its rain, the frost's ice, the storm's waves, duckweed
   c = poolOver(c, wp, loupe.ppu, k, behind, surf.slope, litGain(lit, 0.0));
   c = extremes(c, water, behind, bub);
+  c = shadeOver(c, wp);
   c = lookDisplay(pow(max(c, vec3f(0.0)), vec3f(1.0 / 2.2)), i.pos.xy);
   let vign = smoothstep(1.0, 0.75, d);
   c *= mix(mix(0.55, 0.75, k), 1.0, vign);
@@ -27505,7 +27523,7 @@ ${e.message}` : String(e?.message || e));
   }
 
   // src/cabinet.js
-  var CARD_URL = "https://tidemote.com/#card=";
+  var CARD_URL = "https://tidemote.com/#c=";
   var FORMAT = +SAVE_VERSION.split(".")[0];
   var MAGIC2 = [84, 77, 71, 49];
   var FLAG_TOUCHED = 1;
@@ -27551,10 +27569,35 @@ ${e.message}` : String(e?.message || e));
     const words = Array.from({ length: G_WORDS }, (_, i) => dv.getUint32(o + i * 4, true));
     return { words, name, home, touched: !!(b[6] & FLAG_TOUCHED) };
   }
-  var cardLink = (bytes) => CARD_URL + b64(bytes);
+  var DIGITS = [0, 3, 5, 8, 10, 13, 15, 17];
+  function toDigits(u8) {
+    let s = "";
+    for (let i = 0; i < u8.length; i += 7) {
+      const c = u8.subarray(i, i + 7);
+      s += c.reduce((n, b) => n << 8n | BigInt(b), 0n).toString().padStart(DIGITS[c.length], "0");
+    }
+    return s;
+  }
+  function fromDigits(s) {
+    const full = Math.floor(s.length / 17), rest = DIGITS.indexOf(s.length - full * 17);
+    if (rest < 0) return null;
+    const out = new Uint8Array(full * 7 + rest);
+    for (let i = 0, o = 0; o < out.length; i += 17) {
+      const n = Math.min(7, out.length - o);
+      let v = BigInt(s.slice(i, i + DIGITS[n]));
+      if (v >> BigInt(8 * n)) return null;
+      for (let k = n - 1; k >= 0; k--) {
+        out[o + k] = Number(v & 255n);
+        v >>= 8n;
+      }
+      o += n;
+    }
+    return out;
+  }
+  var cardLink = (bytes) => CARD_URL + toDigits(bytes);
   var cardFromHash = (hash2) => {
-    const m = /#card=([A-Za-z0-9_-]+)/.exec(hash2 || "");
-    return m ? unb64(m[1]) : null;
+    const m = /#c=(\d+)/.exec(hash2 || "");
+    return m ? fromDigits(m[1]) : null;
   };
   var crcTable = Array.from({ length: 256 }, (_, n) => {
     let c = n;
@@ -32815,7 +32858,7 @@ ${e.message}` : String(e?.message || e));
   var SUN2 = "255,204,92";
   var SAND = "214,178,124";
   var MOSS = "142,196,110";
-  var SHADE = "rgba(4,7,8,0.85)";
+  var SHADE2 = "rgba(4,7,8,0.85)";
   var HALO = "rgba(0,0,0,0.55)";
   var PLATE = "rgba(4,7,8,0.8)";
   var rgba2 = (c, a) => `rgba(${c},${a})`;
@@ -32896,7 +32939,7 @@ ${e.message}` : String(e?.message || e));
       g.textAlign = align;
       g.lineJoin = "round";
       g.lineWidth = 3;
-      g.strokeStyle = SHADE;
+      g.strokeStyle = SHADE2;
       g.strokeText(s, x, y);
       g.fillStyle = col;
       g.fillText(s, x, y);
@@ -33004,7 +33047,7 @@ ${e.message}` : String(e?.message || e));
       const x0 = align === "center" ? x - w / 2 : align === "right" ? x - w : x, a = g.globalAlpha;
       g.globalAlpha = a * (reduced ? 1 : clamp9(t2 / 0.25, 0, 1));
       if (hollow) {
-        g.fillStyle = SHADE;
+        g.fillStyle = SHADE2;
         g.fillRect(x0, y - 10, w, 14);
         g.strokeStyle = rgba2(tone, 0.95);
         g.lineWidth = 1;
@@ -36588,18 +36631,38 @@ ${e.message}` : String(e?.message || e));
     }
     return r;
   }
-  function qr(bytes) {
+  function segmentsOf(text2) {
+    const m = /\d+$/.exec(text2), head = m ? text2.slice(0, m.index) : text2, segs = [];
+    if (head) segs.push({ bytes: new TextEncoder().encode(head) });
+    if (m) segs.push({ digits: m[0] });
+    return segs;
+  }
+  var countBits = (seg, v) => seg.digits ? v < 10 ? 10 : v < 27 ? 12 : 14 : v < 10 ? 8 : 16;
+  var dataBits = (seg) => seg.digits ? Math.floor(seg.digits.length / 3) * 10 + [0, 4, 7][seg.digits.length % 3] : seg.bytes.length * 8;
+  function qr(text2) {
+    const segs = segmentsOf(text2);
     let v = 1;
-    const need = (ver) => 4 + (ver < 10 ? 8 : 16) + bytes.length * 8;
+    const need = (ver) => segs.reduce((n, sg) => n + 4 + countBits(sg, ver) + dataBits(sg), 0);
     while (v < ECC.length - 1 && need(v) > dataCodewords(v) * 8) v++;
     if (need(v) > dataCodewords(v) * 8) throw new Error("Too much for a QR code");
     const bits = [];
     const put = (val, n) => {
       for (let i2 = n - 1; i2 >= 0; i2--) bits.push(val >>> i2 & 1);
     };
-    put(4, 4);
-    put(bytes.length, v < 10 ? 8 : 16);
-    for (const b of bytes) put(b, 8);
+    for (const sg of segs) {
+      if (sg.digits) {
+        put(1, 4);
+        put(sg.digits.length, countBits(sg, v));
+        for (let i2 = 0; i2 < sg.digits.length; i2 += 3) {
+          const g = sg.digits.slice(i2, i2 + 3);
+          put(+g, [0, 4, 7, 10][g.length]);
+        }
+      } else {
+        put(4, 4);
+        put(sg.bytes.length, countBits(sg, v));
+        for (const b of sg.bytes) put(b, 8);
+      }
+    }
     const cap2 = dataCodewords(v) * 8;
     put(0, Math.min(4, cap2 - bits.length));
     put(0, (8 - bits.length % 8) % 8);
@@ -36744,7 +36807,7 @@ ${e.message}` : String(e?.message || e));
   var CARD_W = 660;
   var CARD_H = 1050;
   var CARD_SCALE = 2;
-  var PORTRAIT_BOX = { x: 30, y: 118, w: 600, h: 340 };
+  var PORTRAIT_BOX = { x: 30, y: 118, w: 600, h: 328 };
   var PORTRAIT_SHOWN = 0.78;
   var share = (v, lo, hi, log = false) => Math.max(0, Math.min(1, log ? Math.log(v / lo) / Math.log(hi / lo) : (v - lo) / (hi - lo)));
   function cardData(sp, { reg, K, story = null, simTime = 0, founders = 0, relations = null, history: history3 = null }) {
@@ -36849,7 +36912,7 @@ ${e.message}` : String(e?.message || e));
   function drawCard(ctx, d, art = {}) {
     const W = CARD_W, H2 = CARD_H, F = 'Saira, Bahnschrift, "Segoe UI", system-ui, sans-serif';
     const M = 30, R2 = W - M, w = R2 - M;
-    const INK5 = "#e2f1f0", INK23 = "#a3bdbe", INK33 = "#7d999b", LINE2 = "rgba(130,205,214,0.22)", TICK = "rgba(150,222,230,0.55)";
+    const INK5 = "#e2f1f0", INK23 = "#a3bdbe", INK33 = "#7d999b", LINE2 = "rgba(130,205,214,0.22)";
     const label3 = (t2, x, y2, col = INK33, size2 = 17) => {
       ctx.fillStyle = col;
       ctx.font = `600 ${size2}px ${F}`;
@@ -37001,7 +37064,7 @@ ${e.message}` : String(e?.message || e));
       ctx.textAlign = "left";
       y += 34;
     }
-    const Q = 112, fw = w - Q - 24, qx = R2 - Q, qy = H2 - 34 - Q, FY = qy - 14;
+    const Q = 142, fw = w - Q - 24, qx = R2 - Q, qy = H2 - 24 - Q, FY = qy - 12;
     ctx.fillStyle = LINE2;
     ctx.fillRect(M, FY, w, 1);
     const ties = [d.eats ? `eats ${d.eats}` : "", d.eatenBy ? `eaten by ${d.eatenBy}` : ""].filter(Boolean).join(" · ").replace(/^./, (c) => c.toUpperCase());
@@ -37015,15 +37078,16 @@ ${e.message}` : String(e?.message || e));
     const lines = line2 ? wrap(ctx, line2, fw) : [], room = ties ? 2 : 3;
     lines.slice(0, room).forEach((l, i) => text2(i === room - 1 && lines.length > room ? `${l} …` : l, M, ly + i * 26, 18, d.story ? "#e8dcc0" : INK33, d.story ? "italic 400" : 400, fw));
     ctx.font = `600 17px ${F}`;
-    label3(fit2(ctx, d.home, fw - 20), M, H2 - 36, INK33);
+    label3(fit2(ctx, d.home, fw - 20), M, H2 - 30, INK33);
     if (d.qr) {
-      const k = Math.max(1, Math.floor(Q * CARD_SCALE / (d.qr.size + 4))) / CARD_SCALE, side = (d.qr.size + 4) * k;
-      const ox = Math.round((qx + (Q - side) / 2 + 2 * k) * CARD_SCALE) / CARD_SCALE, oy = Math.round((qy + (Q - side) / 2 + 2 * k) * CARD_SCALE) / CARD_SCALE;
+      const k = Math.max(1, Math.floor(Q * CARD_SCALE / (d.qr.size + 6))) / CARD_SCALE, side = d.qr.size * k;
+      const ox = Math.round((qx + (Q - side) / 2) * CARD_SCALE) / CARD_SCALE, oy = Math.round((qy + (Q - side) / 2) * CARD_SCALE) / CARD_SCALE;
       ctx.fillStyle = "#7fd6df";
+      ctx.beginPath();
+      ctx.roundRect(qx, qy, Q, Q, 4);
+      ctx.fill();
+      ctx.fillStyle = "#06090a";
       for (let yy = 0; yy < d.qr.size; yy++) for (let xx = 0; xx < d.qr.size; xx++) if (d.qr.at(xx, yy)) ctx.fillRect(ox + xx * k, oy + yy * k, k, k);
-      ctx.strokeStyle = TICK;
-      ctx.lineWidth = 1;
-      corners(ctx, qx - 2, qy - 2, qx + Q + 2, qy + Q + 2, 9);
     }
     ctx.restore();
   }
@@ -37035,7 +37099,7 @@ ${e.message}` : String(e?.message || e));
       lineage: [],
       origin: `carried from ${card.home}`,
       home: card.home,
-      qr: qr(new TextEncoder().encode(link))
+      qr: qr(link)
     });
     return cardCanvas(d, { sigil: await sigilArt(card.genome), portrait: null });
   }
@@ -37064,7 +37128,7 @@ ${e.message}` : String(e?.message || e));
       const L = api.life(), c = api.carry(sp.serial);
       if (qrLink !== c.link) {
         qrLink = c.link;
-        qrCode = qr(new TextEncoder().encode(c.link));
+        qrCode = qr(c.link);
       }
       return {
         ...cardData(sp, { reg: L.reg, K: api.K, story: api.chron.latest(sp.serial), relations: api.chron.relations(sp.serial), history: L.history, simTime: api.eng.simTime, founders: api.eng.founders }),
@@ -37939,7 +38003,6 @@ ${e.message}` : String(e?.message || e));
   var REACH = { min: 0.6, max: 8, def: 2 };
   var reachStep = (r, d) => Math.min(REACH.max, Math.max(REACH.min, r * 1.25 ** d));
   var LAMP = 0.6;
-  var SHADE2 = 0.9;
   var HOVER = 0.25;
   var CUT = 0.32;
   var EASE = { lamp: [0.35, 0.3], stage: [0.25, 0.25], dip: [0.3, 0.08] };
@@ -37978,7 +38041,7 @@ ${e.message}` : String(e?.message || e));
       },
       /** How much of the lamp's, shade's, stage's or probe's full strength the tool in hand has now (0..1). */
       get level() {
-        const t2 = h.tool, v = t2 === "lamp" || t2 === "shade" ? h.lamp.v / (t2 === "lamp" ? LAMP : -SHADE2) : t2 === "warm" || t2 === "cold" ? h.stage.v * (t2 === "warm" ? 1 : -1) : 0;
+        const t2 = h.tool, v = t2 === "lamp" || t2 === "shade" ? h.lamp.v / (t2 === "lamp" ? LAMP : -SHADE) : t2 === "warm" || t2 === "cold" ? h.stage.v * (t2 === "warm" ? 1 : -1) : 0;
         return Math.max(0, v);
       },
       /** A world begun or put in place: its record of acts (kept with it), nothing of the last world's still acting. */
@@ -38048,7 +38111,7 @@ ${e.message}` : String(e?.message || e));
       update(dt, t2 = 0) {
         const p = h.held ? h.last : h.at, tl = h.tool;
         const s = !p ? 0 : h.held ? 1 : HOVER;
-        const lampTo = tl === "lamp" ? LAMP * s : tl === "shade" ? -SHADE2 * s : 0;
+        const lampTo = tl === "lamp" ? LAMP * s : tl === "shade" ? -SHADE * s : 0;
         const stageTo = tl === "warm" ? s : tl === "cold" ? -s : 0;
         if (lampTo && Math.sign(lampTo) !== Math.sign(h.lamp.v)) h.lamp.v = 0;
         if (stageTo && Math.sign(stageTo) !== Math.sign(h.stage.v)) h.stage.v = 0;
@@ -39149,9 +39212,9 @@ ${e.message}` : String(e?.message || e));
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "a59c3238a3608ed8") return;
+      if (localStorage.getItem(key) === "910741b1313dd22e") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "a59c3238a3608ed8");
+      if (res) localStorage.setItem(key, "910741b1313dd22e");
     } catch {
     }
   }

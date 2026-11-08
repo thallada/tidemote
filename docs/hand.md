@@ -33,7 +33,7 @@ they do fills the reticle's ring.
 
 A tool's key, or its tile, again puts it down (Pan, nothing in hand). Reach (`[` `]`, ⇧ wheel, the slider) is a world distance
 shared by every tool but the needle, 35 µm to 470 µm; with the loupe it is the lens's size. The composite shows the
-lamp and the shade by the light they leave (`sceneLit`, docs/look.md: what lies under the lamp lit amber, the floor glowing; under the shade, dimmer), Warm and Cold a thermal lens inside their reach (`lensAt`:
+lamp and the shade by the light they leave (`sceneLit`, docs/look.md: what lies under the lamp lit amber, the floor glowing; under the shade, dimmer; and `shadeOver` in the composite and the loupe dims everything under its disc to a quarter, cooler, a faint pale rim at its reach, so it shows over the open water too), Warm and Cold a thermal lens inside their reach (`lensAt`:
 the thermal camera from `STAGE.cold` to `BOIL`, isotherms every 5°), and the instruments that go into the water
 (`instrument`, from the page's `eng.tool`): the needle's steel, the pipette's glass (bending the view through it),
 the cold probe's frosting steel, each from its side of the field, and Touch's glass rod from near the top, faintly glowing, its end
@@ -133,11 +133,16 @@ card not saved yet, one after another, counting them. It holds 2,048 cells.
 
 A species card carries its genome: a payload (`TMG1`, the save format's major, `G_WORDS`, its name and home water,
 whether its world was touched, the words, a checksum; `src/cabinet.js`) in the PNG's text chunk and in the QR code in
-its corner, which holds a link (`https://tidemote.com/#card=…`) that opens Tidemote with the card: a phone's camera
+its corner, which holds a link (`https://tidemote.com/#c=…`, the payload as digits) that opens Tidemote with the card: a phone's camera
 pointed at a laptop's screen carries a species from one world to another with no server. The link shows the card
 first, drawn without the GPU (`strangerCard`), to save or go on; the world starts, its shaders compiling, only then,
 and the card goes into the cabinet. A card of another format
-is refused, as an old save is. The QR encoder is `src/qr.js` (byte mode, level M), checked against a decoder.
+is refused, as an old save is. The QR encoder is `src/qr.js` (level L; the link's head in byte mode, its digits in
+numeric mode, 3.3 bits a digit against base64's 8 bits a character, so a typical card's code is version 11, 61
+modules, rather than 13), drawn in the card's dark on a tile of its cyan with a quiet zone of at least three modules,
+two card units a module: many phone cameras read no light-on-dark code. Check a change
+by decoding a card's PNG, and a screenshot of it at a phone's size, with a decoder that does not try inverting (jsQR's
+`dontInvert`, ZXing's `tryInvert: false`).
 
 The specimen's Save keeps the card (drawn with its portrait, as a PNG) in the cabinet, an IndexedDB store beside the
 saved worlds, and the card presents itself and shrinks to the Lab; once kept, the button is Card. The Field Lab's

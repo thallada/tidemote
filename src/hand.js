@@ -3,7 +3,7 @@
 // place, the rod and the needle what a falling grain or a hunter would do), written into the engine's hand words (Hand in simWGSL), which are
 // zero in every headless run. Pure but for those words; the page feeds it the pointer in world units.
 
-import { NEEDLE } from './shaders.js';
+import { NEEDLE, SHADE } from './shaders.js';
 
 export const TOOLS = [
   { id: 'none', name: 'Pan', hint: 'Nothing in hand: drag to pan, click a cell to examine it' },
@@ -31,7 +31,6 @@ export const REACH = { min: 0.6, max: 8, def: 2 };
 /** One reach step up or down (the keys, the held strip's − and +). */
 export const reachStep = (r, d) => Math.min(REACH.max, Math.max(REACH.min, r * 1.25 ** d));
 const LAMP = 0.6; // the light a lamp adds within its reach, at full brightness (the sun at noon gives about 1)
-const SHADE = 0.9; // the share of the light a shade takes
 const HOVER = 0.25; // the lamp, shade, stage and probe over the world, not pressed: this much of their full strength
 const CUT = 0.32; // the needle's half-width: it cuts bonds and parts cells this far to either side (past LINK_R apart)
 // how the lamp and stage come up while held and go when let go, and the rod dips in and lifts out (time constants,

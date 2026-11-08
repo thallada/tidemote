@@ -33,8 +33,16 @@ test('a damaged card, another kind of file, or another format is refused', () =>
 test('its link and its PNG text chunk give it back', () => {
   const b = encodeCard({ words, name: 'Vorath iss', home: 'Salt Reach' });
   const link = cardLink(b);
-  assert.match(link, /^https:\/\/tidemote\.com\/#card=[A-Za-z0-9_-]+$/);
+  assert.match(link, /^https:\/\/tidemote\.com\/#c=\d+$/);
   assert.deepEqual(decodeCard(cardFromHash(new URL(link).hash)).words, words);
+  // digits that hold no whole bytes are no card
+  assert.equal(cardFromHash('#c=1234'), null);
+  // (every length of payload comes back, leading zeros and all)
+  for (let n = 1; n < 20; n++) {
+    const u = Uint8Array.from({ length: n }, (_, i) => (i * 37 + n) & 255);
+    u[0] = 0;
+    assert.deepEqual(cardFromHash(new URL(cardLink(u)).hash), u);
+  }
   const img = new PNG({ width: 4, height: 4 });
   const png = new Uint8Array(PNG.sync.write(img));
   const withCard = cardIntoPng(png, b);
@@ -42,8 +50,10 @@ test('its link and its PNG text chunk give it back', () => {
   assert.deepEqual(decodeCard(cardFromPng(withCard)).words, words);
   // still a PNG that decodes
   assert.equal(PNG.sync.read(Buffer.from(withCard)).width, 4);
-  // the link fits a QR code of modest size
-  assert.ok(qr(new TextEncoder().encode(link)).version <= 16);
+  // the link fits a QR code of modest size: its digits in numeric mode, version 11 for a typical card
+  assert.equal(qr(link).version, 11);
+  const longest = cardLink(encodeCard({ words, name: 'x'.repeat(48), home: 'y'.repeat(48) }));
+  assert.ok(qr(longest).version <= 12);
 });
 
 test('the cabinet filters: from this world, other waters; search; newest first', () => {
