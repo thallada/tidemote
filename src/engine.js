@@ -2736,7 +2736,9 @@ class Engine {
     const time = realT % REAL_WRAP;
     const [W, H] = this.size;
     // the views that see little of the world draw only the rows they cover (CULL_WGSL)
-    const culled = [this._cullView(0, cam.x, cam.y, W / (2 * cam.ppu), H / (2 * cam.ppu)),
+    // (plainDraw: none of the main view's shortcuts, culling, listing or splatting, for tools/popzoom.mjs --bisect)
+    const plain = !!this.plainDraw;
+    const culled = [!plain && this._cullView(0, cam.x, cam.y, W / (2 * cam.ppu), H / (2 * cam.ppu)),
       !!loupe && this._cullView(1, loupe.cx, loupe.cy, (LOUPE_FIELD * loupe.r) / loupe.ppu, (LOUPE_FIELD * loupe.r) / loupe.ppu),
       !!(specimen && specimen.target && !specimen.studio) && this._cullView(2, specimen.cx, specimen.cy, specimen.w / (2 * specimen.ppu), specimen.h / (2 * specimen.ppu))];
     if (culled.some(Boolean)) {
@@ -2752,12 +2754,12 @@ class Engine {
     // seeing most of the world with particles a pixel or so across, it splats those (splatMain), where
     // there are enough of them to pay for the buffer it clears and adds in (a quarter as many as pixels)
     const ps = Math.max(1.1 * dpr, 0.085 * cam.ppu);
-    const splat = !culled[0] && this.settings.nodes && ps <= SPLAT_PX && this.count >= W * H / 4 ? SPLAT_PX : 0;
+    const splat = !plain && !culled[0] && this.settings.nodes && ps <= SPLAT_PX && this.count >= W * H / 4 ? SPLAT_PX : 0;
     // otherwise each sprite in view is sized once and those drawn small take a slim pipeline (listMain); not until the
     // full point pipeline has landed (_compileLate): the lean one drawing in its place would draw the full one's count
     // from the lean list's end, stale indices of earlier frames that changed as the view moved (cells popping in and
     // out) and none of the cells resolved past interiorLOD
-    const listed = !splat && this.settings.nodes && !!(this.main.point && this.mainBG.point);
+    const listed = !plain && !splat && this.settings.nodes && !!(this.main.point && this.mainBG.point);
     this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId, lod, culled[0], listed ? -1 : splat, true);
     if (listed) {
       d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0, 4, 0, 0, 0]));

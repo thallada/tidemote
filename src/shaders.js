@@ -487,6 +487,9 @@ export const SIM_CLOCK = 32768;
 const COMMON = /* wgsl */ `
 // x squared: pow(x, 2.0) is undefined for negative x (NaN, drawn black, on Metal and Vulkan), so never use it to square
 fn sqr(x: f32) -> f32 { return x * x; }
+// an angle: atan2(0, 0) is NaN on Metal (0 on Windows), and a NaN mixed in at weight 0 is still NaN, so the drawing's
+// angles of vectors that may be zero (a still cell's velocity, a squash not yet begun) take 0 there
+fn atan2z(y: f32, x: f32) -> f32 { return select(atan2(y, x), 0.0, x == 0.0 && y == 0.0); }
 // Relief, as in DIC microscopy: one light from the upper left (screen y down) for every resolved shape.
 const TO_LIGHT = vec2f(-0.633, -0.774);
 const MAXK = ${MAXK}u;
@@ -4560,17 +4563,17 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
       // the body faces where it travels, turning about a radian per radius it moves (and slowly on the
       // spot), so a cell jostled in a crowd, its velocity flicking every way, holds its heading
       face = unpack2x16float(was.face);
-      var swing = atan2(vel.y, vel.x) - atan2(face.y, face.x);
+      var swing = atan2z(vel.y, vel.x) - atan2z(face.y, face.x);
       swing -= TAU * round(swing / TAU);
-      let toward = atan2(face.y, face.x) + clamp(swing, -1.0, 1.0) * min(1.0, (speed / radius + 0.3) * dt);
+      let toward = atan2z(face.y, face.x) + clamp(swing, -1.0, 1.0) * min(1.0, (speed / radius + 0.3) * dt);
       face = vec2f(cos(toward), sin(toward));
-      var turn = atan2(vel.y, vel.x) - atan2(prev.y, prev.x);
+      var turn = atan2z(vel.y, vel.x) - atan2z(prev.y, prev.x);
       turn -= TAU * round(turn / TAU);
       let follow = clamp(0.5 * turn / (dt * max(speed, 1e-4)) * radius, -0.45, 0.45)
         * smoothstep(0.5, 2.0, speed / radius);
       let dv = (vel - prev) / (dt * radius);
       let knock = length(dv);
-      let axis = 2.0 * atan2(dv.y, dv.x);
+      let axis = 2.0 * atan2z(dv.y, dv.x);
       // knocks run from a few to a few hundred radii/s² (crowded colonies are shoved constantly), so
       // the squash saturates
       let push = 0.2 * (1.0 - exp(-knock / 60.0)) * vec2f(cos(axis), sin(axis));
@@ -4643,10 +4646,10 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
         if (dE < -${f(0.6 * DEFAULT_K.bite)} && g.photo > 0.4 && young == NONE) {
           let was = f32(biteAt) / 256.0 * TAU;
           var toward = select(renderHash(p.id) * TAU, was, markSize > 0.0);
-          if (stranger != NONE) { let d = parts[stranger].pos - p.pos; toward = atan2(d.y, d.x); }
+          if (stranger != NONE) { let d = parts[stranger].pos - p.pos; toward = atan2z(d.y, d.x); }
           let bitten = clamp(-dE / ${f(DEFAULT_K.bite)}, 0.5, 1.0);
           let v = vec2f(cos(was), sin(was)) * markSize + vec2f(cos(toward), sin(toward)) * 0.6 * bitten;
-          toward = atan2(v.y, v.x);
+          toward = atan2z(v.y, v.x);
           biteAt = u32(fract(toward / TAU) * 256.0) & 255u;
           rate += 5.0 * (1.0 - markSize) * vec2f(cos(2.0 * toward), sin(2.0 * toward));
           markSize = min(1.0, markSize + 0.6 * bitten);
@@ -4655,13 +4658,13 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
         // an animal that gained a meal's worth at once: a gulp, lunging forward
         if (dE > max(0.2, 0.1 * g.reproE) && g.photo <= 0.4) {
           ev.y = 0.0;
-          let a = atan2(face.y, face.x);
+          let a = atan2z(face.y, face.x);
           rate -= 6.0 * vec2f(cos(2.0 * a), sin(2.0 * a));
         }
         // a mother whose daughter has just budded off is drawn out toward her
         if (dE < -0.2 * g.reproE && young != NONE && !born) {
           let d = parts[young].pos - p.pos;
-          let a = atan2(d.y, d.x);
+          let a = atan2z(d.y, d.x);
           rate -= 4.0 * vec2f(cos(2.0 * a), sin(2.0 * a));
         }
       }
@@ -4949,18 +4952,18 @@ fn choosePlan(g: Genome, role: u32) -> u32 {
 }
 fn facetSD(q: vec2f, radius: f32, sides: f32, rounding: f32) -> f32 {
   // Warping the angle makes adjacent facets unequal without a vertex array.
-  let a = atan2(q.y, q.x);
+  let a = atan2z(q.y, q.x);
   return length(q) - radius * polygonRadius(a + 0.15 * sin(a * 3.0 + 1.7), sides, rounding);
 }
 fn loboseSD(q: vec2f, s: vec2f) -> f32 {
-  let a = atan2(q.y, q.x);
+  let a = atan2z(q.y, q.x);
   let lobes = 3.0 + floor(s.x * 3.0);
   // lobes are pseudopods: they creep round the cell as it flows
   let edge = 0.73 + 0.11 * sin(a * lobes + s.y * TAU + view.time * 0.23) + 0.07 * cos(a * 3.0 + 0.5);
   return facetSD(q, edge, 7.0 + floor(s.y * 3.0), 0.22);
 }
 fn radiateSD(q: vec2f, s: vec2f, filose: bool) -> f32 {
-  let a = atan2(q.y, q.x);
+  let a = atan2z(q.y, q.x);
   let arms = select(3.0 + floor(s.x * 2.0), 5.0 + floor(s.x * 3.0), filose);
   let bend = 0.32 * sin(length(q) * 4.0 + s.y * 5.0) + 0.18 * sin(a * 2.0 + s.y);
   let lobe = pow(max(0.0, cos(a * arms + bend)), select(1.8, 3.0, filose));
@@ -4971,7 +4974,7 @@ fn radiateSD(q: vec2f, s: vec2f, filose: bool) -> f32 {
 fn desmidSD(q: vec2f, s: vec2f) -> f32 {
   let side = select(-1.0, 1.0, q.x > 0.0);
   let v = q - vec2f(side * 0.39, 0.04 * side);
-  let a = atan2(v.y, v.x);
+  let a = atan2z(v.y, v.x);
   let edge = 0.42 + 0.085 * cos(a * (5.0 + floor(s.x * 2.0)) + side * s.y * 1.5);
   let semicell = facetSD(v * vec2f(1.12, 0.87), edge, 8.0, 0.12);
   let isthmus = length(q * vec2f(0.8, 2.2)) - 0.24;
@@ -5008,7 +5011,7 @@ fn spiralSD(q: vec2f, s: vec2f) -> f32 {
   return sd;
 }
 fn vacuolateSD(q: vec2f, s: vec2f) -> f32 {
-  let a = atan2(q.y, q.x);
+  let a = atan2z(q.y, q.x);
   let outer = facetSD(q, 0.80 + 0.045 * sin(a * 5.0 + s.y * 5.0), 9.0, 0.18);
   let center = vec2f(0.16 + s.x * 0.30, 0.09);
   let hole = facetSD((q - center) * vec2f(1.0, 1.12), 0.35 + s.x * 0.10, 7.0, 0.3);
@@ -5080,7 +5083,7 @@ fn cellOutline(uv: vec2f, dir: vec2f, radius: f32, seed: f32,
   q.y += 0.065 * mix(sin(q.x * 4.5 + flowing * 1.3), sin(q.x * 4.5 + held * 1.3), rest.x);
   // and a moving one ripples, a wave running back along its body and growing toward the rear
   q.y += pc * 0.075 * sin(q.x * 4.0 + seed * 40.0 + view.time * 4.5) * (0.3 + 0.7 * smoothstep(0.5, -0.8, q.x));
-  let a = atan2(q.y, q.x);
+  let a = atan2z(q.y, q.x);
   let ripple = 0.018 * sin(a * 5.0 + seed * 23.0) * smoothstep(0.1, 0.4, length(q));
   // (teeth only where fine detail shows: elsewhere their pow was taken to be multiplied by 0)
   let fl = fineLOD(radius);
@@ -5101,7 +5104,7 @@ fn swayOf(p: Particle) -> Sway {
 fn cellDirection(p: Particle) -> vec2f {
   let st = swayOf(p);
   let v = select(p.vel, unpack2x16float(st.face), st.id == p.id);
-  let a = select(renderHash(p.id) * TAU, atan2(v.y, v.x), dot(v, v) > 0.000001);
+  let a = select(renderHash(p.id) * TAU, atan2z(v.y, v.x), dot(v, v) > 0.000001);
   return vec2f(cos(a), sin(a));
 }
 // A tree's cell (or a tail's) faces along its branch, away from its mother; any other faces where it swims.
@@ -5587,7 +5590,7 @@ struct PO {
       o.jelly.z = unpack2x16float(st.bend).x * give * (1.0 - an.sleep);
       // the squash's axis, its length the amount
       let q = unpack2x16float(st.squash) * give;
-      let axis = 0.5 * atan2(q.y, q.x);
+      let axis = 0.5 * atan2z(q.y, q.x);
       o.squash = vec2f(cos(axis), sin(axis)) * length(q);
     }
     extent *= (1.0 + 0.3 * pace) * (1.0 + 0.5 * abs(o.jelly.z)) * exp(length(o.squash));
@@ -5626,7 +5629,7 @@ struct PO {
     if (an.novel > 0.0) { extent = max(extent, 1.5); }
     o.tile.y = an.ate;
     if (ghost) { o.neck.w = gh.fed; }
-    if (an.mark > 0.0) { o.fx.z = an.mark; o.fx.w = an.markAt - atan2(dir.y, dir.x); }
+    if (an.mark > 0.0) { o.fx.z = an.mark; o.fx.w = an.markAt - atan2z(dir.y, dir.x); }
     // All partner storage reads and frame setup happen per vertex, never per pixel.
     var plans = 0x7fffu;
     var seeds = vec3f(0.0);
@@ -5652,7 +5655,7 @@ struct PO {
         let dir = bodyDirection(index, partner);
         plans = (plans & ~(31u << (5u * used))) | (choosePlan(g, roleOf(partner.info)) << (5u * used));
         o.bondOffset[used] = pack2x16float(offset);
-        o.bondFrame[used] = pack2x16float(vec2f(ratio, atan2(dir.y, dir.x)));
+        o.bondFrame[used] = pack2x16float(vec2f(ratio, atan2z(dir.y, dir.x)));
         seeds[used] = renderHash(partner.id);
         if (used == 0u) { picked.x = index; } else if (used == 1u) { picked.y = index; }
         used++;
@@ -5681,7 +5684,7 @@ struct PO {
           let dir = bodyDirection(index, q);
           plans = (plans & ~(31u << (5u * used))) | (choosePlan(qg, roleOf(q.info)) << (5u * used));
           o.bondOffset[used] = pack2x16float(offset);
-          o.bondFrame[used] = pack2x16float(vec2f(ratio, atan2(dir.y, dir.x)));
+          o.bondFrame[used] = pack2x16float(vec2f(ratio, atan2z(dir.y, dir.x)));
           seeds[used] = renderHash(q.id);
           o.neck[used] = 0.12 + neck;
           extent = max(extent, 1.2 + neck);
@@ -5815,7 +5818,7 @@ fn soloCell(p: Particle, ii: u32) -> PO {
     let dir = normalize(q.vel);
     plans = (plans & ~(31u << (5u * used))) | (choosePlan(g, roleOf(q.info)) << (5u * used));
     o.bondOffset[used] = pack2x16float(offset);
-    o.bondFrame[used] = pack2x16float(vec2f(ratio, atan2(dir.y, dir.x)));
+    o.bondFrame[used] = pack2x16float(vec2f(ratio, atan2z(dir.y, dir.x)));
     seeds[used] = renderHash(index + 1u);
     used++;
   }
@@ -6066,7 +6069,7 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
         vec4f(g.swim, g.pulse, g.calcify, g.dFlesh), s, pace, bend, vec2f(still, sleep));
       if (j == 0u) {
         var osd = outline.sd;
-        let a = atan2(outline.q.y, outline.q.x);
+        let a = atan2z(outline.q.y, outline.q.x);
         // withering, the membrane loses its turgor and wrinkles
         if (dying > 0.0 && !burst) { osd += smoothstep(0.0, 0.7, dying) * (0.04 * sin(a * 9.0 + seed * 31.0) + 0.025 * sin(a * 19.0 + seed * 7.0)); }
         // a bite out of its side, healing
@@ -6148,7 +6151,7 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
     var tissue = 1.0;
     var hue = vec3f(1.0);
     if (INTERIOR && inside > 0.0 && body > 0.0) {
-      let a = atan2(q.y, q.x);
+      let a = atan2z(q.y, q.x);
       let r = length(q);
       let age = clamp(p.age / max(g.lifespan, 1.0), 0.0, 1.0);
       let wallWidth = 0.025 + 0.008 * sin(a * 3.0 + seed * 13.0) + 0.03 * sleep;
@@ -6188,7 +6191,7 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
         detail -= 0.25 * exp(-sqr((q.y - 0.18 - 0.12 * sin(q.x * 4.0)) / (0.045 + aa)));
       }
       if (myPlan == 7u) {
-        let whorl = sin(atan2(q.y, q.x) * 2.0 - r * 18.0 + s.y);
+        let whorl = sin(atan2z(q.y, q.x) * 2.0 - r * 18.0 + s.y);
         detail -= 0.24 * exp(-whorl * whorl * 35.0) * smoothstep(0.1, 0.3, r);
       }
       if (myPlan == 11u) {
@@ -6261,7 +6264,7 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
     }
     f = body * tissue * spriteMean(myPlan) / i.geom.y;
     if (appendages && body < 1.0) {
-      let a = atan2(q.y, q.x);
+      let a = atan2z(q.y, q.x);
       var motion = localPoint(i.uv / swell, i.geom.zw) * vec2f(1.0 / aspect, aspect);
       motion.y -= bendShift(motion.x, bend);
       let beat = view.time * 2.5 + seed * TAU;
@@ -6283,7 +6286,7 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
 // the collapsed skin is a faint film whose wrinkles catch the light. Its light and coverage at v (its
 // own frame, facing dir).
 fn huskLight(v: vec2f, seed: f32, aa: f32, dir: vec2f) -> vec2f {
-  let a = atan2(v.y, v.x) + seed * TAU;
+  let a = atan2z(v.y, v.x) + seed * TAU;
   let fold = length(v * vec2f(0.86, 1.55));
   let wall = 0.64 + 0.10 * sin(a * 3.0 + seed * 21.0) + 0.06 * sin(a * 7.0);
   let breaks = smoothstep(-0.85, -0.55, sin(a * 3.0 + seed * 37.0));
@@ -6337,7 +6340,7 @@ fn matterColor(i: PO, p: Particle, far: f32) -> vec4f {
   var f = 0.0;
   var cover = 0.0;
   {
-    let a = atan2(v.y, v.x) + seed * TAU;
+    let a = atan2z(v.y, v.x) + seed * TAU;
     var r = length(v);
     let sides = 4.0 + floor(seed * 4.0);
     // a broken grain: silt chips' edges wander, so no two are regular polygons
@@ -6614,7 +6617,7 @@ fn framboidSurf(i: SO) -> StoneOut {
   let squash = 1.0 + 0.22 * grainHash(i.seed, 1.0);
   let u0 = i.uv / 0.85;
   let u = vec2f(dot(u0, ax) * squash, dot(u0, vec2f(-ax.y, ax.x)));
-  let ang = atan2(u.y, u.x);
+  let ang = atan2z(u.y, u.x);
   let lumps = 1.0 + 0.04 * sin(ang * 3.0 + i.seed.y * 20.0) + 0.04 * sin(ang * 5.0 + i.seed.x * 31.0) + 0.025 * sin(ang * 7.0 + i.seed.y * 9.0);
   let env = length(u) * lumps;
   if (env >= 1.12) { discard; }
@@ -6844,7 +6847,7 @@ fn mineralSurf(i: SO) -> StoneOut {
       let fv = w - fc;
       let fd = length(fv);
       let conch = smoothstep(r0 * 0.9, r0 * 0.2, fd) * step(0.65, grainHash(H, 49.0));
-      tilt += fv / max(fd, 1e-3) * 0.1 * sin(fd * (34.0 + 20.0 * grainHash(H, 50.0)) + 1.5 * sin(atan2(fv.y, fv.x) * 3.0)) * conch * conch * det;
+      tilt += fv / max(fd, 1e-3) * 0.1 * sin(fd * (34.0 + 20.0 * grainHash(H, 50.0)) + 1.5 * sin(atan2z(fv.y, fv.x) * 3.0)) * conch * conch * det;
       // a hairline crack that catches the light
       let cn = vec2f(cos(grainHash(H, 51.0) * TAU), sin(grainHash(H, 51.0) * TAU));
       let cdist = dot(w, cn) - (grainHash(H, 52.0) - 0.5) * r0;
@@ -6960,7 +6963,7 @@ fn mineralSurf(i: SO) -> StoneOut {
       ls = u / max(rho, 1e-4) * dr * 2.5;
       hz = r0 * 0.08 * smoothstep(0.0, 0.04, -sd);
       let rows = f32(18u + u32(grainHash(H, 11.0) * 18.0));
-      let ac = vec2f(fract(atan2(u.y, u.x) / TAU * rows) - 0.5, fract(q * (8.0 + 5.0 * grainHash(H, 13.0))) - 0.5);
+      let ac = vec2f(fract(atan2z(u.y, u.x) / TAU * rows) - 0.5, fract(q * (8.0 + 5.0 * grainHash(H, 13.0))) - 0.5);
       let pore = (1.0 - smoothstep(0.18, 0.32, length(ac))) * smoothstep(0.15, 0.25, q) * (1.0 - smoothstep(0.82, 0.86, q));
       alb = 1.0 - 0.45 * pore * det;
       edge = grainRim(sd, 0.1, pxw);
@@ -7233,7 +7236,7 @@ fn microBody(local: vec2f, h: vec4f, spacing: f32, ppu: f32, depth: f32, abundan
     // Bubble, as bubLook draws the larger ones: a fine bright rim round a nearly clear core, never quite round, the
     // rim a crescent brightest toward the lamp and a fainter line inside it away from the lamp; some drift out of
     // focus, the rim spread and dimmer
-    let a = atan2(q.y, q.x);
+    let a = atan2z(q.y, q.x);
     let hb = fract(h.yxw * vec3f(7.13, 5.71, 3.37) + h.zwx);
     sdf = length(q) - r * 1.25 * (1.0 + 0.1 * hb.x * cos(2.0 * a + hb.y * TAU) + 0.04 * cos(3.0 * a + hb.z * TAU));
     width = r * 0.4;
@@ -7715,7 +7718,7 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32) -> vec3f {
   if (iris > 0.0) {
     // a field diaphragm of nine blades, closed a little, its edge in focus: a polygon with a faint blue rim
     let seg = TAU / 9.0;
-    let th = atan2(q.y, q.x) + 0.31;
+    let th = atan2z(q.y, q.x) + 0.31;
     fq = mix(fq, fq / (cos(seg * 0.5) / cos(th - seg * (floor(th / seg) + 0.5))) / mix(1.0, 0.86, iris), iris);
     rim = iris * k * exp(-sqr((fq - corner * 0.84) * 30.0));
   }
@@ -8095,7 +8098,7 @@ fn specks(wp: vec2f, s0: f32, rmax: f32, ppu: f32, seed: f32, share: f32) -> vec
   let r = rmax * (0.3 + 0.7 * hash12(c + 1.9));
   let aa = s / max(ppu, 1e-3);
   let dv = p - cu - o;
-  let an = atan2(dv.y, dv.x);
+  let an = atan2z(dv.y, dv.x);
   let d = length(dv) * (1.0 + 0.1 * sin(2.0 * an + h * 40.0) + 0.08 * sin(3.0 * an + h * 17.0) + 0.05 * sin(5.0 * an + h * 7.0));
   let cov = 1.0 - smoothstep(r - aa, r + aa, d);
   let rim = exp(-sqr((d - r * 0.85) / max(r * 0.14, aa)));
@@ -8202,7 +8205,7 @@ fn iceGrain(wp: vec2f, cu: vec2f, N: vec2f, Sv: vec2f, near: f32) -> IceGrain {
   let s00 = gridPost(${ICE_SHOWN}u, ic.x, ic.y); let s10 = gridPost(${ICE_SHOWN}u, ic.x + 1, ic.y);
   let s01 = gridPost(${ICE_SHOWN}u, ic.x, ic.y + 1); let s11 = gridPost(${ICE_SHOWN}u, ic.x + 1, ic.y + 1);
   let gr = -vec2f(mix(s10 - s00, s11 - s01, tc.y), mix(s01 - s00, s11 - s10, tc.x));
-  let aa = th + select(0.0, round((atan2(gr.y, gr.x) - th) / 1.0472) * 1.0472, dot(gr, gr) > 1e-6);
+  let aa = th + select(0.0, round((atan2z(gr.y, gr.x) - th) / 1.0472) * 1.0472, dot(gr, gr) > 1e-6);
   g.ax = vec2f(cos(aa), sin(aa));
   let d = wp - ctr;
   let u = dot(d, g.ax);
@@ -8340,7 +8343,7 @@ fn frazilStar(wp: vec2f, cu: vec2f, N: vec2f, sp: vec2f, sd: f32, ppu: f32, grow
   let d = wp - ctr;
   let r = length(d);
   if (r > R + 0.15 || R < 0.05) { return vec3f(0.0); }
-  let a = atan2(d.y, d.x) - hash12(cell + 6.0) * 1.0472;
+  let a = atan2z(d.y, d.x) - hash12(cell + 6.0) * 1.0472;
   let k = round(a / 1.0472);
   let ar = (a - k * 1.0472);
   let s = r * cos(ar);
@@ -8385,7 +8388,7 @@ fn frazil(wp: vec2f, sd: f32, ppu: f32, grow: f32) -> vec3f {
 struct Bub { c: vec2f, r: f32, focus: f32, e: vec4f, h: f32 }
 // its outline's signed distance at offset d from its center (about: the outline wavers only a little)
 fn bubSd(b: Bub, d: vec2f) -> f32 {
-  let a = atan2(d.y, d.x);
+  let a = atan2z(d.y, d.x);
   return length(d) - b.r * (1.0 + b.e.x * cos(2.0 * (a - b.e.y)) + b.e.z * cos(3.0 * (a - b.e.w)));
 }
 // What it shows at offset d, sd from its outline (walls shared with a neighbor taken in, bubWall), seen px world units
@@ -8417,7 +8420,7 @@ fn bubLook(b: Bub, d: vec2f, sd: f32, px: f32, gain: f32) -> vec4f {
   // (exp of the depth inside only: outside, by a collapsing bubble, it overflowed and times inside's nothing made NaN)
   let fringe = ring * exp(min(sd, 0.0) / (0.3 * r)) * inside * smoothstep(0.15, 0.6, b.focus) * 0.25;
   // specks clinging to its skin, here and there round it, sharp only in focus
-  let a = atan2(d.y, d.x) / TAU + b.h * 3.7;
+  let a = atan2z(d.y, d.x) / TAU + b.h * 3.7;
   let slot = floor(a * 13.0);
   let gh = hash12(vec2f(slot, b.h * 97.0));
   let fa = (slot + 0.25 + 0.5 * hash12(vec2f(slot, b.h * 31.0))) / 13.0 - b.h * 3.7;

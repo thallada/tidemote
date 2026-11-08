@@ -11,7 +11,7 @@ export const cliArgs = () => Object.fromEntries(process.argv.slice(2).reduce((a,
 const CHROME = process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
   : 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 
-export async function openPage({ html = 'dist/tidemote.html', k = '{}', n = 262144, w = 1280, h = 800, mature = 120, tmp = 'page-' }) {
+export async function openPage({ html = 'dist/tidemote.html', k = '{}', n = 262144, w = 1280, h = 800, mature = 120, tmp = 'page-', prefs = {} }) {
   const file = path.resolve(html);
   const server = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); fs.createReadStream(file).pipe(res); });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -27,12 +27,12 @@ export async function openPage({ html = 'dist/tidemote.html', k = '{}', n = 2621
   page.setDefaultTimeout(0);
   page.on('pageerror', (e) => console.log(`[page error] ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') console.log(`[console] ${m.text().slice(0, 400)}`); });
-  await page.addInitScript((n) => {
+  await page.addInitScript(([n, prefs]) => {
     if (sessionStorage.getItem('tm-init')) return;
     sessionStorage.setItem('tm-init', '1');
-    localStorage.setItem('tidemote.view', JSON.stringify({ v: 2, particles: n, auto: false, labOpen: false, trails: 0 }));
+    localStorage.setItem('tidemote.view', JSON.stringify({ v: 2, particles: n, auto: false, labOpen: false, trails: 0, ...prefs }));
     localStorage.setItem('tidemote.sound', JSON.stringify({ on: false, volume: 0 }));
-  }, +n);
+  }, [+n, prefs]);
   await page.goto(`http://127.0.0.1:${server.address().port}/#k=${encodeURIComponent(k)}`);
   await page.waitForFunction(() => globalThis.__tidemote?.state.phase === 'running', null, { polling: 250 });
   await page.keyboard.press('Shift');
