@@ -7,6 +7,7 @@ import { DRAW_WGSL, POST_WGSL, INBOND_WGSL, DEFAULT_K, FIRST_LIFE, G_BYTES, P_BY
 import { viewWords, VIEW_BYTES, POST_WORDS, POST_LOOK, HDR } from './engine.js';
 import { DARKFIELD, packLook } from './look.js';
 import { stage } from './studio.js';
+import { tr } from './i18n.js';
 
 // the studio's world: big enough that its cells never wrap; its portrait's side (pixels; a row a multiple of 256 bytes, as
 // a texture copy needs: the page's PORTRAIT)
@@ -23,9 +24,9 @@ export async function studioPortrait(words, g, cells, step = () => {}) {
   step('gpu');
   // (noGpu: there is no GPU to draw on, rather than a failure drawing on it)
   const noGpu = (message) => Object.assign(new Error(message), { noGpu: true });
-  if (!navigator.gpu) throw noGpu('This browser has no WebGPU.');
+  if (!navigator.gpu) throw noGpu(tr('linked.portrait.err.no-webgpu', 'This browser has no WebGPU.')); // i18n: shown in the hint of a card's portrait not drawn
   const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
-  if (!adapter) throw noGpu('WebGPU offered no graphics adapter (hardware acceleration may be off).');
+  if (!adapter) throw noGpu(tr('linked.portrait.err.no-adapter', 'WebGPU offered no graphics adapter (hardware acceleration may be off).'));
   const d = await adapter.requestDevice();
   try {
     step('compile');

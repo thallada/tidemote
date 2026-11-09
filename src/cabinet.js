@@ -5,6 +5,7 @@
 import { G_WORDS } from './shaders.js';
 import { BODY_MAX } from './studio.js';
 import { SAVE_VERSION } from './worlds.js';
+import { tr } from './i18n.js';
 
 // a card's link: its payload as digits, which a QR code holds in numeric mode (3.3 bits a digit, against 8 for a
 // base64 character in byte mode; qr.js), for a code of fewer, bigger modules a phone reads from further off.
@@ -64,15 +65,16 @@ export function encodeCard({ words, name, home, touched = false, body = null }) 
 }
 /** bytes -> { words, name, home, touched, body }, or throws with why it is refused. */
 export function decodeCard(b) {
-  if (b.length < 12 || MAGIC.some((m, i) => b[i] !== m)) throw new Error('This is not a Tidemote species card.');
-  if (b[4] !== FORMAT || b[5] !== G_WORDS) throw new Error(b[4] > FORMAT ? 'This card is from a newer Tidemote.' : 'This card is from an older Tidemote, whose genomes this one cannot read.');
+  // i18n: why a species card (a PNG dropped on the page, or a link) was refused
+  if (b.length < 12 || MAGIC.some((m, i) => b[i] !== m)) throw new Error(tr('cabinet.error.not-card', 'This is not a Tidemote species card.'));
+  if (b[4] !== FORMAT || b[5] !== G_WORDS) throw new Error(b[4] > FORMAT ? tr('cabinet.error.newer', 'This card is from a newer Tidemote.') : tr('cabinet.error.older', 'This card is from an older Tidemote, whose genomes this one cannot read.'));
   const dv = new DataView(b.buffer, b.byteOffset, b.byteLength), dec = new TextDecoder();
   let o = 8 + b[7];
   const name = dec.decode(b.subarray(8, o));
   const hl = b[o++], home = dec.decode(b.subarray(o, o + hl));
   o += hl;
   const bd = o + G_WORDS * 4 < b.length ? unpackBody(b, o + G_WORDS * 4) : null;
-  if (!bd || b.length !== bd.end + 4 || dv.getUint32(bd.end, true) !== fnv(b.subarray(0, bd.end))) throw new Error('This card is damaged.');
+  if (!bd || b.length !== bd.end + 4 || dv.getUint32(bd.end, true) !== fnv(b.subarray(0, bd.end))) throw new Error(tr('cabinet.error.damaged', 'This card is damaged.'));
   const words = Array.from({ length: G_WORDS }, (_, i) => dv.getUint32(o + i * 4, true));
   return { words, name, home, touched: !!(b[6] & FLAG_TOUCHED), body: bd.body };
 }
@@ -161,7 +163,7 @@ export function createCabinetStore() {
   }));
   const tx = async (mode, fn) => {
     const t = (await open()).transaction(['cards'], mode), out = fn(t.objectStore('cards'));
-    return new Promise((res, rej) => { t.oncomplete = () => res(out?.result); t.onerror = t.onabort = () => rej(t.error || new Error('The browser refused to keep the card.')); });
+    return new Promise((res, rej) => { t.oncomplete = () => res(out?.result); t.onerror = t.onabort = () => rej(t.error || new Error(tr('cabinet.error.store', 'The browser refused to keep the card.'))); });
   };
   return {
     list: () => tx('readonly', (s) => s.getAll()),

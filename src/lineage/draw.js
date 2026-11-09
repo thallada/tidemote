@@ -6,22 +6,25 @@ import { fit, plotBox, grid, clock, linearTicks, shortNum, timeTicks, namePlate 
 import { memberAt, packBlocks } from './model.js';
 import { strandName, strandLead } from './nav.js';
 import { fmt, fmtClock } from '../fmt.js';
+import { tr } from '../i18n.js';
 
 const OTHER = [0.42, 0.5, 0.52];
 const PANEL = '#070b0c', INK = '#e2f1f0', INK2 = '#a3bdbe', INK3 = '#6f8a8c', CYAN = '#7fd6df', SUN = '#f1e3a0';
 const GRID = 'rgba(130,205,214,0.07)', ERA = 'rgba(241,227,160,0.28)';
-const LABEL = '500 11px Saira, system-ui, sans-serif';
+const LABEL = '500 11px Saira, system-ui, sans-serif'; // i18n-ignore: canvas font
 const rgba = (c, a = 1, k = 1) => `rgba(${Math.round(c[0] * k * 255)},${Math.round(c[1] * k * 255)},${Math.round(c[2] * k * 255)},${a})`;
 const unitKey = (c, u) => (u.other ? 'other' : c.units.indexOf(u));
+// i18n: the lineages too small to show on their own, drawn together (Lab → Lineage: the plot's and the tree's label, a name plate's title)
+const otherName = () => tr('lineage.other', 'Other lineages');
 
 // a row of the tree, named as the breadcrumbs name its lineage (nav.js strandName)
-const rowName = (u) => (u.other ? 'Other lineages' : strandName(u.strand));
+const rowName = (u) => (u.other ? otherName() : strandName(u.strand));
 // a click on a lineage explores it, unless it is the one explored already (or the rest, folded together)
 const explorable = (u, root) => !u.other && u.strand !== root;
 
 /** What the unit is called: the species of its strand most numerous at t (or its latest). */
 function unitName(u, t) {
-  if (u.other) return 'Other lineages';
+  if (u.other) return otherName();
   const n = t != null && memberAt(u, t);
   return (n || (u.alive ? u.members.findLast((x) => x.alive) || u.members.at(-1) : u.members[0])).name;
 }
@@ -160,9 +163,11 @@ export function drawMuller(cv, c, eras, opts = {}) {
     },
     plate(hit) {
       const k = hit.u.other ? 0 : clade(hit.u).count;
-      return namePlate(hit.node ? hit.node.s.genome.col : 0xff8c8070, hit.node ? hit.node.name : 'Other lineages',
-        `${fmt(Math.round(hit.pop))} cells in its lineage · ${fmtClock(hit.t)}${k > 1 ? ` · lineage of ${fmt(k)} species` : ''}${hit.explore ? ' · click to explore it' : ''}`);
+      // i18n: under a name on the lineage plot: {pop} cells in the lineage at the moment {t} (a clock) pointed at, how many species the lineage holds, and whether a click explores it
+      return namePlate(hit.node ? hit.node.s.genome.col : 0xff8c8070, hit.node ? hit.node.name : otherName(),
+        tr('lineage.plot.plate', '{pop} cells in its lineage · {t}{k, plural, =0 {} =1 {} other { · lineage of # species}}{explore, select, yes { · click to explore it} other {}}', { pop: fmt(Math.round(hit.pop)), t: fmtClock(hit.t), k, explore: hit.explore ? 'yes' : 'no' }));
     },
+
   };
   return box;
 }
@@ -209,8 +214,9 @@ export function target(u) {
   return best || ld;
 }
 // what a row says after its name: how many species its lineage holds (when more than one) and whether it is gone
-const rowTag = (u) => { const q = clade(u); return [q.count > 1 ? `${fmt(q.count)} species` : '', q.alive ? '' : 'extinct'].filter(Boolean).join(' · ').toUpperCase(); };
-const TAG = '500 10px Saira, system-ui, sans-serif', TAG_GAP = 8;
+// i18n: after a lineage's name in its row, in capitals: how many species it holds (when more than one), and whether all of it is gone
+const rowTag = (u) => { const q = clade(u); return tr('lineage.row.tag', '{n, plural, =0 {{alive, select, yes {} other {EXTINCT}}} =1 {{alive, select, yes {} other {EXTINCT}}} other {# SPECIES{alive, select, yes {} other { · EXTINCT}}}}', { n: q.count, alive: q.alive ? 'yes' : 'no' }); };
+const TAG = '500 10px Saira, system-ui, sans-serif', TAG_GAP = 8; // i18n-ignore: canvas font
 const RET_W = 24; // the reticle's target, px across (as tall as its row)
 // HUD corner brackets around a box
 function brackets(g, x, y, w, h, k = 5) {
@@ -329,16 +335,19 @@ export function drawTree(cv, c, lay, eras, opts = {}) {
     },
     plate(hit) {
       const u = hit.u;
+      // i18n: a lineage row's reticle pointed at: its plate's line under the species' name ({end}: a clock; {pop}: cells)
       if (hit.locate) {
         const tg = hit.target;
-        if (!tg.alive) return namePlate(tg.s.genome.col, tg.name, `open its record · extinct ${fmtClock(tg.end)}`);
-        return namePlate(tg.s.genome.col, tg.name, `${tg === hit.lead ? 'show it' : `its lineage’s most numerous living species: show it`} in the water · ${fmt(tg.pop)} cells`);
+        if (!tg.alive) return namePlate(tg.s.genome.col, tg.name, tr('lineage.locate.extinct', 'open its record · extinct {end}', { end: fmtClock(tg.end) }));
+        return namePlate(tg.s.genome.col, tg.name, tr('lineage.locate.sub', '{lead, select, yes {show it} other {its lineage’s most numerous living species: show it}} in the water · {pop} cells', { lead: tg === hit.lead ? 'yes' : 'no', pop: fmt(tg.pop) }));
       }
-      if (!hit.node) return namePlate(0xff8c8070, 'Other lineages', `${fmt(u.count)} species whose ancestors are not shown`);
+      if (!hit.node) return namePlate(0xff8c8070, otherName(), tr('lineage.other.sub', '{n, plural, other {# species}} whose ancestors are not shown', { n: u.count }));
       // the row's lineage, and the species leading it where the pointer is when that is another
       const ld = hit.lead, nd = hit.node, q = clade(u);
-      const then = nd && nd !== ld ? ` · ${nd.name} at ${fmtClock(hit.t)}` : '';
-      return namePlate(ld.s.genome.col, ld.name, `${q.count > 1 ? `lineage of ${fmt(q.count)} species · ` : ''}arose ${fmtClock(u.born)}${q.alive ? '' : ' · extinct'}${then}${hit.explore ? ' · click to explore it' : ''}`);
+      // i18n: a lineage's row or band pointed at, under its leading species' name: how many species it holds, when it arose ({born}: a clock), whether it is gone; {then}: the species leading it where the pointer is ({name} at {t}, a clock); and whether a click explores it
+      const then = nd && nd !== ld ? tr('lineage.row.then', ' · {name} at {t}', { name: nd.name, t: fmtClock(hit.t) }) : '';
+      return namePlate(ld.s.genome.col, ld.name, tr('lineage.row.sub', '{n, plural, =0 {} =1 {} other {lineage of # species · }}arose {born}{alive, select, yes {} other { · extinct}}{then}{explore, select, yes { · click to explore it} other {}}',
+        { n: q.count, born: fmtClock(u.born), alive: q.alive ? 'yes' : 'no', then, explore: hit.explore ? 'yes' : 'no' }));
     },
   };
 }

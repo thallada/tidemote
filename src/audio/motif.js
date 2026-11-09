@@ -18,6 +18,7 @@
 // semitone (2.9 is the third degree flattened), used for chromatic approach notes.
 
 import { roleShares } from '../genome.js';
+import { tr } from '../i18n.js';
 
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -283,8 +284,12 @@ export function signalAt(m) {
 }
 
 // ── words ────────────────────────────────────────────────────────────────────
-const NUM = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen'];
-const MAT_WORD = { glass: 'singing glass', swell: 'swell', breath: 'reed breath', cplx: 'buzzing reed', tine: 'kalimba', bite: 'snapping drum', wood: 'woodblock', drop: 'water drops', pluck: 'plucked string' };
+// i18n: a song's instrument, a tag under its roll (the specimen panel, the card)
+const MAT_WORD = { glass: tr('song.mat.glass', 'singing glass'), swell: tr('song.mat.swell', 'swell'), breath: tr('song.mat.breath', 'reed breath'), cplx: tr('song.mat.cplx', 'buzzing reed'),
+  tine: tr('song.mat.tine', 'kalimba'), bite: tr('song.mat.bite', 'snapping drum'), wood: tr('song.mat.wood', 'woodblock'), drop: tr('song.mat.drop', 'water drops'), pluck: tr('song.mat.pluck', 'plucked string') };
+// i18n: a song's register and tempo, tags under its roll
+const REGISTER = { high: tr('song.register.high', 'high'), middle: tr('song.register.middle', 'middle'), low: tr('song.register.low', 'low') };
+const TEMPO = { quick: tr('song.tempo.quick', 'quick'), brisk: tr('song.tempo.brisk', 'brisk'), moderate: tr('song.tempo.moderate', 'moderate'), slow: tr('song.tempo.slow', 'slow'), very_slow: tr('song.tempo.very-slow', 'very slow') };
 
 /** The shape of a line of degrees, in a word. */
 export function contourWord(degs) {
@@ -307,23 +312,22 @@ export function contourWord(degs) {
   return turns >= 2 ? 'wavering' : 'level';
 }
 
-// The rhythm in plain terms: its figure, named by what you hear.
+// The rhythm in plain terms: its figure, named by what you hear (a key; describe's words for it).
 const RHYTHM = (m) => {
   const f = CELL_F[m.cell], cell = CELLS[m.cell];
   const has = (...p) => cell.some((_, i) => p.every((d, j) => cell[i + j] === d));
-  if (f.burst) return 'a held note, then a quick burst';
-  if (f.trip) return 'in triplets';
-  if (f.rest > 0.2) return 'broken up by rests';
-  if (f.syn > 0.4) return 'off the beat';
-  if (f.dens < 0.4) return 'each note held long';
-  if (f.even > 0.85) return f.dens >= 0.9 ? 'in even quick notes' : 'in even notes';
-  if (has(3, 1)) return 'long-short, long-short';
-  if (has(2, 1, 1)) return 'long-short-short';
-  if (has(1, 1, 2)) return 'short-short-long';
-  if (f.end > 0.5) return 'slowing into a long last note';
-  return 'in uneven notes';
+  if (f.burst) return 'burst';
+  if (f.trip) return 'triplets';
+  if (f.rest > 0.2) return 'rests';
+  if (f.syn > 0.4) return 'offbeat';
+  if (f.dens < 0.4) return 'long';
+  if (f.even > 0.85) return f.dens >= 0.9 ? 'even_quick' : 'even';
+  if (has(3, 1)) return 'long_short';
+  if (has(2, 1, 1)) return 'long_short_short';
+  if (has(1, 1, 2)) return 'short_short_long';
+  if (f.end > 0.5) return 'slowing';
+  return 'uneven';
 };
-const CONTOUR = { rising: 'rising', falling: 'falling', arching: 'rising then falling', dipping: 'falling then rising', zigzag: 'zigzagging up and down', leaping: 'leaping widely', hovering: 'staying around one pitch', wavering: 'wavering', level: 'mostly level', single: 'one pitch' };
 
 /** Seconds per note at the soundtrack's resting pulse. */
 export const noteSeconds = (m, step = 0.18) => (m.cycle / m.notes.length) * step;
@@ -337,48 +341,55 @@ export const noteSeconds = (m, step = 0.18) => (m.cycle / m.notes.length) * step
 export function describe(v) {
   const m = v.motif;
   const sec = noteSeconds(m);
-  const tempo = sec < 0.22 ? 'quick' : sec < 0.4 ? 'brisk' : sec < 0.75 ? 'moderate' : sec < 1.3 ? 'slow' : 'very slow';
+  const tempo = sec < 0.22 ? 'quick' : sec < 0.4 ? 'brisk' : sec < 0.75 ? 'moderate' : sec < 1.3 ? 'slow' : 'very_slow';
   const reg = v.oct >= 2 ? 'high' : v.oct <= 0 ? 'low' : 'middle';
   const first = m.dev.answer ? m.notes.slice(0, m.notes.length - (m.dev.answer === 'echo' ? Math.max(2, Math.ceil(CELL_F[m.cell].n / 2)) : m.dev.answer === 'tail' ? Math.max(2, CELL_F[m.cell].n - 1) : CELL_F[m.cell].n)) : m.notes;
-  const k = first.length, num = NUM[k] || String(k);
-  let s = `${num[0].toUpperCase() + num.slice(1)} notes, ${CONTOUR[contourWord(first.map((nt) => nt.deg))]}, ${RHYTHM(m)}.`;
-  const ANSWER = { sequence: 'Then played again a step higher or lower', mirror: 'Then played again upside down', echo: 'Its end repeats an octave higher', tail: 'Then played again with the last note held' };
+  // i18n: the first sentence of a song's description: how many notes its phrase has (the number in words; never fewer than
+  // three in practice), its shape and its rhythm
+  const out = [tr('song.line.phrase', '{n, plural, =0 {No notes} =1 {One notes} =2 {Two notes} =3 {Three notes} =4 {Four notes} =5 {Five notes} =6 {Six notes} =7 {Seven notes} =8 {Eight notes} =9 {Nine notes} =10 {Ten notes} =11 {Eleven notes} =12 {Twelve notes} =13 {Thirteen notes} =14 {Fourteen notes} other {# notes}}, {contour, select, rising {rising} falling {falling} arching {rising then falling} dipping {falling then rising} zigzag {zigzagging up and down} leaping {leaping widely} hovering {staying around one pitch} wavering {wavering} level {mostly level} other {one pitch}}, {rhythm, select, burst {a held note, then a quick burst} triplets {in triplets} rests {broken up by rests} offbeat {off the beat} long {each note held long} even_quick {in even quick notes} even {in even notes} long_short {long-short, long-short} long_short_short {long-short-short} short_short_long {short-short-long} slowing {slowing into a long last note} other {in uneven notes}}.',
+    { n: first.length, contour: contourWord(first.map((nt) => nt.deg)), rhythm: RHYTHM(m) })];
+  // what else is heard, in one sentence: each clause written as it reads first in it, or after another (pos)
   const bits = [];
-  if (m.dev.answer) bits.push(ANSWER[m.dev.answer]);
-  if (m.swing > 0.05) bits.push('swung (every second note a little late)');
-  if (m.notes.some((nt) => nt.grace != null)) bits.push('one quick grace note');
-  if (m.notes.some((nt) => Math.round(nt.deg) !== nt.deg)) bits.push('one note outside the key');
+  const pos = () => (bits.length ? 'next' : 'first');
+  // i18n: (the answer comes first in its sentence when there is one)
+  if (m.dev.answer) bits.push(tr('song.line.answer', '{answer, select, sequence {Then played again a step higher or lower} mirror {Then played again upside down} echo {Its end repeats an octave higher} other {Then played again with the last note held}}', { answer: m.dev.answer }));
+  // i18n: a clause in a song's description: first in its sentence, or after another
+  if (m.swing > 0.05) bits.push(tr('song.line.swung', '{pos, select, first {Swung (every second note a little late)} other {, swung (every second note a little late)}}', { pos: pos() }));
+  if (m.notes.some((nt) => nt.grace != null)) bits.push(tr('song.line.grace', '{pos, select, first {One quick grace note} other {, one quick grace note}}', { pos: pos() }));
+  if (m.notes.some((nt) => Math.round(nt.deg) !== nt.deg)) bits.push(tr('song.line.outside', '{pos, select, first {One note outside the key} other {, one note outside the key}}', { pos: pos() }));
   const lastDeg = m.notes[m.notes.length - 1].deg;
-  if ([0, 7, -7].includes(lastDeg)) bits.push('ends on the home note');
-  else if (![4, -3].includes(lastDeg) && m.char.prey > 0.5) bits.push('ends unresolved');
-  if (bits.length) s += ` ${bits[0][0].toUpperCase()}${bits.join(', ').slice(1)}.`;
-  s += m.sync > 0.65 ? ' Its cells school, so they sing it in step.'
-    : m.sync < 0.3 ? ' Its cells don’t school, so each starts the phrase on its own beat and the copies overlap.'
-      : ' Its cells school loosely: some sing it in step, others on their own beat.';
-  if (m.voice2) s += ' Its β cells add a lower second voice.';
-  return { tags: [MAT_WORD[v.mat] || v.mat, reg, tempo], line: s };
+  if ([0, 7, -7].includes(lastDeg)) bits.push(tr('song.line.home', '{pos, select, first {Ends on the home note} other {, ends on the home note}}', { pos: pos() }));
+  else if (![4, -3].includes(lastDeg) && m.char.prey > 0.5) bits.push(tr('song.line.unresolved', '{pos, select, first {Ends unresolved} other {, ends unresolved}}', { pos: pos() }));
+  // i18n: the sentence the clauses above make
+  if (bits.length) out.push(tr('song.line.clauses', '{clauses}.', { clauses: bits.join('') }));
+  out.push(tr('song.line.sync', '{sync, select, school {Its cells school, so they sing it in step.} alone {Its cells don’t school, so each starts the phrase on its own beat and the copies overlap.} other {Its cells school loosely: some sing it in step, others on their own beat.}}',
+    { sync: m.sync > 0.65 ? 'school' : m.sync < 0.3 ? 'alone' : 'loose' }));
+  if (m.voice2) out.push(tr('song.line.voice2', 'Its β cells add a lower second voice.'));
+  return { tags: [MAT_WORD[v.mat] || v.mat, REGISTER[reg], TEMPO[tempo]], line: out.join(' ') };
 }
 
 /** How a motif differs from an ancestor's, in words (empty when they sound alike). */
 export function compareMotifs(a, b) {
+  // i18n: how a species' song differs from its ancestor's: items of a list ("Compared with X's song: ...")
   const out = [];
-  if (a.dev.inv !== b.dev.inv) out.push('turned upside down');
-  if (a.dev.retro !== b.dev.retro) out.push('reversed');
-  if (a.cell !== b.cell) out.push('a new rhythm');
-  else if (a.dev.rot !== b.dev.rot) out.push('the rhythm shifted');
+  if (a.dev.inv !== b.dev.inv) out.push(tr('song.diff.inverted', 'turned upside down'));
+  if (a.dev.retro !== b.dev.retro) out.push(tr('song.diff.reversed', 'reversed'));
+  if (a.cell !== b.cell) out.push(tr('song.diff.rhythm', 'a new rhythm'));
+  else if (a.dev.rot !== b.dev.rot) out.push(tr('song.diff.shifted', 'the rhythm shifted'));
   const r = noteSeconds(b) / noteSeconds(a);
-  if (r < 0.8) out.push('quicker'); else if (r > 1.25) out.push('slower');
-  if (!a.dev.answer && b.dev.answer) out.push('a new answering phrase');
-  else if (a.dev.answer && !b.dev.answer) out.push('its answer dropped');
-  else if (a.dev.answer !== b.dev.answer) out.push('a new answer');
-  if (!a.voice2 && b.voice2) out.push('a second voice');
-  else if (a.voice2 && !b.voice2) out.push('down to one voice');
-  if (!a.dev.grace && b.dev.grace) out.push('a grace note');
+  if (r < 0.8) out.push(tr('song.diff.quicker', 'quicker')); else if (r > 1.25) out.push(tr('song.diff.slower', 'slower'));
+  if (!a.dev.answer && b.dev.answer) out.push(tr('song.diff.answer', 'a new answering phrase'));
+  else if (a.dev.answer && !b.dev.answer) out.push(tr('song.diff.answer-dropped', 'its answer dropped'));
+  else if (a.dev.answer !== b.dev.answer) out.push(tr('song.diff.answer-changed', 'a new answer'));
+  if (!a.voice2 && b.voice2) out.push(tr('song.diff.voice2', 'a second voice'));
+  else if (a.voice2 && !b.voice2) out.push(tr('song.diff.one-voice', 'down to one voice'));
+  if (!a.dev.grace && b.dev.grace) out.push(tr('song.diff.grace', 'a grace note'));
   if (!out.length) {
     const k = Math.min(a.seq.length, b.seq.length);
     let changed = Math.abs(a.seq.length - b.seq.length);
     for (let i = 0; i < k; i++) if (a.seq[i] !== b.seq[i]) changed++;
-    if (changed) out.push(`${NUM[changed] || changed} note${changed === 1 ? '' : 's'} changed`);
+    // i18n: how many notes of the line changed (the number in words up to fourteen)
+    if (changed) out.push(tr('song.diff.notes', '{n, plural, =1 {one note changed} =2 {two notes changed} =3 {three notes changed} =4 {four notes changed} =5 {five notes changed} =6 {six notes changed} =7 {seven notes changed} =8 {eight notes changed} =9 {nine notes changed} =10 {ten notes changed} =11 {eleven notes changed} =12 {twelve notes changed} =13 {thirteen notes changed} =14 {fourteen notes changed} other {# notes changed}}', { n: changed }));
   }
   return out;
 }

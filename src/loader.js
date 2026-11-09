@@ -4,12 +4,31 @@
 // canvas at 30 fps (under about 1 ms a frame), so the GPU stays free to compile the shaders and measure.
 // Chosen over a lineage tree, the pool's contours under a scan line and a budding filament (2026-10-23).
 
+import { tr } from './i18n.js';
+
 const C = {
   line: 'rgba(130, 205, 214, 0.22)', line2: 'rgba(150, 222, 230, 0.55)',
   ink2: '#a3bdbe', ink3: '#6f8a8c', sun: '#f1e3a0', sunLine: 'rgba(241, 227, 160, 0.5)',
 };
 // the guilds' tints, muted (photosynth, grazer, predator, scavenger)
-const KINDS = [['#cfe86a', 'photosynth', 'photo'], ['#7fd6df', 'grazer', 'grazer'], ['#ff8a6a', 'predator', 'pred'], ['#c3a2f0', 'scavenger', 'scav']];
+// i18n: the intro's loading animation: a specimen's kind in its readout (shown in capitals), in full on a wide screen,
+// short on a narrow one
+const KINDS = [['#cfe86a', tr('loader.kind.photosynth', 'photosynth'), tr('loader.kind-short.photosynth', 'photo')], ['#7fd6df', tr('loader.kind.grazer', 'grazer'), tr('loader.kind-short.grazer', 'grazer')],
+  ['#ff8a6a', tr('loader.kind.predator', 'predator'), tr('loader.kind-short.predator', 'pred')], ['#c3a2f0', tr('loader.kind.scavenger', 'scavenger'), tr('loader.kind-short.scavenger', 'scav')]];
+// i18n: the intro's loading animation's readouts (shown in capitals): a specimen locked onto (its number, cells, size)
+// and the field's (how many particles, the water's temperature, the light)
+const WORDS = {
+  acquiring: tr('loader.acquiring', 'acquiring'),
+  specimen: tr('loader.specimen', 'specimen'),
+  specimenNo: (no) => tr('loader.specimen-no', 'specimen {no}', { no }),
+  no: (no) => tr('loader.no', 'no {no}', { no }),
+  cells: (n) => tr('loader.cells', 'cells {n}', { n }),
+  size: (n) => tr('loader.size', '{n} µm', { n }),
+  field: tr('loader.field', 'field 01'),
+  count: (n) => tr('loader.count', 'n {n}', { n }),
+  temp: (t) => tr('loader.temp', '{t}°', { t }),
+  lux: (n) => tr('loader.lux', 'lux {n}%', { n }),
+};
 const TAU = Math.PI * 2;
 const SWEEP = 1.2; // radians of afterglow behind the sweep
 // how the cells move: force to velocity (per second), velocity kept per frame, the most force a cell's
@@ -18,7 +37,7 @@ const GAIN = 10, DAMP = 0.88, FMAX = 0.7, VMAX = 1.6;
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const pad = (n, w) => String(Math.max(0, Math.round(n))).padStart(w, '0');
 
-const font = (ctx) => { ctx.font = "500 9px Saira, 'Bahnschrift', sans-serif"; ctx.letterSpacing = '1.6px'; };
+const font = (ctx) => { ctx.font = "500 9px Saira, 'Bahnschrift', sans-serif"; ctx.letterSpacing = '1.6px'; }; // i18n-ignore (a font)
 function label(ctx, text, x, y, { color = C.ink3, align = 'left' } = {}) {
   font(ctx);
   ctx.textAlign = align; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = color;
@@ -43,7 +62,7 @@ function reticle(W, H, ctx) {
   // in columns as wide as their longest, and the lens gives up what room they still lack.
   const wide = W >= 2 * (H / 2 - 16) + 220;
   font(ctx);
-  const colW = Math.max(...['acquiring', 'specimen', 'cells 00', 'grazer', '000 µm', 'field 01', 'lux 00%', '00.0°'].map((x) => ctx.measureText(x.toUpperCase()).width));
+  const colW = Math.max(...[WORDS.acquiring, WORDS.specimen, WORDS.cells('00'), KINDS[1][2], WORDS.size('000'), WORDS.field, WORDS.lux('00'), WORDS.temp('00.0')].map((x) => ctx.measureText(x.toUpperCase()).width));
   const gap = 16;
   const R = wide ? H / 2 - 16 : Math.max(36, Math.min(H / 2 - 16, W / 2 - gap - colW - 4));
   const cx = W / 2, cy = H / 2;
@@ -164,16 +183,16 @@ function reticle(W, H, ctx) {
       const ex = x1 + m, ey = (y0 + y1) / 2, bx = cx + R + 12;
       ctx.strokeStyle = C.sunLine; ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(Math.min(bx, rx - 2), ry); ctx.lineTo(rx + lead, ry); ctx.stroke();
       // its title above the leader, the rest below it a row apart
-      const no = pad(serial, 4), rest = [`cells ${pad(kin.length, 2)}`, KINDS[lock.t][wide ? 1 : 2], `${pad(Math.hypot(x1 - x0, y1 - y0) * 6.6 + 12, 3)} µm`];
-      label(ctx, k < 1 ? 'acquiring' : wide ? `specimen ${no}` : 'specimen', rx, ry - 5, { color: C.sun });
-      if (!wide && k >= 1) label(ctx, `no ${no}`, rx, ry + 14, { color: C.sun });
+      const no = pad(serial, 4), rest = [WORDS.cells(pad(kin.length, 2)), KINDS[lock.t][wide ? 1 : 2], WORDS.size(pad(Math.hypot(x1 - x0, y1 - y0) * 6.6 + 12, 3))];
+      label(ctx, k < 1 ? WORDS.acquiring : wide ? WORDS.specimenNo(no) : WORDS.specimen, rx, ry - 5, { color: C.sun });
+      if (!wide && k >= 1) label(ctx, WORDS.no(no), rx, ry + 14, { color: C.sun });
       rest.forEach((s, i) => label(ctx, s, rx, ry + 14 * (i + (wide ? 1 : 2))));
     }
     // the field's readouts, mirroring the specimen's
     const lx = cx - R - (wide ? 22 : gap);
-    label(ctx, 'field 01', lx, ry - 5, { align: 'right', color: C.ink2 });
+    label(ctx, WORDS.field, lx, ry - 5, { align: 'right', color: C.ink2 });
     line(ctx, lx - (wide ? 72 : colW), ry, lx + (wide ? 8 : 2), ry);
-    [`n ${P.length}`, `${(14.6 + Math.sin(t * 0.3) * 0.4).toFixed(1)}°`, `lux ${pad(18 + Math.sin(t * 0.2) * 3, 2)}%`]
+    [WORDS.count(P.length), WORDS.temp((14.6 + Math.sin(t * 0.3) * 0.4).toFixed(1)), WORDS.lux(pad(18 + Math.sin(t * 0.2) * 3, 2))]
       .forEach((s, i) => label(ctx, s, lx, ry + 14 * (i + 1), { align: 'right' }));
   };
 }

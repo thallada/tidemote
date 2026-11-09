@@ -10,8 +10,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#06090a">
-<title>Tidemote — artificial life evolving on your GPU</title>
-<meta name="description" content="An artificial-life ecology of up to millions of particles on your GPU. Cells hunt and evolve into multicellular bodies, each species singing its own song.">
+<title data-i18n="meta.title">Tidemote — artificial life evolving on your GPU</title>
+<meta data-i18n="meta.description" name="description" content="An artificial-life ecology of up to millions of particles on your GPU. Cells hunt and evolve into multicellular bodies, each species singing its own song.">
 <meta name="author" content="Tyler Hallada">
 <meta name="robots" content="index, follow, max-image-preview:large">
 <link rel="canonical" href="https://tidemote.com/">
@@ -20,18 +20,18 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Tidemote">
 <meta property="og:url" content="https://tidemote.com/">
-<meta property="og:title" content="Tidemote — artificial life evolving on your GPU">
-<meta property="og:description" content="An artificial-life ecology of up to millions of particles on your GPU. Cells hunt and evolve into multicellular bodies, each species singing its own song.">
+<meta data-i18n="meta.og-title" property="og:title" content="Tidemote — artificial life evolving on your GPU">
+<meta data-i18n="meta.og-description" property="og:description" content="An artificial-life ecology of up to millions of particles on your GPU. Cells hunt and evolve into multicellular bodies, each species singing its own song.">
 <meta property="og:image" content="https://tidemote.com/og.jpg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Glowing colonies of particle cells, bonded into multicellular bodies, drifting in dark water.">
+<meta data-i18n="meta.og-image-alt" property="og:image:alt" content="Glowing colonies of particle cells, bonded into multicellular bodies, drifting in dark water.">
 <meta property="og:locale" content="en_US">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Tidemote — artificial life evolving on your GPU">
-<meta name="twitter:description" content="An artificial-life ecology of up to millions of particles on your GPU. Cells hunt and evolve into multicellular bodies, each species singing its own song.">
+<meta data-i18n="meta.twitter-title" name="twitter:title" content="Tidemote — artificial life evolving on your GPU">
+<meta data-i18n="meta.twitter-description" name="twitter:description" content="An artificial-life ecology of up to millions of particles on your GPU. Cells hunt and evolve into multicellular bodies, each species singing its own song.">
 <meta name="twitter:image" content="https://tidemote.com/og.jpg">
-<meta name="twitter:image:alt" content="Glowing colonies of particle cells, bonded into multicellular bodies, drifting in dark water.">
+<meta data-i18n="meta.twitter-image-alt" name="twitter:image:alt" content="Glowing colonies of particle cells, bonded into multicellular bodies, drifting in dark water.">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -107,104 +107,104 @@
   <symbol id="i-ev-cold" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2"><path d="M8 3.5a1.5 1.5 0 0 1 3 0v8.2a3.2 3.2 0 1 1-3 0Z"/><path d="M15 3.5V9m-2-2 2 2 2-2"/></g></symbol>
 </svg>
 
-<canvas id="stage" aria-label="The world. Click or tap a particle to examine it; drag to pan, scroll or pinch to zoom."></canvas>
+<canvas data-i18n="stage" id="stage" aria-label="The world. Click or tap a particle to examine it; drag to pan, scroll or pinch to zoom."></canvas>
 <canvas id="overlay" aria-hidden="true"></canvas>
 
 <div class="hud" id="hud">
   <!-- status rail: when and under what sky -->
   <header class="rail" id="rail">
-    <button type="button" class="brand" id="brand" aria-label="About Tidemote" data-hint="About Tidemote"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 9.5c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".45"/></svg><span translate="no">Tidemote</span></button>
-    <div class="clock" role="timer" aria-label="Simulated time"><span class="lbl">Epoch</span><b id="epoch" translate="no">0:00</b></div>
-    <div class="era-box" id="era-box"><span class="lbl" id="era-n">Era 01</span><b id="era">The First Tides</b><span class="era-tide" id="era-tide" aria-hidden="true"><svg viewBox="0 0 60 6" preserveAspectRatio="none"><path/></svg><i></i></span></div>
-    <div class="gauge term" data-tip="light" tabindex="0" id="g-light"><span class="lbl">Light</span><span class="seg" id="light-seg" aria-hidden="true"></span><b id="light-v" translate="no">–</b></div>
-    <div class="gauge term" data-tip="water" tabindex="0" id="g-heat"><span class="lbl">Temp</span><svg class="thermo" id="thermo" viewBox="0 0 68 18" aria-hidden="true"></svg><svg class="thermo-i" id="thermo-i" viewBox="0 0 12 20" aria-hidden="true"></svg><b id="heat-v" translate="no">–</b></div>
-    <div class="gauge term" data-tip="season" tabindex="0" id="g-tide"><span class="lbl">Tide</span><svg id="tide-wave" viewBox="0 0 60 16" aria-hidden="true"><path class="wave" d=""/><circle class="dot" r="2.2" cx="0" cy="8"/></svg><b id="tide-v" translate="no">–</b></div>
-    <div class="gauge term ev-chip" tabindex="0" id="g-event" hidden><span class="lbl" id="event-l">Event</span><svg class="ev-ico" aria-hidden="true"><use id="event-i" href="#i-ev-storm"/></svg><b><span id="event-v">–</span><span class="ev-x" id="event-x"></span></b></div>
+    <button data-i18n="rail.brand" type="button" class="brand" id="brand" aria-label="About Tidemote" data-hint="About Tidemote"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 9.5c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".45"/></svg><span translate="no">Tidemote</span></button>
+    <div data-i18n="rail.clock" class="clock" role="timer" aria-label="Simulated time"><span data-i18n="rail.epoch" class="lbl">Epoch</span><b id="epoch" translate="no">0:00</b></div>
+    <div class="era-box" id="era-box"><span data-i18n="rail.era-n" class="lbl" id="era-n">Era 01</span><b data-i18n="rail.era" id="era">The First Tides</b><span class="era-tide" id="era-tide" aria-hidden="true"><svg viewBox="0 0 60 6" preserveAspectRatio="none"><path/></svg><i></i></span></div>
+    <div class="gauge term" data-tip="light" tabindex="0" id="g-light"><span data-i18n="rail.light" class="lbl">Light</span><span class="seg" id="light-seg" aria-hidden="true"></span><b id="light-v" translate="no">–</b></div>
+    <div class="gauge term" data-tip="water" tabindex="0" id="g-heat"><span data-i18n="rail.temp" class="lbl">Temp</span><svg class="thermo" id="thermo" viewBox="0 0 68 18" aria-hidden="true"></svg><svg class="thermo-i" id="thermo-i" viewBox="0 0 12 20" aria-hidden="true"></svg><b id="heat-v" translate="no">–</b></div>
+    <div class="gauge term" data-tip="season" tabindex="0" id="g-tide"><span data-i18n="rail.tide" class="lbl">Tide</span><svg id="tide-wave" viewBox="0 0 60 16" aria-hidden="true"><path class="wave" d=""/><circle class="dot" r="2.2" cx="0" cy="8"/></svg><b id="tide-v" translate="no">–</b></div>
+    <div class="gauge term ev-chip" tabindex="0" id="g-event" hidden><span data-i18n="rail.event-l" class="lbl" id="event-l">Event</span><svg class="ev-ico" aria-hidden="true"><use id="event-i" href="#i-ev-storm"/></svg><b><span id="event-v">–</span><span class="ev-x" id="event-x"></span></b></div>
     <div class="rail-right">
-      <div class="stat"><span class="lbl">Living</span><b id="r-living" translate="no">–</b></div>
-      <div class="stat"><span class="lbl">Species</span><b id="r-species" translate="no">–</b></div>
-      <button type="button" class="ghost fs" id="fs" aria-label="Full screen" aria-pressed="false" data-hint="Full screen · F" hidden><svg><use href="#i-full"/></svg></button>
+      <div class="stat"><span data-i18n="rail.living" class="lbl">Living</span><b id="r-living" translate="no">–</b></div>
+      <div class="stat"><span data-i18n="rail.species" class="lbl">Species</span><b id="r-species" translate="no">–</b></div>
+      <button data-i18n="rail.fs" type="button" class="ghost fs" id="fs" aria-label="Full screen" aria-pressed="false" data-hint="Full screen · F" hidden><svg><use href="#i-full"/></svg></button>
     </div>
   </header>
 
   <div class="caption" id="caption" aria-live="polite"></div>
 
   <!-- transport dock -->
-  <nav class="dock" id="dock" aria-label="Controls">
-    <div class="grp time" role="group" aria-label="Time">
-      <button type="button" class="ico" id="t-play" aria-label="Pause" data-hint="Pause · Space"><svg><use id="t-play-i" href="#i-pause"/></svg><span id="t-play-l">Pause</span></button>
-      <button type="button" class="ico step" id="t-slower" aria-label="Slower" data-hint="Slower · ,"><svg><use href="#i-slower"/></svg></button>
-      <button type="button" class="speed" id="t-speed" aria-label="Speed ×1" aria-haspopup="listbox" aria-expanded="false" aria-controls="ladder" data-hint="Speed · hold and drag, or , . / &gt;&#10;Double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-rate"></small></button>
-      <button type="button" class="ico step" id="t-faster" aria-label="Faster" data-hint="Faster · ."><svg><use href="#i-faster"/></svg></button>
+  <nav data-i18n="dock.nav" class="dock" id="dock" aria-label="Controls">
+    <div data-i18n="dock.time" class="grp time" role="group" aria-label="Time">
+      <button data-i18n="dock.t-play" type="button" class="ico" id="t-play" aria-label="Pause" data-hint="Pause · Space"><svg><use id="t-play-i" href="#i-pause"/></svg><span data-i18n="dock.play-label" id="t-play-l">Pause</span></button>
+      <button data-i18n="dock.t-slower" type="button" class="ico step" id="t-slower" aria-label="Slower" data-hint="Slower · ,"><svg><use href="#i-slower"/></svg></button>
+      <button data-i18n="dock.t-speed" type="button" class="speed" id="t-speed" aria-label="Speed ×1" aria-haspopup="listbox" aria-expanded="false" aria-controls="ladder" data-hint="Speed · hold and drag, or , . / &gt;&#10;Double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-rate"></small></button>
+      <button data-i18n="dock.t-faster" type="button" class="ico step" id="t-faster" aria-label="Faster" data-hint="Faster · ."><svg><use href="#i-faster"/></svg></button>
     </div>
-    <div class="grp tools" id="tools" role="toolbar" aria-label="Tools"></div>
-    <button type="button" class="act bench-btn" id="bench-open" aria-expanded="false" aria-controls="bench" data-hint="Bench · B"><svg><use id="bench-i" href="#i-bench"/></svg><span id="bench-l">Bench</span><svg class="bench-c" aria-hidden="true"><use href="#i-chev"/></svg></button>
+    <div data-i18n="dock.tools" class="grp tools" id="tools" role="toolbar" aria-label="Tools"></div>
+    <button data-i18n="dock.bench-open" type="button" class="act bench-btn" id="bench-open" aria-expanded="false" aria-controls="bench" data-hint="Bench · B"><svg><use id="bench-i" href="#i-bench"/></svg><span data-i18n="dock.bench-l" id="bench-l">Bench</span><svg class="bench-c" aria-hidden="true"><use href="#i-chev"/></svg></button>
     <div class="grp acts">
-      <button type="button" class="act" id="auto-play" aria-label="Auto camera" aria-pressed="false" data-hint="Auto camera · P"><svg><use href="#i-auto"/></svg><span>Auto</span></button>
-      <button type="button" class="act" id="auto-next" aria-label="Next scene" data-hint="Next scene · X" hidden><svg><use href="#i-next"/></svg></button>
-      <button type="button" class="act" id="film" aria-label="Film" aria-pressed="false" data-hint="Film · R" hidden><svg><use href="#i-film"/></svg><span id="film-v">Film</span></button>
-      <span class="snd-wrap"><button type="button" class="act" id="snd" aria-label="Sound" aria-pressed="false" data-hint="Sound · M"><svg><use href="#i-sound"/></svg><span>Sound</span></button><input id="vol" type="range" min="0" max="100" step="1" value="70" aria-label="Volume" hidden></span>
-      <button type="button" class="act" id="set-open" aria-label="Settings" aria-expanded="false" aria-controls="settings" data-hint="Settings · V"><svg><use href="#i-gear"/></svg><span>Settings</span></button>
-      <button type="button" class="act primary" id="lab-open" aria-label="Field Lab" aria-expanded="false" aria-controls="lab" data-hint="Field Lab · K"><svg><use href="#i-lab"/></svg><span>Lab</span></button>
+      <button data-i18n="dock.auto-play" type="button" class="act" id="auto-play" aria-label="Auto camera" aria-pressed="false" data-hint="Auto camera · P"><svg><use href="#i-auto"/></svg><span data-i18n="dock.auto-label">Auto</span></button>
+      <button data-i18n="dock.auto-next" type="button" class="act" id="auto-next" aria-label="Next scene" data-hint="Next scene · X" hidden><svg><use href="#i-next"/></svg></button>
+      <button data-i18n="dock.film" type="button" class="act" id="film" aria-label="Film" aria-pressed="false" data-hint="Film · R" hidden><svg><use href="#i-film"/></svg><span data-i18n="dock.film-label" id="film-v">Film</span></button>
+      <span class="snd-wrap"><button data-i18n="dock.snd" type="button" class="act" id="snd" aria-label="Sound" aria-pressed="false" data-hint="Sound · M"><svg><use href="#i-sound"/></svg><span data-i18n="dock.sound-label">Sound</span></button><input data-i18n="dock.vol" id="vol" type="range" min="0" max="100" step="1" value="70" aria-label="Volume" hidden></span>
+      <button data-i18n="dock.set-open" type="button" class="act" id="set-open" aria-label="Settings" aria-expanded="false" aria-controls="settings" data-hint="Settings · V"><svg><use href="#i-gear"/></svg><span data-i18n="dock.settings-label">Settings</span></button>
+      <button data-i18n="dock.lab-open" type="button" class="act primary" id="lab-open" aria-label="Field Lab" aria-expanded="false" aria-controls="lab" data-hint="Field Lab · K"><svg><use href="#i-lab"/></svg><span data-i18n="dock.lab-label">Lab</span></button>
     </div>
-    <div class="sys" id="sys" aria-hidden="true"><span><b id="sys-n" translate="no" class="w-n">–</b> particles</span><span><b id="sys-fps" translate="no" class="w-3">–</b> fps</span><span><b id="sys-ms" translate="no" class="w-4">–</b> ms</span><span><b id="sys-res" translate="no" class="w-4">–</b> res</span></div>
+    <div class="sys" id="sys" aria-hidden="true"><span data-i18n="dock.particles"><b id="sys-n" translate="no" class="w-n">–</b> particles</span><span data-i18n="dock.fps"><b id="sys-fps" translate="no" class="w-3">–</b> fps</span><span data-i18n="dock.ms"><b id="sys-ms" translate="no" class="w-4">–</b> ms</span><span data-i18n="dock.res"><b id="sys-res" translate="no" class="w-4">–</b> res</span></div>
   </nav>
 
   <!-- settings: what is shown, and what it costs -->
-  <div class="settings panel float" id="settings" hidden role="dialog" aria-label="Settings">
-    <div class="sec-h"><h2>Settings</h2>
-      <div class="tabs" role="tablist" id="set-tabs" aria-label="Settings sections">
-        <button type="button" role="tab" data-tab="display" aria-selected="true">Display</button>
-        <button type="button" role="tab" data-tab="audio" aria-selected="false" tabindex="-1">Audio</button>
-        <button type="button" role="tab" data-tab="performance" aria-selected="false" tabindex="-1">Perf</button>
-        <button type="button" role="tab" data-tab="climate" aria-selected="false" tabindex="-1">Climate</button>
-        <button type="button" role="tab" data-tab="worlds" aria-selected="false" tabindex="-1">Worlds</button>
-        <button type="button" role="tab" data-tab="about" aria-selected="false" tabindex="-1">About</button>
+  <div data-i18n="settings.panel" class="settings panel float" id="settings" hidden role="dialog" aria-label="Settings">
+    <div class="sec-h"><h2 data-i18n="settings.heading">Settings</h2>
+      <div data-i18n="settings.set-tabs" class="tabs" role="tablist" id="set-tabs" aria-label="Settings sections">
+        <button data-i18n="settings.display" type="button" role="tab" data-tab="display" aria-selected="true">Display</button>
+        <button data-i18n="settings.audio" type="button" role="tab" data-tab="audio" aria-selected="false" tabindex="-1">Audio</button>
+        <button data-i18n="settings.perf" type="button" role="tab" data-tab="performance" aria-selected="false" tabindex="-1">Perf</button>
+        <button data-i18n="settings.climate" type="button" role="tab" data-tab="climate" aria-selected="false" tabindex="-1">Climate</button>
+        <button data-i18n="settings.worlds" type="button" role="tab" data-tab="worlds" aria-selected="false" tabindex="-1">Worlds</button>
+        <button data-i18n="settings.about" type="button" role="tab" data-tab="about" aria-selected="false" tabindex="-1">About</button>
       </div>
-      <button type="button" class="ghost" id="set-close" aria-label="Close settings"><svg><use href="#i-close"/></svg></button></div>
+      <button data-i18n="settings.set-close" type="button" class="ghost" id="set-close" aria-label="Close settings"><svg><use href="#i-close"/></svg></button></div>
     <div class="readout" id="readout" hidden aria-live="off">
       <!-- how fast: frames, steps, simulated time -->
-      <div><b id="ro-fps" translate="no">–</b><span>fps</span></div>
-      <div><b id="ro-world" translate="no">–</b><span class="term" data-tip="worldfps" tabindex="0">World</span></div>
-      <div><b id="ro-steps" translate="no">–</b><span class="term" data-tip="stepsps" tabindex="0">Steps/s</span></div>
-      <div><b id="ro-rate" translate="no">–</b><span class="term" data-tip="simrate" tabindex="0">Now</span></div>
+      <div><b id="ro-fps" translate="no">–</b><span data-i18n="readout.fps">fps</span></div>
+      <div><b id="ro-world" translate="no">–</b><span data-i18n="readout.world" class="term" data-tip="worldfps" tabindex="0">World</span></div>
+      <div><b id="ro-steps" translate="no">–</b><span data-i18n="readout.steps-s" class="term" data-tip="stepsps" tabindex="0">Steps/s</span></div>
+      <div><b id="ro-rate" translate="no">–</b><span data-i18n="readout.now" class="term" data-tip="simrate" tabindex="0">Now</span></div>
       <!-- what a step and a frame cost -->
-      <div><b id="ro-ceil" translate="no">–</b><span class="term" data-tip="stride" tabindex="0">Stride</span></div>
-      <div><b id="ro-step" translate="no">–</b><span class="term" data-tip="stepms" tabindex="0">Step ms</span></div>
-      <div><b id="ro-draw" translate="no">–</b><span class="term" data-tip="drawms" tabindex="0">Draw ms</span></div>
-      <div><b id="ro-ms" translate="no">–</b><span>GPU ms</span></div>
+      <div><b id="ro-ceil" translate="no">–</b><span data-i18n="readout.stride" class="term" data-tip="stride" tabindex="0">Stride</span></div>
+      <div><b id="ro-step" translate="no">–</b><span data-i18n="readout.step-ms" class="term" data-tip="stepms" tabindex="0">Step ms</span></div>
+      <div><b id="ro-draw" translate="no">–</b><span data-i18n="readout.draw-ms" class="term" data-tip="drawms" tabindex="0">Draw ms</span></div>
+      <div><b id="ro-ms" translate="no">–</b><span data-i18n="readout.gpu-ms">GPU ms</span></div>
       <!-- how the world is drawn -->
-      <div><b id="ro-res" translate="no">–</b><span class="term" data-tip="renderres" tabindex="0">Render</span></div>
-      <div><b id="ro-dens" translate="no">–</b><span class="term" data-tip="density" tabindex="0">Density</span></div>
-      <div class="w2"><b id="ro-px" translate="no">–</b><span>Scene px</span></div>
-      <div><b id="ro-n" translate="no">–</b><span>Particles</span></div>
-      <div><b id="ro-audio" translate="no">–</b><span class="term" data-tip="audioload" tabindex="0">Audio</span></div>
-      <div class="w2"><b id="ro-why">–</b><span class="term" data-tip="adapting" tabindex="0">Adapting</span></div>
+      <div><b id="ro-res" translate="no">–</b><span data-i18n="readout.render" class="term" data-tip="renderres" tabindex="0">Render</span></div>
+      <div><b id="ro-dens" translate="no">–</b><span data-i18n="readout.density" class="term" data-tip="density" tabindex="0">Density</span></div>
+      <div class="w2"><b id="ro-px" translate="no">–</b><span data-i18n="readout.scene-px">Scene px</span></div>
+      <div><b id="ro-n" translate="no">–</b><span data-i18n="readout.particles">Particles</span></div>
+      <div><b id="ro-audio" translate="no">–</b><span data-i18n="readout.audio" class="term" data-tip="audioload" tabindex="0">Audio</span></div>
+      <div class="w2"><b id="ro-why">–</b><span data-i18n="readout.adapting" class="term" data-tip="adapting" tabindex="0">Adapting</span></div>
     </div>
     <div class="opts" id="opts"></div>
     <input type="file" id="w-file" accept=".tidemote" hidden>
   </div>
 
   <!-- the speed ladder: every speed on offer, the chip opens it -->
-  <div class="ladder panel float" id="ladder" hidden role="listbox" aria-label="Speed"></div>
+  <div data-i18n="ladder.panel" class="ladder panel float" id="ladder" hidden role="listbox" aria-label="Speed"></div>
 
   <!-- the bench (src/bench.js): the tools, their reach, the pipette; on a phone, the held strip a tool in hand folds it to -->
-  <section class="bench panel" id="bench" hidden aria-label="Bench"></section>
-  <div class="held panel" id="held" hidden role="group" aria-label="The tool in hand"></div>
+  <section data-i18n="bench.panel" class="bench panel" id="bench" hidden aria-label="Bench"></section>
+  <div data-i18n="bench.held" class="held panel" id="held" hidden role="group" aria-label="The tool in hand"></div>
 
   <!-- filming (src/film.js): a red frame around the world, never in the film itself -->
   <div class="recframe" id="recframe" hidden aria-hidden="true"><i></i><i></i><i></i><i></i></div>
   <!-- floating bars: filming, the species highlight, and the map a gauge opened; each closes on its own -->
   <div class="floats" id="floats">
-    <div class="focus rec" id="recbar" hidden role="group" aria-label="Filming"><i class="rec-sq" aria-hidden="true"></i><span class="lbl" aria-live="polite"><span id="rec-l">Recording</span></span><b id="rec-t" translate="no">0:00</b><small id="rec-mb" translate="no" data-hint="The film's size so far">0 MB</small><small class="rec-left" id="rec-left" hidden></small><button type="button" class="ghost" id="rec-stop" aria-label="Stop filming" data-hint="Stop · R"><i class="rec-stop-i" aria-hidden="true"></i><span id="rec-stop-l">Stop</span></button></div>
-    <div class="focus" id="focus" hidden><span class="lbl">Highlight</span><b id="focus-label"></b><button type="button" class="ghost" id="focus-clear" aria-label="Clear highlight" data-hint="Clear · Esc"><svg><use href="#i-close"/></svg></button></div>
-    <div class="focus warm" id="warm" hidden role="status"><span class="lbl">Warming up</span><b data-hint="A new world starts with a few colonies in open water: its first two minutes run fast while they spread">The first two minutes, fast</b><small id="warm-t"></small><button type="button" class="ghost" id="warm-end" data-hint="Real time · /">Real time</button></div>
-    <div class="focus maps" id="maps" hidden><span class="lbl">Map</span><b id="maps-label"></b><div id="maps-ramp"></div><button type="button" class="ghost" id="maps-clear" aria-label="Close the map" data-hint="Close · Esc"><svg><use href="#i-close"/></svg></button></div>
+    <div data-i18n="film.bar" class="focus rec" id="recbar" hidden role="group" aria-label="Filming"><i class="rec-sq" aria-hidden="true"></i><span class="lbl" aria-live="polite"><span data-i18n="film.state" id="rec-l">Recording</span></span><b id="rec-t" translate="no">0:00</b><small data-i18n="film.size" id="rec-mb" translate="no" data-hint="The film's size so far">0 MB</small><small class="rec-left" id="rec-left" hidden></small><button data-i18n="film.stop" type="button" class="ghost" id="rec-stop" aria-label="Stop filming" data-hint="Stop · R"><i class="rec-stop-i" aria-hidden="true"></i><span data-i18n="film.stop-label" id="rec-stop-l">Stop</span></button></div>
+    <div class="focus" id="focus" hidden><span data-i18n="highlight.label" class="lbl">Highlight</span><b id="focus-label"></b><button data-i18n="highlight.clear" type="button" class="ghost" id="focus-clear" aria-label="Clear highlight" data-hint="Clear · Esc"><svg><use href="#i-close"/></svg></button></div>
+    <div class="focus warm" id="warm" hidden role="status"><span data-i18n="warm.label" class="lbl">Warming up</span><b data-i18n="warm.what" data-hint="A new world starts with a few colonies in open water: its first two minutes run fast while they spread">The first two minutes, fast</b><small id="warm-t"></small><button data-i18n="warm.end" type="button" class="ghost" id="warm-end" data-hint="Real time · /">Real time</button></div>
+    <div class="focus maps" id="maps" hidden><span data-i18n="maps.label" class="lbl">Map</span><b id="maps-label"></b><div id="maps-ramp"></div><button data-i18n="maps.clear" type="button" class="ghost" id="maps-clear" aria-label="Close the map" data-hint="Close · Esc"><svg><use href="#i-close"/></svg></button></div>
   </div>
 </div>
 
 <!-- specimen: what was picked -->
-<aside class="spec panel" id="spec" hidden aria-label="Specimen">
+<aside data-i18n="spec.panel" class="spec panel" id="spec" hidden aria-label="Specimen">
   <div class="grab" id="spec-grab" aria-hidden="true"><i></i></div>
   <div class="spec-head">
     <span id="glyph"></span>
@@ -213,121 +213,121 @@
       <h2 id="spec-name">–</h2>
       <div class="codes" id="spec-sub"></div>
     </div>
-    <button type="button" class="ghost x" id="spec-close" aria-label="Close specimen" data-hint="Close · Esc"><svg><use href="#i-close"/></svg></button>
+    <button data-i18n="spec.close" type="button" class="ghost x" id="spec-close" aria-label="Close specimen" data-hint="Close · Esc"><svg><use href="#i-close"/></svg></button>
   </div>
   <div class="viewer" id="viewer">
-    <canvas id="specimen" aria-label="Live close-up of the selected particle"></canvas>
+    <canvas data-i18n="spec.specimen" id="specimen" aria-label="Live close-up of the selected particle"></canvas>
     <canvas id="spec-ui" aria-hidden="true"></canvas>
-    <div class="vz" role="group" aria-label="Close-up zoom">
-      <button type="button" class="ghost" id="vz-in" aria-label="Zoom in"><svg><use href="#i-plus"/></svg></button>
-      <button type="button" class="ghost" id="vz-out" aria-label="Zoom out"><svg><use href="#i-minus"/></svg></button>
+    <div data-i18n="spec.close-up-zoom" class="vz" role="group" aria-label="Close-up zoom">
+      <button data-i18n="spec.vz-in" type="button" class="ghost" id="vz-in" aria-label="Zoom in"><svg><use href="#i-plus"/></svg></button>
+      <button data-i18n="spec.vz-out" type="button" class="ghost" id="vz-out" aria-label="Zoom out"><svg><use href="#i-minus"/></svg></button>
     </div>
   </div>
   <div class="spec-acts" id="spec-acts"></div>
   <div class="tags sm" id="spec-tags"></div>
   <div class="vitals" id="vitals"></div>
-  <div class="tabs" role="tablist" id="spec-tabs" aria-label="Specimen details"></div>
+  <div data-i18n="spec.tabs" class="tabs" role="tablist" id="spec-tabs" aria-label="Specimen details"></div>
   <div class="spec-body" id="spec-body" role="tabpanel"></div>
-  <button type="button" class="spec-more" id="spec-more" aria-controls="spec-body" aria-expanded="false"><svg aria-hidden="true"><use href="#i-chev"/></svg><span>Full record</span></button>
+  <button type="button" class="spec-more" id="spec-more" aria-controls="spec-body" aria-expanded="false"><svg aria-hidden="true"><use href="#i-chev"/></svg><span data-i18n="spec.full-record">Full record</span></button>
 </aside>
 
 <!-- lab: what the world is made of, what has happened, and the records; collapses to its header -->
-<aside class="lab panel" id="lab" aria-label="Field Lab">
+<aside data-i18n="lab.panel" class="lab panel" id="lab" aria-label="Field Lab">
   <div class="lab-head">
-    <div class="lab-title" data-hint="Collapse · K">
-      <h2><span>Field</span> Lab</h2>
+    <div data-i18n="lab.title" class="lab-title" data-hint="Collapse · K">
+      <h2 data-i18n="lab.heading"><span>Field</span> Lab</h2>
       <span class="world-sum" id="world-sum" aria-hidden="true"></span>
-      <button type="button" class="ghost lab-fold" id="lab-close" aria-expanded="true" aria-controls="lab-body" aria-label="Collapse the Lab" data-hint="Collapse · K"><svg><use href="#i-chev"/></svg></button>
+      <button data-i18n="lab.close" type="button" class="ghost lab-fold" id="lab-close" aria-expanded="true" aria-controls="lab-body" aria-label="Collapse the Lab" data-hint="Collapse · K"><svg><use href="#i-chev"/></svg></button>
     </div>
-    <div class="tabs" role="tablist" id="lab-tabs" aria-label="Lab sections">
-      <button type="button" role="tab" data-tab="census">Census</button>
-      <button type="button" role="tab" data-tab="species">Species</button>
-      <button type="button" role="tab" data-tab="lineage">Lineage</button>
-      <button type="button" role="tab" data-tab="charts">Charts</button>
-      <button type="button" role="tab" data-tab="log">Log</button>
-      <button type="button" role="tab" data-tab="cabinet">Cabinet</button>
-      <button type="button" role="tab" data-tab="guide">Guide</button>
+    <div data-i18n="lab.tabs" class="tabs" role="tablist" id="lab-tabs" aria-label="Lab sections">
+      <button data-i18n="lab.census" type="button" role="tab" data-tab="census">Census</button>
+      <button data-i18n="lab.species" type="button" role="tab" data-tab="species">Species</button>
+      <button data-i18n="lab.lineage" type="button" role="tab" data-tab="lineage">Lineage</button>
+      <button data-i18n="lab.charts" type="button" role="tab" data-tab="charts">Charts</button>
+      <button data-i18n="lab.log" type="button" role="tab" data-tab="log">Log</button>
+      <button data-i18n="lab.cabinet" type="button" role="tab" data-tab="cabinet">Cabinet</button>
+      <button data-i18n="lab.guide" type="button" role="tab" data-tab="guide">Guide</button>
     </div>
   </div>
   <div class="lab-body" id="lab-body">
     <div class="pane census" id="pane-census">
       <div class="scroll ov">
         <div class="blk">
-          <div class="sub-h"><span>Matter</span><span class="sub-a">of every particle</span></div>
-          <div class="mix" id="mix" role="group" aria-label="Matter: choose one to highlight it"></div>
+          <div class="sub-h"><span data-i18n="census.matter">Matter</span><span data-i18n="census.matter-aside" class="sub-a">of every particle</span></div>
+          <div data-i18n="census.mix" class="mix" id="mix" role="group" aria-label="Matter: choose one to highlight it"></div>
         </div>
         <div class="nums">
-          <div><b id="n-alive" translate="no">–</b><span class="term" data-tip="alive" tabindex="0">Species</span></div>
-          <div><b id="n-thriving" translate="no">–</b><span class="term" data-tip="thriving" tabindex="0">Thriving</span></div>
-          <div><b id="n-ever" translate="no">–</b><span class="term" data-tip="ever" tabindex="0">Ever</span></div>
-          <div><b id="n-depth" translate="no">–</b><span class="term" data-tip="deepest" tabindex="0">Depth</span></div>
+          <div><b id="n-alive" translate="no">–</b><span data-i18n="census.species" class="term" data-tip="alive" tabindex="0">Species</span></div>
+          <div><b id="n-thriving" translate="no">–</b><span data-i18n="census.thriving" class="term" data-tip="thriving" tabindex="0">Thriving</span></div>
+          <div><b id="n-ever" translate="no">–</b><span data-i18n="census.ever" class="term" data-tip="ever" tabindex="0">Ever</span></div>
+          <div><b id="n-depth" translate="no">–</b><span data-i18n="census.depth" class="term" data-tip="deepest" tabindex="0">Depth</span></div>
         </div>
         <div class="blk">
-          <div class="sub-h"><span>Living cells by species</span></div>
-          <canvas id="chart" class="chart" aria-label="Living cells by species over time. Point at a band to name its species; click to open it."></canvas>
+          <div class="sub-h"><span data-i18n="census.chart-heading">Living cells by species</span></div>
+          <canvas data-i18n="census.chart" id="chart" class="chart" aria-label="Living cells by species over time. Point at a band to name its species; click to open it."></canvas>
         </div>
         <div class="ov-census stack" id="ov-census"></div>
       </div>
       <!-- pinned below: the census above scrolls only when the screen is too short for it -->
       <div class="blk ov-log">
-        <div class="sub-h"><span>Log</span><span class="sub-a"><button type="button" class="link" id="feed-all">All entries</button></span></div>
+        <div class="sub-h"><span data-i18n="census.log-heading">Log</span><span class="sub-a"><button data-i18n="census.feed-all" type="button" class="link" id="feed-all">All entries</button></span></div>
         <ol class="feed" id="feed" aria-live="off"></ol>
       </div>
     </div>
   </div>
 </aside>
 
-<div class="help panel float" id="help" hidden role="dialog" aria-label="Keyboard shortcuts">
-  <div class="sec-h"><h2><span>Keyboard</span> Shortcuts</h2><button type="button" class="ghost" id="help-close" aria-label="Close"><svg><use href="#i-close"/></svg></button></div>
+<div data-i18n="help.panel" class="help panel float" id="help" hidden role="dialog" aria-label="Keyboard shortcuts">
+  <div class="sec-h"><h2 data-i18n="help.heading"><span>Keyboard</span> Shortcuts</h2><button data-i18n="help.close" type="button" class="ghost" id="help-close" aria-label="Close"><svg><use href="#i-close"/></svg></button></div>
   <dl class="keys">
-    <dt>Click</dt><dd>Examine a cell or grain</dd>
-    <dt>Drag · Wheel</dt><dd>Pan · zoom</dd>
-    <dt>Space</dt><dd>Pause</dd>
-    <dt>, . / &gt;</dt><dd>Slower · faster · real time · max</dd>
-    <dt>P · X</dt><dd>Auto camera · on to its next scene</dd>
-    <dt>R</dt><dd>Film thirty seconds (with the auto camera on, its next scene)</dd>
-    <dt>Enter · Tab</dt><dd>Ride the specimen: the view follows it · on to its newest kin</dd>
-    <dt>W A S D · ↑ ← ↓ →</dt><dd>Steer the specimen, riding it from the first press (held, it gathers speed; tapped, it edges); a held click or finger steers too, a click on another cell gets off</dd>
-    <dt>Esc</dt><dd>Close, then clear the highlight, then the map</dd>
-    <dt>K</dt><dd>Fold or open the Field Lab</dd>
-    <dt>Esc · ⌫</dt><dd>In the Lab’s Lineage view: back the way you came</dd>
-    <dt>V</dt><dd>Settings</dd>
-    <dt>M · − =</dt><dd>Sound · volume</dd>
-    <dt>T</dt><dd>Trails</dd>
-    <dt>G · E · H · C</dt><dd>Light map · heat map · tide map · currents</dd>
-    <dt>L N Y O</dt><dd>Bonds · particles · bloom · optics</dd>
-    <dt>1–8 · 0</dt><dd>The tools: loupe, touch, lamp, shade, warm, cold, needle, pipette (held down: for a moment; again: put it down) · pan, nothing in hand</dd>
-    <dt>B · Esc</dt><dd>The bench · put the tool down</dd>
-    <dt>[ ] · ⇧ Wheel</dt><dd>The tool’s reach (with the loupe: its magnification)</dd>
-    <dt>Z · F · I · U</dt><dd>Reset zoom · fullscreen · hide readouts · hide everything</dd>
-    <dt>⇧R ⇧R</dt><dd>Discard this world and begin again</dd>
+    <dt data-i18n="help.k1.keys">Click</dt><dd data-i18n="help.k1">Examine a cell or grain</dd>
+    <dt data-i18n="help.k2.keys">Drag · Wheel</dt><dd data-i18n="help.k2">Pan · zoom</dd>
+    <dt data-i18n="help.k3.keys">Space</dt><dd data-i18n="help.k3">Pause</dd>
+    <dt>, . / &gt;</dt><dd data-i18n="help.k4">Slower · faster · real time · max</dd>
+    <dt>P · X</dt><dd data-i18n="help.k5">Auto camera · on to its next scene</dd>
+    <dt>R</dt><dd data-i18n="help.k6">Film thirty seconds (with the auto camera on, its next scene)</dd>
+    <dt data-i18n="help.k8.keys">Enter · Tab</dt><dd data-i18n="help.k8">Ride the specimen: the view follows it · on to its newest kin</dd>
+    <dt>W A S D · ↑ ← ↓ →</dt><dd data-i18n="help.k-steer">Steer the specimen, riding it from the first press (held, it gathers speed; tapped, it edges); a held click or finger steers too, a click on another cell gets off</dd>
+    <dt data-i18n="help.k9.keys">Esc</dt><dd data-i18n="help.k9">Close, then clear the highlight, then the map</dd>
+    <dt>K</dt><dd data-i18n="help.k10">Fold or open the Field Lab</dd>
+    <dt data-i18n="help.k-lineage-back.keys">Esc · ⌫</dt><dd data-i18n="help.k-lineage-back">In the Lab’s Lineage view: back the way you came</dd>
+    <dt>V</dt><dd data-i18n="help.k11">Settings</dd>
+    <dt>M · − =</dt><dd data-i18n="help.k12">Sound · volume</dd>
+    <dt>T</dt><dd data-i18n="help.k13">Trails</dd>
+    <dt>G · E · H · C</dt><dd data-i18n="help.k14">Light map · heat map · tide map · currents</dd>
+    <dt>L N Y O</dt><dd data-i18n="help.k15">Bonds · particles · bloom · optics</dd>
+    <dt>1–8 · 0</dt><dd data-i18n="help.k16">The tools: loupe, touch, lamp, shade, warm, cold, needle, pipette (held down: for a moment; again: put it down) · pan, nothing in hand</dd>
+    <dt data-i18n="help.k17.keys">B · Esc</dt><dd data-i18n="help.k17">The bench · put the tool down</dd>
+    <dt data-i18n="help.k18.keys">[ ] · ⇧ Wheel</dt><dd data-i18n="help.k18">The tool’s reach (with the loupe: its magnification)</dd>
+    <dt>Z · F · I · U</dt><dd data-i18n="help.k19">Reset zoom · fullscreen · hide readouts · hide everything</dd>
+    <dt>⇧R ⇧R</dt><dd data-i18n="help.k20">Discard this world and begin again</dd>
   </dl>
-  <p class="help-src">Free software under the <a class="sp" target="_blank" rel="noopener" href="https://www.gnu.org/licenses/gpl-3.0.html">GPL-3.0</a>, sound after <a class="sp" target="_blank" rel="noopener" href="https://supercollider.github.io/">SuperCollider</a> · <a class="sp" target="_blank" rel="noopener" href="https://github.com/thallada/tidemote">Source code</a></p>
+  <p data-i18n="help.license" class="help-src">Free software under the <a class="sp" target="_blank" rel="noopener" href="https://www.gnu.org/licenses/gpl-3.0.html">GPL-3.0</a>, sound after <a class="sp" target="_blank" rel="noopener" href="https://supercollider.github.io/">SuperCollider</a> · <a class="sp" target="_blank" rel="noopener" href="https://github.com/thallada/tidemote">Source code</a></p>
 </div>
 
 <!-- a species card: its portrait, sigil, song and story on one canvas, to save and share -->
 <div class="card-dlg panel float" id="card" hidden tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="card-h">
-  <div class="sec-h"><h2 id="card-h"><span>Species</span> Card</h2><button type="button" class="ghost" id="card-close" aria-label="Close the card" data-hint="Close · Esc"><svg><use href="#i-close"/></svg></button></div>
-  <canvas class="card-cv" id="card-cv" width="660" height="1050" role="img" aria-label="The species card"></canvas>
+  <div class="sec-h"><h2 data-i18n="card.heading" id="card-h"><span>Species</span> Card</h2><button data-i18n="card.close" type="button" class="ghost" id="card-close" aria-label="Close the card" data-hint="Close · Esc"><svg><use href="#i-close"/></svg></button></div>
+  <canvas data-i18n="card.canvas" class="card-cv" id="card-cv" width="660" height="1050" role="img" aria-label="The species card"></canvas>
   <img class="card-cv" id="card-img" alt="" hidden>
   <div class="card-row" id="card-name-row">
-    <label class="lbl" for="card-name">Your name for it</label>
-    <input type="text" id="card-name" maxlength="48" autocomplete="off" spellcheck="false" data-hint="Named, it keeps your name in this world and its saves; clear it to restore its own">
+    <label data-i18n="card.name-label" class="lbl" for="card-name">Your name for it</label>
+    <input data-i18n="card.name" type="text" id="card-name" maxlength="48" autocomplete="off" spellcheck="false" data-hint="Named, it keeps your name in this world and its saves; clear it to restore its own">
   </div>
   <div class="card-row card-btns">
-    <button type="button" class="btn" id="card-inspect" hidden data-hint="Open it in the specimen panel, here in this world">Inspect in this world</button>
-    <button type="button" class="btn" id="card-save" data-hint="Keep it in the cabinet (Field Lab → Cabinet), to carry to any world">Save to cabinet</button>
-    <button type="button" class="btn" id="card-load" data-hint="A colony of it into the pipette, to set down in this world">Load the pipette</button>
-    <button type="button" class="btn" id="card-png" data-hint="The card as a PNG image: dropped on any Tidemote, its species comes with it">PNG</button>
-    <button type="button" class="btn" id="card-remove" hidden data-hint="Take its card out of the cabinet (Undo there puts it back)">Remove from cabinet</button>
+    <button data-i18n="card.inspect" type="button" class="btn" id="card-inspect" hidden data-hint="Open it in the specimen panel, here in this world">Inspect in this world</button>
+    <button data-i18n="card.save" type="button" class="btn" id="card-save" data-hint="Keep it in the cabinet (Field Lab → Cabinet), to carry to any world">Save to cabinet</button>
+    <button data-i18n="card.load" type="button" class="btn" id="card-load" data-hint="A colony of it into the pipette, to set down in this world">Load the pipette</button>
+    <button data-i18n="card.png" type="button" class="btn" id="card-png" data-hint="The card as a PNG image: dropped on any Tidemote, its species comes with it">PNG</button>
+    <button data-i18n="card.remove" type="button" class="btn" id="card-remove" hidden data-hint="Take its card out of the cabinet (Undo there puts it back)">Remove from cabinet</button>
     <span class="note" id="card-note" role="status"></span>
   </div>
   <div class="card-row card-tune">
-    <div class="sub-h"><span class="lbl">Its song</span><span class="song-read" id="card-song-read"></span></div>
+    <div class="sub-h"><span data-i18n="card.song-heading" class="lbl">Its song</span><span class="song-read" id="card-song-read"></span></div>
     <div class="song-wrap" id="card-roll"></div>
     <div class="card-tune-acts">
-      <button type="button" class="btn" id="card-play"><svg aria-hidden="true"><use href="#i-play"/></svg>Play</button>
-      <button type="button" class="btn" id="card-song" aria-label="Download its song as a WAV" data-hint="Its song as a WAV file, a short clip in this world's key"><svg aria-hidden="true"><use href="#i-down"/></svg>WAV</button>
+      <button data-i18n="card.play" type="button" class="btn" id="card-play"><svg aria-hidden="true"><use href="#i-play"/></svg>Play</button>
+      <button data-i18n="card.song" type="button" class="btn" id="card-song" aria-label="Download its song as a WAV" data-hint="Its song as a WAV file, a short clip in this world's key"><svg aria-hidden="true"><use href="#i-down"/></svg>WAV</button>
     </div>
   </div>
 </div>
@@ -341,14 +341,14 @@
     <canvas class="intro-anim" id="intro-anim" aria-hidden="true"></canvas>
     <h1 translate="no">Tidemote</h1>
     <div class="intro-rule" aria-hidden="true"><i></i></div>
-    <p>A simulated emergent ecology of particles and mutating organisms.</p>
-    <div class="calib" id="calib" role="status">Starting the GPU</div>
-    <button type="button" class="begin" id="begin">Begin</button>
+    <p data-i18n="intro.tagline">A simulated emergent ecology of particles and mutating organisms.</p>
+    <div data-i18n="intro.calib" class="calib" id="calib" role="status">Starting the GPU</div>
+    <button data-i18n="intro.begin" type="button" class="begin" id="begin">Begin</button>
     <!-- for those who know Tidemote: the new world's particle count, or a saved world in its place (main.js, the menu) -->
     <div class="menu" id="menu" hidden>
-      <div class="menu-row" role="group" aria-label="Before the world begins">
-        <button type="button" class="menu-tab" id="menu-n" aria-expanded="false" aria-controls="menu-panel"><span>Particles</span><b id="menu-n-v"></b></button>
-        <button type="button" class="menu-tab" id="menu-w" aria-expanded="false" aria-controls="menu-panel"><span>Saved worlds</span><b id="menu-w-v"></b></button>
+      <div data-i18n="menu.row" class="menu-row" role="group" aria-label="Before the world begins">
+        <button type="button" class="menu-tab" id="menu-n" aria-expanded="false" aria-controls="menu-panel"><span data-i18n="menu.particles">Particles</span><b id="menu-n-v"></b></button>
+        <button type="button" class="menu-tab" id="menu-w" aria-expanded="false" aria-controls="menu-panel"><span data-i18n="menu.saved-worlds">Saved worlds</span><b id="menu-w-v"></b></button>
       </div>
       <div class="menu-panel" id="menu-panel" hidden></div>
       <input type="file" id="menu-file" accept=".tidemote,application/gzip" hidden>
@@ -358,31 +358,31 @@
 
 <!-- a card's link opened (its QR code scanned): the card, before the world starts -->
 <div class="linked" id="linked" hidden role="dialog" aria-modal="true" aria-labelledby="linked-h">
-  <p class="lbl">A species card</p>
+  <p data-i18n="linked.kind" class="lbl">A species card</p>
   <h1 id="linked-h" translate="no"></h1>
   <img id="linked-img" alt="">
   <p class="linked-status" id="linked-status" role="status" aria-live="polite"><i aria-hidden="true"></i><span></span></p>
   <p id="linked-note"></p>
-  <div class="linked-act"><button type="button" class="btn go" id="linked-go">Open Tidemote</button><button type="button" class="btn" id="linked-png">Save the card</button></div>
+  <div class="linked-act"><button data-i18n="linked.go" type="button" class="btn go" id="linked-go">Open Tidemote</button><button data-i18n="linked.png" type="button" class="btn" id="linked-png">Save the card</button></div>
 </div>
 <!-- shown when the world cannot run (no WebGPU, no JavaScript) or stops: says why, then what Tidemote is or what can be done -->
 <div class="nogpu" id="nogpu" hidden>
   <div class="nogpu-in">
     <div class="lbl" translate="no">Tidemote</div>
-    <h1 id="nogpu-title">WebGPU unavailable</h1>
-    <p id="nogpu-detail">Tidemote simulates its world on your graphics card through WebGPU, with JavaScript turned on. Try a current Chrome, Edge or Safari, or Firefox on Windows.</p>
+    <h1 data-i18n="nogpu.title" id="nogpu-title">WebGPU unavailable</h1>
+    <p data-i18n="nogpu.detail" id="nogpu-detail">Tidemote simulates its world on your graphics card through WebGPU, with JavaScript turned on. Try a current Chrome, Edge or Safari, or Firefox on Windows.</p>
     <div class="nogpu-act" id="nogpu-act" hidden></div>
     <section class="about" aria-labelledby="about-h">
-      <h2 id="about-h">Artificial life, evolving on your GPU</h2>
-      <p>Tidemote is a sealed biosphere of hundreds of thousands to millions of particles, simulated live in the browser with WebGPU. Cells photosynthesize in the tide's moving light, graze, hunt and scavenge, and build their children out of silt. Children mutate into new species, bonded species grow into multicellular bodies, and the climate turns every 10–18 minutes. Leave it running and it keeps changing.</p>
-      <p>Every rule is local: each particle reacts only to what is near it, and the ecology that appears is never steered from above.</p>
+      <h2 data-i18n="nogpu.about.heading" id="about-h">Artificial life, evolving on your GPU</h2>
+      <p data-i18n="nogpu.about.p1">Tidemote is a sealed biosphere of hundreds of thousands to millions of particles, simulated live in the browser with WebGPU. Cells photosynthesize in the tide's moving light, graze, hunt and scavenge, and build their children out of silt. Children mutate into new species, bonded species grow into multicellular bodies, and the climate turns every 10–18 minutes. Leave it running and it keeps changing.</p>
+      <p data-i18n="nogpu.about.p2">Every rule is local: each particle reacts only to what is near it, and the ecology that appears is never steered from above.</p>
       <ul>
-        <li>Food webs of producers, grazers, hunters and scavengers, evolving as you watch</li>
-        <li>A Field Lab of census charts, lineages and a specimen view of any cell</li>
-        <li>Climate eras of light, heat waves, cold snaps and tides</li>
-        <li>An auto camera that films the world, and a soundtrack played by the species themselves</li>
+        <li data-i18n="nogpu.about.li1">Food webs of producers, grazers, hunters and scavengers, evolving as you watch</li>
+        <li data-i18n="nogpu.about.li2">A Field Lab of census charts, lineages and a specimen view of any cell</li>
+        <li data-i18n="nogpu.about.li3">Climate eras of light, heat waves, cold snaps and tides</li>
+        <li data-i18n="nogpu.about.li4">An auto camera that films the world, and a soundtrack played by the species themselves</li>
       </ul>
-      <p><a class="sp" href="https://github.com/thallada/tidemote">Source code on GitHub</a> · free software under the <a class="sp" href="https://www.gnu.org/licenses/gpl-3.0.html">GPL-3.0</a></p>
+      <p data-i18n="nogpu.about.source"><a class="sp" href="https://github.com/thallada/tidemote">Source code on GitHub</a> · free software under the <a class="sp" href="https://www.gnu.org/licenses/gpl-3.0.html">GPL-3.0</a></p>
     </section>
   </div>
 </div>

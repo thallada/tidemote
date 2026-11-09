@@ -14,6 +14,8 @@ import { describe as describeSong } from './audio/motif.js';
 import { sigilSVG, songSVG, lightSong } from './song.js';
 import { fmt, fmtClock, fmtDur, fmtLen, cssCol, cssRgb, saveFile } from './fmt.js';
 import { qr } from './qr.js';
+import { tr } from './i18n.js';
+import { eraName } from './climate.js';
 
 export const CARD_W = 660, CARD_H = 1050; // about a bridge card's shape
 export const CARD_SCALE = 2; // drawn (and saved) at twice that, for sharp text
@@ -31,27 +33,34 @@ export function cardData(sp, { reg, K, story = null, simTime = 0, founders = 0, 
   const lineage = [];
   let a = sp.ancestor && reg.get(sp.ancestor);
   while (a && lineage.length < 4) { lineage.push(a.name); a = a.ancestor && reg.get(a.ancestor); }
-  const origin = sp.founder ? (sp.serial > founders ? `sparked from silt at ${fmtClock(sp.born || 0)}` : 'a founding lineage') : 'an ancestor too rare to be named';
+  // i18n: where a species came from, under its name on its card ({time}: when, on the world's clock)
+  const origin = sp.founder ? (sp.serial > founders ? tr('card.origin.spark', 'sparked from silt at {time}', { time: fmtClock(sp.born || 0) }) : tr('card.origin.founder', 'a founding lineage'))
+    : tr('card.origin.unknown', 'an ancestor too rare to be named');
   const swim = g.swim * (1 - g.photo), div = divEnergy(g, K);
   // what it is, in a word or two each: its diet, how it moves, its body
-  const tags = [f.diet === 'photosynth' ? 'photosynth' : f.diet, f.schooling ? 'schooling' : f.mobility, f.body === 'multicellular' ? `${f.types > 1 ? `${f.types} cell types` : 'many-celled'}` : 'single cells'];
+  // i18n: the three chips under a card's portrait (shown in capitals): its diet, how it moves, its body
+  const tags = [tr('card.tag.diet', '{diet, select, photosynth {photosynth} grazer {grazer} scavenger {scavenger} predator {predator} other {{diet}}}', { diet: f.diet }),
+    tr('card.tag.motion', '{motion, select, schooling {schooling} anchored {anchored} crawler {crawler} swimmer {swimmer} drifter {drifter} other {{motion}}}', { motion: f.schooling ? 'schooling' : f.mobility }),
+    tr('card.tag.body', '{body, select, types {{n, plural, one {# cell type} other {# cell types}}} many {many-celled} other {single cells}}', { body: f.body === 'multicellular' ? (f.types > 1 ? 'types' : 'many') : 'single', n: f.types })];
   // its body as gauges against the ranges species take (the archetypes' and sparks')
   const body = [
-    ['Speed', share(swim, 0, 2.2), swim < 0.05 ? 'still' : swim.toFixed(2)],
-    ['Size', share(g.size, 0.4, 1.8), fmtLen(0.17 * g.size)],
-    ['Lifespan', share(g.lifespan, 40, 480, true), fmtDur(g.lifespan)],
-    ['Division', 1 - share(div, 1, 8, true), `${div.toFixed(1)} E`],
+    [tr('card.body.speed', 'Speed'), share(swim, 0, 2.2), swim < 0.05 ? tr('card.body.speed-still', 'still') : swim.toFixed(2)],
+    [tr('card.body.size', 'Size'), share(g.size, 0.4, 1.8), fmtLen(0.17 * g.size)],
+    [tr('card.body.lifespan', 'Lifespan'), share(g.lifespan, 40, 480, true), fmtDur(g.lifespan)],
+    // i18n: the energy a cell divides at, {e} in the game's energy units (E)
+    [tr('card.body.division', 'Division'), 1 - share(div, 1, 8, true), tr('card.body.division-e', '{e} E', { e: div.toFixed(1) })],
   ];
   // what it lives on: the light, and each of grazing (glint), carrion (husks) and hunting (flesh)
-  const diet = dietMix(g).map(([, v], i) => [['Light', 'Grazing', 'Carrion', 'Hunting'][i], v, `${Math.round(v * 100)}%`]);
+  const DIETS = [tr('card.diet.light', 'Light'), tr('card.diet.grazing', 'Grazing'), tr('card.diet.carrion', 'Carrion'), tr('card.diet.hunting', 'Hunting')];
+  const diet = dietMix(g).map(([, v], i) => [DIETS[i], v, tr('card.diet.share', '{p}%', { p: Math.round(v * 100) })]);
   const water = K.heat ? { opt: g.topt ?? 19, tol: g.tol ?? 7, maker: !!th.maker, pref: th.pref } : null;
   const food = relations?.food && reg.get(relations.food), eater = relations?.eater && reg.get(relations.eater);
   const end = sp.alive ? simTime : (sp.extinct ?? simTime);
   // its record, as a card's back gives a player's: not how many live this moment, but what it has done
   const stats = [
-    ['Peak', fmt(sp.peak)],
-    [sp.alive ? 'Age' : 'Lived', fmtDur(end - (sp.born || 0))],
-    sp.alive ? ['Arose', fmtClock(sp.born || 0)] : ['Extinct at', fmtClock(sp.extinct ?? 0)],
+    [tr('card.stat.peak', 'Peak'), fmt(sp.peak)],
+    [sp.alive ? tr('card.stat.age', 'Age') : tr('card.stat.lived', 'Lived'), fmtDur(end - (sp.born || 0))],
+    sp.alive ? [tr('card.stat.arose', 'Arose'), fmtClock(sp.born || 0)] : [tr('card.stat.extinct', 'Extinct at'), fmtClock(sp.extinct ?? 0)],
   ];
   // its numbers over its life: from the census history (evenly spaced, unlike the lineage view's record, which
   // keeps its older points ever more sparsely), else that record
@@ -73,6 +82,7 @@ export function cardData(sp, { reg, K, story = null, simTime = 0, founders = 0, 
 }
 
 // the sigil as an image: its page styles, inlined with literal colors
+// i18n-ignore-next
 const SVG_CSS = `.brk{fill:none;stroke:rgba(150,222,230,.55);stroke-width:1}.tick{fill:none;stroke:rgba(150,222,230,.55);stroke-width:.6}
 .on{stroke-width:.8;opacity:.9}.rail{stroke:rgba(130,205,214,.22);stroke-width:.6}.rail.tonic{stroke:rgba(150,222,230,.55);stroke-width:.7}
 .bar{stroke:rgba(150,222,230,.55);stroke-dasharray:2 2;stroke-width:.6}.contour{fill:none;stroke-width:.8;opacity:.4}.v2{fill:none;stroke-width:1;opacity:.75}
@@ -114,7 +124,7 @@ const fit = (ctx, text, w) => { if (ctx.measureText(text).width <= w) return tex
  * art: { portrait (a square image, or null), sigil (image) }.
  */
 export function drawCard(ctx, d, art = {}) {
-  const W = CARD_W, H = CARD_H, F = 'Saira, Bahnschrift, "Segoe UI", system-ui, sans-serif';
+  const W = CARD_W, H = CARD_H, F = 'Saira, Bahnschrift, "Segoe UI", system-ui, sans-serif'; // i18n-ignore (a font)
   const M = 30, R = W - M, w = R - M;
   const INK = '#e2f1f0', INK2 = '#a3bdbe', INK3 = '#7d999b', LINE = 'rgba(130,205,214,0.22)';
   const label = (t, x, y, col = INK3, size = 17) => { ctx.fillStyle = col; ctx.font = `600 ${size}px ${F}`; ctx.letterSpacing = '0.08em'; ctx.fillText(t.toUpperCase(), x, y); ctx.letterSpacing = '0px'; };
@@ -136,7 +146,8 @@ export function drawCard(ctx, d, art = {}) {
   ctx.font = `500 ${size}px ${F}`;
   while (size > 26 && ctx.measureText(d.name).width > nameW) { size -= 2; ctx.font = `500 ${size}px ${F}`; }
   text(d.name, M, 74, size, INK, 500, nameW);
-  const from = d.given ? d.binomial : d.lineage.length ? `from ${d.lineage[0]}` : d.origin;
+  // i18n: under a card's name: {name} is the species it descends from
+  const from = d.given ? d.binomial : d.lineage.length ? tr('card.from', 'from {name}', { name: d.lineage[0] }) : d.origin;
   text(from, M, 100, 19, INK2, 400, nameW);
 
   // the portrait: its box, the middle of it; without one, its sigil large
@@ -155,7 +166,8 @@ export function drawCard(ctx, d, art = {}) {
   }
   // its serial and mutations in the portrait's corner
   ctx.fillStyle = 'rgba(6,9,10,0.72)'; ctx.fillRect(AX, AY + AH - 36, 230, 36);
-  label(`SP ${fmt(d.serial)} · Δ${d.depth}`, AX + 14, AY + AH - 12, INK2);
+  // i18n: in a card portrait's corner (in capitals): its species' serial number, and Δ how many mutations from its founder
+  label(tr('card.serial', 'SP {serial, number} · Δ{depth}', { serial: d.serial, depth: d.depth }), AX + 14, AY + AH - 12, INK2);
   ctx.restore();
   ctx.strokeStyle = LINE; ctx.lineWidth = 1; ctx.strokeRect(AX + 0.5, AY + 0.5, AW - 1, AH - 1);
 
@@ -210,20 +222,22 @@ export function drawCard(ctx, d, art = {}) {
       ctx.textAlign = 'right'; text(val, x + colW, yy + 6, 18, INK, 500, VW - 6); ctx.textAlign = 'left';
     });
   };
-  gauges(M, 'Body', d.body);
-  gauges(M + colW + gap, 'Lives on', d.diet);
+  gauges(M, tr('card.body', 'Body'), d.body);
+  gauges(M + colW + gap, tr('card.diet', 'Lives on'), d.diet);
   y += 30 + 4 * 36 + 10;
 
   // the water it likes: a thermometer from ice to 45°, its band and its best
   if (d.water) {
     const T0 = 0, T1 = 45, bx = M + LW, bw = w - LW - 150, X = (t) => bx + ((Math.max(T0, Math.min(T1, t)) - T0) / (T1 - T0)) * bw;
-    label('Water', M, y + 6, INK2);
+    label(tr('card.water', 'Water'), M, y + 6, INK2);
     const g = ctx.createLinearGradient(bx, 0, bx + bw, 0);
     g.addColorStop(0, '#2d6fb8'); g.addColorStop(0.45, '#2f8f7c'); g.addColorStop(0.75, '#c08a2e'); g.addColorStop(1, '#c4462e');
     ctx.globalAlpha = 0.3; ctx.fillStyle = g; ctx.fillRect(bx, y - 10, bw, 16); ctx.globalAlpha = 1;
     ctx.fillStyle = g; ctx.fillRect(X(d.water.opt - d.water.tol), y - 10, X(d.water.opt + d.water.tol) - X(d.water.opt - d.water.tol), 16);
     ctx.fillStyle = INK; ctx.fillRect(X(d.water.opt) - 1.5, y - 16, 3, 28);
-    ctx.textAlign = 'right'; text(`${Math.round(d.water.opt)}° ± ${Math.round(d.water.tol)}°${d.water.maker ? ' · warms' : ''}`, R, y + 6, 18, INK, 500, 146); ctx.textAlign = 'left';
+    // i18n: the water a species likes, in °C: its best and how far from it it thrives; warms: its cells warm the water
+    const range = tr('card.water.range', '{opt}° ± {tol}°{maker, select, yes { · warms} other {}}', { opt: Math.round(d.water.opt), tol: Math.round(d.water.tol), maker: d.water.maker ? 'yes' : 'no' });
+    ctx.textAlign = 'right'; text(range, R, y + 6, 18, INK, 500, 146); ctx.textAlign = 'left';
     y += 34;
   }
 
@@ -231,15 +245,20 @@ export function drawCard(ctx, d, art = {}) {
   // (without the chronicler's word, its line of descent)
   const Q = 150, fw = w - Q - 24, qx = R - Q, qy = H - 20 - Q, FY = qy - 12;
   ctx.fillStyle = LINE; ctx.fillRect(M, FY, w, 1);
-  const ties = [d.eats ? `eats ${d.eats}` : '', d.eatenBy ? `eaten by ${d.eatenBy}` : ''].filter(Boolean).join(' · ').replace(/^./, (c) => c.toUpperCase());
+  // i18n: at a card's foot: {eats} the species it eats most, {eater} the one that eats it most
+  const ties = tr('card.ties', '{ties, select, both {Eats {eats} · eaten by {eater}} eats {Eats {eats}} eaten {Eaten by {eater}} other {}}',
+    { ties: d.eats && d.eatenBy ? 'both' : d.eats ? 'eats' : d.eatenBy ? 'eaten' : 'none', eats: d.eats, eater: d.eatenBy });
   let ly = FY + 32;
   if (ties) { text(ties, M, ly, 18, INK2, 400, fw); ly += 26; }
   ctx.font = `italic 400 18px ${F}`;
-  const line = d.story ? `“${d.story}”` : d.lineage.length > 1 ? `Descends from ${d.lineage.slice(0, 3).join(' ← ')}${d.lineage.length > 3 ? ' ← …' : ''}` : '';
+  // i18n: the chronicler's latest sentence about a species, quoted on its card
+  const line = d.story ? tr('card.story', '“{story}”', { story: d.story })
+    // i18n: {line} is a species' line of descent, its ancestors' names joined by arrows
+    : d.lineage.length > 1 ? tr('card.descends', 'Descends from {line}', { line: d.lineage.slice(0, 3).join(' ← ') + (d.lineage.length > 3 ? ' ← …' : '') }) : '';
   const lines = line ? wrap(ctx, line, fw) : [], room = ties ? 2 : 3;
   lines.slice(0, room).forEach((l, i) => text(i === room - 1 && lines.length > room ? `${l} …` : l, M, ly + i * 26, 18, d.story ? '#e8dcc0' : INK3, d.story ? 'italic 400' : 400, fw));
   ctx.font = `600 17px ${F}`;
-  label(fit(ctx, d.home, fw - 20), M, H - 30, INK3);
+  label(fit(ctx, eraName(d.home), fw - 20), M, H - 30, INK3);
   if (d.qr) {
     // dark modules on a cyan tile (many phone cameras read no light-on-dark code), whole device pixels a module
     // (crisp edges read best), a quiet zone of at least three modules (a code up to version 13, a card with a body
@@ -264,7 +283,9 @@ export async function strangerCard(card, link, K, portrait = null) {
   const sp = { serial: 0, name: card.name, binomial: card.name, genome: card.genome, alive: false, founder: true, born: 0, peak: 0, pop: 0, genus: card.name.split(' ')[0], established: true };
   const d = cardData(sp, { reg: new Map(), K });
   Object.assign(d, {
-    stats: [['Home water', card.home], ['Genus', d.genus], ['Mutations', String(card.genome.depth)]], lineage: [], origin: `carried from ${card.home}`,
+    stats: [[tr('card.stat.home', 'Home water'), eraName(card.home)], [tr('card.stat.genus', 'Genus'), d.genus], [tr('card.stat.mutations', 'Mutations'), String(card.genome.depth)]], lineage: [],
+    // i18n: {home} is the name of the world (its era) a card was carried from
+    origin: tr('card.origin.carried', 'carried from {home}', { home: eraName(card.home) }),
     home: card.home, qr: qr(link),
   });
   return cardCanvas(d, { sigil: await sigilArt(card.genome), portrait });
@@ -273,7 +294,7 @@ export async function strangerCard(card, link, K, portrait = null) {
 // a genome's sigil as an image, the card's font loaded
 async function sigilArt(genome) {
   const sigil = await svgImage(sigilSVG(voiceOf(genome), genome, { size: 240 }));
-  if (document.fonts?.load) await document.fonts.load('500 40px Saira').catch(() => {});
+  if (document.fonts?.load) await document.fonts.load('500 40px Saira').catch(() => {}); // i18n-ignore (a font)
   return sigil;
 }
 // a card drawn off screen (in memory: drawn by the GPU, its first raster held the GPU, and the world's frames, for
@@ -344,22 +365,25 @@ export function createCards(api) {
     redraw();
     acts();
     tune(sp.genome);
-    note.textContent = ready ? '' : 'Taking its portrait…';
+    note.textContent = ready ? '' : tr('card.note.portrait', 'Taking its portrait…');
     root.focus({ preventScroll: true });
     if (ready) return;
     const p = await portraitOf(serial);
     if (cur !== serial) return;
     if (p) { art.portrait = p; redraw(); }
-    note.textContent = p ? '' : 'Its portrait could not be taken: its sigil stands in.';
+    note.textContent = p ? '' : tr('card.note.no-portrait', 'Its portrait could not be taken: its sigil stands in.');
   }
   // its song: the roll (lit as it plays, songTick), what it is, Play and the WAV
   let tag = '', songKey = null;
   function tune(g) {
     const v = voiceOf(g), d = describeSong(v), m = v.motif;
     tag = saved ? `card:${saved.id}` : `sp${cur}`; songKey = null;
-    $('card-roll').innerHTML = songSVG(m, { w: 260, h: 60, col: cssCol(g.col), col2: cssRgb(roleColor(g, 1)), label: `${d.tags.join(', ')}: ${d.line}` });
-    $('card-song-read').innerHTML = `<span><b>${String(m.notes.length).padStart(2, '0')}</b> notes</span><span><b>${(m.cycle * 0.18).toFixed(1)}</b> s</span>`;
-    $('card-play').dataset.hint = `Hear it alone: ${d.tags.join(', ')}`;
+    const [instrument, register, tempo] = d.tags;
+    // i18n: the song drawn as a roll, its label: its instrument, register and tempo, then its description
+    $('card-roll').innerHTML = songSVG(m, { w: 260, h: 60, col: cssCol(g.col), col2: cssRgb(roleColor(g, 1)), label: tr('card.song.label', '{instrument}, {register}, {tempo}: {line}', { instrument, register, tempo, line: d.line }) });
+    // i18n: a song's length: {n} notes (two digits), {s} seconds
+    $('card-song-read').innerHTML = tr('card.song.read', '<span><b>{n}</b> notes</span><span><b>{s}</b> s</span>', { n: String(m.notes.length).padStart(2, '0'), s: (m.cycle * 0.18).toFixed(1) });
+    $('card-play').dataset.hint = tr('card.play.hint', 'Hear it alone: {instrument}, {register}, {tempo}', { instrument, register, tempo });
   }
   function songTick(now, events) {
     if (root.hidden || !tag) return;
@@ -379,8 +403,9 @@ export function createCards(api) {
     if (savedUrl) URL.revokeObjectURL(savedUrl);
     savedUrl = URL.createObjectURL(new Blob([card.png], { type: 'image/png' }));
     img.src = savedUrl;
-    img.alt = `The card of ${card.name}`;
-    note.textContent = card.world === api.world() ? '' : `Carried from ${card.home}`;
+    img.alt = tr('card.img.alt', 'The card of {name}', { name: card.name });
+    // i18n: {home}: the name of the world (its era) a saved card came from
+    note.textContent = card.world === api.world() ? '' : tr('card.note.carried', 'Carried from {home}', { home: card.home });
     root.hidden = false;
     acts();
     tune(card.genome);
@@ -392,7 +417,8 @@ export function createCards(api) {
     const sv = $('card-save');
     sv.hidden = !!saved;
     sv.disabled = !!card;
-    sv.textContent = card ? `Saved · ${card.home}` : 'Save to cabinet';
+    // i18n: the Save button once its card is in the cabinet: {home} the world it was saved in
+    sv.textContent = card ? tr('card.saved', 'Saved · {home}', { home: card.home }) : tr('card.save', 'Save to cabinet');
     $('card-remove').hidden = !card;
     $('card-inspect').hidden = api.inspectable(saved || cur) == null;
   }
@@ -428,7 +454,7 @@ export function createCards(api) {
     if (saved) { saveFile(new Blob([saved.png], { type: 'image/png' }), fileName('png')); return; }
     rename();
     const b = await api.png(cv, cur);
-    if (b) saveFile(b, fileName('png')); else api.flash('Could not make the image');
+    if (b) saveFile(b, fileName('png')); else api.flash(tr('card.png.failed', 'Could not make the image'));
   });
   $('card-save').addEventListener('click', async () => { if (cur != null) { await api.save(cur); acts(); } });
   $('card-load').addEventListener('click', () => { api.load(saved || cur); close(); });
@@ -448,11 +474,11 @@ export function createCards(api) {
   $('card-song').addEventListener('click', async () => {
     const sp = saved ? { genome: saved.genome } : reg().get(cur), btn = $('card-song');
     if (!sp) return;
-    btn.disabled = true; note.textContent = 'Rendering its song…';
+    btn.disabled = true; note.textContent = tr('card.song.rendering', 'Rendering its song…');
     try {
       const b = await api.songClip(sp.genome);
-      if (b) { saveFile(b, fileName('wav')); note.textContent = ''; } else note.textContent = 'This browser cannot render sound offline.';
-    } catch (e) { note.textContent = `Could not render its song: ${String(e.message || e).slice(0, 80)}`; }
+      if (b) { saveFile(b, fileName('wav')); note.textContent = ''; } else note.textContent = tr('card.song.unsupported', 'This browser cannot render sound offline.');
+    } catch (e) { note.textContent = tr('card.song.failed', 'Could not render its song: {error}', { error: String(e.message || e).slice(0, 80) }); }
     btn.disabled = false;
   });
   $('card-close').addEventListener('click', close);

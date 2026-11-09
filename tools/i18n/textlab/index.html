@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tidemote Text</title>
+<link rel="stylesheet" href="/style.css">
+<body>
+<header class="top">
+  <div class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3 9.5c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.6" opacity=".45"/></svg><b>Tidemote</b> <span>Text</span></div>
+  <div class="progress" id="progress" aria-label="Progress"><div class="bar" id="bar"></div><span id="prog-t"></span></div>
+  <div class="saved" id="saved" role="status" aria-live="polite">Loading…</div>
+  <div class="top-acts">
+    <button type="button" id="help-btn" class="ghost" aria-expanded="false">Syntax</button>
+  </div>
+</header>
+
+<main class="cols">
+  <nav class="side" aria-label="Messages">
+    <div class="filters">
+      <input type="search" id="q" placeholder="Search words or ids  /" aria-label="Search" autocomplete="off" spellcheck="false">
+      <div class="chips" id="st-chips" role="group" aria-label="Show"></div>
+      <select id="area" aria-label="Area"></select>
+    </div>
+    <ol class="list" id="list" tabindex="-1"></ol>
+  </nav>
+
+  <section class="ed" id="ed" aria-label="Message">
+    <div class="empty" id="empty">Pick a message on the left, or Alt-click any text in the live page.</div>
+    <div class="msg" id="msg" hidden>
+      <div class="msg-h">
+        <div class="crumbs"><span class="area" id="m-area"></span><code id="m-id"></code></div>
+        <span class="pill" id="m-status"></span>
+      </div>
+      <div class="sinks" id="m-sinks"></div>
+      <div class="note" id="m-note" hidden></div>
+
+      <h3>Original</h3>
+      <div class="orig" id="m-orig"></div>
+      <div class="args" id="m-args"></div>
+
+      <h3><label for="m-text">Your text</label></h3>
+      <textarea id="m-text" spellcheck="true" lang="en-US" rows="2"></textarea>
+      <div class="probs" id="m-probs" aria-live="polite"></div>
+
+      <div class="acts">
+        <button type="button" class="primary" id="b-done">Done <kbd>Ctrl ↵</kbd></button>
+        <button type="button" id="b-keep">Keep original <kbd>Ctrl K</kbd></button>
+        <button type="button" id="b-reset" class="ghost">Reset to original</button>
+        <span class="grow"></span>
+        <button type="button" id="b-prev" class="ghost" aria-label="Previous message">↑ <kbd>Alt ↑</kbd></button>
+        <button type="button" id="b-next" class="ghost" aria-label="Next message">↓ <kbd>Alt ↓</kbd></button>
+      </div>
+
+      <div id="m-preview-wrap"><h3>Reads as</h3><div class="pv" id="m-preview"></div></div>
+      <div id="m-findings-wrap" hidden><h3>Review</h3><div class="findings" id="m-findings"></div></div>
+      <div id="m-hist-wrap" hidden><h3>Earlier versions</h3><ol class="hist" id="m-hist"></ol></div>
+    </div>
+  </section>
+
+  <aside class="ctx" aria-label="Where it sits">
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" id="tab-where" aria-selected="true">Where it sits</button>
+      <button type="button" role="tab" id="tab-live" aria-selected="false">Live page</button>
+    </div>
+    <div class="pane" id="pane-where">
+      <div id="w-shots"></div>
+      <div class="cap" id="w-cap"></div>
+      <h3>In the code</h3>
+      <div id="w-refs"></div>
+    </div>
+    <div class="pane live" id="pane-live" hidden>
+      <div class="live-bar"><span>Alt-click any text to open its message.</span><button type="button" id="b-rebuild" class="ghost">Rebuild with my text</button></div>
+      <iframe id="live" title="The page, in your words" allow="fullscreen"></iframe>
+    </div>
+  </aside>
+</main>
+
+<dialog id="help" aria-label="Message syntax">
+  <h2>Writing a message</h2>
+  <p>Messages are <a href="https://formatjs.github.io/docs/core-concepts/icu-syntax" target="_blank" rel="noopener">ICU MessageFormat</a>. Write plain text; only these are special:</p>
+  <dl>
+    <dt><code>{name}</code></dt><dd>A value the page puts in (a species, a number, a time). Click a value under the original to insert it. You may move or drop values; you cannot invent new ones.</dd>
+    <dt><code>{n, plural, one {# cell} other {# cells}}</code></dt><dd>Words that change with a count. <code>#</code> is the number. <code>=0 {none}</code> matches exactly zero.</dd>
+    <dt><code>{kind, select, grazer {…} other {…}}</code></dt><dd>Words that change with a kind. Keep every option the original has (rewrite inside the braces).</dd>
+    <dt><code>&lt;b&gt;…&lt;/b&gt;</code></dt><dd>Marked text: bold, a link, a glossary term, a key. Keep the tag around the words it should mark.</dd>
+    <dt><code>'{'</code> <code>'&lt;'</code> <code>''</code></dt><dd>A literal brace, a less-than sign before a letter, an apostrophe before one of these. An ordinary apostrophe (<code>it's</code>) needs nothing.</dd>
+    <dt>Hints</dt><dd>A hover hint's text after its last <code> · </code> is shown as the key to press; a second line follows a line break.</dd>
+  </dl>
+  <h2>Keys</h2>
+  <dl class="keys"><dt>Ctrl ↵</dt><dd>Done, on to the next</dd><dt>Ctrl K</dt><dd>Keep the original, on to the next</dd><dt>Alt ↓ ↑</dt><dd>Next, previous</dd><dt>/</dt><dd>Search</dd></dl>
+  <p>Everything is saved as you type, to <code>locales/en-x-rewrite.json</code>, with every version in its journal.</p>
+  <form method="dialog"><button>Close</button></form>
+</dialog>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

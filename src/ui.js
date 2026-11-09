@@ -32,7 +32,7 @@ export const ruled = (rows, cls = '') => `<div class="ruled${cls ? ` ${cls}` : '
 export const kv = (text, value, tip) => `<div class="kv"><span>${label(text, tip)}</span><b>${value}</b></div>`;
 
 /** A labeled meter (v between lo and hi) and its value. */
-export const trait = (text, v, lo, hi, value, tip, cls = 'cyan thin') => `<div class="trait"><span>${label(text, tip)}</span>${meter((v - lo) / (hi - lo), cls)}<b>${value}</b></div>`;
+export const trait = (text, v, lo, hi, value, tip, cls = 'cyan thin') => `<div class="trait"><span>${label(text, tip)}</span>${meter((v - lo) / (hi - lo), cls)}<b>${value}</b></div>`; // i18n-ignore: CSS classes
 
 /** A block that opens from its heading (closed by default); key names it for data-disc. aside: shown
  * in the heading beside the chevron (a summary that still reads while the block is closed). */

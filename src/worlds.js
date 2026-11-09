@@ -14,6 +14,8 @@
 // may lose low mantissa bits on the way (encodeWorld's layout), invisible in a world that is never
 // bit-reproducible anyway, and the zeros compress. docs/desktop.md has the sizes.
 
+import { tr } from './i18n.js';
+
 /**
  * The save format's version, MAJOR.MINOR.PATCH (semver), kept in each file's head and its meta.
  *   major: a change older versions cannot read, or this one can no longer read older saves by (a
@@ -36,9 +38,10 @@ export function openable(v) {
   const m = major(v), mine = major(SAVE_VERSION);
   return m == null || m < mine ? 'older' : m > mine ? 'newer' : 'ok';
 }
+// i18n: why a saved world cannot be opened
 export const WHY_NOT = {
-  newer: 'This world was saved by a newer version of Tidemote. Update Tidemote to open it.',
-  older: 'This world was saved by an older version of Tidemote, which this one can no longer open.',
+  newer: tr('worlds.store.newer', 'This world was saved by a newer version of Tidemote. Update Tidemote to open it.'),
+  older: tr('worlds.store.older', 'This world was saved by an older version of Tidemote, which this one can no longer open.'),
 };
 const TYPED = { Float32Array, Float64Array, Uint32Array, Int32Array, Uint16Array, Int16Array, Uint8Array, Int8Array };
 
@@ -198,8 +201,9 @@ export async function encodeWorld({ meta, cpu, gpu, page, layout = {} }) {
  */
 export async function decodeWorld(data) {
   let b; // a fresh buffer: offsets into it are offsets into b
-  try { b = await pipe(new Blob([data]), new DecompressionStream('gzip')); } catch { throw new Error('Not a Tidemote world.'); }
-  if (b.length < 8 || MAGIC.slice(0, 3).some((c, i) => b[i] !== c)) throw new Error('Not a Tidemote world.');
+  // i18n: a file opened as a saved world that is not one
+  try { b = await pipe(new Blob([data]), new DecompressionStream('gzip')); } catch { throw new Error(tr('worlds.store.not-world', 'Not a Tidemote world.')); }
+  if (b.length < 8 || MAGIC.slice(0, 3).some((c, i) => b[i] !== c)) throw new Error(tr('worlds.store.not-world', 'Not a Tidemote world.'));
   // TMW1 and TMW2: the formats before versions
   if (b[3] !== MAGIC[3]) throw new Error(WHY_NOT.older);
   const n = new DataView(b.buffer).getUint32(4, true);
@@ -209,7 +213,7 @@ export async function decodeWorld(data) {
   const gpu = {};
   let at = 8 + n;
   for (const [k, size] of head.sizes) {
-    if (at + size > b.length) throw new Error('This world’s file is incomplete.');
+    if (at + size > b.length) throw new Error(tr('worlds.store.incomplete', 'This world’s file is incomplete.'));
     gpu[k] = head.cols?.[k] ? fromColumns(b.subarray(at, at + size), head.cols[k]) : b.buffer.slice(at, at + size);
     at += size;
   }
@@ -236,7 +240,7 @@ export function createWorldStore(name = 'tidemote') {
     const out = fn(...stores.map((s) => t.objectStore(s)));
     return new Promise((res, rej) => {
       t.oncomplete = () => res(out && 'result' in out ? out.result : out);
-      t.onerror = t.onabort = () => rej(t.error || new Error('The browser refused to store the world.'));
+      t.onerror = t.onabort = () => rej(t.error || new Error(tr('worlds.store.refused', 'The browser refused to store the world.')));
     });
   }
   return {

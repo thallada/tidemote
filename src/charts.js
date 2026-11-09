@@ -3,13 +3,14 @@
 // how it was last drawn (cv._ch: its plot box, how to redraw it, what lies under a point and how to
 // name it), and the one hover module below marks what is under the pointer and names it on the plate.
 import { cssCol, esc, fmt, fmtClock } from './fmt.js';
+import { tr } from './i18n.js';
 
 const GRID = 'rgba(130,205,214,0.10)';
 const BASE = 'rgba(130,205,214,0.22)';
 const AXIS = 'rgba(163,189,190,0.85)';
 const ERA = 'rgba(241,227,160,0.55)';
 const CURSOR = 'rgba(226,241,240,0.5)';
-const FONT = '500 11px Saira, system-ui, sans-serif';
+const FONT = '500 11px Saira, system-ui, sans-serif'; // i18n-ignore: a canvas font
 const XLAB = 13; // the clock's strip below the plot
 
 export function fit(cv) {
@@ -42,17 +43,19 @@ export function linearTicks(max, n = 3) {
 /** A figure short enough for an axis: 950, 1.2k, 34k, 1.5M; fractions as far as step needs. */
 export function shortNum(v, step = 1) {
   const a = Math.abs(v);
-  if (a >= 1e6) return `${+(v / 1e6).toFixed(a >= 1e7 ? 0 : 1)}M`;
-  if (a >= 1e4) return `${+(v / 1e3).toFixed(0)}k`;
-  if (a >= 1e3) return `${+(v / 1e3).toFixed(1)}k`;
+  // i18n: a chart axis's figure, short: {n} millions (1.5M), {n} thousands (34k)
+  if (a >= 1e6) return tr('chart.num.m', '{n}M', { n: +(v / 1e6).toFixed(a >= 1e7 ? 0 : 1) });
+  if (a >= 1e4) return tr('chart.num.k', '{n}k', { n: +(v / 1e3).toFixed(0) });
+  if (a >= 1e3) return tr('chart.num.k', '{n}k', { n: +(v / 1e3).toFixed(1) });
   let d = 0;
   while (d < 3 && Math.abs(step * 10 ** d - Math.round(step * 10 ** d)) > 1e-6) d++;
   return String(+v.toFixed(d));
 }
 /** A value as an axis or the plate shows it, in unit: '%' (a fraction), '°', or a count. */
 export function fmtVal(v, unit = '', step = 0) {
-  if (unit === '%') return `${shortNum(v * 100, step ? step * 100 : Math.abs(v) < 0.1 ? 0.1 : 1)}%`;
-  if (unit === '°') return `${shortNum(v, step || 0.1)}°`;
+  // i18n: a chart's value: {v} percent; {v} degrees (Celsius)
+  if (unit === '%') return tr('chart.pct', '{v}%', { v: shortNum(v * 100, step ? step * 100 : Math.abs(v) < 0.1 ? 0.1 : 1) });
+  if (unit === '°') return tr('chart.deg', '{v}°', { v: shortNum(v, step || 0.1) });
   if (step) return shortNum(v, step);
   const a = Math.abs(v);
   return a >= 100 ? fmt(Math.round(v)) : String(a >= 1 ? +v.toFixed(a >= 10 ? 1 : 2) : +v.toPrecision(2));
@@ -160,7 +163,8 @@ export function drawLiving(cv, hist, reg, eras, picked = null) {
     },
     plate(hit) {
       const sp = reg.get(hit.serial);
-      return sp && namePlate(sp.genome.col, sp.name, `${fmt(hit.pop)} · ${fmtClock(hit.t)}${sp.alive ? '' : ' · extinct'}`);
+      // i18n: under a species' name on the census chart: its living cells {pop} at the moment {t} pointed at (a clock), and whether it is extinct now
+      return sp && namePlate(sp.genome.col, sp.name, tr('chart.living.plate', '{pop} · {t}{alive, select, yes {} other { · extinct}}', { pop: fmt(hit.pop), t: fmtClock(hit.t), alive: sp.alive ? 'yes' : 'no' }));
     },
   };
   if (hist.length < 2) return;
@@ -217,7 +221,7 @@ export function drawLines(cv, hist, series, eras, unit = '') {
   };
   if (hist.length < 2) {
     g.fillStyle = AXIS; g.textAlign = 'left';
-    g.fillText('collecting samples…', box.l + 4, box.t + 10);
+    g.fillText(tr('chart.collecting', 'collecting samples…'), box.l + 4, box.t + 10);
     return;
   }
   clock(g, box, hist[0].t, hist[hist.length - 1].t, eras);
@@ -311,14 +315,16 @@ export function drawNiches(cv, species, tbg, felt, binW) {
   g.fillStyle = AXIS;
   g.textAlign = 'center';
   for (const t of [0, 10, 20, 30, 40]) {
-    const label = `${t}°`, hw = g.measureText(label).width / 2;
+    const label = tr('chart.deg', '{v}°', { v: t }), hw = g.measureText(label).width / 2;
     g.fillRect(Math.round(X(t)), box.b + 1, 1, 3);
     g.fillText(label, Math.max(box.l + hw, X(t)), h - 2);
   }
   g.textAlign = 'left';
-  g.fillText('cells (log) by preferred temperature', 0, 10);
+  // i18n: the Thermal niches chart's axes, drawn above it: the vertical (each species' cells, on a log scale) and the horizontal
+  g.fillText(tr('chart.niches.axis', 'cells (log) by preferred temperature'), 0, 10);
   g.textAlign = 'right';
-  g.fillText(`water ${Math.round(tbg)}°`, w, 10);
+  // i18n: the background water's temperature now, in degrees (top right of the Thermal niches chart)
+  g.fillText(tr('chart.niches.water', 'water {t}°', { t: Math.round(tbg) }), w, 10);
   cv._ch = {
     redraw: () => drawNiches(cv, species, tbg, felt, binW),
     // the dot nearest the pointer, within a few px of its edge
@@ -330,7 +336,8 @@ export function drawNiches(cv, species, tbg, felt, binW) {
       }
       return best && { key: best.serial, serial: best.serial, s: best };
     },
-    plate: ({ s }) => namePlate(s.col, s.name, `${Math.round(s.topt)}° ± ${Math.round(s.tol)}° · ${fmt(s.pop)}${s.maker ? ' · heat-maker' : ''}`),
+    // i18n: under a species' name on Thermal niches: its preferred temperature ± its tolerance (degrees), its living cells, and whether it makes heat
+    plate: ({ s }) => namePlate(s.col, s.name, tr('chart.niches.plate', '{topt}° ± {tol}° · {pop}{maker, select, yes { · heat-maker} other {}}', { topt: Math.round(s.topt), tol: Math.round(s.tol), pop: fmt(s.pop), maker: s.maker ? 'yes' : 'no' })),
   };
 }
 

@@ -10,6 +10,9 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { steam } from './steam.js';
 
+// (The words here stay in English, each marked i18n-ignore: the main process is packaged without ../src/i18n.js, see
+// main.js. The page may show a downloading item's own words in place of its name, from `downloading`.)
+
 const dir = () => join(app.getPath('userData'), 'worlds');
 const ID = /^[\w-]{1,64}$/;
 const WS = /^ws(\d{1,20})$/;
@@ -57,7 +60,7 @@ async function subscribed() {
     if (!info || !existsSync(join(info.folder, ITEM_META))) {
       s.workshop.download(item, true);
       const d = s.workshop.downloadInfo(item);
-      out.push({ id, from: 'workshop', workshop: String(item), downloading: d && d.total ? Number(d.current) / Number(d.total) : 0, name: 'Downloading from the Workshop', savedAt: 0, cols: [] });
+      out.push({ id, from: 'workshop', workshop: String(item), downloading: d && d.total ? Number(d.current) / Number(d.total) : 0, name: 'Downloading from the Workshop', savedAt: 0, cols: [] }); // i18n-ignore (main process)
       continue;
     }
     try {
@@ -105,7 +108,7 @@ async function share(id, { title, description } = {}) {
     description: String(description || '').slice(0, 8000),
     contentPath: stage,
     previewPath: existsSync(previewPath) ? previewPath : undefined,
-    changeNote: first ? 'Shared from Tidemote' : 'Updated from Tidemote',
+    changeNote: first ? 'Shared from Tidemote' : 'Updated from Tidemote', // i18n-ignore (Steam's change notes, main process)
     ...(first ? { visibility: 0 } : {}), // public; later visibility is the sharer's to change on Steam
   });
   await rm(stage, { recursive: true, force: true });
