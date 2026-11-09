@@ -16,21 +16,18 @@ import { parseArgs } from 'node:util';
 import { build } from 'esbuild';
 import { extract, ROOT } from './extract.mjs';
 import { checkMessage } from './check.mjs';
+import { catalogFile, reviewFile, readJson, writeJson } from './locale.mjs';
 import { same } from './textlab/pretty.js';
 
 const { values: opt } = parseArgs({ options: { port: { type: 'string', default: '4711' }, locale: { type: 'string', default: 'en-x-rewrite' }, host: { type: 'string', default: '127.0.0.1' } } });
 const L = opt.locale;
 const HERE = path.join(ROOT, 'tools/i18n/textlab');
-const CAT = path.join(ROOT, 'locales', `${L}.json`);
-const REV = path.join(ROOT, 'locales/review', `${L}.json`);
+const CAT = catalogFile(L), REV = reviewFile(L);
 const JOURNAL = path.join(ROOT, 'locales/review', `${L}.journal.jsonl`);
 const SHOTS = path.join(ROOT, 'runs/i18n/shots');
 const PREVIEW = path.join(ROOT, 'dist/tidemote.textlab.html');
 fs.mkdirSync(path.dirname(REV), { recursive: true });
 
-const readJson = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { if (e.code === 'ENOENT') return d; throw new Error(`${f} does not parse (${e.message}); fix or restore it from the journal before starting`); } };
-// written whole to a file beside it, then moved into place: a crash mid-write leaves the old file
-const writeJson = (f, v) => { const tmp = `${f}.${process.pid}.tmp`; fs.writeFileSync(tmp, `${JSON.stringify(v, null, 2)}\n`); fs.renameSync(tmp, f); };
 
 let src = extract();
 if (src.errors.length) console.warn(`the source has message errors (shown in the editor):\n${src.errors.join('\n')}`);

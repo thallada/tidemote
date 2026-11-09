@@ -9,7 +9,7 @@ import { parse as parseIcu, TYPE } from '@formatjs/icu-messageformat-parser';
 import { extract, audit, ROOT } from '../tools/i18n/extract.mjs';
 import { scanHtml, bakeHtml } from '../tools/i18n/html.mjs';
 import { pseudo } from '../tools/i18n/locale.mjs';
-import { tr, mark, marks, unmark } from '../src/i18n.js';
+import { tr, mark, marks } from '../src/i18n.js';
 
 const { messages, errors } = extract();
 
@@ -86,8 +86,7 @@ test('tr: plain text, arguments, plurals and inline tags', () => {
   assert.equal(tr('test.e', 'its <term>diet</term>', { term: (c) => `[${c.join('')}]` }), 'its [diet]');
 });
 
-test('the editor\'s marks carry an id and come off again', () => {
+test('the editor\'s marks carry an id', () => {
   const s = mark('chron.obit.head', 'Hello') + ' and ' + mark('dock.pause', 'Pause');
   assert.deepEqual(marks(s), ['chron.obit.head', 'dock.pause']);
-  assert.equal(unmark(s), 'Hello and Pause');
 });

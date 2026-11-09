@@ -2,8 +2,9 @@
 // open its message in the editor; an edit saved there shows here at once (static text in place, the rest the next
 // time the page writes it).
 (() => {
-  const START = '⁣', RUN = /⁣([​‌‍⁠]+)⁣/g, ZW = ['​', '‌', '‍', '⁠'];
-  const ids = (s) => { const out = []; for (const [, run] of (s || '').matchAll(RUN)) { const b = []; for (let i = 0; i + 3 < run.length; i += 4) b.push((ZW.indexOf(run[i]) << 6) | (ZW.indexOf(run[i + 1]) << 4) | (ZW.indexOf(run[i + 2]) << 2) | ZW.indexOf(run[i + 3])); out.push(new TextDecoder().decode(new Uint8Array(b))); } return out; };
+  const I = globalThis.__i18n; // the marked build's (src/i18n.js)
+  if (!I) return;
+  const ids = (s) => (s ? I.marks(s) : []);
   const ATTRS = ['aria-label', 'data-hint', 'alt', 'placeholder', 'title'];
   // the messages an element shows: its own text first, then its attributes, then its parents'
   const found = (el) => {
@@ -33,9 +34,9 @@
   addEventListener('message', (ev) => {
     if (ev.origin !== location.origin || ev.data?.kind !== 'textlab-set') return;
     const { id, text } = ev.data;
-    globalThis.__i18n?.setMessage(id, text);
+    I.setMessage(id, text);
     // static text: an element marked with this id holding only words
-    const m = globalThis.__i18n?.mark(id, '') || '';
+    const m = I.mark(id, '');
     for (const e of document.querySelectorAll(`[data-i18n="${CSS.escape(id)}"]`)) if (![...e.children].some((c) => c.textContent.trim()) && !/[<{]/.test(text)) {
       const t = [...e.childNodes].find((n) => n.nodeType === 3 && n.nodeValue.trim());
       if (t) t.nodeValue = text + m;

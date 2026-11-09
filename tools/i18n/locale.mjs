@@ -10,6 +10,14 @@ import { checkMessage } from './check.mjs';
 export const SOURCE = 'en';
 export const PSEUDO = 'en-XA';
 
+// a locale's catalog (locales/L.json) and its review record (locales/review/L.json: each message's state,
+// findings and last versions), shared by the editor, the review and promote
+export const catalogFile = (locale) => path.join(ROOT, 'locales', `${locale}.json`);
+export const reviewFile = (locale) => path.join(ROOT, 'locales/review', `${locale}.json`);
+export const readJson = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { if (e.code === 'ENOENT') return d; throw new Error(`${f} does not parse (${e.message}); fix or restore it from the journal`); } };
+// written whole to a file beside it, then moved into place: a crash mid-write leaves the old file
+export const writeJson = (f, v) => { fs.mkdirSync(path.dirname(f), { recursive: true }); const tmp = `${f}.${process.pid}.tmp`; fs.writeFileSync(tmp, `${JSON.stringify(v, null, 2)}\n`); fs.renameSync(tmp, f); };
+
 // en-XA: every letter accented and every message a third longer, bracketed, so a string the catalog
 // does not reach stands out as plain English and one that would overflow at another language's length does
 const ACC = Object.fromEntries([...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'].map((c, i) => [c, [...'àƀçðéƒĝĥîĵķļɱñöþǫŕšţûṽŵẋýžÅƁÇÐÉƑĜĤÎĴĶĻṀÑÖÞǪŔŠŢÛṼŴẊÝŽ'][i]]));
@@ -30,8 +38,7 @@ export function catalogFor(locale = SOURCE) {
   let catalog = {};
   if (locale === PSEUDO) catalog = Object.fromEntries([...messages].map(([id, m]) => [id, pseudo(m)]));
   else if (locale !== SOURCE) {
-    const file = path.join(ROOT, 'locales', `${locale}.json`);
-    const theirs = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const theirs = JSON.parse(fs.readFileSync(catalogFile(locale), 'utf8'));
     // only what the source still has, and only what differs from it
     // a message with an error (it does not parse, or uses a value the code does not give) stays the source's
     for (const [id, m] of Object.entries(theirs)) {

@@ -86,8 +86,6 @@ export function marks(s) {
   }
   return out;
 }
-/** A string without the editor's marks. */
-export const unmark = (s) => s.replace(new RegExp(`${START}[${ZW.join('')}]*${START}`, 'g'), '');
 
 // the editor's page reaches in to show an edit at once (tools/i18n/textlab.mjs)
-if (MARK) globalThis.__i18n = { setMessage, marks, unmark, mark };
+if (MARK) globalThis.__i18n = { setMessage, marks, mark };

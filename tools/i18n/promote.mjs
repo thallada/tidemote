@@ -11,15 +11,13 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { parse as parseJs } from 'acorn';
 import { simple } from 'acorn-walk';
-import { extract, ROOT } from './extract.mjs';
+import { extract, trNames, ROOT } from './extract.mjs';
 import { scanHtml, bakeHtml } from './html.mjs';
 import { checkMessage } from './check.mjs';
+import { catalogFile, reviewFile, readJson, writeJson } from './locale.mjs';
 
 const { values: opt } = parseArgs({ options: { locale: { type: 'string', default: 'en-x-rewrite' }, dry: { type: 'boolean' }, ids: { type: 'string' } } });
-const CAT = path.join(ROOT, 'locales', `${opt.locale}.json`);
-const REV = path.join(ROOT, 'locales/review', `${opt.locale}.json`);
-const readJson = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { if (e.code === 'ENOENT') return d; throw e; } };
-const writeJson = (f, v) => { const tmp = `${f}.${process.pid}.tmp`; fs.writeFileSync(tmp, `${JSON.stringify(v, null, 2)}\n`); fs.renameSync(tmp, f); };
+const CAT = catalogFile(opt.locale), REV = reviewFile(opt.locale);
 
 const { messages, context, errors } = extract();
 if (errors.length) { console.error(`the source has message errors; fix them first:\n${errors.join('\n')}`); process.exit(1); }
@@ -58,8 +56,7 @@ for (const file of files) {
     changed += items.length;
   } else {
     const ast = parseJs(src, { ecmaVersion: 'latest', sourceType: 'module', allowHashBang: true });
-    const names = new Set();
-    for (const d of ast.body) if (d.type === 'ImportDeclaration' && /(^|\/)i18n\.js$/.test(d.source.value)) for (const s of d.specifiers) if (s.imported?.name === 'tr') names.add(s.local.name);
+    const names = trNames(ast);
     const edits = [];
     simple(ast, { CallExpression(n) {
       if (n.callee.type !== 'Identifier' || !names.has(n.callee.name)) return;

@@ -15284,8 +15284,7 @@ struct SV {
     }
     return out;
   }
-  var unmark = (s) => s.replace(new RegExp(`${START}[${ZW.join("")}]*${START}`, "g"), "");
-  if (MARK) globalThis.__i18n = { setMessage, marks, unmark, mark };
+  if (MARK) globalThis.__i18n = { setMessage, marks, mark };
 
   // src/genome.js
   var CELL_SHAPES = [
@@ -17778,8 +17777,7 @@ function marks(s) {
   }
   return out;
 }
-var unmark = (s) => s.replace(new RegExp(\`\${START}[\${ZW.join("")}]*\${START}\`, "g"), "");
-if (MARK) globalThis.__i18n = { setMessage, marks, unmark, mark };
+if (MARK) globalThis.__i18n = { setMessage, marks, mark };
 
 // src/audio/mix.js
 var LAYERS = ["music", "cells", "water", "tools"];
@@ -21970,8 +21968,7 @@ function marks(s) {
   }
   return out;
 }
-var unmark = (s) => s.replace(new RegExp(\`\${START}[\${ZW.join("")}]*\${START}\`, "g"), "");
-if (MARK) globalThis.__i18n = { setMessage, marks, unmark, mark };
+if (MARK) globalThis.__i18n = { setMessage, marks, mark };
 
 // src/audio/mix.js
 var LAYERS = ["music", "cells", "water", "tools"];
@@ -37064,10 +37061,8 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       g.arc(sx, sy, r, 0, TAU3);
       g.stroke();
     }
-    const norm = (L) => L.normed ? L : { ...L, eye: L.eye && L.eye.toUpperCase(), tag: L.tag && L.tag.toUpperCase(), normed: true };
     const RANGE_W = 120, SPLIT_W = 170, TABLE_W = 230, TABLE_ROW = 18;
     function labelSize(L) {
-      L = norm(L);
       const head = (L.eye ? width("eye", L.eye) : 0) + (L.tag ? width("tag", L.tag) + 10 + (L.eye ? 8 : 0) : 0);
       const row = (L.num ? width("num", L.num) + 8 : 0) + (L.main ? width("main", L.main) : 0) + (L.kind != null ? 14 : 0);
       const data = Math.max(0, ...(L.data || []).map((d, i) => width("data", d) + (L.dataKinds?.[i] != null ? 13 : 0)));
@@ -37085,7 +37080,6 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       return { w, h: h + 4 };
     }
     function label3(L, x, y, dir, t2) {
-      L = norm(L);
       const { w, h } = labelSize(L), tone = L.tone || INK4;
       const X = (dx) => dir > 0 ? x + dx : x - dx;
       const al = dir > 0 ? "left" : "right";
@@ -37969,7 +37963,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         lockBox(a, r);
         P.anchor = [a[0], a[1] - r];
         P.pts = [a, b];
-        P.label = d.type === "hunt" ? { tone: HOT, eye: tr("notes.hunt.eye", "Hunter"), num: String(d.kills), main: nm(d.akind), data: [tr("notes.hunt.killed", "KILLED {name}", { name: nm(d.kind) }), tr("notes.hunt.count", "KILLS IN VIEW · LAST 30 S")] } : { tone: INK4, eye: tr("notes.scavenge.eye", "Scavenger"), num: String(d.meals), main: nm(d.akind), data: [tr("notes.scavenge.data", "EATS THE REMAINS OF THE DEAD")] };
+        P.label = d.type === "hunt" ? { tone: HOT, eye: tr("notes.hunt.eye", "HUNTER"), num: String(d.kills), main: nm(d.akind), data: [tr("notes.hunt.killed", "KILLED {name}", { name: nm(d.kind) }), tr("notes.hunt.count", "KILLS IN VIEW · LAST 30 S")] } : { tone: INK4, eye: tr("notes.scavenge.eye", "SCAVENGER"), num: String(d.meals), main: nm(d.akind), data: [tr("notes.scavenge.data", "EATS THE REMAINS OF THE DEAD")] };
         if (d.type === "hunt") P.keys.push({ glyph: "cross", text: tr("notes.key.killed", "KILLED"), tone: HOT });
       } else if (d.type === "graze") {
         const pts = group("g", M.rows(d.census));
@@ -37988,7 +37982,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         const g2 = sp(d.akind);
         P.label = {
           tone: INK4,
-          eye: g2?.guild === "predator" ? tr("notes.hunt.eye", "Hunter") : tr("notes.graze.eye", "Grazer"),
+          eye: g2?.guild === "predator" ? tr("notes.hunt.eye", "HUNTER") : tr("notes.graze.eye", "GRAZER"),
           num: String(d.bites),
           main: nm(d.akind),
           data: [tr("notes.graze.bites", "BITES ON {name} · LAST 30 S", { name: nm(d.kind) }), ...d.dead ? [tr("notes.graze.dead", "{n} GRAZED TO DEATH", { n: d.dead })] : []]
@@ -38014,7 +38008,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         P.pts = m ? [c, m] : [c];
         const g2 = sp(d.kind);
         const comfort = g2 ? comfortOf(g2.topt - g2.tol, g2.topt + g2.tol) : "";
-        P.label = d.type === "spark" ? { tone: HOT, tag: tr("notes.spark.tag", "Life from silt"), main: nm(d.kind), data: [tr("notes.spark.data", "A NEW LINEAGE · {guild}", { guild: guildUp(g2?.guild) }), comfort].filter(Boolean) } : { tone: HOT, tag: tr("notes.newsp.tag", "New species"), main: nm(d.kind), data: [tr("notes.newsp.data", "A MUTANT OF {name}", { name: nm(d.akind) }), `${guildUp(g2?.guild)}${comfort ? " · " + comfort : ""}`] };
+        P.label = d.type === "spark" ? { tone: HOT, tag: tr("notes.spark.tag", "LIFE FROM SILT"), main: nm(d.kind), data: [tr("notes.spark.data", "A NEW LINEAGE · {guild}", { guild: guildUp(g2?.guild) }), comfort].filter(Boolean) } : { tone: HOT, tag: tr("notes.newsp.tag", "NEW SPECIES"), main: nm(d.kind), data: [tr("notes.newsp.data", "A MUTANT OF {name}", { name: nm(d.akind) }), `${guildUp(g2?.guild)}${comfort ? " · " + comfort : ""}`] };
       } else if (d.type === "bloom" || d.type === "waking" || d.type === "dormant") {
         const pts = group("c", M.rows(d.kind, d.type === "dormant" ? "cyst" : "all"));
         const an = hang(0, pts, d.kind);
@@ -38024,9 +38018,9 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         P.anchor = an;
         P.pts = pts;
         const s = M.stats.by.get(d.kind), g2 = sp(d.kind);
-        if (d.type === "bloom") P.label = { tone: INK4, eye: tr("notes.bloom.eye", "Dividing"), num: `+${d.births}`, main: nm(d.kind), data: [tr("notes.bloom.data", "BORN IN 20 S · {n} IN VIEW", { n: Math.round((s?.n ?? 0) * M.stats.scale) }), guildUp(g2?.guild)] };
-        else if (d.type === "waking") P.label = { tone: INK4, eye: tr("notes.waking.eye", "Waking"), num: String(d.count), main: nm(d.kind), data: [tr("notes.waking.data", "CYSTS WAKING IN 20 S"), tr("notes.waking.why", "TO TRY THEIR LUCK AGAIN")] };
-        else P.label = { tone: INK4, eye: tr("notes.dormant.eye", "Going dormant"), num: String(d.count), main: nm(d.kind), data: [tr("notes.dormant.data", "CURLED INTO CYSTS IN 20 S"), tr("notes.dormant.why", "NOTHING IN REACH TO EAT")] };
+        if (d.type === "bloom") P.label = { tone: INK4, eye: tr("notes.bloom.eye", "DIVIDING"), num: `+${d.births}`, main: nm(d.kind), data: [tr("notes.bloom.data", "BORN IN 20 S · {n} IN VIEW", { n: Math.round((s?.n ?? 0) * M.stats.scale) }), guildUp(g2?.guild)] };
+        else if (d.type === "waking") P.label = { tone: INK4, eye: tr("notes.waking.eye", "WAKING"), num: String(d.count), main: nm(d.kind), data: [tr("notes.waking.data", "CYSTS WAKING IN 20 S"), tr("notes.waking.why", "TO TRY THEIR LUCK AGAIN")] };
+        else P.label = { tone: INK4, eye: tr("notes.dormant.eye", "GOING DORMANT"), num: String(d.count), main: nm(d.kind), data: [tr("notes.dormant.data", "CURLED INTO CYSTS IN 20 S"), tr("notes.dormant.why", "NOTHING IN REACH TO EAT")] };
         P.keys.push({ glyph, text: d.type === "dormant" ? tr("notes.key.cyst", "{name} CYST", { name: nm(d.kind) }) : cellOf(nm(d.kind)), tone: INK4 });
       } else if (d.type === "heat") {
         const g2 = sp(d.kind);
@@ -38056,7 +38050,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         P.pts = pts;
         const lo = g2.topt - g2.tol, hi = g2.topt + g2.tol, w = M.water.hi;
         const scale = { min: Math.floor(Math.min(lo, w) / 5) * 5 - 5, max: Math.ceil(Math.max(hi, w) / 5) * 5 + 5 };
-        P.label = { tone: HOT, tag: tr("notes.heat.tag", "Scalding"), num: String(d.hot), main: nm(d.kind), data: [tr("notes.heat.data", "{comfort} · {n} DEAD / 30 S", { comfort: comfortOf(lo, hi), n: d.scalds })], range: { lo, hi, v: w, ...scale } };
+        P.label = { tone: HOT, tag: tr("notes.heat.tag", "SCALDING"), num: String(d.hot), main: nm(d.kind), data: [tr("notes.heat.data", "{comfort} · {n} DEAD / 30 S", { comfort: comfortOf(lo, hi), n: d.scalds })], range: { lo, hi, v: w, ...scale } };
         P.gauge = { v: w, lo, hi, ...scale, sub: poolOf(F.pool) };
         P.keys.push({ glyph: "square", text: wide ? tr("notes.key.too-warm-for", "WATER TOO WARM FOR {name}", { name: nm(d.kind) }) : tr("notes.key.too-warm", "TOO WARM: SCALDING"), tone: HOT });
         if (deaths.length) P.keys.push({ glyph: "cross", text: tr("notes.key.scalded", "SCALDED, LAST 10 S"), tone: HOT });
@@ -38067,7 +38061,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
             const flo = f2.topt - f2.tol, fhi = f2.topt + f2.tol;
             P.extra = { anchor: fa, pts: fpts, label: {
               tone: INK4,
-              tag: tr("notes.heat.fine", "Not scalding"),
+              tag: tr("notes.heat.fine", "NOT SCALDING"),
               num: String(Math.round(d.fine.n * M.stats.scale)),
               main: nm(d.fine.kind),
               data: [comfortOf(flo, fhi)],
@@ -38100,7 +38094,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         const W = M.water;
         P.label = {
           tone: CYAN2,
-          tag: tr("notes.cold.tag", "Torpid"),
+          tag: tr("notes.cold.tag", "TORPID"),
           num: String(Math.round(St.torpid * St.scale)),
           main: tr("notes.cold.main", "OF {n} CELLS STILLED", { n: Math.round(St.living * St.scale) }),
           data: [tr("notes.cold.data", "TOO COLD TO MOVE · {n} SPECIES", { n: d.species }), tr("notes.cold.water", "WATER {t}°{iced, select, yes { · {ice}% ICE} other {}} · {n} FROZE / 30 S", { t: W.mean.toFixed(1), iced: W.iced > 0 ? "yes" : "no", ice: Math.round(W.iced * 100), n: d.froze })]
@@ -38116,7 +38110,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
           const w2 = sp(d.warm), wpts = group("w", M.rows(d.warm));
           const wa = w2 && hang(1, wpts, d.warm);
           if (wa) {
-            P.extra = { anchor: wa, pts: wpts, label: { tone: INK4, tag: tr("notes.cold.warm", "Still active"), num: String(Math.round((St.by.get(d.warm)?.n ?? 0) * St.scale)), main: nm(d.warm), data: [comfortOf(w2.topt - w2.tol, w2.topt + w2.tol)] } };
+            P.extra = { anchor: wa, pts: wpts, label: { tone: INK4, tag: tr("notes.cold.warm", "STILL ACTIVE"), num: String(Math.round((St.by.get(d.warm)?.n ?? 0) * St.scale)), main: nm(d.warm), data: [comfortOf(w2.topt - w2.tol, w2.topt + w2.tol)] } };
             P.draws.push((t2) => census(wpts, "plus", INK4, t2 - 0.6, wa, glyphOf(d.warm)));
             P.keys.push({ glyph: "plus", text: tr("notes.key.still-active", "{name}: STILL ACTIVE", { name: nm(d.warm) }), tone: INK4 });
           }
@@ -38150,7 +38144,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         P.anchor = an;
         P.pts = pts;
         const form = formUp(d.form);
-        P.label = swim ? { tone: HOT, eye: tr("notes.swim.eye", "Swimming"), num: d.lengths.toFixed(1), main: tr("notes.swim.main", "BODY LENGTHS / S"), data: [tr("notes.body.cells", "{name} · {n}-CELL {form}", { name: nm(d.kind), n: d.cells, form }), tr("notes.swim.speed", "{speed} · HEADING {heading}", { speed: fmtLen(d.speed, "/s"), heading: compass2(d.heading) })] } : { tone: INK4, eye: tr("notes.body.eye", "Organism"), num: String(d.cells), main: tr("notes.body.main", "CELLS · {name}", { name: nm(d.kind) }), data: [tr("notes.body.data", "ONE BODY: A {form} {size} ACROSS", { form, size: fmtLen(d.size) }), tr("notes.body.share", "{guild} · BONDED CELLS SHARE WHAT THEY GATHER", { guild: guildUp(g2?.guild) })] };
+        P.label = swim ? { tone: HOT, eye: tr("notes.swim.eye", "SWIMMING"), num: d.lengths.toFixed(1), main: tr("notes.swim.main", "BODY LENGTHS / S"), data: [tr("notes.body.cells", "{name} · {n}-CELL {form}", { name: nm(d.kind), n: d.cells, form }), tr("notes.swim.speed", "{speed} · HEADING {heading}", { speed: fmtLen(d.speed, "/s"), heading: compass2(d.heading) })] } : { tone: INK4, eye: tr("notes.body.eye", "ORGANISM"), num: String(d.cells), main: tr("notes.body.main", "CELLS · {name}", { name: nm(d.kind) }), data: [tr("notes.body.data", "ONE BODY: A {form} {size} ACROSS", { form, size: fmtLen(d.size) }), tr("notes.body.share", "{guild} · BONDED CELLS SHARE WHAT THEY GATHER", { guild: guildUp(g2?.guild) })] };
         P.keys.push({ glyph: "plus", text: tr("notes.key.body", "{name}: ONE BODY", { name: nm(d.kind) }), tone });
       } else if (d.type === "stalk") {
         const a = pos(d.actor), b = pos(d.target);
@@ -38164,7 +38158,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         lockBox(a, r);
         P.anchor = [a[0], a[1] - r];
         P.pts = [a, b];
-        P.label = { tone: HOT, eye: tr("notes.stalk.eye", "Hunting"), main: nm(d.akind), data: [tr("notes.stalk.data", "CLOSING ON {name}", { name: nm(d.kind) }), tr("notes.stalk.why", "ITS LAST MEAL WAS ONE OF THEM · {speed}", { speed: fmtLen(d.speed, "/s") })] };
+        P.label = { tone: HOT, eye: tr("notes.stalk.eye", "HUNTING"), main: nm(d.akind), data: [tr("notes.stalk.data", "CLOSING ON {name}", { name: nm(d.kind) }), tr("notes.stalk.why", "ITS LAST MEAL WAS ONE OF THEM · {speed}", { speed: fmtLen(d.speed, "/s") })] };
         P.keys.push({ glyph: "cross", text: tr("notes.key.quarry", "QUARRY"), tone: INK4 });
       } else if (d.type === "web") {
         if (F.phone) return null;
@@ -38183,7 +38177,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         const deaths = Object.entries(d.died).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).map(([c, k]) => [causeUp(c), k, CAUSE2[c]]);
         P.label = {
           tone: net >= 0 ? CYAN2 : HOT,
-          tag: net > d.dead * 0.2 ? tr("notes.balance.thriving", "Thriving") : -net > d.born * 0.2 ? tr("notes.balance.declining", "Declining") : tr("notes.balance.turnover", "Turnover"),
+          tag: net > d.dead * 0.2 ? tr("notes.balance.thriving", "THRIVING") : -net > d.born * 0.2 ? tr("notes.balance.declining", "DECLINING") : tr("notes.balance.turnover", "TURNOVER"),
           num: `${net > 0 ? "+" : ""}${net}`,
           main: nm(d.kind),
           data: [tr("notes.balance.data", "BORN {born} · DIED {dead} · LAST 30 S", { born: d.born, dead: d.dead }), deaths.slice(0, 3).map(([c, k]) => tr("notes.cause-count", "{cause} {n}", { cause: c, n: k })).join(" · ") || tr("notes.balance.none-died", "NONE DIED")],
@@ -38203,7 +38197,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         const total = d.kinds.reduce((a, k) => a + (M.stats.by.get(k)?.n || 0), 0) || 1;
         P.label = {
           tone: INK4,
-          eye: tr("notes.genus.eye", "Sister species"),
+          eye: tr("notes.genus.eye", "SISTER SPECIES"),
           num: String(d.species),
           main: tr("notes.genus.main", "SPECIES OF {name}", { name: up(d.genusName) }),
           data: [tr("notes.genus.data", "DESCENDED FROM ONE ANCESTOR, SIDE BY SIDE")],
@@ -38236,7 +38230,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         const why = d.why.slice(0, 2).map(([k, x]) => WHY[k](x));
         P.label = {
           tone: INK4,
-          tag: tr("notes.clump.tag", "Community"),
+          tag: tr("notes.clump.tag", "COMMUNITY"),
           num: String(d.species),
           main: tr("notes.clump.main", "SPECIES IN ONE CLUMP"),
           data: [tr("notes.clump.data", "{n} CELLS · {size} ACROSS", { n: d.cells, size: fmtLen(d.size) })],
@@ -38254,7 +38248,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         pips(meals, INK22, 0.3);
         P.anchor = an;
         P.pts = pts;
-        P.label = { tone: INK4, eye: tr("notes.scavenging.eye", "Scavengers"), num: String(d.meals), main: nm(d.kind), data: [tr("notes.scavenging.data", "HUSKS EATEN · LAST 30 S"), tr("notes.scavenging.why", "THEY LIVE ON THE DEAD: NOTHING IS WASTED")] };
+        P.label = { tone: INK4, eye: tr("notes.scavenging.eye", "SCAVENGERS"), num: String(d.meals), main: nm(d.kind), data: [tr("notes.scavenging.data", "HUSKS EATEN · LAST 30 S"), tr("notes.scavenging.why", "THEY LIVE ON THE DEAD: NOTHING IS WASTED")] };
         P.keys.push({ glyph: "plus", text: cellOf(nm(d.kind)), tone: INK4 });
         if (meals.length) P.keys.push({ glyph: "cross", text: tr("notes.key.husk-eaten", "A HUSK EATEN, LAST 10 S"), tone: INK22 });
       } else if (d.type === "sprint") {
@@ -38276,7 +38270,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         P.pts = [a];
         P.label = {
           tone: HOT,
-          eye: tr("notes.sprint.eye", "Fastest in view"),
+          eye: tr("notes.sprint.eye", "FASTEST IN VIEW"),
           num: fmtLen(d.speed).split(" ")[0],
           main: tr("notes.sprint.main", "{unit}/s · {name}", { unit: fmtLen(d.speed).split(" ")[1], name: nm(d.kind) }),
           data: [tr("notes.sprint.data", "{n}× AS FAST AS MOST HERE", { n: d.times.toFixed(0) }), tr("notes.heading", "HEADING {heading}", { heading: compass2(d.heading) })]
@@ -38298,7 +38292,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         const moving = d.lengths >= 0.2;
         P.label = {
           tone: HOT,
-          eye: tr("notes.beat.eye", "Beating"),
+          eye: tr("notes.beat.eye", "BEATING"),
           num: d.hz.toFixed(1),
           main: tr("notes.beat.main", "BEATS / S"),
           data: [
@@ -38329,7 +38323,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         const pct = pctUp;
         P.label = {
           tone: SUN2,
-          tag: d.seeking >= 0.5 ? tr("notes.light.seeking", "Seeking the light") : tr("notes.light.basking", "Basking"),
+          tag: d.seeking >= 0.5 ? tr("notes.light.seeking", "SEEKING THE LIGHT") : tr("notes.light.basking", "BASKING"),
           num: pct(d.share),
           main: tr("notes.light.main", "OF THE PRODUCERS"),
           data: [
@@ -38360,7 +38354,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         const pct = pctUp;
         P.label = {
           tone: INK4,
-          tag: tr("notes.shelter.tag", "Sheltering"),
+          tag: tr("notes.shelter.tag", "SHELTERING"),
           num: String(d.cells),
           main: tr("notes.shelter.main", "CELLS AMONG THE STONE"),
           data: [
@@ -38389,9 +38383,9 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         if (!S.at) S.at = top.reduce((b, p2) => p2[1] < b[1] ? p2 : b, top[0]);
         P.anchor = F.toScreen(S.at);
         const pct = pctUp;
-        P.label = d.type === "range" ? { tone: INK4, eye: tr("notes.range.eye", "Dominant"), num: pct(d.share), main: nm(d.kind), kind: d.kind, data: [tr("notes.range.data", "OF THE LIVING IN VIEW · {n} CELLS", { n: d.cells }), tr("notes.range.how", "ITS RANGE OUTLINED WHERE IT IS THICKEST")] } : {
+        P.label = d.type === "range" ? { tone: INK4, eye: tr("notes.range.eye", "DOMINANT"), num: pct(d.share), main: nm(d.kind), kind: d.kind, data: [tr("notes.range.data", "OF THE LIVING IN VIEW · {n} CELLS", { n: d.cells }), tr("notes.range.how", "ITS RANGE OUTLINED WHERE IT IS THICKEST")] } : {
           tone: INK4,
-          eye: tr("notes.front.eye", "Where two meet"),
+          eye: tr("notes.front.eye", "WHERE TWO MEET"),
           main: `${short(sp(d.a.kind)?.name)} · ${short(sp(d.b.kind)?.name)}`,
           table: [d.a, d.b].map((x) => ({ kind: x.kind, name: up(sp(x.kind)?.name), value: pct(x.share), share: x.share })),
           data: [tr("notes.front.data", "THE TWO MOST NUMEROUS HERE, EACH HOLDING ITS OWN GROUND")]
@@ -38411,7 +38405,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         }
         P.anchor = F.toScreen(S.at);
         const why = d.why === "ice" ? tr("notes.barren.ice", "ICE LOCKS IT") : d.why === "stone" ? tr("notes.barren.stone", "STONE FILLS IT") : d.why === "dark" ? tr("notes.barren.dark", "TOO DARK: {pct}% LESS LIGHT THAN WHERE LIFE IS", { pct: Math.round((1 - d.lightE / Math.max(d.lightF, 1e-3)) * 100) }) : d.why === "cold" ? tr("notes.barren.cold", "COLDER: {t}° AGAINST {tf}° WHERE LIFE IS", { t: d.tE.toFixed(0), tf: d.tF.toFixed(0) }) : d.why === "warm" ? tr("notes.barren.warm", "WARMER: {t}° AGAINST {tf}° WHERE LIFE IS", { t: d.tE.toFixed(0), tf: d.tF.toFixed(0) }) : tr("notes.barren.unsettled", "NOTHING HAS SETTLED IT YET");
-        P.label = { tone: INK22, eye: tr("notes.barren.eye", "Barren water"), num: pctUp(d.share), main: tr("notes.barren.main", "OF THE VIEW NEARLY EMPTY OF LIFE"), data: [why] };
+        P.label = { tone: INK22, eye: tr("notes.barren.eye", "BARREN WATER"), num: pctUp(d.share), main: tr("notes.barren.main", "OF THE VIEW NEARLY EMPTY OF LIFE"), data: [why] };
         P.keys.push({ glyph: "ring", text: tr("notes.key.no-life", "NO LIFE HERE"), tone: INK32 });
       } else if (d.type === "deaths") {
         S.ppu0 ||= F.ppu;
@@ -38429,7 +38423,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         }
         P.anchor = F.toScreen(S.at);
         const top = Object.entries(d.causes).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c, k]) => tr("notes.cause-count", "{cause} {n}", { cause: causeUp(c), n: k })).join(" · ");
-        P.label = { tone: HOT, tag: tr("notes.deaths.tag", "Killing ground"), num: String(d.died), main: tr("notes.deaths.main", "DIED HERE IN 30 S"), data: [top, tr("notes.deaths.share", "{pct} OF ALL THE DEATHS IN VIEW", { pct: pctUp(d.died / d.all) })] };
+        P.label = { tone: HOT, tag: tr("notes.deaths.tag", "KILLING GROUND"), num: String(d.died), main: tr("notes.deaths.main", "DIED HERE IN 30 S"), data: [top, tr("notes.deaths.share", "{pct} OF ALL THE DEATHS IN VIEW", { pct: pctUp(d.died / d.all) })] };
         P.keys.push({ glyph: "square", text: tr("notes.key.most-died", "WHERE MOST DIED"), tone: HOT });
       } else if (d.type === "stranded") {
         const v = M.view, rows = [];
@@ -38446,7 +38440,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         P.pts = pts;
         P.label = {
           tone: SAND,
-          tag: tr("notes.stranded.tag", "Stranded"),
+          tag: tr("notes.stranded.tag", "STRANDED"),
           num: String(d.cells),
           main: tr("notes.stranded.main", "CELLS ON DRY LAND"),
           data: [
@@ -38479,7 +38473,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         P.pts = pts;
         P.label = {
           tone: CYAN2,
-          tag: tr("notes.frozen.tag", "Locked in ice"),
+          tag: tr("notes.frozen.tag", "LOCKED IN ICE"),
           num: String(d.cells),
           main: tr("notes.frozen.main", "CELLS FROZEN STILL"),
           data: [tr("notes.frozen.ice", "ICE OVER {pct} OF THE WATER IN VIEW", { pct: pctUp(d.share) }), tr("notes.frozen.why", "TORPID: THEY WAIT FOR THE THAW"), ...d.froze ? [tr("notes.frozen.froze", "{n} FROZE TO DEATH IN 30 S", { n: d.froze })] : []]
@@ -38507,7 +38501,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         const pct = pctUp;
         P.label = {
           tone: MOSS,
-          tag: tr("notes.shade.tag", "Under duckweed"),
+          tag: tr("notes.shade.tag", "UNDER DUCKWEED"),
           num: String(d.cells),
           main: tr("notes.shade.main", "PRODUCERS IN ITS SHADE"),
           data: [
@@ -38543,7 +38537,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         });
         P.boxes.push({ l: c[0] - R0, t: c[1] - R0, r: c[0] + R0, b: c[1] + R0 });
         P.anchor = [c[0], c[1] - 8];
-        P.label = { tone: CYAN2, tag: tr("notes.rain.tag", "Raindrop"), main: tr("notes.rain.main", "A RING WAVE SPREADS"), data: [tr("notes.rain.size", "{size} ACROSS · IT PUSHES THE CELLS OUTWARD", { size: fmtLen(d.size) }), tr("notes.rain.drops", "{n} DROPS IN VIEW AND ABOUT IN 30 S", { n: d.drops })] };
+        P.label = { tone: CYAN2, tag: tr("notes.rain.tag", "RAINDROP"), main: tr("notes.rain.main", "A RING WAVE SPREADS"), data: [tr("notes.rain.size", "{size} ACROSS · IT PUSHES THE CELLS OUTWARD", { size: fmtLen(d.size) }), tr("notes.rain.drops", "{n} DROPS IN VIEW AND ABOUT IN 30 S", { n: d.drops })] };
       } else if (d.type === "old") {
         const evs = recent("old", d.kind, 20), pts = [];
         for (const e of evs.slice(0, 40)) {
@@ -38555,7 +38549,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         for (const p2 of pts) P.draws.push((t2) => pip(p2[0], p2[1], INK4, t2, p2[4]));
         P.anchor = an;
         P.pts = pts;
-        P.label = { tone: INK4, eye: tr("notes.old.eye", "Old age"), num: String(d.count), main: nm(d.kind), data: [tr("notes.old.data", "DIED OF AGE IN 20 S"), tr("notes.old.why", "A COHORT REACHING ITS END")] };
+        P.label = { tone: INK4, eye: tr("notes.old.eye", "OLD AGE"), num: String(d.count), main: nm(d.kind), data: [tr("notes.old.data", "DIED OF AGE IN 20 S"), tr("notes.old.why", "A COHORT REACHING ITS END")] };
         P.keys.push({ glyph: "cross", text: tr("notes.key.died-of-age", "DIED OF AGE"), tone: INK4 });
       } else if (d.type === "rot") {
         const pts = group("r", M.stats.husks);
@@ -38566,7 +38560,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         P.pts = pts;
         P.label = {
           tone: INK4,
-          eye: tr("notes.rot.eye", "Decay"),
+          eye: tr("notes.rot.eye", "DECAY"),
           num: String(d.husks),
           main: tr("notes.rot.main", "HUSKS ROTTING TO SILT"),
           data: [tr("notes.rot.data", "{n} RETURNED TO SILT IN 30 S", { n: d.count }), d.sparks ? tr("notes.rot.sparks", "{n} NEW LIVES SPARKED FROM SILT", { n: d.sparks }) : tr("notes.rot.why", "THE SILT FEEDS WHAT GROWS NEXT")]
@@ -38625,7 +38619,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         const um = d.speed * UM_PER_UNIT;
         P.label = {
           tone: INK4,
-          eye: tr("notes.current.eye", "Current"),
+          eye: tr("notes.current.eye", "CURRENT"),
           num: um >= 10 ? String(Math.round(um)) : um.toFixed(1),
           main: tr("notes.current.main", "µm/s TOWARD {heading}", { heading: compass2(d.heading) }),
           data: [tr("notes.current.data", "THE WATER CARRIES WHAT DOES NOT SWIM"), tr("notes.current.how", "DRIFTERS RIDE IT · SWIMMERS CROSS IT")]
@@ -38643,7 +38637,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         for (const p2 of pts) P.draws.push((t2) => pip(p2[0], p2[1], HOT, t2, p2[4]));
         P.anchor = an;
         P.pts = pts;
-        P.label = d.type === "starving" ? { tone: HOT, eye: tr("notes.starving.eye", "Starving"), num: String(d.count), main: nm(d.kind), data: [tr("notes.starving.data", "STARVED IN 20 S"), tr("notes.starving.why", "NOTHING TO EAT IN REACH")] } : { tone: HOT, tag: tr("notes.stranded.tag", "Stranded"), num: String(d.count), main: tr("notes.drying.main", "DRYING ON THE MUD"), data: [tr("notes.drying.data", "MOSTLY {name}", { name: nm(d.kind) }), tr("notes.drying.why", "THE WATER WITHDREW FROM THEM")] };
+        P.label = d.type === "starving" ? { tone: HOT, eye: tr("notes.starving.eye", "STARVING"), num: String(d.count), main: nm(d.kind), data: [tr("notes.starving.data", "STARVED IN 20 S"), tr("notes.starving.why", "NOTHING TO EAT IN REACH")] } : { tone: HOT, tag: tr("notes.stranded.tag", "STRANDED"), num: String(d.count), main: tr("notes.drying.main", "DRYING ON THE MUD"), data: [tr("notes.drying.data", "MOSTLY {name}", { name: nm(d.kind) }), tr("notes.drying.why", "THE WATER WITHDREW FROM THEM")] };
         P.keys.push({ glyph: "cross", text: d.type === "starving" ? tr("notes.key.starved", "STARVED, LAST 20 S") : tr("notes.key.dried", "DRIED OUT, LAST 20 S"), tone: HOT });
       }
       n.pins = S.an.filter((a) => a.anchor != null && a.pin).map((a) => a.anchor);
@@ -38877,7 +38871,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         const t2 = F.now - n.born, out = keep * (n.exitAt != null ? clamp9(1 - (F.now - n.exitAt) / (n.fade || 0.6), 0, 1) : 1);
         for (const [k, part] of [[0, P], [1, P.extra]]) {
           if (!part || !part.label) continue;
-          const L = norm(part.label), size = labelSize(L), id = n.id * 2 + k;
+          const L = part.label, size = labelSize(L), id = n.id * 2 + k;
           let an = part.anchor;
           let st = lay.get(id);
           if (!st) lay.set(id, st = { pick: null, lookAt: -1e9 });

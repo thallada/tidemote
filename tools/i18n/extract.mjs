@@ -43,7 +43,7 @@ const literal = (n) => (n?.type === 'Literal' && typeof n.value === 'string' ? n
 const nameOf = (n) => n?.type === 'Identifier' ? n.name : n?.type === 'Literal' ? String(n.value) : n?.type === 'PrivateIdentifier' ? `#${n.name}` : n?.type === 'MemberExpression' ? `${nameOf(n.object)}.${nameOf(n.property)}` : '';
 
 // which local names call tr (import { tr } / import { tr as x } from './i18n.js')
-function trNames(ast) {
+export function trNames(ast) {
   const names = new Set();
   for (const d of ast.body) if (d.type === 'ImportDeclaration' && /(^|\/)i18n\.js$/.test(d.source.value)) for (const s of d.specifiers) if (s.imported?.name === 'tr') names.add(s.local.name);
   return names;
@@ -60,7 +60,7 @@ function sinkOf(anc, call, src) {
       if (/fillText|strokeText/.test(fn)) return 'canvas';
       if (/\b(flash|toast|say|note|status)$/i.test(fn)) return `${fn}()`;
     }
-    if (a.type === 'TemplateLiteral' && child !== call || a.type === 'TemplateLiteral') {
+    if (a.type === 'TemplateLiteral') {
       // the markup just before the expression holding the call: inside an attribute's quotes, or text
       const k = a.expressions.indexOf(child);
       if (k >= 0) {
@@ -86,12 +86,12 @@ function fnOf(anc) {
   return '';
 }
 
-// the arguments and tags a message uses
-function needs(els, out = { args: new Set(), tags: new Set() }) {
+/** { args: Map name -> kind, tags: Set } a message (its parsed elements) uses */
+export function shapeOf(els, out = { args: new Map(), tags: new Set() }) {
   for (const e of els) {
-    if (e.type === TYPE.tag) { out.tags.add(e.value); needs(e.children, out); }
-    else if (e.type !== TYPE.literal && e.type !== TYPE.pound) out.args.add(e.value);
-    if (e.options) for (const o of Object.values(e.options)) needs(o.value, out);
+    if (e.type === TYPE.tag) { out.tags.add(e.value); shapeOf(e.children, out); }
+    else if (e.type !== TYPE.literal && e.type !== TYPE.pound) out.args.set(e.value, TYPE[e.type]);
+    if (e.options) for (const o of Object.values(e.options)) shapeOf(o.value, out);
   }
   return out;
 }
@@ -128,16 +128,16 @@ export function extract({ files = sourceFiles() } = {}) {
         let given = null;
         if (v?.type === 'ObjectExpression' && !v.properties.some((p) => p.type === 'SpreadElement')) given = new Set(v.properties.map((p) => nameOf(p.key)));
         let need;
-        try { need = needs(parseIcu(message)); } catch { need = null; }
+        try { need = shapeOf(parseIcu(message)); } catch { need = null; }
         if (need && given) {
-          for (const a of need.args) if (!given.has(a)) errors.push(`${file}:${line}: ${id} uses {${a}} but the call gives ${[...given].join(', ') || 'nothing'}`);
+          for (const a of need.args.keys()) if (!given.has(a)) errors.push(`${file}:${line}: ${id} uses {${a}} but the call gives ${[...given].join(', ') || 'nothing'}`);
           for (const tg of need.tags) if (!given.has(tg) && !OWN_TAGS.has(tg)) errors.push(`${file}:${line}: ${id} uses <${tg}> but the call gives no ${tg}`);
         } else if (need && !v) {
-          if (need.args.size) errors.push(`${file}:${line}: ${id} uses {${[...need.args].join('}, {')}} but the call gives no values`);
+          if (need.args.size) errors.push(`${file}:${line}: ${id} uses {${[...need.args.keys()].join('}, {')}} but the call gives no values`);
           for (const tg of need.tags) if (!OWN_TAGS.has(tg)) errors.push(`${file}:${line}: ${id} uses <${tg}> but the call gives no ${tg}`);
         }
         const a0 = Math.max(0, line - 3), code = lines.slice(a0, line + 2).join('\n');
-        add(id, message, { file, line, fn: fnOf(anc), sink: sinkOf(anc, n, src), code, note: note || undefined, args: need ? [...need.args] : [], tags: need ? [...need.tags] : [] });
+        add(id, message, { file, line, fn: fnOf(anc), sink: sinkOf(anc, n, src), code, note: note || undefined, args: need ? [...need.args.keys()] : [], tags: need ? [...need.tags] : [] });
       },
     });
   }

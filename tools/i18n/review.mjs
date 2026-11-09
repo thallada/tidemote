@@ -12,20 +12,16 @@
 //   node tools/i18n/review.mjs --approve ID [ID...]     approve (after a reader's review)
 //   node tools/i18n/review.mjs --note ID "what" [--suggest "text"] [--level warn|error] [--kind logic]
 // Runs as ~/.local/bin/capped -m 600M node tools/i18n/review.mjs (Harper's dictionary takes about 300 MB).
-import fs from 'node:fs';
-import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { parse, TYPE } from '@formatjs/icu-messageformat-parser';
-import { extract, ROOT } from './extract.mjs';
+import { extract } from './extract.mjs';
 import { checkMessage } from './check.mjs';
+import { catalogFile, reviewFile, readJson, writeJson } from './locale.mjs';
 
 const { values: opt, positionals } = parseArgs({ allowPositionals: true, options: {
   locale: { type: 'string', default: 'en-x-rewrite' }, all: { type: 'boolean' }, source: { type: 'boolean' }, list: { type: 'string' },
   approve: { type: 'boolean' }, note: { type: 'string' }, suggest: { type: 'string' }, level: { type: 'string', default: 'warn' }, kind: { type: 'string', default: 'logic' } } });
-const CAT = path.join(ROOT, 'locales', `${opt.locale}.json`);
-const REV = path.join(ROOT, 'locales/review', `${opt.locale}.json`);
-const readJson = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { if (e.code === 'ENOENT') return d; throw e; } };
-const writeJson = (f, v) => { const tmp = `${f}.${process.pid}.tmp`; fs.writeFileSync(tmp, `${JSON.stringify(v, null, 2)}\n`); fs.renameSync(tmp, f); };
+const CAT = catalogFile(opt.locale), REV = reviewFile(opt.locale);
 const { messages, context } = extract();
 const catalog = readJson(CAT, {}), review = readJson(REV, {});
 const now = new Date().toISOString();

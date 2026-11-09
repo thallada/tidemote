@@ -1,18 +1,8 @@
 // A rewritten or translated message checked against its source (docs/i18n.md): it must parse, use no argument
 // or tag the source does not give, and should keep what the source shows. Shared by the text editor, the
 // review (tools/i18n/review.mjs) and test/i18n.test.js's catalog check.
-import { parse, TYPE } from '@formatjs/icu-messageformat-parser';
-import { OWN_TAGS } from './extract.mjs';
-
-/** { args: Map name -> kind, tags: Set } a message uses */
-export function shapeOf(els, out = { args: new Map(), tags: new Set() }) {
-  for (const e of els) {
-    if (e.type === TYPE.tag) { out.tags.add(e.value); shapeOf(e.children, out); }
-    else if (e.type !== TYPE.literal && e.type !== TYPE.pound) out.args.set(e.value, TYPE[e.type]);
-    if (e.options) for (const o of Object.values(e.options)) shapeOf(o.value, out);
-  }
-  return out;
-}
+import { parse } from '@formatjs/icu-messageformat-parser';
+import { OWN_TAGS, shapeOf } from './extract.mjs';
 
 /** Problems with `text` as message `id` (source `source`): [{ level: 'error'|'warn', code, msg }] */
 export function checkMessage(text, source, ctx = {}) {
