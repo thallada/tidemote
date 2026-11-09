@@ -123,7 +123,14 @@ async function freshShaders() {
 async function boot(tries = 4) {
   if (tries === 4) await freshShaders();
   if (!navigator.gpu) {
-    fail('This browser has no WebGPU', 'Tidemote simulates its world on your graphics card through WebGPU. Try a current Chrome, Edge or Safari, or Firefox on Windows.');
+    // Safari offers WebGPU only on macOS/iOS/iPadOS 26 and later; on earlier systems even Safari 26+ has
+    // no navigator.gpu and no feature flag brings it (its "WebGPU support for HDR" flag is something else)
+    const ua = navigator.userAgent;
+    const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+    const safari = /AppleWebKit/.test(ua) && /Safari\//.test(ua) && !/Chrome|Chromium|CriOS|FxiOS|EdgiOS|Edg\/|OPR\/|Android/.test(ua);
+    if (safari && ios) fail('Safari has WebGPU from iOS 26', 'Tidemote simulates its world on your graphics card through WebGPU, which Safari offers from iOS and iPadOS 26. Update the system to run it here.');
+    else if (safari) fail('Safari has WebGPU from macOS 26', 'Tidemote simulates its world on your graphics card through WebGPU, which Safari offers only on macOS 26 Tahoe and later, whatever its own version. On an earlier macOS, open Tidemote in Chrome or Edge, or update macOS.');
+    else fail('This browser has no WebGPU', 'Tidemote simulates its world on your graphics card through WebGPU. Try a current Chrome, Edge or Safari, or Firefox on Windows.');
     return;
   }
   const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
@@ -2559,7 +2566,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     function about_() {
       return group('intro', '', `<div class="about"><p>A sealed biosphere of up to millions of particles, and all of them live, eat, breed, and die in your browser, simulated on the GPU with WebGPU. Some cells drink the moving light of the tide. Others graze on the photosynthesizers, and others hunt the grazers. Scavengers break down the dead and return them to the water as silt, and from that silt the next generation builds its children. Children mutate into new species. Species that bond grow into bodies: filaments, branched fronds, spirals, packed tissues. Some of these bodies grow beating tails and swim. Every 10 to 18 minutes the climate turns, and the world has to begin again in its own way. It makes its own music, too: each cell sings its species' song, over a chorus of the births, kills, and deaths in view.</p>
 <p>No hand steers any of this: every ecological rule is local. The complex interacting colonies emerge from simple rules acting on the mutating genome each cell carries. The Field Lab's <button type="button" class="link" data-o="guide" data-v="0">Guide</button> explains how it works.</p></div>`)
-        + group('made', 'Made by', `<div class="about"><p>Directed by ${ext('https://www.hallada.net', 'Tyler Hallada')} and implemented mostly by ${ext('https://www.anthropic.com/claude', 'Claude')}, Anthropic's AI model. The soundtrack is a port of ${ext('https://supercollider.github.io/', 'SuperCollider')}'s synthesis to the browser.</p></div>`)
+        + group('made', 'Made by', `<div class="about"><p>Directed by ${ext('https://www.hallada.net', 'Tyler Hallada')} and implemented mostly by ${ext('https://www.anthropic.com/claude', 'Claude')}, Anthropic's AI model. The soundtrack is procedurally generated using a port of ${ext('https://supercollider.github.io/', 'SuperCollider')} to the browser.</p></div>`)
         + group('src', 'Source', `<div class="about"><p>Free software under the ${ext('https://www.gnu.org/licenses/gpl-3.0.html', 'GPL-3.0')}: the code, the design notes and the headless tools used to balance the ecology are on ${ext('https://github.com/thallada/tidemote', 'GitHub')}, where bugs and ideas are welcome as issues.</p>
 <p>Everything runs on this device: there is no account and no analytics, and saved worlds stay in this browser.</p></div>`);
     }
