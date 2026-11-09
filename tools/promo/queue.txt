@@ -1,0 +1,44 @@
+# The library's worlds, one a line: NAME SCRIPT ARGS (queue.sh films those not done yet). All on main b66a121, varied in
+# age, catastrophe and size; then the interface (ui.mjs) and focused takes. (An old "notes" part, since replaced by
+# notes.mjs, is ignored.)
+w01 shoot.mjs --mature 1200 --event storm
+u01 ui.mjs --mature 2000
+w02 shoot.mjs --mature 2400 --event frost
+w03 shoot.mjs --mature 900 --event drought
+u02 ui.mjs --mature 3000
+w04 shoot.mjs --mature 1800 --event duckweed
+w05 shoot.mjs --mature 3600 --event storm
+w06 shoot.mjs --mature 600 --event frost
+u03 ui.mjs --mature 1200
+w07 shoot.mjs --mature 1500 --event duckweed --n 2097152
+# focused worlds (main, moved ahead of w08 so the disk floor cuts plain worlds, not these): only what the library is short of (swimmers, the auto camera, annotations, deep holds,
+# drifts, catastrophes), none of the trails, lapses and close-ups it already has plenty of. (They replace the two
+# claude-play worlds, skipped 2026-11-07 at the user's word.)
+f01 shoot.mjs --mature 2000 --event storm --parts swim,notes,dir,deep,event
+f02 shoot.mjs --mature 1300 --event frost --parts swim,notes,dir,drift,macro
+f03 shoot.mjs --mature 2800 --event duckweed --parts swim,dir,deep,pan,event
+f04 shoot.mjs --mature 1700 --event drought --parts swim,notes,dir,drift,outro
+w08 shoot.mjs --mature 2700 --event drought
+w09 shoot.mjs --mature 1200 --event frost --n 2097152
+w10 shoot.mjs --mature 2000 --event storm
+w11 shoot.mjs --mature 3000 --event duckweed
+w12 shoot.mjs --mature 1000 --event drought --n 2097152
+# sparse worlds (fewer cells, more open water)
+w13 shoot.mjs --mature 1500 --event storm --n 262144
+w14 shoot.mjs --mature 2400 --event drought --n 524288
+# annotation showcase (2026-11-09): full interface, still camera, notes always on at a reading pace (notes.mjs)
+n01 notes.mjs --mature 1500 --takes 5
+n02 notes.mjs --mature 2600 --takes 5
+n03 notes.mjs --mature 900 --takes 5 --n 2097152
+# the glass rod from farther out, five moves a world (2026-11-09: tap, swirl, plow, zigzag, figure eight; hand.mjs)
+h01 hand.mjs --mature 1500
+h02 hand.mjs --mature 2600 --n 524288
+h03 hand.mjs --mature 900 --n 2097152
+# taps held to the rod's full dip (0.1 s taps barely showed)
+h01t hand.mjs --mature 1500 --moves tap
+h02t hand.mjs --mature 2600 --n 524288 --moves tap
+# a many-celled body picked, kept in frame (2026-11-09: the old ui_pick picked single cells that swam off; pick.mjs)
+p00 pick.mjs --mature 900 --takes 1
+p01 pick.mjs --mature 1500 --takes 2
+p02 pick.mjs --mature 2600 --takes 2 --n 524288
+p03 pick.mjs --mature 1200 --takes 2 --n 2097152 --z 160

@@ -1,0 +1,1286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Promo Editor</title>
+<link rel="icon" href="data:,">
+<style>
+:root {
+  --bg: #0b0e10; --panel: #12171a; --panel2: #171d21; --line: #243036; --line2: #2f3d44;
+  --ink: #e6eef0; --dim: #93a3a8; --faint: #5f6f74; --accent: #7fd6df; --accent2: #f1d27a; --warn: #f08a6c; --ok: #8fd18a;
+  --sec-intro: #31424a; --sec-build: #2d4a3e; --sec-drop: #4a3a2a; --sec-rush: #4a2f3f; --sec-peak: #5a2f2f; --sec-break: #2f3a55; --sec-drop2: #4a442a; --sec-outro: #34343f;
+  font: 13px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden; }
+button, select, input { font: inherit; color: inherit; }
+button { background: var(--panel2); border: 1px solid var(--line2); border-radius: 5px; padding: 4px 9px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.on { background: #1e3a3e; border-color: var(--accent); color: var(--accent); }
+button.primary { background: #1d4246; border-color: var(--accent); }
+select, input[type=text], input[type=number] { background: var(--panel2); border: 1px solid var(--line2); border-radius: 5px; padding: 3px 6px; }
+#app { display: grid; height: 100vh; height: 100dvh; grid-template-rows: 42px minmax(0, 1fr) 6px var(--tlh, 300px); grid-template-columns: minmax(340px, 38%) minmax(0, 1fr); grid-template-areas: "top top" "lib main" "split split" "tl tl"; }
+#top { grid-area: top; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid var(--line); background: var(--panel); }
+#top .brand { font-weight: 600; letter-spacing: .02em; margin-right: 6px; }
+#top .sp { flex: 1; }
+#status { color: var(--dim); font-size: 12px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#lib { grid-area: lib; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); background: var(--panel); }
+#libbar { padding: 8px; display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 1px solid var(--line); }
+#cats { display: flex; flex-wrap: wrap; gap: 4px; width: 100%; }
+#cats button { padding: 2px 7px; font-size: 12px; }
+#cats button small { color: var(--faint); margin-left: 3px; }
+#grid { flex: 1; overflow: auto; padding: 8px; display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 8px; align-content: start; grid-auto-rows: max-content; }
+.card { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; cursor: grab; position: relative; }
+.card:hover { border-color: var(--line2); }
+.card.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.card.used .thumb::after { content: "in edit"; position: absolute; right: 4px; top: 4px; font-size: 10px; background: #000a; color: var(--accent2); padding: 1px 5px; border-radius: 3px; }
+.card.rej { opacity: .38; }
+.thumb { aspect-ratio: 16/9; background: #000 center/cover no-repeat; position: relative; }
+.thumb img.poster { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.thumb .scrub { position: absolute; inset: 0; background-repeat: no-repeat; background-size: 800% 100%; opacity: 0; }
+.thumb:hover .scrub { opacity: 1; }
+.thumb .badge { position: absolute; left: 4px; top: 4px; font-size: 10px; background: #000b; padding: 1px 5px; border-radius: 3px; color: var(--accent); text-transform: uppercase; letter-spacing: .04em; }
+.thumb .bad { position: absolute; right: 4px; bottom: 4px; font-size: 10px; background: #6b2a1fdd; padding: 1px 5px; border-radius: 3px; }
+.meta { padding: 4px 6px 5px; font-size: 11px; color: var(--dim); display: flex; justify-content: space-between; gap: 4px; }
+.meta b { color: var(--ink); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stars { color: var(--accent2); letter-spacing: -1px; white-space: nowrap; cursor: pointer; }
+.stars i { font-style: normal; opacity: .25; } .stars i.f { opacity: 1; }
+#main { grid-area: main; display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; min-width: 0; }
+#viewer { position: relative; display: flex; flex-direction: column; min-height: 0; padding: 8px; gap: 6px; }
+/* the viewer exactly 16:9, as large as its space allows (a box of another shape letterboxes the shot inside it and puts
+   reframes and titles off) */
+#stagewrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; container-type: size; }
+#stage { position: relative; width: min(100cqw, 177.778cqh); height: min(100cqh, 56.25cqw); background: #000; overflow: hidden; border-radius: 3px; }
+#stage video { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: fill; transform-origin: 0 0; visibility: hidden; }
+#stage video.show { visibility: visible; }
+#stage .layer { position: absolute; inset: 0; pointer-events: none; }
+#veil { background: #000; opacity: 0; } #flash { background: #fff; opacity: 0; }
+#stage .titlecard { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none; }
+#boxui { position: absolute; border: 1.5px dashed var(--accent2); pointer-events: none; display: none; }
+#boxui.end { border-color: var(--accent); }
+#mode { position: absolute; left: 8px; top: 8px; font-size: 11px; background: #000a; padding: 2px 7px; border-radius: 3px; color: var(--accent2); pointer-events: none; }
+#buf { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); font-size: 11px; background: #000c; padding: 2px 9px; border-radius: 3px; color: var(--accent); pointer-events: none; display: none; }
+#buf.on { display: block; }
+#stagewrap:fullscreen { background: #000; }
+#stagewrap:fullscreen #stage { border-radius: 0; }
+#stagewrap:fullscreen #mode, #stagewrap:fullscreen #cutinfo { display: none; }
+#insp .x { margin-left: auto; padding: 0 8px; }
+#insp.empty { padding: 4px 10px; }
+#cutinfo { position: absolute; right: 8px; top: 8px; font-size: 11px; background: #000a; padding: 2px 7px; border-radius: 3px; color: var(--dim); pointer-events: none; max-width: 60%; text-align: right; }
+#transport { display: flex; align-items: center; gap: 6px; }
+#clock { font-variant-numeric: tabular-nums; min-width: 190px; color: var(--dim); }
+#clock b { color: var(--ink); font-weight: 500; }
+#insp { border-top: 1px solid var(--line); background: var(--panel); padding: 8px 10px; max-height: 46vh; overflow: auto; }
+#insp h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+#insp h3 small { color: var(--dim); font-weight: 400; }
+.row { display: flex; align-items: center; gap: 8px; margin: 5px 0; flex-wrap: wrap; }
+.row label { color: var(--dim); min-width: 62px; }
+.kv { color: var(--dim); font-size: 12px; } .kv b { color: var(--ink); font-weight: 500; }
+#instrip { position: relative; height: 54px; width: 100%; background: #000 left/100% 100% no-repeat; border-radius: 3px; cursor: ew-resize; }
+#inwin { position: absolute; top: 0; bottom: 0; border: 2px solid var(--accent2); background: #f1d27a22; border-radius: 2px; }
+#alts { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+#alts .alt { flex: 0 0 120px; cursor: pointer; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; background: var(--panel2); }
+#alts .alt:hover { border-color: var(--accent); }
+#alts .alt .thumb { aspect-ratio: 16/9; }
+#alts .alt div.n { font-size: 10px; padding: 2px 4px; color: var(--dim); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+#split { grid-area: split; cursor: ns-resize; background: var(--line); }
+#tl { grid-area: tl; display: flex; flex-direction: column; min-height: 0; background: var(--panel); }
+#tlbar { display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--dim); }
+#tlscroll { flex: 1; overflow-x: auto; overflow-y: hidden; position: relative; }
+#tlin { position: relative; height: 100%; }
+#ruler, #wave { position: absolute; left: 0; }
+#ruler { top: 0; height: 40px; }
+#wave { top: 40px; height: 44px; }
+#track { position: absolute; left: 0; top: 88px; height: calc(100% - 118px); min-height: 70px; right: 0; }
+#ttrack { position: absolute; left: 0; bottom: 4px; height: 22px; }
+.cut { position: absolute; top: 0; bottom: 0; border-right: 1px solid #000; background: #1b2226 center/cover no-repeat; overflow: hidden; cursor: pointer; }
+.cut .lbl { position: absolute; left: 0; right: 0; bottom: 0; font-size: 10px; padding: 1px 3px; background: linear-gradient(transparent, #000c); color: #cfe; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cut .cat { position: absolute; left: 2px; top: 2px; font-size: 9px; padding: 0 3px; border-radius: 2px; background: #000b; color: var(--accent); text-transform: uppercase; }
+.cut.sel { outline: 2px solid var(--accent2); outline-offset: -2px; z-index: 2; }
+.cut.drop { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.cut .edge { position: absolute; left: 0; top: 0; bottom: 0; width: 5px; cursor: col-resize; z-index: 3; }
+.cut.thin { border-right-color: #0008; }
+.cut.hov { outline: 2px solid #fff8; outline-offset: -2px; z-index: 3; }
+.cut.sel.hov { outline-color: var(--accent2); }
+.cut .hitmark { position: absolute; left: 0; top: 0; width: 0; height: 0; border-top: 6px solid; border-right: 5px solid transparent; z-index: 2; pointer-events: none; }
+.cut .hitmark.on { color: #f1d27a; } .cut .hitmark.off { color: #e0605a; }
+#tlhover { position: absolute; z-index: 6; pointer-events: none; font-size: 11px; background: #000d; color: #dfe; padding: 2px 6px; border-radius: 3px; white-space: nowrap; display: none; }
+.cut .edge:hover { background: #7fd6df55; }
+.cut .fx { position: absolute; right: 2px; top: 2px; font-size: 9px; color: var(--accent2); background: #000b; padding: 0 3px; border-radius: 2px; }
+.tt { position: absolute; top: 0; height: 100%; background: #3a3350; border: 1px solid #6e62a0; border-radius: 3px; font-size: 10px; padding: 2px 5px; color: #dcd4ff; overflow: hidden; white-space: nowrap; }
+#playhead { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--accent2); pointer-events: none; z-index: 5; }
+#playhead::before { content: ""; position: absolute; top: 0; left: -5px; border: 5px solid transparent; border-top-color: var(--accent2); }
+#cov { display: flex; gap: 10px; padding: 4px 10px; border-top: 1px solid var(--line); font-size: 11px; color: var(--dim); overflow-x: auto; white-space: nowrap; }
+#cov span b { color: var(--ink); font-weight: 500; }
+#cov .short b { color: var(--warn); }
+dialog { background: var(--panel); color: var(--ink); border: 1px solid var(--line2); border-radius: 8px; max-width: 760px; }
+dialog pre { max-height: 50vh; overflow: auto; background: #000; padding: 8px; font-size: 11px; white-space: pre-wrap; }
+kbd { background: var(--panel2); border: 1px solid var(--line2); border-radius: 3px; padding: 0 4px; font-size: 11px; }
+#help td { padding: 2px 10px 2px 0; vertical-align: top; }
+.hint { color: var(--faint); font-size: 11px; }
+#mtabs, .mob-only, .use { display: none; }
+/* ── the phone's layout (body.mob: a touch screen without hover, or a narrow window; the ▯ button switches): the viewer
+   and its transport on top, the timeline under it, then the library or the selected cut's inspector by tabs. Keys
+   become buttons (move a cut's start, split, remove), a library card takes the selected cut by its own button, and
+   two fingers pinch the timeline ── */
+body.mob #app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto var(--tlhm, 240px) auto minmax(0, 1fr); grid-template-areas: "top" "viewer" "tl" "tabs" "pane"; }
+body.mob #top { flex-wrap: wrap; gap: 5px; padding: 5px 8px; }
+body.mob #top .brand, body.mob #top .sp, body.mob #rmaster { display: none; }
+body.mob #status { order: 10; flex: 1 0 100%; max-width: none; font-size: 11px; min-height: 14px; }
+body.mob button { padding: 6px 10px; }
+body.mob #main { display: contents; }
+body.mob #viewer { grid-area: viewer; padding: 4px 6px; gap: 4px; }
+body.mob #stagewrap { flex: none; container-type: normal; display: block; }
+body.mob #stage { width: min(100%, calc(46dvh * 16 / 9)); height: auto; aspect-ratio: 16 / 9; margin: 0 auto; }
+body.mob #transport { flex-wrap: wrap; row-gap: 2px; }
+body.mob #clock { min-width: 0; font-size: 12px; }
+body.mob #split, body.mob #tlbar .hint:last-child, body.mob #cov { display: none; }
+body.mob #tlscroll { touch-action: pan-x; }
+body.mob #tl { border-top: 1px solid var(--line); }
+body.mob #tlbar { flex-wrap: wrap; gap: 6px; padding: 3px 8px; }
+body.mob #zoom { width: 110px !important; }
+body.mob .cut .edge { display: none; }
+body.mob #mtabs { grid-area: tabs; display: flex; gap: 6px; padding: 5px 8px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--panel); align-items: center; }
+body.mob #mtabs button { flex: 1; }
+body.mob #lib, body.mob #insp { grid-area: pane; min-height: 0; max-height: none; border: 0; }
+body.mob #lib { overflow: auto; display: block; }
+body.mob #grid { overflow: visible; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+body.mob #insp, body.mob #insp.empty { overflow: auto; padding: 8px 10px; }
+body.mob:not(.tab-cut) #insp, body.mob.tab-cut #lib { display: none; }
+body.mob .stars { font-size: 18px; letter-spacing: 2px; }
+body.mob .meta { flex-wrap: wrap; }
+body.mob .mob-only { display: inline-flex; }
+body.mob.has-sel .card .use { display: block; position: absolute; right: 4px; top: 4px; z-index: 2; font-size: 12px; padding: 4px 8px; background: #1d4246ee; border-color: var(--accent); }
+body.mob.has-sel .card.used .thumb::after { top: auto; bottom: 4px; }
+body.mob #instrip { height: 64px; touch-action: none; }
+body.mob #alts .alt { flex-basis: 140px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="top">
+    <span class="brand">Tidemote · Promo editor</span>
+    <select id="edlsel" aria-label="EDL"></select>
+    <button id="save" title="Save (Ctrl+S)">Save</button>
+    <button id="saveas">Save as…</button>
+    <button id="undo" title="Undo (Ctrl+Z)">↶</button><button id="redo" title="Redo (Ctrl+Shift+Z)">↷</button>
+    <span class="sp"></span>
+    <span id="status"></span>
+    <button id="rdraft" title="Render a 540p draft of what the viewer plays, titles and track (a minute or two)">Render draft</button>
+    <button id="rmaster" class="primary" title="Render the 4K master: segments from the 4K masters, the pinned track with the shots' cells">Render 4K master</button>
+    <button id="layoutb" title="Switch between the desktop and the phone layout">▯</button>
+    <button id="helpb">?</button>
+  </header>
+  <section id="lib">
+    <div id="libbar">
+      <div id="cats"></div>
+      <input id="q" type="text" placeholder="search name, world, species…" style="flex:1;min-width:140px">
+      <select id="world"><option value="">All worlds</option></select>
+      <select id="minstar"><option value="0">any ★</option><option value="1">★+</option><option value="2">★★+</option><option value="3">★★★+</option><option value="4">★★★★+</option><option value="5">★★★★★</option></select>
+      <select id="sort"><option value="name">by world</option><option value="stars">by rating</option><option value="motion">by motion</option><option value="sat">by colour</option><option value="luma">by brightness</option><option value="dur">by length</option></select>
+      <label class="hint"><input type="checkbox" id="hidebad" checked> hide jerky/rejected</label>
+      <label class="hint"><input type="checkbox" id="slotonly"> only the selected slot's kind</label>
+    </div>
+    <div id="grid"></div>
+  </section>
+  <section id="main">
+    <div id="viewer">
+      <div id="stagewrap"><div id="stage">
+        <video muted playsinline preload="auto"></video><video muted playsinline preload="auto"></video><video muted playsinline preload="auto"></video><video muted playsinline preload="auto"></video>
+        <video muted playsinline preload="auto"></video><video muted playsinline preload="auto"></video><video muted playsinline preload="auto"></video><video muted playsinline preload="auto"></video>
+        <video id="prog" muted playsinline disableremoteplayback></video>
+        <div class="layer" id="veil"></div><div class="layer" id="flash"></div>
+        <div id="boxui"></div>
+        <div id="mode">PROGRAM</div><div id="cutinfo"></div><div id="buf">loading…</div>
+      </div></div>
+      <div id="transport">
+        <button id="home" title="Start (Home)">⏮</button>
+        <button id="play" title="Play/pause (Space)">▶</button>
+        <button id="loop" title="Loop the selected cut's section (L)">⟲ section</button>
+        <span id="clock"></span>
+        <span class="sp" style="flex:1"></span>
+        <span class="hint" id="pv"></span>
+        <label class="hint" title="Play the rendered preview (each cut rendered as the master frames it, fetched once); off: every cut live from its shot"><input type="checkbox" id="rendered" checked> play render</label>
+        <label class="hint" id="gradel"><input type="checkbox" id="grade" checked> grade</label>
+        <label class="hint"><input type="checkbox" id="titles" checked> titles</label>
+        <label class="hint">vol <input type="range" id="vol" min="0" max="1" step="0.05" value="0.8" style="width:80px"></label>
+        <button id="fs" title="Full screen (Shift+F, or double-click the viewer)">⛶</button>
+      </div>
+    </div>
+    <div id="insp" class="empty"><div class="hint">Select a cut on the timeline (or a shot in the library) to inspect it. Drag shots from the library onto cuts; drag a cut onto another to swap them. Press <kbd>?</kbd> for keys.</div></div>
+  </section>
+  <div id="split"></div>
+  <nav id="mtabs"><button id="tab-lib">Library</button><button id="tab-cut">Cut</button></nav>
+  <section id="tl">
+    <div id="tlbar">
+      <span>Snap</span>
+      <select id="snap"><option value="hit">strong hits</option><option value="1">16th</option><option value="4" selected>beat</option><option value="16">bar</option><option value="0">frames (off)</option></select>
+      <span>Zoom</span><input type="range" id="zoom" min="6" max="400" value="22" style="width:140px">
+      <span id="tlinfo" class="hint"></span>
+      <span style="flex:1"></span>
+      <span class="hint">ticks: the song's hits (gold: kicks) · ◤ on a cut: gold on the beat, red beside a bigger hit · pinch or ⌘-scroll: zoom · <kbd>,</kbd> <kbd>.</kbd> move cut · <kbd>?</kbd> keys</span>
+    </div>
+    <div id="tlscroll"><div id="tlin">
+      <canvas id="ruler"></canvas><canvas id="wave"></canvas>
+      <div id="track"></div><div id="ttrack"></div><div id="tlhover"></div>
+      <div id="playhead"></div>
+    </div></div>
+    <div id="cov"></div>
+  </section>
+</div>
+<svg width="0" height="0" style="position:absolute"><filter id="gradef" color-interpolation-filters="sRGB"><feComponentTransfer><feFuncR id="gr-r" type="gamma"/><feFuncG id="gr-g" type="gamma"/><feFuncB id="gr-b" type="gamma"/></feComponentTransfer><feColorMatrix id="gr-s" type="saturate" values="1"/></filter></svg>
+<dialog id="dlg"><div id="dlgbody"></div><div style="text-align:right;margin-top:8px"><button id="dlgclose">Close</button></div></dialog>
+<script type="module">
+import { spans, inPoint, segKey, boxAt, vcamPath, stepAt, atOf, stepsOf, makeWhen, slotCat, FPS, FAMILY, slotFamily, autoIn, hitMap, onHit } from '/static/edlcore.mjs';
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+const fmtT = (t) => { const m = Math.floor(t / 60), s = t - m * 60; return `${m}:${s.toFixed(2).padStart(5, '0')}`; };
+// a shot whose camera jerks (QC); UI shots move as the pointer does (a ride's dive, a tab's scroll) and never count
+const jerky = (c) => c?.qc?.smooth === false && c.cat !== 'ui';
+const L = (c, f) => `/lib/${c[f]}?v=${Math.round(c.mtime || 0)}`;
+const TH = (c) => `/thumb/${c.poster}?v=${Math.round(c.mtime || 0)}`; // the poster small, for cards and cuts
+const api = async (u, o) => { const r = await fetch(u, o); const j = await r.json(); if (j && j.error) throw new Error(j.error); return j; };
+
+// ── state ──
+const S = { cat: [], byId: new Map(), times: null, events: null, wave: null, ratings: {}, edl: null, name: null, sp: [], sel: -1, src: null,
+  playing: false, waiting: false, t: 0, pps: 22, loop: null, undo: [], redo: [], dirty: false, accent: null, libSel: null, reframe: null };
+const audio = new Audio(); audio.preload = 'auto'; audio.volume = 0.8;
+const vids = [...document.querySelectorAll('#stage video:not(#prog)')];
+const vstate = vids.map(() => ({ key: null, used: 0 }));
+
+function status(s, warn) { $('status').textContent = s; $('status').style.color = warn ? 'var(--warn)' : ''; }
+
+// ── load ──
+async function boot() {
+  const [cat, tr, ratings, wav] = await Promise.all([api('/api/catalog'), api('/api/track'), api('/api/ratings').catch(() => ({})), fetch(audio.canPlayType('audio/flac') ? '/track.flac' : '/track.wav').then((r) => r.blob())]);
+  audio.src = URL.createObjectURL(wav);
+  S.cat = cat.clips; S.byId = new Map(S.cat.map((c) => [c.id, c]));
+  S.times = tr.times; S.events = tr.events; S.wave = tr.wave; S.ratings = ratings || {};
+  S.when = makeWhen(S.times);
+  loadTitles(); initMse();
+  // the song's hits per step, measured from the audio with its kicks and stabs (edlcore hitMap, as beats/retime.mjs)
+  ({ hit: S.accent, kick: S.kick } = hitMap(S.times, S.events, tr.accent));
+  const worlds = [...new Set(S.cat.map((c) => c.world))].sort();
+  for (const w of worlds) $('world').append(new Option(w, w));
+  await listEdls();
+  const last = localStorage.getItem('promo.edl');
+  const names = [...$('edlsel').options].map((o) => o.value);
+  await openEdl(names.includes(last) ? last : names[0] || 'untitled');
+  renderLib();
+  status(`${S.cat.length} shots`);
+}
+// title cards fetched and decoded up front: one shows only whole (playback waits for it otherwise)
+const titleImgs = new Map();
+function loadTitles() {
+  api('/api/titles').then((list) => { for (const png of list) { const im = new Image(); im.src = '/titles/' + png; im.className = 'titlecard'; im.alt = '';
+    im.decode().then(() => { stage.insertBefore(im, $('veil')); titleImgs.set(png, im); }).catch(() => {}); } });
+}
+// the EDL's grade (ffmpeg eq: contrast, brightness, saturation, gamma) as an SVG filter over the viewer, as the master
+// applies it over the whole cut
+function applyGrade() {
+  const g = S.edl?.grade || '', m = /eq=([^,;\[]*)/.exec(g), o = {};
+  if (m) for (const kv of m[1].split(':')) { const [k, v] = kv.split('='); o[k] = +v; }
+  const c = o.contrast ?? 1, b = o.brightness ?? 0, gm = o.gamma ?? 1;
+  // eq: y = ((x - .5)·c + .5 + b)^(1/gamma): a gamma transfer's amplitude·x^exponent + offset after a linear one
+  for (const id of ['gr-r', 'gr-g', 'gr-b']) { const f = $(id); f.setAttribute('amplitude', 1); f.setAttribute('exponent', 1 / gm); f.setAttribute('offset', 0); }
+  $('gr-s').setAttribute('values', o.saturation ?? 1);
+  S.gradeCss = !g ? '' : `${c !== 1 || b ? `contrast(${c}) ` : ''}${b ? `brightness(${1 + b}) ` : ''}url(#gradef)`;
+  const known = !g || (m && Object.keys(o).every((k) => ['contrast', 'brightness', 'saturation', 'gamma'].includes(k)));
+  $('grade').disabled = !g; $('gradel').dataset.tip = !g ? 'this EDL has no grade' : known ? g : `${g} (shown approximately)`;
+}
+async function listEdls() {
+  const list = await api('/api/edls'); const s = $('edlsel'); s.innerHTML = '';
+  for (const e of list) s.append(new Option(e.name, e.name));
+}
+async function openEdl(name) {
+  const e = await api('/api/edl/' + name);
+  S.edl = e; S.name = name; S.undo = []; S.redo = []; S.dirty = false; S.sel = -1;
+  $('edlsel').value = name; localStorage.setItem('promo.edl', name);
+  applyGrade(); recompute(); renderTimeline(); renderInsp(); seek(0);
+}
+
+// ── the EDL ──
+function recompute() {
+  S.sp = spans(S.edl, S.times);
+  for (const c of S.sp) { const clip = S.byId.get(c.clip); c.clipInfo = clip || null; c.cin = clip ? inPoint(c, c.dur, clip) : 0; c.f0 = Math.round(c.t0 * FPS); c.pkey = segKey(c, c.clipInfo, S.edl.grade); }
+  S.used = new Map(); for (const c of S.edl.cuts) S.used.set(c.clip, (S.used.get(c.clip) || 0) + 1);
+  renderCoverage();
+}
+function edit(fn, what) {
+  S.undo.push(JSON.stringify(S.edl)); if (S.undo.length > 200) S.undo.shift(); S.redo = [];
+  fn(S.edl); S.dirty = true; recompute(); renderTimeline(); renderInsp(); markLibUsed(); showFrame(true);
+  status(what ? `${what} (unsaved)` : 'unsaved');
+}
+function undo() { if (!S.undo.length) return; S.redo.push(JSON.stringify(S.edl)); S.edl = JSON.parse(S.undo.pop()); S.dirty = true; recompute(); renderTimeline(); renderInsp(); markLibUsed(); showFrame(true); }
+function redo() { if (!S.redo.length) return; S.undo.push(JSON.stringify(S.edl)); S.edl = JSON.parse(S.redo.pop()); S.dirty = true; recompute(); renderTimeline(); renderInsp(); markLibUsed(); showFrame(true); }
+async function save(name = S.name) {
+  await api('/api/edl/' + name, { method: 'PUT', body: JSON.stringify(S.edl, null, 1) });
+  S.name = name; S.dirty = false; await listEdls(); $('edlsel').value = name; localStorage.setItem('promo.edl', name);
+  status(`saved ${name}`);
+}
+const cutAt = (t) => { for (let i = S.sp.length - 1; i >= 0; i--) if (S.sp[i].t0 <= t + 1e-6) return i; return 0; };
+function setClip(i, clip, extra = {}) {
+  edit((e) => {
+    const c = e.cuts[i], dur = S.sp[i]?.dur ?? 1;
+    c.clip = clip.id; c.in = autoIn(clip, dur);
+    delete c.vcam; delete c.dance;
+    if (clip.beat) { c.dance = 1; c.vcam = [{ t: 0, box: [480, 270, 960, 540] }]; } // (a dancer framed 2x)
+    Object.assign(c, extra);
+  }, `cut ${i + 1}: ${clip.name}`);
+}
+
+// ── library ──
+const CAT_ORDER = ['macro', 'deep', 'close', 'swim', 'pan', 'drift', 'dive', 'wide', 'trails', 'lapse', 'event', 'notes', 'auto', 'ui', 'outro'];
+let catFilter = new Set();
+function stars(id) { return S.ratings[id]?.stars || 0; }
+function rejected(id) { return !!S.ratings[id]?.reject; }
+function libFiltered() {
+  const q = $('q').value.trim().toLowerCase(), w = $('world').value, ms = +$('minstar').value, hide = $('hidebad').checked;
+  let slotKinds = null;
+  if ($('slotonly').checked && S.sel >= 0) slotKinds = slotFamily(slotOf(S.sel));
+  let out = S.cat.filter((c) => (!w || c.world === w) && stars(c.id) >= ms
+    && (!catFilter.size || catFilter.has(c.cat)) && (!hide || (!rejected(c.id) && !jerky(c)))
+    && (!slotKinds || slotKinds.includes(slotCat(c)) || slotKinds.includes(c.cat))
+    && (!q || `${c.id} ${c.cat} ${c.meta?.species || ''} ${c.worldInfo?.climate || ''} ${c.meta?.event || ''}`.toLowerCase().includes(q)));
+  const k = $('sort').value;
+  const key = { stars: (c) => -stars(c.id) * 10 - (c.qc?.motion || 0) / 100, motion: (c) => -(c.qc?.motion || 0), sat: (c) => -(c.qc?.sat || 0), luma: (c) => -(c.qc?.luma || 0), dur: (c) => -c.dur }[k];
+  if (key) out.sort((a, b) => key(a) - key(b)); else out.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
+  return out;
+}
+function renderCats() {
+  const counts = {};
+  for (const c of S.cat) counts[c.cat] = (counts[c.cat] || 0) + 1;
+  const box = $('cats'); box.innerHTML = '';
+  const all = el('button', catFilter.size ? '' : 'on', 'all'); all.onclick = () => { catFilter.clear(); renderLib(); }; box.append(all);
+  for (const k of [...CAT_ORDER, ...Object.keys(counts).filter((k) => !CAT_ORDER.includes(k))]) {
+    if (!counts[k]) continue;
+    const b = el('button', catFilter.has(k) ? 'on' : '', `${k}<small>${counts[k]}</small>`);
+    b.onclick = (e) => { if (!e.shiftKey && !e.ctrlKey) { const only = catFilter.size === 1 && catFilter.has(k); catFilter.clear(); if (!only) catFilter.add(k); } else catFilter.has(k) ? catFilter.delete(k) : catFilter.add(k); renderLib(); };
+    box.append(b);
+  }
+}
+function starHtml(id) { const n = stars(id); return [1, 2, 3, 4, 5].map((k) => `<i data-s="${k}" class="${k <= n ? 'f' : ''}">★</i>`).join(''); }
+function cardFor(c) {
+  const d = el('div', 'card'); d.draggable = true; d.dataset.id = c.id;
+  const m = c.meta || {};
+  const z = Array.isArray(m.zoom) ? m.zoom.join('→') : m.zoom ?? '';
+  const info = [z && `z${z}`, m.speed && m.speed !== 1 ? `×${m.speed}` : '', m.trails ? 'trails' : '', m.event ? `${m.event} ${m.stage || ''}` : '', m.bpm ? `${m.bpm}bpm` : ''].filter(Boolean).join(' · ');
+  // the poster only as it scrolls into view, the strip on the first hover: a grid of hundreds never floods the link the
+  // viewer's shots come over
+  d.innerHTML = `<div class="thumb"><img class="poster" loading="lazy" fetchpriority="low" alt="" src="${TH(c)}"><div class="scrub"></div>
+    <button class="use">→ cut ${S.sel + 1}</button><span class="badge">${c.cat}</span>${jerky(c) ? '<span class="bad">jerky</span>' : ''}</div>
+    <div class="meta"><b title="${c.id}">${c.world}/${c.name}</b><span class="stars">${starHtml(c.id)}</span></div>
+    <div class="meta" style="padding-top:0"><span>${c.dur.toFixed(1)}s ${info}</span><span title="motion · colour · brightness">m${(c.qc?.motion ?? 0).toFixed(1)} c${(c.qc?.sat ?? 0).toFixed(0)}</span></div>`;
+  const th = d.querySelector('.thumb'), sc = d.querySelector('.scrub');
+  th.addEventListener('mouseenter', () => { if (!sc.style.backgroundImage) sc.style.backgroundImage = `url('${L(c, 'strip')}')`; });
+  th.addEventListener('mousemove', (e) => { const r = th.getBoundingClientRect(), k = Math.min(7, Math.floor((e.clientX - r.left) / r.width * 8)); sc.style.backgroundPosition = `${(k / 7) * 100}% 0`; });
+  d.querySelector('.stars').addEventListener('click', (e) => { const s = +e.target.dataset.s; if (s) { rate(c.id, stars(c.id) === s ? 0 : s); e.stopPropagation(); } });
+  d.querySelector('.use').addEventListener('click', (e) => { e.stopPropagation(); if (S.sel >= 0) setClip(S.sel, c); });
+  d.addEventListener('click', () => sourceView(c));
+  d.addEventListener('dblclick', () => { if (S.sel >= 0) setClip(S.sel, c); });
+  d.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/clip', c.id); e.dataTransfer.effectAllowed = 'copy'; });
+  if (S.used?.has(c.id)) d.classList.add('used');
+  if (rejected(c.id)) d.classList.add('rej');
+  if (S.libSel === c.id) d.classList.add('sel');
+  return d;
+}
+let libList = [];
+function renderLib() {
+  renderCats();
+  libList = libFiltered();
+  const g = $('grid'); g.innerHTML = '';
+  const frag = document.createDocumentFragment();
+  for (const c of libList.slice(0, 600)) frag.append(cardFor(c));
+  g.append(frag);
+  if (libList.length > 600) g.append(el('div', 'hint', `${libList.length - 600} more: narrow the filter`));
+  if (!libList.length) g.append(el('div', 'hint', 'No shots match. The library grows as worlds finish rendering (reload to see new ones).'));
+}
+function markLibUsed() { for (const d of $('grid').children) if (d.dataset.id) d.classList.toggle('used', S.used.has(d.dataset.id)); }
+let rateTimer = null;
+function rate(id, n, reject) {
+  const r = S.ratings[id] || {}; if (n != null) r.stars = n; if (reject != null) r.reject = reject; S.ratings[id] = r;
+  clearTimeout(rateTimer); rateTimer = setTimeout(() => api('/api/ratings', { method: 'PUT', body: JSON.stringify(S.ratings) }).then(() => status(`rating saved (${Object.keys(S.ratings).length} shots rated)`)).catch((e) => status('ratings not saved: ' + e.message, true)), 400);
+  for (const d of $('grid').querySelectorAll(`.card[data-id="${CSS.escape(id)}"]`)) { d.querySelector('.stars').innerHTML = starHtml(id); d.classList.toggle('rej', rejected(id)); }
+}
+for (const id of ['q', 'world', 'minstar', 'sort', 'hidebad', 'slotonly']) $(id).addEventListener(id === 'q' ? 'input' : 'change', renderLib);
+
+// ── slots: the kind of shot a cut stands for, and which library kinds may fill it ──
+function slotOf(i) { const c = S.edl.cuts[i]; if (c.cat) return c.cat; const clip = S.byId.get(c.clip); return clip ? slotCat(clip) : 'close'; }
+function candidates(i, n = 40) {
+  const fam = slotFamily(slotOf(i));
+  const prevW = i > 0 ? S.byId.get(S.edl.cuts[i - 1].clip)?.world : null;
+  const score = (c) => stars(c.id) * 3 - fam.indexOf(slotCat(c)) * 1.5 - (S.used.has(c.id) ? 4 : 0) - (c.world === prevW ? 1 : 0)
+    + Math.min(2, (c.qc?.motion || 0) / 4) + Math.min(1.5, (c.qc?.sat || 0) / 15) - ((c.qc?.luma ?? 60) < 35 ? 2 : 0);
+  return S.cat.filter((c) => c.id !== S.edl.cuts[i].clip && !rejected(c.id) && !jerky(c) && (fam.includes(slotCat(c)) || fam.includes(c.cat)))
+    .map((c) => ({ c, s: score(c) })).sort((a, b) => b.s - a.s).slice(0, n).map((o) => o.c);
+}
+// ── timeline ──
+const X = (t) => t * S.pps;
+function renderTimeline() {
+  const total = S.times.total + 2, W = Math.ceil(X(total));
+  $('tlin').style.width = W + 'px';
+  drawRuler(W); drawWave(W);
+  const tr = $('track'); tr.innerHTML = ''; tr.style.width = W + 'px'; hov = -1;
+  S.sp.forEach((c, i) => {
+    const d = el('div', 'cut'); d.dataset.i = i;
+    d.style.left = X(c.t0) + 'px'; d.style.width = Math.max(1, X(c.dur)) + 'px';
+    const clip = c.clipInfo;
+    if (clip) d.style.backgroundImage = `url('${TH(clip)}')`;
+    const fx = [c.dance ? '♪' : '', c.vcam ? '⤢' : '', c.flash ? '✶' : '', c.fade ? (c.fade === 'in' ? '◐' : '◑') : ''].join('');
+    const w = X(c.dur), n = Math.round(stepsOf(c.at)), hitOk = onHit(S.accent, n), wide = w >= 18;
+    d.innerHTML = `${w >= 30 ? `<span class="cat">${slotOf(i)}</span>` : ''}${fx && w >= 44 ? `<span class="fx">${fx}</span>` : ''}${w >= 30 ? `<span class="lbl">${clip ? `${clip.world}/${clip.name}` : c.clip}</span>` : ''}${i > 0 ? `<i class="hitmark ${hitOk ? 'on' : 'off'}"></i>` : ''}${i > 0 && wide ? '<div class="edge"></div>' : ''}`;
+    if (w < 12) d.classList.add('thin');
+    if (i === S.sel) d.classList.add('sel');
+    d.draggable = !MOB;
+    d.addEventListener('dragstart', (e) => { if (e.target.classList.contains('edge')) { e.preventDefault(); return; } e.dataTransfer.setData('text/cut', String(i)); e.dataTransfer.effectAllowed = 'move'; });
+    d.addEventListener('dragover', (e) => { e.preventDefault(); d.classList.add('drop'); });
+    d.addEventListener('dragleave', () => d.classList.remove('drop'));
+    d.addEventListener('drop', (e) => {
+      e.preventDefault(); d.classList.remove('drop');
+      const id = e.dataTransfer.getData('text/clip'), from = e.dataTransfer.getData('text/cut');
+      if (id && S.byId.get(id)) { selectCut(i, false); setClip(i, S.byId.get(id)); }
+      else if (from !== '' && +from !== i) swapCuts(+from, i);
+    });
+    const edge = d.querySelector('.edge');
+    if (edge) edge.addEventListener('mousedown', (e) => dragEdge(e, i));
+    tr.append(d);
+  });
+  const tt = $('ttrack'); tt.innerHTML = ''; tt.style.width = W + 'px';
+  (S.edl.titles || []).forEach((t, k) => {
+    const a = S.when(t.from), b = S.when(t.to), d = el('div', 'tt', `title: ${t.png}`);
+    d.style.left = X(a) + 'px'; d.style.width = X(b - a) + 'px'; d.title = `${t.png} ${t.from}–${t.to}`;
+    tt.append(d);
+  });
+  $('tlinfo').textContent = `${S.sp.length} cuts · ${fmtT(S.sp.at(-1)?.t1 || 0)}`;
+  movePlayhead();
+}
+function drawRuler(W) {
+  const cv = $('ruler'), dpr = devicePixelRatio || 1; cv.width = W * dpr; cv.height = 40 * dpr; cv.style.width = W + 'px'; cv.style.height = '40px';
+  const g = cv.getContext('2d'); g.scale(dpr, dpr);
+  const css = getComputedStyle(document.documentElement);
+  for (const s of S.times.sections) {
+    const a = S.when(`${s.bar}:0`), b = S.when(`${s.bar + s.bars}:0`);
+    g.fillStyle = css.getPropertyValue('--sec-' + s.name).trim() || '#333'; g.fillRect(X(a), 0, X(b - a), 16);
+    g.fillStyle = '#e6eef0'; g.font = '600 11px system-ui'; g.fillText(`${s.name}  ${s.b0 === s.b1 ? s.b0 : s.b0 + '→' + s.b1} bpm`, X(a) + 4, 12);
+  }
+  const st = S.times.steps;
+  for (let i = 0; i < st.length; i++) {
+    const x = Math.round(X(st[i])) + 0.5, bar = i % 16 === 0, beat = i % 4 === 0;
+    if (!beat && S.pps < 40) continue;
+    g.strokeStyle = bar ? '#6f8187' : beat ? '#3b4a50' : '#273136'; g.beginPath(); g.moveTo(x, bar ? 16 : beat ? 26 : 32); g.lineTo(x, 40); g.stroke();
+    if (bar && (S.pps > 14 || (i / 16) % 2 === 0)) { g.fillStyle = '#93a3a8'; g.font = '10px system-ui'; g.fillText(String(i / 16), x + 3, 27); }
+  }
+}
+function drawWave(W) {
+  const cv = $('wave'), dpr = devicePixelRatio || 1, H = 44; cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  const g = cv.getContext('2d'); g.scale(dpr, dpr);
+  const pk = Uint8Array.from(atob(S.wave.peaks), (ch) => ch.charCodeAt(0)), rate = S.wave.rate;
+  g.fillStyle = '#2d5258';
+  for (let x = 0; x < W; x++) {
+    const a = Math.floor((x / S.pps) * rate), b = Math.max(a + 1, Math.floor(((x + 1) / S.pps) * rate)); let m = 0;
+    for (let k = a; k < b && k < pk.length; k++) if (pk[k] > m) m = pk[k];
+    const h = (m / 255) * (H - 10); g.fillRect(x, (H - 10) / 2 - h / 2, 1, Math.max(1, h));
+  }
+  // strong hits: ticks under the wave
+  const st = S.times.steps;
+  for (let i = 0; i < st.length; i++) { const a = S.accent[i], big = onHit(S.accent, i); if (!big && (S.pps < 40 || a < 0.3)) continue; g.fillStyle = S.kick[i] ? '#f1d27a' : big ? '#c9a95e' : '#5f6f74'; g.fillRect(Math.round(X(st[i])), H - 9, 2, Math.max(3, Math.min(9, Math.round(a * 9)))); }
+}
+function snapStep(n) {
+  const m = $('snap').value;
+  if (m === 'hit') { const i = Math.round(n); let best = i, bv = -1; for (let k = i - 3; k <= i + 3; k++) { if (k < 0 || k >= S.accent.length || !onHit(S.accent, k)) continue; const v = S.accent[k] - 0.15 * Math.abs(k - n); if (v > bv) { bv = v; best = k; } } return best; }
+  const q = +m; if (!q) { const t = S.when(atOf(n)); return stepAt(S.times, Math.round(t * FPS) / FPS); }
+  return Math.round(n / q) * q;
+}
+function dragEdge(e, i) {
+  e.preventDefault(); e.stopPropagation();
+  const lo = stepsOf(S.edl.cuts[i - 1].at) + 1, hi = i + 1 < S.edl.cuts.length ? stepsOf(S.edl.cuts[i + 1].at) - 1 : S.times.steps.length;
+  const r = $('tlin').getBoundingClientRect(); const before = JSON.stringify(S.edl); let moved = false;
+  const mv = (ev) => {
+    const t = (ev.clientX - r.left) / S.pps, n = Math.min(hi, Math.max(lo, snapStep(stepAt(S.times, t))));
+    const at = atOf(n); if (at !== S.edl.cuts[i].at) { S.edl.cuts[i].at = at; moved = true; recompute(); renderTimeline(); seek(S.sp[i].t0); }
+  };
+  const up = () => { removeEventListener('mousemove', mv); removeEventListener('mouseup', up); if (moved) { S.undo.push(before); S.redo = []; S.dirty = true; renderInsp(); status(`cut ${i + 1} moved to ${S.edl.cuts[i].at} (unsaved)`); } };
+  addEventListener('mousemove', mv); addEventListener('mouseup', up);
+}
+function swapCuts(a, b) {
+  edit((e) => {
+    const keep = ['at', 'cat', 'fade', 'fadeLen', 'flash', 'lock'];
+    const A = e.cuts[a], B = e.cuts[b], pa = {}, pb = {};
+    for (const k of Object.keys(A)) if (!keep.includes(k)) { pa[k] = A[k]; delete A[k]; }
+    for (const k of Object.keys(B)) if (!keep.includes(k)) { pb[k] = B[k]; delete B[k]; }
+    Object.assign(A, pb); Object.assign(B, pa);
+  }, `swapped cuts ${a + 1} and ${b + 1}`);
+}
+function splitAt(t) {
+  const n = snapStep(stepAt(S.times, t)), i = cutAt(t), at = atOf(n);
+  if (S.edl.cuts.some((c) => stepsOf(c.at) === n)) return status('a cut is already there', true);
+  edit((e) => { const c = JSON.parse(JSON.stringify(e.cuts[i])); c.at = at; const sp = S.sp[i]; c.in = +((c.in ?? 0.2) + (S.when(at) - sp.t0)).toFixed(3); delete c.fade; delete c.flash; e.cuts.splice(i + 1, 0, c); }, `split at ${at}`);
+  selectCut(i + 1);
+}
+function removeCut(i) {
+  if (i <= 0) return status('the first cut stays (replace its shot instead)', true);
+  edit((e) => e.cuts.splice(i, 1), `removed cut ${i + 1}`); selectCut(Math.min(i, S.edl.cuts.length - 1));
+}
+$('tlscroll').addEventListener('mousedown', (e) => {
+  if (e.target.closest('.cut') || e.target.closest('.tt')) return;
+  const r = $('tlin').getBoundingClientRect(), go = (ev) => seek(Math.max(0, (ev.clientX - r.left) / S.pps));
+  go(e); const up = () => { removeEventListener('mousemove', go); removeEventListener('mouseup', up); };
+  addEventListener('mousemove', go); addEventListener('mouseup', up);
+});
+// Picking on the track: the cut under the pointer, unless a narrower one's middle is nearer in its own terms, so a cut
+// a pixel or two wide is still picked by pointing near it (and shown highlighted before the click).
+function pickCut(px) {
+  let best = -1, bv = Infinity;
+  for (let i = 0; i < S.sp.length; i++) {
+    const x0 = X(S.sp[i].t0), x1 = X(S.sp[i].t1); if (px < x0 - 5 || px > x1 + 5) continue;
+    const v = Math.abs(px - (x0 + x1) / 2) / Math.max((x1 - x0) / 2, 4); if (v < bv) { bv = v; best = i; }
+  }
+  return best;
+}
+const tlX = (e) => e.clientX - $('tlin').getBoundingClientRect().left;
+let hov = -1;
+function setHover(i, e) {
+  if (i !== hov) { $('track').querySelector('.cut.hov')?.classList.remove('hov'); hov = i; if (i >= 0) $('track').children[i]?.classList.add('hov'); }
+  const tip = $('tlhover');
+  if (i < 0 || !e) { tip.style.display = 'none'; return; }
+  const c = S.sp[i], clip = c.clipInfo, n = Math.round(stepsOf(c.at));
+  tip.textContent = `${i + 1} · ${c.at} · ${c.dur.toFixed(2)} s · ${clip ? `${clip.world}/${clip.name}` : c.clip}${i > 0 ? (onHit(S.accent, n) ? (S.kick[n] ? ' · on a kick' : ' · on a hit') : ' · beside a bigger hit') : ''}`;
+  tip.style.display = 'block'; tip.style.top = ($('track').offsetTop - 22) + 'px';
+  tip.style.left = Math.max(0, Math.min(tlX(e) + 10, $('tlin').offsetWidth - tip.offsetWidth)) + 'px';
+}
+$('track').addEventListener('mousemove', (e) => { if (e.buttons) return; setHover(e.target.classList.contains('edge') ? -1 : pickCut(tlX(e)), e); });
+$('track').addEventListener('mouseleave', () => setHover(-1));
+$('track').addEventListener('mousedown', (e) => {
+  if (e.target.classList.contains('edge') || e.button !== 0) return;
+  const i = pickCut(tlX(e)); if (i >= 0) { selectCut(i, !S.playing); if (MOB) setTab('cut'); }
+});
+// pinch (a trackpad's pinch arrives as a wheel with ctrlKey) or ⌘/Ctrl+scroll: zoom about the pointer
+$('tlscroll').addEventListener('wheel', (e) => {
+  if (!(e.ctrlKey || e.metaKey)) return;
+  e.preventDefault();
+  const sc = $('tlscroll'), px = e.clientX - sc.getBoundingClientRect().left, t = (sc.scrollLeft + px) / S.pps;
+  S.pps = Math.max(6, Math.min(400, S.pps * Math.exp(-e.deltaY * (e.deltaMode ? 0.05 : 0.004)))); $('zoom').value = S.pps;
+  renderTimeline(); sc.scrollLeft = t * S.pps - px; setHover(-1);
+}, { passive: false });
+// the selected cut's start, one snap unit at a time (the Snap menu; between its neighbours)
+function moveCut(i, d) {
+  if (i <= 0) return status('the first cut starts the film', true);
+  const n = stepsOf(S.edl.cuts[i].at), lo = stepsOf(S.edl.cuts[i - 1].at) + 1, hi = i + 1 < S.edl.cuts.length ? stepsOf(S.edl.cuts[i + 1].at) - 1 : S.times.steps.length;
+  const m = $('snap').value;
+  let to;
+  if (m === 'hit') { to = n + d; while (to >= lo && to <= hi && !onHit(S.accent, to)) to += d; if (to < lo || to > hi) return status(`no hit ${d > 0 ? 'before the next' : 'after the previous'} cut`, true); }
+  else { const q = +m || 1; to = d > 0 ? Math.floor(n / q + 1e-9) * q + q : Math.ceil(n / q - 1e-9) * q - q; }
+  to = Math.max(lo, Math.min(hi, to)); if (to === n) return status('no room to move it further', true);
+  edit((e) => { e.cuts[i].at = atOf(to); }, `cut ${i + 1} moved to ${atOf(to)}`); selectCut(i);
+}
+$('zoom').addEventListener('input', () => { const c = S.t; S.pps = +$('zoom').value; renderTimeline(); $('tlscroll').scrollLeft = X(c) - $('tlscroll').clientWidth / 2; });
+function movePlayhead() {
+  $('playhead').style.left = X(S.t) + 'px';
+  const sc = $('tlscroll'), x = X(S.t);
+  if (S.playing && (x < sc.scrollLeft + 40 || x > sc.scrollLeft + sc.clientWidth - 80)) sc.scrollLeft = x - 80;
+}
+// the timeline's height, dragged
+$('split').addEventListener('mousedown', (e) => {
+  e.preventDefault(); const y0 = e.clientY, h0 = $('tl').getBoundingClientRect().height;
+  const mv = (ev) => { document.getElementById('app').style.setProperty('--tlh', Math.max(160, Math.min(innerHeight * 0.7, h0 - (ev.clientY - y0))) + 'px'); };
+  const up = () => { removeEventListener('mousemove', mv); removeEventListener('mouseup', up); };
+  addEventListener('mousemove', mv); addEventListener('mouseup', up);
+});
+
+// ── coverage: what the edit's slots ask for against what the library holds ──
+function renderCoverage() {
+  if (!S.cat.length) return;
+  const need = {}, have = {};
+  S.edl.cuts.forEach((c, i) => { if (c.clip.startsWith('edit/')) return; const k = slotOf(i); need[k] = (need[k] || 0) + 1; });
+  for (const c of S.cat) if (!rejected(c.id) && !jerky(c)) { const k = slotCat(c); have[k] = (have[k] || 0) + 1; }
+  const box = $('cov'); box.innerHTML = '<span>slots · shots that can fill them:</span>';
+  for (const k of Object.keys(need).sort((a, b) => need[b] - need[a])) {
+    const h = slotFamily(k).reduce((s, f) => s + (have[f] || 0), 0);
+    box.append(el('span', h < need[k] ? 'short' : '', `${k} <b>${need[k]}</b> · ${h}`));
+  }
+  const extra = Object.keys(have).filter((k) => !need[k]);
+  if (extra.length) box.append(el('span', '', `· in library, no slot yet: ${extra.map((k) => `${k} ${have[k]}`).join(', ')}`));
+}
+
+// ── inspector ──
+function selectCut(i, seekTo = true) {
+  S.sel = i; S.src = null; S.reframe = null;
+  for (const d of $('track').children) d.classList.toggle('sel', +d.dataset.i === i);
+  if (seekTo && S.sp[i]) seek(S.sp[i].t0 + 0.001);
+  // keep it in view (picked by ↑/↓ or moved off screen)
+  const sc = $('tlscroll'), c = S.sp[i];
+  if (c && (X(c.t1) < sc.scrollLeft + 20 || X(c.t0) > sc.scrollLeft + sc.clientWidth - 20)) sc.scrollLeft = X(c.t0) - sc.clientWidth / 3;
+  renderInsp();
+  if ($('slotonly').checked) renderLib();
+}
+// nothing selected: the inspector folds to a line and the viewer has the room
+function deselect() {
+  if (S.src && S.playing) pause();
+  S.sel = -1; S.src = null; S.libSel = null; S.reframe = null;
+  for (const d of $('track').querySelectorAll('.cut.sel')) d.classList.remove('sel');
+  for (const d of $('grid').querySelectorAll('.card.sel')) d.classList.remove('sel');
+  renderInsp(); showFrame(true);
+  if ($('slotonly').checked) renderLib();
+}
+const closeBtn = '<button class="x" id="i-close" title="Close (Esc)">×</button>';
+function renderInsp() {
+  const box = $('insp');
+  box.classList.toggle('empty', !S.src && !S.sp[S.sel]);
+  if (S.src) { renderSourceInsp(); $('i-close').onclick = deselect; return; }
+  const i = S.sel, c = S.sp[i];
+  if (!c) { box.innerHTML = '<div class="hint">Select a cut on the timeline (or a shot in the library) to inspect it; <kbd>Esc</kbd> closes it. Drag shots from the library onto cuts; drag a cut onto another to swap them. Press <kbd>?</kbd> for keys.</div>'; return; }
+  const clip = c.clipInfo, m = clip?.meta || {}, cut = S.edl.cuts[i];
+  const kinds = Object.keys(FAMILY);
+  box.innerHTML = `<h3>Cut ${i + 1} <small>${cut.at} · ${fmtT(c.t0)}–${fmtT(c.t1)} · ${c.dur.toFixed(2)} s · ${Math.round(c.dur * FPS)} frames</small>
+      <small>slot <select id="i-cat">${kinds.map((k) => `<option ${k === slotOf(i) ? 'selected' : ''}>${k}</option>`).join('')}</select></small>${closeBtn}</h3>
+    <div class="kv">${clip ? `<b>${clip.world}/${clip.name}</b> · ${clip.dur.toFixed(1)} s shot
+      ${m.zoom != null ? ` · zoom ${Array.isArray(m.zoom) ? m.zoom.join('→') : m.zoom}` : ''}${m.speed ? ` · ×${m.speed}` : ''}${m.trails ? ` · trails ${m.trails}` : ''}${m.event ? ` · ${m.event} (${m.stage})` : ''}${m.species ? ` · ${m.species}` : ''}
+      ${clip.worldInfo?.climate ? ` · ${clip.worldInfo.climate}` : ''} · QC ${jerky(clip) ? '<span style="color:var(--warn)">jerky</span>' : 'smooth'}, motion ${clip.qc?.motion}` : `<b>${cut.clip}</b> (not in the catalogue)`}</div>
+    ${clip ? `<div class="row"><label>in-point</label><span class="kv">set <b>${(cut.in ?? 0).toFixed(3)}</b> s → used <b>${c.cin.toFixed(3)}</b> s${cut.dance ? ' (dancer: first stroke on the cut)' : ''}</span>
+      <button data-n="-15">−¼s</button><button data-n="-1">−1f</button><button data-n="1">+1f</button><button data-n="15">+¼s</button></div>
+      <div id="instrip" style="background-image:url('${L(clip, 'strip')}')"><div id="inwin"></div></div>` : ''}
+    <div class="row"><label>cut</label><button id="i-prev" title="Start earlier, one snap unit (,)">◀ start</button><button id="i-next" title="Start later, one snap unit (.)">start ▶</button>
+      <button id="i-split" title="Split at the playhead (B)">split at playhead</button><button id="i-del" title="Remove (Delete)">remove</button>
+      <button id="i-n" title="The best other take for this slot (N)">next take</button></div>
+    <div class="row"><label>effects</label>
+      ${clip?.beat ? `<button id="i-dance" class="${cut.dance ? 'on' : ''}">♪ dance on the beat</button>` : ''}
+      <button id="i-flash" class="${cut.flash ? 'on' : ''}">✶ flash</button>
+      <select id="i-fade"><option value="">no fade</option><option value="in" ${cut.fade === 'in' ? 'selected' : ''}>fade in</option><option value="out" ${cut.fade === 'out' ? 'selected' : ''}>fade out</option></select>
+      <input type="number" id="i-fadelen" step="0.1" min="0.1" value="${cut.fadeLen ?? 1.5}" style="width:60px" title="fade length (s)">
+    </div>
+    <div class="row"><label>reframe</label>
+      <button data-z="0" class="${!cut.vcam ? 'on' : ''}">none</button><button data-z="1.25">1.25×</button><button data-z="1.5">1.5×</button><button data-z="2">2× centre</button>
+      <button id="i-rf" class="${S.reframe ? 'on' : ''}" title="Drag in the viewer to pan, scroll to zoom; S sets the start box, E the end box">edit in viewer…</button>
+      ${clip?.ui ? `<select id="i-panel"><option value="">push in on a panel…</option>${['#spec', '#spec-body', '#viewer', '.mv', '.mv-dial', '#lab', '#chart', '#lab-body', '#maps', '#card', '#bench', '#__ptr'].map((s) => `<option>${s}</option>`).join('')}</select>` : ''}
+      <span class="kv">${cut.vcam ? cut.vcam.map((k) => `${k.t}s:${Array.isArray(k.box) ? k.box.map((v) => Math.round(v)).join(',') : k.box}`).join(' → ') : ''}</span></div>
+    <div class="row"><label>other takes</label><span class="hint">best for a <b>${slotOf(i)}</b> slot (click to use)</span></div>
+    <div id="alts"></div>`;
+  box.querySelector('#i-close').onclick = deselect;
+  box.querySelector('#i-prev').onclick = () => moveCut(i, -1); box.querySelector('#i-next').onclick = () => moveCut(i, 1);
+  box.querySelector('#i-split').onclick = () => splitAt(S.t); box.querySelector('#i-del').onclick = () => removeCut(i);
+  box.querySelector('#i-n').onclick = () => { const a = candidates(i, 1)[0]; if (a) setClip(i, a); };
+  box.querySelectorAll('[data-n]').forEach((b) => (b.onclick = () => nudgeIn(+b.dataset.n)));
+  box.querySelector('#i-cat').onchange = (e) => edit((d) => { d.cuts[i].cat = e.target.value; }, `slot ${e.target.value}`);
+  const dz = box.querySelector('#i-dance'); if (dz) dz.onclick = () => edit((d) => { d.cuts[i].dance ? delete d.cuts[i].dance : (d.cuts[i].dance = 1); });
+  box.querySelector('#i-flash').onclick = () => edit((d) => { d.cuts[i].flash ? delete d.cuts[i].flash : (d.cuts[i].flash = 1); });
+  box.querySelector('#i-fade').onchange = (e) => edit((d) => { if (e.target.value) d.cuts[i].fade = e.target.value; else delete d.cuts[i].fade; });
+  box.querySelector('#i-fadelen').onchange = (e) => edit((d) => { d.cuts[i].fadeLen = +e.target.value; });
+  box.querySelectorAll('[data-z]').forEach((b) => (b.onclick = () => {
+    const z = +b.dataset.z, vw = clip?.vw || 1920, vh = clip?.vh || 1080;
+    edit((d) => { if (!z) delete d.cuts[i].vcam; else d.cuts[i].vcam = [{ t: 0, box: [vw * (1 - 1 / z) / 2, vh * (1 - 1 / z) / 2, vw / z, vh / z].map((v) => +v.toFixed(1)), pad: 0 }]; });
+  }));
+  box.querySelector('#i-rf').onclick = () => { S.reframe = S.reframe ? null : startReframe(i); renderInsp(); showFrame(true); };
+  const pn = box.querySelector('#i-panel'); if (pn) pn.onchange = (e) => { const s = e.target.value; if (s) edit((d) => { d.cuts[i].vcam = [{ t: 0, box: 'full' }, { t: Math.min(0.6, c.dur / 3), box: s, pad: 0.06, ease: Math.min(0.6, c.dur / 3) }]; }, `push in on ${s}`); };
+  if (clip) {
+    const strip = box.querySelector('#instrip'), win = box.querySelector('#inwin'), len = clip.frames / FPS;
+    win.style.left = (c.cin / len) * 100 + '%'; win.style.width = Math.max(0.5, (c.dur / len) * 100) + '%';
+    strip.onpointerdown = (e) => {
+      e.preventDefault(); const r = strip.getBoundingClientRect(), before = JSON.stringify(S.edl);
+      const mv = (ev) => { const x = (ev.clientX - r.left) / r.width * len - c.dur / 2; S.edl.cuts[i].in = +Math.max(0.2, Math.min(len - c.dur - 0.05, x)).toFixed(3); recompute(); const cc = S.sp[i]; win.style.left = (cc.cin / len) * 100 + '%'; seek(cc.t0 + 0.001); };
+      mv(e); const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); S.undo.push(before); S.redo = []; S.dirty = true; renderInsp(); status('in-point moved (unsaved)'); };
+      addEventListener('pointermove', mv); addEventListener('pointerup', up);
+    };
+  }
+  const alts = box.querySelector('#alts');
+  for (const a of candidates(i, 24)) {
+    const d = el('div', 'alt', `<div class="thumb" style="background:#000 url('${TH(a)}') center/cover"></div><div class="n">${'★'.repeat(stars(a.id))}${a.world}/${a.name}</div>`);
+    d.title = a.id; d.onclick = () => setClip(i, a);
+    d.onmouseenter = () => { d.querySelector('.thumb').style.backgroundImage = `url('${L(a, 'strip')}')`; d.querySelector('.thumb').style.backgroundSize = '800% 100%'; };
+    d.onmouseleave = () => { d.querySelector('.thumb').style.backgroundImage = `url('${TH(a)}')`; d.querySelector('.thumb').style.backgroundSize = 'cover'; };
+    alts.append(d);
+  }
+}
+function nudgeIn(frames) {
+  const i = S.sel; if (i < 0) return;
+  edit((d) => { d.cuts[i].in = +Math.max(0.2, (d.cuts[i].in ?? 0.2) + frames / FPS).toFixed(4); }, 'in-point');
+  seek(S.sp[i].t0 + 0.001);
+}
+// a library shot shown alone in the viewer (source monitor), with ways to put it in the edit
+function sourceView(c) {
+  S.src = { clip: c, t: 0 }; S.libSel = c.id; pause();
+  for (const d of $('grid').children) d.classList.toggle('sel', d.dataset.id === c.id);
+  renderInsp(); showFrame(true);
+}
+function renderSourceInsp() {
+  const c = S.src.clip, m = c.meta || {};
+  $('insp').innerHTML = `<h3>${c.world}/${c.name} <small>${c.cat} · ${c.dur.toFixed(2)} s</small>${closeBtn}</h3>
+    <div class="kv">${Object.entries(m).filter(([k]) => k !== 'cat').map(([k, v]) => `${k} <b>${Array.isArray(v) ? v.join('→') : v}</b>`).join(' · ')}</div>
+    <div class="kv">world: ${c.worldInfo?.climate || ''} ${c.worldInfo?.era ? '· ' + c.worldInfo.era : ''} ${c.worldInfo?.species ? `· ${c.worldInfo.species} species` : ''} · ${c.count ? (c.count / 1e6).toFixed(2) + 'M particles' : ''} · sim ${c.sim0?.toFixed(0)} s · build ${c.worldInfo?.build || '?'}</div>
+    <div class="kv">QC: ${jerky(c) ? `<b style="color:var(--warn)">jerky</b>${c.qc?.cleanTo ? ` (clean for the first ${c.qc.cleanTo.toFixed(1)} s)` : ''}` : 'smooth'} · distinct frames ${(c.qc?.distinctShare * 100 || 0).toFixed(0)}% · motion ${c.qc?.motion} · colour ${c.qc?.sat} · brightness ${c.qc?.luma}</div>
+    <div class="row"><label>rate</label><span class="stars" id="s-stars" style="font-size:16px">${starHtml(c.id)}</span><button id="s-rej" class="${rejected(c.id) ? 'on' : ''}">✕ reject</button></div>
+    <div class="row"><button id="s-play">▶ play shot</button>
+      <button id="s-rep" ${S.sel < 0 ? 'disabled' : ''}>Replace cut ${S.sel + 1} with this</button>
+      <button id="s-back">Back to the program</button></div>
+    <div id="instrip" style="background-image:url('${L(c, 'strip')}')"><div id="inwin" style="width:1px"></div></div>`;
+  $('s-stars').onclick = (e) => { const s = +e.target.dataset.s; if (s) { rate(c.id, stars(c.id) === s ? 0 : s); renderSourceInsp(); } };
+  $('s-rej').onclick = () => { rate(c.id, null, !rejected(c.id)); renderSourceInsp(); };
+  $('s-rep').onclick = () => { const id = c.id; S.src = null; setClip(S.sel, S.byId.get(id)); };
+  $('s-back').onclick = () => { S.src = null; renderInsp(); showFrame(true); };
+  $('s-play').onclick = () => togglePlay();
+  $('i-close').onclick = deselect;
+  const strip = $('instrip');
+  strip.onpointerdown = (e) => { e.preventDefault(); const r = strip.getBoundingClientRect(); const mv = (ev) => { S.src.t = Math.max(0, Math.min(c.dur - 0.02, (ev.clientX - r.left) / r.width * c.dur)); showFrame(true); }; mv(e); const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); }; addEventListener('pointermove', mv); addEventListener('pointerup', up); };
+}
+
+// ── reframing in the viewer ──
+function startReframe(i) {
+  const c = S.sp[i], clip = c.clipInfo, vw = clip?.vw || 1920, vh = clip?.vh || 1080;
+  const plan = S.edl.cuts[i].vcam;
+  const b0 = boxAt(plan, 0, 0, vw, vh, rectAt(clip), 4), b1 = boxAt(plan, c.dur, 0, vw, vh, rectAt(clip), 4);
+  return { i, vw, vh, cur: [...b0], start: b0, end: b1, which: 'start' };
+}
+const stage = $('stage');
+stage.addEventListener('wheel', (e) => {
+  if (!S.reframe) return; e.preventDefault();
+  const R = S.reframe, [x, y, w, h] = R.cur, k = Math.exp(e.deltaY * 0.0015), w2 = Math.min(R.vw, Math.max(R.vw / 4, w * k)), h2 = w2 * R.vh / R.vw;
+  const r = stage.getBoundingClientRect(), fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
+  R.cur = clampBox([x + (w - w2) * fx, y + (h - h2) * fy, w2, h2], R); showFrame(true);
+}, { passive: false });
+stage.addEventListener('pointerdown', (e) => {
+  if (!S.reframe) return; e.preventDefault();
+  const R = S.reframe, r = stage.getBoundingClientRect(), x0 = e.clientX, y0 = e.clientY, b = [...R.cur];
+  const mv = (ev) => { const s = b[2] / r.width; R.cur = clampBox([b[0] - (ev.clientX - x0) * s, b[1] - (ev.clientY - y0) * s, b[2], b[3]], R); showFrame(true); };
+  const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); };
+  addEventListener('pointermove', mv); addEventListener('pointerup', up);
+});
+const clampBox = ([x, y, w, h], R) => [Math.min(Math.max(0, x), R.vw - w), Math.min(Math.max(0, y), R.vh - h), w, h];
+function commitReframe(which) {
+  const R = S.reframe; if (!R) return; R[which] = [...R.cur];
+  const dur = S.sp[R.i].dur, same = R.start.every((v, k) => Math.abs(v - R.end[k]) < 0.5);
+  const r1 = (b) => b.map((v) => +v.toFixed(1));
+  edit((d) => { d.cuts[R.i].vcam = same ? [{ t: 0, box: r1(R.start), pad: 0 }] : [{ t: 0, box: r1(R.start), pad: 0 }, { t: +dur.toFixed(3), box: r1(R.end), pad: 0, ease: +dur.toFixed(3) }]; d.cuts[R.i].maxzoom = 4; }, `reframe ${which} set`);
+  S.reframe = R; renderInsp();
+}
+// tracked interface rects of a UI shot (for panel push-ins), fetched once
+const rectCache = new Map();
+function rectAt(clip) {
+  if (!clip?.ui) return null;
+  if (!rectCache.has(clip.id)) { rectCache.set(clip.id, null); api('/api/rects?id=' + encodeURIComponent(clip.id)).then((r) => { rectCache.set(clip.id, r); showFrame(true); }); }
+  const r = rectCache.get(clip.id);
+  return (sel, f) => r?.rects?.[Math.min(r.rects.length - 1, Math.max(0, f))]?.[sel] || null;
+}
+
+// ── playback: the track is the clock. A pool of video elements: the current cut's shown, the cuts of the next few
+// seconds loaded and paused at their in-points. The viewer shows only the frame the master has there: while a shot
+// isn't ready (loading, seeking, a stalled stream) or a title isn't decoded, the track waits for it (S.waiting,
+// "loading…" over the viewer) and starts again in step, rather than playing on over a black, frozen or late picture ──
+const AHEAD = 6;
+// the render's frames: ffmpeg's -ss at an in-point between frames starts on the next whole one, and a paused element is
+// put mid-frame (Chrome shows the nearest frame to currentTime; on a frame's edge either could show)
+const frameIn = (cin) => Math.ceil(cin * FPS - 1e-6) / FPS, midFrame = (t) => (Math.floor(t * FPS + 1e-6) + 0.5) / FPS; // s of upcoming cuts kept loaded (at least the next two, at most one fewer than the pool)
+function seek(t) { S.t = Math.max(0, Math.min(S.times.total, t)); if (S.playing && !S.src) wait(); showFrame(true); movePlayhead(); }
+function wait() { if (!S.waiting) S.waitT0 = performance.now(); S.waiting = true; audio.pause(); }
+function play() {
+  S.playing = true; S.playT0 = performance.now(); $('play').textContent = '❚❚';
+  if (S.src) { S.srcReady = false; S.srcStart = performance.now() - S.src.t * 1000; } else { S.skipWait = -1; wait(); } // the track starts once the picture is ready
+  tick();
+}
+function pause() { S.playing = false; S.waiting = false; audio.pause(); $('play').textContent = '▶'; $('buf').classList.remove('on'); for (const v of [...vids, prog]) { v.pause(); v.playbackRate = 1; } showFrame(true); }
+function togglePlay() { S.playing ? pause() : play(); }
+function tick() {
+  if (!S.playing) return;
+  if (S.src) {
+    // a library shot alone: its own clock, held while the shot loads
+    if (S.srcReady) { S.src.t = (performance.now() - S.srcStart) / 1000; if (S.src.t >= S.src.clip.dur - 0.05) { S.src.t = 0; S.srcStart = performance.now(); } }
+    S.srcReady = showFrame(false);
+    if (!S.srcReady) S.srcStart = performance.now() - S.src.t * 1000;
+    $('buf').classList.toggle('on', !S.srcReady);
+    requestAnimationFrame(tick); return;
+  }
+  if (!S.waiting) S.t = audio.currentTime;
+  if (S.loop && S.t >= S.loop[1]) { S.t = S.loop[0]; wait(); }
+  if (audio.ended || S.t >= S.times.total - 0.02) { pause(); return; }
+  const ready = showFrame(false), i = cutAt(S.t);
+  // the rendered program resumes from a wait only with a few seconds in hand (or all it can have for now), so a slow link
+  // makes one pause and a run of smooth playing rather than a stutter at every cut
+  const shown = prog.classList.contains('show'), short = shown && S.waiting ? progShort(S.t) : 0, enough = !shown || short <= 0 || !pumping;
+  if (!S.waiting && !ready && i !== S.skipWait) { wait(); S.waitWhy = S.why; S.waitHidden = document.hidden; }
+  else if (S.waiting && ((ready && enough) || performance.now() - S.waitT0 > (shown ? 30000 : 8000))) {
+    // ready (or given up on after 8 s: a shot that never loads plays on as it is, and says so)
+    if (!ready) { S.skipWait = i; status(`cut ${i + 1}: its shot would not load`, true); }
+    const ms = performance.now() - S.waitT0;
+    // (every wait long enough to show its label, with why it began and whether the page was hidden: a hidden tab's
+    // video stops presenting frames while the track plays on, so it falls behind)
+    if (ms > 120 && S.waitT0 > S.playT0 + 200) clientLog({ ev: ready ? 'wait' : 'gave-up', why: S.waitWhy, hidden: S.waitHidden || document.hidden, at: +S.t.toFixed(2), cut: i + 1, ms: Math.round(ms), rendered: shown, ahead: +progAhead(S.t).toFixed(2), rate: +P.rate.toFixed(2), fetched: P.mem.size });
+    S.waiting = false; audio.currentTime = S.t; audio.play().catch(() => {});
+  }
+  $('buf').classList.toggle('on', S.waiting && performance.now() - S.waitT0 > 120);
+  if (S.waiting) $('buf').textContent = short > 1.5 ? `loading… ${Math.ceil(short)} s` : 'loading…';
+  movePlayhead();
+  requestAnimationFrame(tick);
+}
+// which element holds which (src, cut): an element is reused only when it holds nothing protected (the current cut's or
+// a preloaded upcoming one's), the one used longest ago first
+function ensure(key, src, startAt, protect) {
+  let k = vstate.findIndex((v) => v.key === key);
+  if (k < 0) {
+    for (let j = 0; j < vids.length; j++) if (!protect.has(j) && (k < 0 || vstate[j].used < vstate[k].used)) k = j;
+    vstate[k].key = key; const v = vids[k];
+    if (v.dataset.src !== src) { v.dataset.src = src; v.src = src; }
+    v.pause(); v.playbackRate = 1; v.preload = 'metadata'; // a waiting element loads its first frame, not the whole file
+    try { v.currentTime = startAt; } catch {}
+  }
+  vstate[k].used = performance.now();
+  return k;
+}
+// shows the frame at the playhead (or the source shot's); true when what shows is that frame, whole
+function showFrame(force) {
+  S.why = "";
+  let src, vt, clip, cut, local, dur, i = -1;
+  if (S.src) { clip = S.src.clip; src = L(clip, 'proxy'); vt = S.src.t; cut = null; local = vt; dur = clip.dur; }
+  else {
+    i = cutAt(S.t); const c = S.sp[i]; if (!c) return true;
+    cut = c; clip = c.clipInfo; local = S.t - c.t0; dur = c.dur; vt = frameIn(c.cin) + local;
+    src = clip ? L(clip, 'proxy') : null;
+  }
+  if (cut && useRendered() && progPlanned(cut) && !(S.reframe && S.reframe.i === cut.i)) return showProg(cut, local, dur, clip, force, i);
+  if (!prog.paused) prog.pause();
+  prog.classList.remove('show');
+  const protect = new Set();
+  let k = -1;
+  if (src) { k = ensure(S.src ? `src|${clip.id}` : `${cut.i}|${cut.clip}|${cut.cin}`, src, vt, protect); protect.add(k); }
+  if (!S.src) preloadAhead(i, k, protect);
+  const titleOk = updateOverlay(cut, local, dur, clip);
+  if (!src) { vids.forEach((v) => v.classList.remove('show')); stillPoll(titleOk); return titleOk; }
+  const v = vids[k], live = S.playing && !S.waiting;
+  if (S.playing) v.preload = 'auto'; // the shown one buffers ahead while it plays
+  vids.forEach((o, j) => { o.classList.toggle('show', j === k); if (j !== k && !o.paused) { o.pause(); o.playbackRate = 1; } });
+  let ok;
+  if (live) {
+    if (v.paused) v.play().catch(() => {});
+    const d = v.currentTime - vt;
+    // far off (a stall, a seek): back to the frame, the track waits; near: the video's rate eases it back into step
+    if (Math.abs(d) > 0.1) { if (!v.seeking) v.currentTime = vt; ok = false; S.why = `live drift ${d.toFixed(2)}`; }
+    else { v.playbackRate = Math.min(1.15, Math.max(0.85, 1 - d * 6)); ok = !v.seeking && v.readyState >= 3; S.why = v.seeking ? 'live seeking' : `live ready ${v.readyState}`; }
+  } else {
+    if (!v.paused) v.pause();
+    v.playbackRate = 1;
+    const mt = midFrame(vt);
+    if (force || Math.abs(v.currentTime - mt) > 1 / 240) v.currentTime = mt;
+    ok = !v.seeking && v.readyState >= (S.playing ? 3 : 2) && Math.abs(v.currentTime - vt) < 1 / 90;
+  }
+  // the reframe (the vcam plan, or the box being edited)
+  const vw = clip.vw || 1920, vh = clip.vh || 1080;
+  let box = [0, 0, vw, vh];
+  if (S.reframe && cut && S.reframe.i === cut.i) box = S.reframe.cur;
+  else if (cut?.vcam) { const p = pathOf(cut, clip, vw, vh); box = p[Math.min(p.length - 1, Math.max(0, Math.floor(local * FPS + 1e-6)))]; }
+  const s = vw / box[2], W = stage.clientWidth, H = stage.clientHeight;
+  v.style.transform = `translate(${-box[0] / vw * W * s}px, ${-box[1] / vh * H * s}px) scale(${s})`;
+  v.style.filter = $('grade').checked && !S.src ? S.gradeCss : '';
+  if (ok && !titleOk) S.why = 'title';
+  ok = ok && titleOk;
+  stillPoll(ok);
+  return ok;
+}
+// the upcoming cuts loaded and waiting at their in-points, one after another in the order they come (each only once the
+// one before it has its frame), so a slow link spends itself on the shot needed soonest; cuts the rendered preview has
+// are skipped
+function preloadAhead(i, k, protect) {
+  const loaded = (j) => !vids[j].seeking && vids[j].readyState >= 2, rendered = useRendered();
+  for (let j = i + 1, n = 0, prev = k; j < S.sp.length && n < vids.length - 1 && (n < 2 || S.sp[j].t0 < S.t + AHEAD); j++) {
+    const nx = S.sp[j]; if (!nx.clipInfo || (rendered && progPlanned(nx))) continue;
+    if (prev >= 0 && !loaded(prev)) break;
+    prev = ensure(`${j}|${nx.clip}|${nx.cin}`, L(nx.clipInfo, 'proxy'), midFrame(frameIn(nx.cin)), protect); protect.add(prev); n++;
+  }
+}
+// the rendered program at the playhead: one element on the timeline's own clock (frame f of the program is f/60 s), the
+// grade, fades and flash already in it; titles stay the overlay's
+function showProg(cut, local, dur, clip, force, i) {
+  const protect = new Set(); preloadAhead(i, -1, protect);
+  vids.forEach((o, j) => {
+    o.classList.remove('show'); if (!o.paused) { o.pause(); o.playbackRate = 1; }
+    // a live shot no longer needed stops downloading (over a slow link it would starve the program)
+    if (!protect.has(j) && o.dataset.src) { o.removeAttribute('src'); o.load(); o.dataset.src = ''; vstate[j].key = null; }
+  });
+  prog.classList.add('show');
+  const titleOk = updateOverlay(cut, local, dur, clip, true), covers = progCovers(cut, S.t);
+  let ok;
+  if (S.playing && !S.waiting) {
+    if (prog.paused) prog.play().catch(() => {});
+    const d = prog.currentTime - S.t;
+    if (Math.abs(d) > 0.1) { if (!prog.seeking) prog.currentTime = S.t; ok = false; S.why = `drift ${d.toFixed(2)}`; }
+    else { prog.playbackRate = Math.min(1.15, Math.max(0.85, 1 - d * 6)); ok = covers && !prog.seeking && prog.readyState >= 3; S.why = !covers ? 'uncovered' : prog.seeking ? 'seeking' : `ready ${prog.readyState}`; }
+  } else {
+    if (!prog.paused) prog.pause();
+    prog.playbackRate = 1;
+    const mt = midFrame(S.t);
+    if (force || Math.abs(prog.currentTime - mt) > 1 / 240) prog.currentTime = mt;
+    ok = covers && !prog.seeking && prog.readyState >= (S.playing ? 3 : 2) && Math.abs(prog.currentTime - S.t) < 1 / 90;
+  }
+  if (!covers) pumpSegs();
+  if (ok && !titleOk) S.why = 'title';
+  ok = ok && titleOk;
+  stillPoll(ok);
+  return ok;
+}
+
+// ── the rendered preview (editor/preview.mjs) ──
+// The server renders each cut once, as the master frames it (in-point, reframe from the 4K master, zoom, fades, flash,
+// grade) at 540p, named by its contents; the viewer appends the made ones at their frames to one video element (Media
+// Source Extensions) and plays it straight through. Segments are kept here, so after an edit only the changed cuts are
+// fetched (what matters across the tailnet). A cut not made yet plays live from its shot, as before.
+const prog = $('prog'), MS = window.MediaSource || window.ManagedMediaSource; // (Managed: iPhone Safari only)
+const P = { bad: new Set(), man: null, sb: null, at: new Map(), have: new Map(), mem: new Map(), memBytes: 0, fetching: new Map(), seq: 0, applied: 0, sent: '', pend: '', pendAt: 0, rate: 0 };
+const AHEAD_P = 20, BEHIND_P = 10, MEM_CAP = 400e6;
+const useRendered = () => !!P.sb && $('rendered').checked;
+// the server has this cut made as it now stands (the key the request was sent with is the cut's current one)
+const progPlanned = (c) => { const e = P.at.get(c.f0); return !!e && e.ready && !P.bad.has(e.h) && e.key === c.pkey && e.n === Math.round(c.t1 * FPS) - c.f0; };
+const progAhead = (t) => { const b = prog.buffered; for (let k = 0; k < b.length; k++) if (t >= b.start(k) - 1e-3 && t < b.end(k)) return b.end(k) - t; return 0; };
+const inBuf = (t) => { const b = prog.buffered; for (let k = 0; k < b.length; k++) if (t >= b.start(k) - 1e-3 && t < b.end(k) - 1e-3) return true; return false; };
+// how long the rendered program must still wait before it can play on without stopping again: at least 2.5 s in
+// hand, and, with the link's measured rate (a quarter of it held back), every segment of the next 20 s in before the
+// playhead reaches it. So a slow link costs one wait and then smooth playing, rather than a stop at every heavy cut.
+function progShort(t) {
+  const ahead = progAhead(t), from = t + ahead;
+  let short = Math.max(0, Math.min(2.5, S.times.total - t - 0.1) - ahead);
+  if (!P.rate || !P.man) return short;
+  const Bps = P.rate * 0.75 * 125000; let cum = 0;
+  for (const s of P.man.segs) {
+    const a = s[0] / FPS, b = (s[0] + s[1]) / FPS;
+    if (b <= from) continue; if (a > t + 20) break;
+    if (!s[3] || P.mem.has(s[2])) continue;
+    const start = Math.max(a, from); cum += (s[4] || 0) * (b - start) / (b - a);
+    short = Math.max(short, cum / Bps - (start - t));
+  }
+  return short;
+}
+// what the viewer met (waits, the link's rate, the browser) to the server's log (editor-client.log), at most once a second
+const SESSION = Math.random().toString(36).slice(2, 8); let logAt = 0;
+function clientLog(o) {
+  const now = performance.now(); if (now - logAt < 1000) return; logAt = now;
+  fetch('/api/clientlog', { method: 'POST', body: JSON.stringify({ ...o, edl: S.name, sess: SESSION, ua: navigator.userAgent }) }).catch(() => {});
+}
+const progCovers = (c, t) => progPlanned(c) && P.have.get(c.f0)?.h === P.at.get(c.f0).h && inBuf(t);
+function initMse() {
+  if (!MS || !MS.isTypeSupported('video/mp4; codecs="avc1.640020"')) { $('rendered').checked = false; $('rendered').disabled = true; $('pv').textContent = 'no MSE: live only'; return; }
+  const ms = new MS(); prog.disableRemotePlayback = true;
+  ms.addEventListener('sourceopen', () => { P.sb = ms.addSourceBuffer('video/mp4; codecs="avc1.640020"'); P.sb.mode = 'segments'; ms.duration = S.times.total; syncPreview(); }, { once: true });
+  prog.src = URL.createObjectURL(ms);
+}
+const sbDo = (fn) => new Promise((ok, bad) => {
+  const sb = P.sb, off = () => { sb.removeEventListener('updateend', done); sb.removeEventListener('error', fail); }, done = () => { off(); ok(); }, fail = () => { off(); bad(new Error('the browser refused a segment')); };
+  sb.addEventListener('updateend', done); sb.addEventListener('error', fail);
+  try { fn(sb); } catch (e) { off(); bad(e); }
+});
+// a segment's bytes: kept here (newest used last), else fetched (the browser's cache keeps it too: its name is its contents)
+function segBytes(h) {
+  if (P.mem.has(h)) { const b = P.mem.get(h); P.mem.delete(h); P.mem.set(h, b); return Promise.resolve(b); }
+  if (!P.fetching.has(h)) P.fetching.set(h, (async () => {
+    const t0 = performance.now(), r = await fetch(`/lib/_preview/seg/${h}.mp4?v=1`, { priority: 'high' });
+    if (!r.ok) throw new Error(`segment ${r.status}`);
+    const b = await r.arrayBuffer(), ms = performance.now() - t0;
+    if (ms > 40 && b.byteLength > 2e5) { const mbps = b.byteLength * 8 / ms / 1000; P.rate = P.rate ? P.rate * 0.7 + mbps * 0.3 : mbps; }
+    P.mem.set(h, b); P.memBytes += b.byteLength;
+    while (P.memBytes > MEM_CAP) { const [k, v] = P.mem.entries().next().value; P.mem.delete(k); P.memBytes -= v.byteLength; }
+    return b;
+  })().finally(() => P.fetching.delete(h)));
+  return P.fetching.get(h);
+}
+// every segment begins with the same header (init: one codec configuration for all); handed over once, then only the
+// frames (moof/mdat), since a header with each segment makes the browser reset its decoder at every cut (a ~0.1 s hitch)
+function mediaPart(b) {
+  const d = new DataView(b); let o = 0;
+  while (o + 8 <= b.byteLength) { if (d.getUint32(o + 4) === 0x6d6f6f66) break; o += d.getUint32(o) || b.byteLength; } // 'moof'
+  const init = new Uint8Array(b, 0, o);
+  if (P.init && P.init.length === init.length && P.init.every((x, k) => x === init[k])) return new Uint8Array(b, o);
+  P.init = init.slice(); return b;
+}
+const cat8 = (parts) => { if (parts.length === 1) return parts[0]; const o = new Uint8Array(parts.reduce((a, p) => a + p.length, 0)); let k = 0; for (const p of parts) { o.set(p, k); k += p.length; } return o; };
+// a segment into the element at its frame: from memory at once, or as its bytes arrive (a long cut starts playing before
+// the rest of it has come over a slow link), then kept
+async function appendSeg(s) {
+  const [f0, , h] = s, put = (bytes, first) => sbDo((sb) => { if (first) sb.timestampOffset = f0 / FPS; sb.appendBuffer(bytes); });
+  if (P.mem.has(h) || P.fetching.has(h)) { const b = await segBytes(h); return put(mediaPart(b), true); }
+  let done0, fail0; const whole = new Promise((a, b) => { done0 = a; fail0 = b; }); whole.catch(() => {});
+  P.fetching.set(h, whole);
+  try {
+    const t0 = performance.now(), r = await fetch(`/lib/_preview/seg/${h}.mp4?v=1`, { priority: 'high' });
+    if (!r.ok) throw new Error(`segment ${r.status}`);
+    const rd = r.body.getReader(), parts = []; let pend = [], pendN = 0, first = true, total = 0;
+    for (;;) {
+      const { done, value } = await rd.read();
+      if (value) { parts.push(value); pend.push(value); pendN += value.length; total += value.length; }
+      if (first && !done) {
+        // the header decided on once the first fragment begins (the same as the last segment's: frames only)
+        const head = cat8(pend), dv = new DataView(head.buffer, head.byteOffset, head.byteLength); let o = 0;
+        while (o + 8 <= head.length && dv.getUint32(o + 4) !== 0x6d6f6f66) o += dv.getUint32(o) || head.length;
+        if (o + 8 > head.length) continue;
+        const init = head.subarray(0, o), same = P.init && P.init.length === init.length && P.init.every((x, k) => x === init[k]);
+        if (!same) P.init = init.slice();
+        await put(same ? head.subarray(o) : head, true); first = false; pend = []; pendN = 0;
+        if (!S.playing) showFrame(false);
+      } else if (pendN && (pendN > 1.5e5 || done)) {
+        if (first) { await put(mediaPart(cat8(pend).slice().buffer), true); first = false; } else await put(cat8(pend), false);
+        pend = []; pendN = 0;
+      }
+      if (done) break;
+    }
+    const b = cat8(parts).slice().buffer, ms = performance.now() - t0;
+    if (ms > 40 && total > 2e5) { const mbps = total * 8 / ms / 1000; P.rate = P.rate ? P.rate * 0.7 + mbps * 0.3 : mbps; }
+    P.mem.set(h, b); P.memBytes += b.byteLength;
+    while (P.memBytes > MEM_CAP) { const [k, v] = P.mem.entries().next().value; P.mem.delete(k); P.memBytes -= v.byteLength; }
+    done0(b);
+  } catch (e) { fail0(e); throw e; }
+  finally { P.fetching.delete(h); }
+}
+// the element holds the segments around the playhead (20 s on, 10 s back), each where the program has it now
+let pumping = false;
+async function pumpSegs() {
+  if (pumping || !useRendered() || !P.man) return; pumping = true;
+  try {
+    for (;;) {
+      const t = S.t, man = P.man, f = Math.floor(t * FPS + 1e-6);
+      for (const [f0, e] of P.have) {
+        // a stretch the browser let go of by itself (memory pressure) is fetched again
+        if (!inBuf((f0 + 0.5) / FPS)) { P.have.delete(f0); continue; }
+        const now = P.at.get(f0), far = (f0 + e.n) / FPS < t - BEHIND_P || f0 / FPS > t + AHEAD_P + 10;
+        if (far || !now || now.h !== e.h || now.n !== e.n) { P.have.delete(f0); await sbDo((sb) => sb.remove(f0 / FPS, (f0 + e.n - 0.25) / FPS)); }
+      }
+      let next = null;
+      for (const s of man.segs) { if (s[0] + s[1] <= f) continue; if (s[0] / FPS > t + AHEAD_P) break; if (s[3] && P.have.get(s[0])?.h !== s[2]) { next = s; break; } }
+      if (!next) break;
+      P.have.set(next[0], { n: next[1], h: next[2] }); // (playable as soon as its first frames are in)
+      try { await appendSeg(next); }
+      catch (e) {
+        P.have.delete(next[0]);
+        try { P.sb.abort(); } catch {}
+        await sbDo((sb) => sb.remove(next[0] / FPS, (next[0] + next[1] - 0.25) / FPS)).catch(() => {});
+        if (e.name !== 'QuotaExceededError') throw e;
+        // full: let go of everything behind the playhead and try again
+        for (const [f0, x] of P.have) if ((f0 + x.n) / FPS < t - 1) P.have.delete(f0);
+        await sbDo((sb) => sb.remove(0, Math.max(0.01, t - 1))); continue;
+      }
+      // a segment appended that leaves its cut uncovered (a bad render): that cut plays live from its shot instead
+      if (!inBuf((next[0] + Math.min(next[1], 30) / 2) / FPS) && !P.fetching.has(next[2])) {
+        P.bad.add(next[2]); P.have.delete(next[0]); clientLog({ ev: 'bad-seg', at: +(next[0] / FPS).toFixed(2), seg: next[2], bytes: next[4] });
+        status(`preview: the cut at ${(next[0] / FPS).toFixed(1)} s plays live (its render was bad)`, true);
+      }
+      if (!S.playing) showFrame(false);
+    }
+  } catch (e) { status('preview: ' + e.message, true); }
+  finally { pumping = false; }
+}
+// the rest of the program fetched in the background, nearest the playhead first, so all of it soon plays from here
+let prefetching = false;
+async function prefetchSegs() {
+  if (prefetching || pumping || !useRendered() || !P.man) return; prefetching = true;
+  try {
+    for (;;) {
+      if (pumping) break; // the next 20 s come first: only an idle link fetches further
+      // (not what the element is about to take: that streams in by itself)
+      const f = S.t * FPS, todo = P.man.segs.filter((s) => s[3] && !P.mem.has(s[2]) && !P.fetching.has(s[2]) && !(s[0] + s[1] > f && s[0] < f + AHEAD_P * FPS));
+      if (!todo.length || P.memBytes > MEM_CAP * 0.9) break;
+      const d = (s) => (s[0] + s[1] > f ? s[0] - f : 1e9 + f - s[0]);
+      todo.sort((a, b) => d(a) - d(b));
+      await segBytes(todo[0][2]);
+    }
+  } catch {} finally { prefetching = false; }
+}
+// the EDL as it stands sent to be rendered once it has held still for 0.4 s; progress polled while cuts are being made
+function syncPreview() {
+  if (!S.edl || !P.sb) return;
+  const s = JSON.stringify(S.edl), now = performance.now();
+  if (s !== P.pend) { P.pend = s; P.pendAt = now; }
+  if (s !== P.sent && (now - P.pendAt > 400 || !P.sent)) { // (the first at once)
+    P.sent = s; const seq = ++P.seq, keys = new Map(S.sp.map((c) => [c.f0, c.pkey]));
+    api('/api/preview', { method: 'POST', body: JSON.stringify({ edl: S.edl, at: S.t }) }).then((j) => setMan(j, seq, keys)).catch((e) => status('preview: ' + e.message, true));
+  } else if (P.man?.state === 'segments' && !P.polling && now - (P.polled || 0) > 700) {
+    P.polling = true; P.polled = now; const man = P.man;
+    api('/api/preview').then((j) => { if (j && P.man === man && j.id === man.id) setMan(j, P.applied, man.keys); }).catch(() => {}).finally(() => (P.polling = false));
+  }
+}
+function setMan(j, seq, keys) {
+  if (seq < P.applied) return; P.applied = seq;
+  j.keys = keys; P.man = j;
+  P.at = new Map(j.segs.map(([f0, n, h, ready]) => [f0, { n, h, ready: !!ready, key: keys.get(f0) }]));
+  pumpSegs(); prefetchSegs();
+  if (!S.playing) showFrame(true);
+}
+function showPv() {
+  const m = P.man; if (!m) return;
+  const here = m.segs.filter((s) => P.mem.has(s[2])).length;
+  const st = m.state === 'ready' ? '✓ all cuts rendered' : m.state === 'failed' ? 'render failed' : `rendering ${m.done}/${m.total}`;
+  $('pv').textContent = `${st}${here < m.total ? ` · ${here}/${m.total} fetched` : ''}${P.rate && here < m.total ? ` · ${P.rate.toFixed(0)} Mbit/s` : ''}`;
+  $('pv').style.color = m.state === 'failed' ? 'var(--warn)' : '';
+  $('pv').title = m.errors?.join('\n') || '';
+}
+setInterval(() => { syncPreview(); pumpSegs(); prefetchSegs(); showPv(); }, 250);
+$('rendered').onchange = () => { if (!$('rendered').checked) { prog.pause(); prog.classList.remove('show'); } showFrame(true); };
+
+// a cut's reframe frame by frame as the master's vcam.py makes it (spring and all), worked out once per plan
+const pathMemo = new Map();
+function pathOf(cut, clip, vw, vh) {
+  const key = JSON.stringify([cut.vcam, cut.cin, cut.dur, cut.maxzoom, clip.id, clip.ui ? !!rectCache.get(clip.id) : 0]);
+  let p = pathMemo.get(key);
+  if (!p) { if (pathMemo.size > 300) pathMemo.clear(); p = vcamPath(cut.vcam, Math.round(cut.cin * FPS), Math.round(cut.dur * FPS) + 2, vw, vh, rectAt(clip), cut.maxzoom ?? 2); pathMemo.set(key, p); }
+  return p;
+}
+// paused: until the shown frame is right, look again each frame ("loading…" if it takes a moment)
+function stillPoll(ok) {
+  if (S.playing) return;
+  if (ok) { S.notReady = 0; $('buf').classList.remove('on'); return; }
+  if (!S.notReady) S.notReady = performance.now();
+  $('buf').classList.toggle('on', performance.now() - S.notReady > 150);
+  if (!S.pollQ) S.pollQ = requestAnimationFrame(() => { S.pollQ = 0; if (!S.playing) showFrame(false); });
+}
+function updateOverlay(cut, local, dur, clip, baked) {
+  // fades, flashes, titles, grade, the reframe box being edited, the readouts
+  let veil = 0, fl = 0;
+  if (cut?.fade === 'in') veil = Math.max(0, 1 - local / Math.min(cut.fadeLen ?? 1.5, dur / 2));
+  if (cut?.fade === 'out') { const L = Math.min(cut.fadeLen ?? 1.5, dur); veil = Math.max(0, Math.min(1, (local - (dur - L)) / L)); }
+  if (cut?.flash) fl = Math.max(0, 1 - local / 0.12);
+  if (baked) veil = fl = 0; // in the rendered segment already
+  $('veil').style.opacity = veil; $('flash').style.opacity = fl;
+  let titleOk = true; const op = new Map();
+  if (!S.src && $('titles').checked) for (const t of S.edl.titles || []) {
+    const a = S.when(t.from), b = S.when(t.to), fi = t.fadeIn ?? 0.8, fo = t.fadeOut ?? 0.8;
+    if (S.t >= a && S.t <= b) { if (titleImgs.has(t.png)) op.set(t.png, Math.max(0, Math.min(1, (S.t - a) / fi, (b - S.t) / fo))); else titleOk = false; }
+  }
+  for (const [png, im] of titleImgs) im.style.opacity = op.get(png) || 0;
+  const bu = $('boxui');
+  if (S.reframe && cut && S.reframe.i === cut.i) {
+    bu.style.display = 'block'; bu.style.left = 0; bu.style.top = 0; bu.style.width = '100%'; bu.style.height = '100%';
+    bu.className = S.reframe.which === 'end' ? 'end' : '';
+    $('mode').textContent = 'REFRAME · drag to pan, scroll to zoom · S: set start · E: set end · Esc: done';
+  } else { bu.style.display = 'none'; $('mode').textContent = S.src ? 'SOURCE' : baked ? 'PROGRAM · rendered' : useRendered() ? 'PROGRAM · live (not rendered yet)' : 'PROGRAM · live'; }
+  const bar = Math.floor(stepAt(S.times, S.t) / 16), step = Math.floor(stepAt(S.times, S.t) % 16);
+  $('clock').innerHTML = S.src ? `<b>${S.src.t.toFixed(2)}</b> / ${S.src.clip.dur.toFixed(2)} s` : `<b>${fmtT(S.t)}</b> · bar <b>${bar}</b>:${step} · ${sectionAt(S.t)}`;
+  $('cutinfo').textContent = S.src ? `${clip.world}/${clip.name}` : cut ? `cut ${cut.i + 1}/${S.sp.length} · ${clip ? clip.world + '/' + clip.name : cut.clip} @${(cut.cin + local).toFixed(2)}s` : '';
+  return titleOk;
+}
+function sectionAt(t) { const n = stepAt(S.times, t) / 16; const s = S.times.sections.find((s) => n >= s.bar && n < s.bar + s.bars); return s ? s.name : 'end'; }
+audio.addEventListener('ended', pause);
+$('play').onclick = togglePlay; $('home').onclick = () => seek(0);
+$('vol').oninput = (e) => (audio.volume = +e.target.value);
+$('grade').onchange = $('titles').onchange = () => showFrame(true);
+$('loop').onclick = () => { if (S.loop) { S.loop = null; $('loop').classList.remove('on'); return; } const n = stepAt(S.times, S.t) / 16, s = S.times.sections.find((s) => n >= s.bar && n < s.bar + s.bars); if (!s) return; S.loop = [S.when(`${s.bar}:0`), S.when(`${s.bar + s.bars}:0`)]; $('loop').classList.add('on'); seek(S.loop[0]); };
+addEventListener('resize', () => showFrame(true));
+// full screen: the viewer alone (titles, fades and the grade with it); keys keep working, Esc leaves
+function toggleFs() { if (document.fullscreenElement) document.exitFullscreen(); else $('stagewrap').requestFullscreen().catch((e) => status('full screen refused: ' + e.message, true)); }
+$('fs').onclick = toggleFs;
+stage.addEventListener('dblclick', () => { if (!S.reframe) toggleFs(); });
+document.addEventListener('fullscreenchange', () => { $('fs').classList.toggle('on', !!document.fullscreenElement); requestAnimationFrame(() => showFrame(true)); });
+
+// ── top bar ──
+$('edlsel').onchange = async (e) => { if (S.dirty && !confirm('Discard unsaved changes?')) { e.target.value = S.name; return; } await openEdl(e.target.value); };
+$('save').onclick = () => save().catch((e) => status(e.message, true));
+$('saveas').onclick = () => { const n = prompt('Save the EDL as', S.name + '-b'); if (n) save(n.replace(/[^\w.-]/g, '')).catch((e) => status(e.message, true)); };
+$('undo').onclick = undo; $('redo').onclick = redo;
+async function startRender(kind) {
+  if (S.dirty) await save();
+  try { await api('/api/render', { method: 'POST', body: JSON.stringify({ kind, name: S.name }) }); } catch (e) { return status(e.message, true); }
+  status(`${kind} render started…`); pollRender();
+}
+let pollT = null;
+async function pollRender() {
+  clearTimeout(pollT);
+  const { job } = await api('/api/render'); if (!job) return;
+  if (job.code == null) { status(`${job.kind} render: ${job.secs} s · ${job.log.trim().split('\n').at(-1)?.slice(0, 90) || ''}`); pollT = setTimeout(pollRender, 2000); return; }
+  if (job.code === 0) { status(`${job.kind} render done in ${job.secs} s`); dialog(`<h3>${job.kind} render of ${job.name} done (${job.secs} s)</h3><p><a href="${job.file}" target="_blank" style="color:var(--accent)">${job.file}</a></p><video src="${job.file}" controls style="width:100%"></video><pre>${esc(job.log.slice(-2500))}</pre>`); }
+  else { status(`${job.kind} render failed`, true); dialog(`<h3>${job.kind} render failed</h3><pre>${esc(job.log)}</pre>`); }
+}
+const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+$('rdraft').onclick = () => startRender('draft');
+$('rmaster').onclick = () => { if (confirm('Render the 4K master? It takes a while (segments from the 4K masters, reframes, the track with the shots\' cells).')) startRender('master'); };
+function dialog(html) { $('dlgbody').innerHTML = html; $('dlg').showModal(); }
+$('dlgclose').onclick = () => { $('dlg').close(); $('dlgbody').innerHTML = ''; };
+$('helpb').onclick = () => dialog(`<h3>Keys</h3><table id="help">
+  <tr><td><kbd>Space</kbd></td><td>play / pause (the program, or a library shot in the source view)</td></tr>
+  <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>a step back / on (with <kbd>Shift</kbd>: a bar; with <kbd>Alt</kbd>: a frame)</td></tr>
+  <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>previous / next cut</td></tr>
+  <tr><td><kbd>Home</kbd></td><td>to the start</td></tr>
+  <tr><td><kbd>B</kbd></td><td>split the cut at the playhead (snapped)</td></tr>
+  <tr><td><kbd>,</kbd> <kbd>.</kbd></td><td>move the selected cut's start back / on, one snap unit (with Snap at strong hits: to the previous / next hit)</td></tr>
+  <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>select the previous / next cut (however thin)</td></tr>
+  <tr><td>pinch, <kbd>⌘</kbd>/<kbd>Ctrl</kbd>+scroll</td><td>zoom the timeline about the pointer</td></tr>
+  <tr><td><kbd>Del</kbd></td><td>remove the selected cut (the one before it runs on)</td></tr>
+  <tr><td><kbd>[</kbd> <kbd>]</kbd></td><td>the selected cut's in-point a frame earlier / later (<kbd>Shift</kbd>: ¼ s)</td></tr>
+  <tr><td><kbd>N</kbd></td><td>the selected cut's next best other take</td></tr>
+  <tr><td><kbd>D</kbd> <kbd>F</kbd></td><td>dance on the beat · flash</td></tr>
+  <tr><td><kbd>Shift</kbd>+<kbd>F</kbd></td><td>full screen (or double-click the viewer, or ⛶); <kbd>Esc</kbd> leaves it</td></tr>
+  <tr><td><kbd>Esc</kbd></td><td>close the inspector (unselect the cut or shot)</td></tr>
+  <tr><td><kbd>1</kbd>–<kbd>5</kbd>, <kbd>0</kbd>, <kbd>X</kbd></td><td>rate the shot in the source view (or the selected cut's shot) · clear · reject</td></tr>
+  <tr><td><kbd>L</kbd></td><td>loop the section under the playhead</td></tr>
+  <tr><td><kbd>R</kbd></td><td>reframe the selected cut in the viewer (then <kbd>S</kbd> start box, <kbd>E</kbd> end box, <kbd>Esc</kbd> done)</td></tr>
+  <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd>, <kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>save · undo (<kbd>Shift</kbd> redo)</td></tr>
+  </table><p class="hint">Library: click a shot to see it in the viewer, double-click to put it in the selected cut, drag it onto any cut. Drag a cut onto another to swap their shots (the slots stay on the music). Drag a cut's left edge to move it (snapped as the Snap menu says: strong hits are the song's kicks and melody notes).</p>
+  <p class="hint">The 4K master is rendered by tools/promo/master.mjs: the same in-points (a dancer's strokes on the beat), reframes through vcam.py, titles and grade, and the track rendered on the commit you approved it at, with the shots' own cells underneath.</p>`);
+addEventListener('keydown', (e) => {
+  if (e.target.matches?.('input[type=text], input[type=number], select, textarea') || $('dlg').open) return;
+  const k = e.key;
+  if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === 's') { e.preventDefault(); save(); return; }
+  if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+  if (S.reframe) {
+    if (k === 's' || k === 'S') { S.reframe.which = 'start'; commitReframe('start'); return; }
+    if (k === 'e' || k === 'E') { S.reframe.which = 'end'; commitReframe('end'); return; }
+    if (k === 'Escape') { S.reframe = null; renderInsp(); showFrame(true); return; }
+  }
+  if (k === 'Escape' && (S.sel >= 0 || S.src)) return deselect();
+  if (k === 'F') return toggleFs();
+  if (k === ' ') { e.preventDefault(); togglePlay(); return; }
+  const stepT = (d) => { const n = stepAt(S.times, S.t); seek(S.when(atOf(Math.max(0, Math.round(n) + d)))); };
+  if (k === 'ArrowLeft' || k === 'ArrowRight') { e.preventDefault(); const d = k === 'ArrowLeft' ? -1 : 1; if (S.src) { S.src.t = Math.max(0, S.src.t + d / FPS); showFrame(true); } else if (e.altKey) seek(S.t + d / FPS); else stepT(e.shiftKey ? 16 * d : d); return; }
+  if (k === 'ArrowUp' || k === 'ArrowDown') { e.preventDefault(); const i = Math.max(0, Math.min(S.sp.length - 1, (S.sel < 0 ? cutAt(S.t) : S.sel) + (k === 'ArrowUp' ? -1 : 1))); selectCut(i); return; }
+  if ((k === ',' || k === '.') && S.sel >= 0) return moveCut(S.sel, k === ',' ? -1 : 1);
+  if (k === 'Home') return seek(0);
+  if (k === 'b' || k === 'B') return splitAt(S.t);
+  if ((k === 'Delete' || k === 'Backspace') && S.sel >= 0) return removeCut(S.sel);
+  if (k === '[' || k === ']' || k === '{' || k === '}') return nudgeIn((k === '[' || k === '{' ? -1 : 1) * (e.shiftKey ? 15 : 1));
+  if ((k === 'n' || k === 'N') && S.sel >= 0) { const a = candidates(S.sel, 1)[0]; if (a) setClip(S.sel, a); return; }
+  if ((k === 'd' || k === 'D') && S.sel >= 0) return edit((d) => { d.cuts[S.sel].dance ? delete d.cuts[S.sel].dance : (d.cuts[S.sel].dance = 1); }, 'dance');
+  if (k === 'f' && S.sel >= 0) return edit((d) => { d.cuts[S.sel].flash ? delete d.cuts[S.sel].flash : (d.cuts[S.sel].flash = 1); }, 'flash');
+  if ((k === 'r' || k === 'R') && S.sel >= 0) { S.reframe = startReframe(S.sel); renderInsp(); showFrame(true); return; }
+  if (k === 'l' || k === 'L') return $('loop').click();
+  if (k === '?') return $('helpb').click();
+  const target = S.src?.clip.id || (S.sel >= 0 ? S.edl.cuts[S.sel].clip : null);
+  if (target && /^[0-5]$/.test(k)) { rate(target, +k); if (S.src) renderSourceInsp(); else renderInsp(); return; }
+  if (target && (k === 'x' || k === 'X')) { rate(target, null, !rejected(target)); if (S.src) renderSourceInsp(); return; }
+});
+addEventListener('beforeunload', (e) => { if (S.dirty) { e.preventDefault(); e.returnValue = ''; } });
+// ── the phone's layout: auto (a touch screen with no hover, or under 760 px), or as the ▯ button last set it ──
+let MOB = false;
+function applyLayout() {
+  let pref = 'auto'; try { pref = localStorage.getItem('promo.layout') || 'auto'; } catch {}
+  const mob = pref === 'auto' ? matchMedia('(hover: none) and (pointer: coarse), (max-width: 760px)').matches : pref === 'mob';
+  if (mob === MOB && document.body.classList.contains('mob') === mob) return;
+  MOB = mob; document.body.classList.toggle('mob', mob); $('layoutb').textContent = mob ? '▭' : '▯';
+  if (S.sp?.length) { renderTimeline(); showFrame(true); }
+}
+function setTab(t) { document.body.classList.toggle('tab-cut', t === 'cut'); $('tab-lib').classList.toggle('on', t !== 'cut'); $('tab-cut').classList.toggle('on', t === 'cut'); }
+$('tab-lib').onclick = () => setTab('lib'); $('tab-cut').onclick = () => setTab('cut');
+$('layoutb').onclick = () => { try { localStorage.setItem('promo.layout', MOB ? 'desk' : 'mob'); } catch {} applyLayout(); status(MOB ? 'phone layout (▭ for the desktop one)' : 'desktop layout (▯ for the phone one)'); };
+matchMedia('(hover: none) and (pointer: coarse), (max-width: 760px)').addEventListener('change', applyLayout);
+applyLayout(); setTab('lib');
+// the Cut tab names the selection, and library cards offer to fill it
+setInterval(() => {
+  const n = S.src ? 'Shot' : S.sel >= 0 ? `Cut ${S.sel + 1}` : 'Cut';
+  if ($('tab-cut').textContent !== n) $('tab-cut').textContent = n;
+  const has = S.sel >= 0; document.body.classList.toggle('has-sel', has);
+  const lbl = has ? `→ cut ${S.sel + 1}` : '';
+  if (has && lbl !== S.useLbl) { S.useLbl = lbl; for (const b of document.querySelectorAll('.card .use')) b.textContent = lbl; }
+}, 250);
+// two fingers on the timeline: zoom about their middle. While they move the drawn timeline is only stretched (rebuilt
+// under a finger, the touch's element would be gone and the browser stops sending its moves); redrawn when they lift
+{
+  const sc = $('tlscroll'), tin = $('tlin'); let pin = null;
+  const mid = (t) => [(t[0].clientX + t[1].clientX) / 2, Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY)];
+  sc.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 2) return;
+    const [x, d] = mid(e.touches), px = x - sc.getBoundingClientRect().left;
+    pin = { d, pps: S.pps, to: S.pps, t: (sc.scrollLeft + px) / S.pps, px }; tin.style.transformOrigin = `${pin.t * S.pps}px 0`;
+  }, { passive: true });
+  sc.addEventListener('touchmove', (e) => {
+    if (!pin || e.touches.length !== 2) return; e.preventDefault();
+    pin.to = Math.max(6, Math.min(400, pin.pps * mid(e.touches)[1] / pin.d)); tin.style.transform = `scaleX(${pin.to / pin.pps})`;
+  }, { passive: false });
+  sc.addEventListener('touchend', () => {
+    if (!pin) return; const p = pin; pin = null; tin.style.transform = '';
+    S.pps = p.to; $('zoom').value = p.to; renderTimeline(); sc.scrollLeft = p.t * S.pps - p.px;
+  });
+}
+window.__ed = { S, P, prog, deselect, toggleFs, setClip, swapCuts, splitAt, removeCut, save, seek, play, pause, selectCut, candidates, vids, audio };
+boot().catch((e) => { status('could not start: ' + e.message, true); console.error(e); });
+</script>
+</body>
+</html>
