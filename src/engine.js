@@ -1669,7 +1669,8 @@ class Engine {
     const keep = { gpu: {} };
     for (const k of ['parts', 'genomes', 'intent', 'ledger', 'thermal']) {
       // the ledger without the species ledger at its end (observational: a world's record does not keep it)
-      const size = k === 'ledger' ? this._splAt() : b[k].size;
+      // (and the heat without the ice as drawn past it, ICE_SHOWN: observational too)
+      const size = k === 'ledger' ? this._splAt() : k === 'thermal' ? THERMAL_WORDS * 4 : b[k].size;
       keep.gpu[k] = d.createBuffer({ size, usage: U.COPY_SRC | U.COPY_DST });
       enc.copyBufferToBuffer(b[k], 0, keep.gpu[k], 0, size);
     }
