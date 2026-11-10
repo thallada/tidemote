@@ -2529,10 +2529,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // i18n: a save's name unless the viewer gives one: the era's name and the world's age (a duration)
     const defaultName = () => tr('worlds.default-name', '{era} · {age}', { era: eraName(climate.name), age: fmtDur(eng.simTime) });
     const mb = (n) => tr('worlds.mb', '{n} MB', { n: (n / 1048576).toFixed(n < 10485760 ? 1 : 0) });
-    const mini = (o, v, text, cls = '') => `<button type="button" class="btn mini${cls}" data-o="${o}" data-v="${v}"${wBusy ? ' disabled' : ''}>${text}</button>`;
-    const ghost = (o, v, icon, label, hint) => `<button type="button" class="ghost" data-o="${o}" data-v="${v}" aria-label="${label}" data-hint="${hint}"${wBusy ? ' disabled' : ''}><svg><use href="#i-${icon}"/></svg></button>`;
+    const mini = (o, v, text, cls = '') => `<button type="button" class="btn mini${cls}" data-o="${o}" data-v="${esc(v)}"${wBusy ? ' disabled' : ''}>${text}</button>`;
+    const ghost = (o, v, icon, label, hint) => `<button type="button" class="ghost" data-o="${o}" data-v="${esc(v)}" aria-label="${label}" data-hint="${hint}"${wBusy ? ' disabled' : ''}><svg><use href="#i-${icon}"/></svg></button>`;
     function saveRow(m) {
-      const sw = [0, 1, 2, 3].map((i) => `<i${m.cols[i] != null ? ` style="background:${cssCol(m.cols[i])}"` : ''}></i>`).join('');
+      const sw = [0, 1, 2, 3].map((i) => `<i${m.cols?.[i] != null ? ` style="background:${cssCol(m.cols[i])}"` : ''}></i>`).join('');
       const a = ask && ask.id === m.id ? ask.kind : null, ws = m.from === 'workshop';
       // a save of another major version lists, but does not open (worlds.js SAVE_VERSION)
       const can = m.downloading != null ? 'ok' : openable(m.version);
@@ -2542,7 +2542,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         : can !== 'ok' ? tr('worlds.cannot-open', '<em>{why, select, newer {Needs a newer Tidemote} other {From an older Tidemote}}</em> · {when}', { why: can, when: when(m.savedAt) }) : a === 'del' ? `<em>${ws ? tr('worlds.ask-unsubscribe', 'Unsubscribe from it?') : tr('worlds.ask-delete', 'Delete this save?')}</em>`
         : a === 'share' ? `<em>${m.workshop ? tr('worlds.ask-update', 'Update it on the Steam Workshop?') : tr('worlds.ask-share', 'Share it on the Steam Workshop for anyone to see?')}</em>`
         : m.downloading != null ? tr('worlds.downloading', 'Downloading · {pct}%', { pct: Math.round(m.downloading * 100) })
-        : tr('worlds.row', '{age} · {count} · {species, plural, other {{species} species}} · {when}', { age: fmtDur(m.simTime), count: kfmt(m.count), species: m.thriving, when: when(m.savedAt) });
+        : tr('worlds.row', '{age} · {count} · {species, plural, other {{species} species}} · {when}', { age: fmtDur(m.simTime), count: kfmt(m.count), species: +m.thriving || 0, when: when(m.savedAt) });
       const CANCEL = tr('worlds.cancel', 'Cancel'), LOAD = tr('worlds.load', 'Load'), UNSUB = tr('worlds.unsubscribe', 'Unsubscribe'), DEL = tr('worlds.delete', 'Delete');
       const acts = a === 'load' ? mini('w-no', m.id, CANCEL) + mini('w-first', m.id, tr('worlds.save-first', 'Save first')) + mini('w-yes', m.id, wBusy === 'load' ? tr('worlds.loading', 'Loading') : LOAD, ' hot-btn')
         : a === 'del' ? mini('w-no', m.id, CANCEL) + mini('w-yes', m.id, ws ? UNSUB : DEL, ' hot-btn')
@@ -2579,7 +2579,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // a shared world's words on the Workshop (the sharer may change them there)
     // i18n: a world shared on the Steam Workshop, its description there: {age} how long it has run (in words), {count}
     // its particles (64k), {species} its species thriving
-    const wsDescription = (m) => tr('worlds.ws-description', 'A Tidemote world after {age}: {count} particles, {species, plural, other {{species} species}} thriving.', { age: durWords(m.simTime), count: kfmt(m.count), species: m.thriving });
+    const wsDescription = (m) => tr('worlds.ws-description', 'A Tidemote world after {age}: {count} particles, {species, plural, other {{species} species}} thriving.', { age: durWords(m.simTime), count: kfmt(m.count), species: +m.thriving || 0 });
     // i18n: a saved world's file name when its name has no letters to keep
     const download = (m, bytes) => saveFile(new Blob([bytes], { type: 'application/gzip' }), `${m.name.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') || tr('worlds.file-name', 'world')}.tidemote`);
     async function worldAct(id, v) {
@@ -3713,7 +3713,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const sw = [0, 1, 2, 3].map((i) => `<i${m.cols?.[i] != null ? ` style="background:${cssCol(m.cols[i])}"` : ''}></i>`).join('');
       const can = openable(m.version);
       const line = can !== 'ok' ? tr('worlds.cannot-open', '<em>{why, select, newer {Needs a newer Tidemote} other {From an older Tidemote}}</em> · {when}', { why: can, when: when(m.savedAt) })
-        : tr('worlds.row', '{age} · {count} · {species, plural, other {{species} species}} · {when}', { age: fmtDur(m.simTime), count: kfmt(m.count), species: m.thriving, when: when(m.savedAt) });
+        : tr('worlds.row', '{age} · {count} · {species, plural, other {{species} species}} · {when}', { age: fmtDur(m.simTime), count: kfmt(m.count), species: +m.thriving || 0, when: when(m.savedAt) });
       return `<button type="button" class="w-row" data-w="${esc(m.id)}"${can !== 'ok' || busy ? ' disabled' : ''}${can !== 'ok' ? ` aria-description="${esc(WHY_NOT[can])}"` : ''}>`
         + `<span class="w-sw" aria-hidden="true">${sw}</span><span class="w-txt"><b>${esc(m.name)}</b><span>${line}</span></span>`
         + `<span class="w-go">${busy === `w:${m.id}` ? tr('menu.opening', 'Opening') : can === 'ok' ? tr('menu.open', 'Open') : ''}</span></button>`;
