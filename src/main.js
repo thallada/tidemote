@@ -4720,7 +4720,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // director (director.js), which films the world until the user clicks, drags or scrolls the view.
   const AUTO_IDLE = 60e3, AUTO_IDLE_READING = 180e3;
   const CURSOR_REST = 3000; // filming, the pointer and the loupe hide once the mouse rests this long
-  state.auto = prefs.auto ?? (() => { try { return localStorage.getItem('tidemote.autoCamera') !== 'off'; } catch { return true; } })();
+  state.auto = prefs.auto ?? true;
   let lastInput = performance.now();
   const lastPtr = { x: -1, y: -1, moved: performance.now() };
   const poke = () => { lastInput = performance.now(); };

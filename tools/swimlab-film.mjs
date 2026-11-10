@@ -10,6 +10,7 @@ import { writeGenome, divEnergy } from '../src/genome.js';
 import { DEFAULT_K, G_WORDS, P_BYTES } from '../src/shaders.js';
 import { testGenome, layout, placeBody } from './swimlab-bodies.mjs';
 import { launchOptions } from './lib/browser.mjs';
+import { viewPrefs } from './lib/prefs.mjs';
 
 const { values: v } = parseArgs({ options: {
   bodies: { type: 'string', default: '["filament:12"]' }, genome: { type: 'string', default: '{}' }, genomes: { type: 'string' },
@@ -32,7 +33,7 @@ const server = http.createServer((req, res) => { const url = decodeURIComponent(
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(process.env.TEMP || os.tmpdir(), 'film-')), { ...launchOptions({ args: ['--window-size=1000,640', '--no-first-run'], vk: false }), viewport: { width: 1000, height: 640 } });
 const page = await ctx.newPage();
-await page.addInitScript(() => { try { localStorage.setItem('tidemote.autoCamera', 'off'); } catch {} });
+await page.addInitScript((view) => { try { localStorage.setItem('tidemote.view', JSON.stringify(view)); } catch {} }, viewPrefs({ auto: false }));
 page.on('pageerror', (e) => console.log('pageerror', e.message));
 await page.goto(`http://127.0.0.1:${server.address().port}/`);
 await page.waitForFunction(() => globalThis.__tidemote?.state.phase === 'running', null, { timeout: 60000 });
