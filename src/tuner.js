@@ -61,7 +61,7 @@ export const ROOM = 0.85;
 
 // Render scale: the share of the screen's resolution the world is drawn at (main.js SCALES); its loss per step grows
 // as it falls, and what it saves is the drawing's pixels (its cost about the square of the scale)
-export const SCALE_LOSS = 12;
+const SCALE_LOSS = 12;
 export const scaleLoss = (from, to) => SCALE_LOSS * (from - to) * (1 + 2 * (1 - to));
 
 /** The GPU time (ms a frame) of each knob's passes in one profile ([[pass, ms], ...] averaged over frames). */

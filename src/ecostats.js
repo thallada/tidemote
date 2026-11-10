@@ -4,7 +4,7 @@ import { dietGuild, mobilityGuild, hasTails } from './genome.js';
 export const DIETS = ['producer', 'grazer', 'predator', 'scavenger'];
 export const MOVES = ['sessile', 'crawler', 'swimmer', 'drifter'];
 // Traits averaged over living cells, each scaled to [0, 1] by the range mutation allows.
-export const TRAITS = {
+const TRAITS = {
   photo: [0, 1], dGlint: [0, 1], dHusk: [0, 1], dFlesh: [0, 1], swim: [0, 3], advect: [0, 1],
   adhesion: [0, 1], size: [0.45, 2.6], lifespan: [20, 500], reproE: [0.6, 4],
 };
@@ -284,7 +284,7 @@ export function spread(prints) {
 }
 
 /** Ensemble-level metrics; every one is oriented so that larger is better unless listed in LOWER_BETTER. */
-export const ENSEMBLE_METRICS = {
+const ENSEMBLE_METRICS = {
   persisted: (r) => r.persisted,
   foodWeb: (r) => r.foodWeb,
   producersPersist: (r) => r.producersPersist,
@@ -298,7 +298,7 @@ export const ENSEMBLE_METRICS = {
   guildsLost: (r) => r.guildsLost,
   lateLivingCV: (r) => r.lateLivingCV,
 };
-export const LOWER_BETTER = new Set(['guildsLost', 'lateLivingCV']);
+const LOWER_BETTER = new Set(['guildsLost', 'lateLivingCV']);
 const RNG_SEED = 0x9e3779b9;
 
 function lcg(seed) { return () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32); }
@@ -311,7 +311,7 @@ const GROUP_STATS = {
   outcomes: (runs) => Math.exp(entropy(runs.map((r) => r.outcome))),
   modalOutcome: (runs) => modal(runs.map((r) => r.outcome))[1] / runs.length,
 };
-export const GROUP_LOWER_BETTER = new Set(['modalOutcome']);
+const GROUP_LOWER_BETTER = new Set(['modalOutcome']);
 
 function entropy(labels) {
   const c = counts(labels);
@@ -344,7 +344,7 @@ export function summarizeEnsemble(runs) {
 }
 
 /** Metrics a regression check gates on by default; the rest are reported only. */
-export const GATED = ['persisted', 'foodWeb', 'notMonoculture', 'lateGuilds', 'lateEffSpecies', 'spread', 'modalOutcome'];
+const GATED = ['persisted', 'foodWeb', 'notMonoculture', 'lateGuilds', 'lateEffSpecies', 'spread', 'modalOutcome'];
 
 /**
  * Compare a candidate ensemble of run summaries with a baseline. For each metric: the difference in

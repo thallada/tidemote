@@ -30,7 +30,7 @@ export function eraName(name) {
   return tr('climate.era', 'The {adj, select, Restless {Restless} Dim {Dim} Bright {Bright} Still {Still} Pale {Pale} Warm {Warm} Hollow {Hollow} Rising {Rising} Long {Long} Bitter {Bitter} Green {Green} Silver {Silver} other {{adj}}} {noun, select, Glare {Glare} Tides {Tides} Drift {Drift} Calm {Calm} Surge {Surge} Murk {Murk} Bloom {Bloom} Shallows {Shallows} Gyre {Gyre} Hush {Hush} other {{noun}}}', { adj: m[1], noun: m[2] });
 }
 // the background water's temperature at the depth of a frost's night (°C)
-export const FROST_WATER = 0.5;
+const FROST_WATER = 0.5;
 
 /** An excursion's bump in degrees at time t: eased in and out over its duration. */
 export function excursionAt(x, t) {

@@ -36,8 +36,8 @@ export const packUnorm = (r, g, b, a = 1) => ((Math.round(clamp(r, 0, 1) * 255))
   | (Math.round(clamp(g, 0, 1) * 255) << 8)
   | (Math.round(clamp(b, 0, 1) * 255) << 16) | (Math.round(clamp(a, 0, 1) * 255) << 24)) >>> 0;
 export const unpackUnorm = (u) => [(u & 255) / 255, ((u >>> 8) & 255) / 255, ((u >>> 16) & 255) / 255, ((u >>> 24) & 255) / 255];
-export const packSnorm = (a) => a.reduce((acc, v, i) => acc | ((Math.round(clamp(v, -1, 1) * 127) & 255) << (i * 8)), 0) >>> 0;
-export const unpackSnorm = (u) => [0, 1, 2, 3].map((i) => Math.max(-1, (((u >>> (i * 8)) & 255) << 24 >> 24) / 127));
+const packSnorm = (a) => a.reduce((acc, v, i) => acc | ((Math.round(clamp(v, -1, 1) * 127) & 255) << (i * 8)), 0) >>> 0;
+const unpackSnorm = (u) => [0, 1, 2, 3].map((i) => Math.max(-1, (((u >>> (i * 8)) & 255) << 24 >> 24) / 127));
 const mix = (a, b, t) => a + (b - a) * t;
 
 export function roleColor(g, r) {
@@ -157,7 +157,7 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
     mutRate: mix(0.008, 0.025, r()), hue: r(), sat: mix(0.6, 1, r()), lum: mix(0.52, 0.72, r()),
     size: t.size, shape: Math.floor(r() * 12), pulse: r() < 0.3 ? mix(0.4, 0.9, r()) : r() * 0.2,
     roleHue: (r() - 0.5) * 0.35, advect: t.advect, swim: t.swim, align: t.align, photo: t.photo,
-    parent: 0, serial: 0, born: 0, depth: 0, archetype: type,
+    parent: 0, serial: 0, born: 0, depth: 0,
     adhesion: lean ? Math.min(ADHESION[type], 0.35) : ADHESION[type] ?? 0,
     calcify: CALCIFY[type] ? mix(...CALCIFY[type], r()) : 0,
     topt: clamp(t0 + gaussOf(r) * 3, 0, 45),

@@ -3,7 +3,7 @@
 // floor dry. Shared by the page and headless runs; the GPU reads it bilinearly (thermal block 1).
 
 // A small seeded generator (mulberry32), so a world's floor depends only on its seed.
-export function seededRng(seed) {
+function seededRng(seed) {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;

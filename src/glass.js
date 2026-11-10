@@ -10,7 +10,7 @@
 // with its CSS box unchanged, which no observer sees, and the rects are in its pixels). poll() returns the rects in
 // the canvas's pixels and the blur's sigma there, or null when nothing changed.
 
-export const GLASS_BLUR = 6; // CSS pixels, as the panels' backdrop-filter: blur(6px) had it
+const GLASS_BLUR = 6; // CSS pixels, as the panels' backdrop-filter: blur(6px) had it
 
 export function trackGlass(panels, canvas) {
   let dirty = true;

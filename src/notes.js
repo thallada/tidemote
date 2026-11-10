@@ -56,7 +56,7 @@ function half(h) {
  * Cell ids to their rows in a view: an open-addressed table in typed arrays (no object for each, so reading ten views a
  * second makes nothing for the collector). get(id) -> row, or undefined.
  */
-export class IdIndex {
+class IdIndex {
   constructor() { this.cap = 0; }
   reset(n) {
     let cap = 16;

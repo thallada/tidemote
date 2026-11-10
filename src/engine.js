@@ -37,10 +37,10 @@ const STONE_EVERY = 0.5;
 const ICE_EASE = 0.6;
 // absent in a browser without WebGPU, which must still load the page to say so
 const U = globalThis.GPUBufferUsage ?? {};
-export const PICK_MAX = 131072;
+const PICK_MAX = 131072;
 // the most cells the annotations' view reads back (NOTE_WGSL): past it, a steady sample
-export const NOTE_CAP = 16384;
-export const FOCUS_MAX = 65536;
+const NOTE_CAP = 16384;
+const FOCUS_MAX = 65536;
 const PICK_BYTES = 56 + PICK_MAX * PICK_WORDS * 4;
 const LEDGER_HEAD = META_CLAIM * 4;
 const CENSUS_BYTES = LEDGER_HEAD + MAXK * G_BYTES;
@@ -197,7 +197,6 @@ class Engine {
     // 2 the pipette, 3 the cold probe, 4 Touch's rod; 0 none), how far it is in focus (0 raised over the water, 1 in
     // it), its frost, the rod's radius
     this.tool = new Float32Array(8);
-    this.loupe = null;
     this.focus = { on: 0, roleMask: 7, stateMode: 0, mute: 0.16, memberKind: 0xffffffff, memberN: 0 };
     this.viewDataS = new ArrayBuffer(VIEW_BYTES);
     this.onGpuTime = null;

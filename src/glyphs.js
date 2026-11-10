@@ -20,7 +20,7 @@ export const OUTLINES = [
 // 16 + k are the kinds of stone grain (STONE_KINDS in shaders.js)
 export const MATTER_GLYPH = [[14, 0xff796056], [13, 0xffffe6b9], [12, 0xff47628a], [14, 0xff9faeb8], [15, 0xff73b3cc]];
 
-export function paintGlyph(g, size, shape, col) {
+function paintGlyph(g, size, shape, col) {
   const c = cssCol(col);
   const R = size * 0.36;
   g.clearRect(0, 0, size, size);
