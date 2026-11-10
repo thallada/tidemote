@@ -16,7 +16,8 @@ test('what the engine reads back of a world', { timeout: 120_000 }, async (t) =>
   t.after(() => { assert.ok(gpu); device.destroy(); });
   const errors = [];
   device.addEventListener('uncapturederror', (e) => errors.push(e.error.message));
-  const { createEngine } = await import('../src/engine.js');
+  const { createEngine, compactState } = await import('../src/engine.js');
+  const { encodeWorld, decodeWorld } = await import('../src/worlds.js');
   const { bodyCensus } = await import('../src/bodies.js');
   let r = 7;
   const rng = () => ((r = (r * 16807) % 2147483647) / 2147483647);
@@ -30,11 +31,36 @@ test('what the engine reads back of a world', { timeout: 120_000 }, async (t) =>
     const st = await eng.readState(), b = await eng.readBodies();
     assert.equal(b.cpu.count, st.cpu.count);
     for (const k of ['parts', 'intent', 'genomes']) {
-      assert.deepEqual(new Uint8Array(b.gpu[k]), new Uint8Array(st.gpu[k], 0, b.gpu[k].byteLength), k);
+      assert.ok(Buffer.from(b.gpu[k]).equals(Buffer.from(st.gpu[k], 0, b.gpu[k].byteLength)), k);
     }
     const census = bodyCensus(b.cpu, b.gpu);
     assert.ok(census.living > 0);
     assert.deepEqual(census, bodyCensus(st.cpu, st.gpu));
+  });
+
+  // (2891207: snapshot() kept the whole heat buffer, past what stateSizes says, and main.js openWorld refused every save)
+  await t.test('readState keeps each buffer at exactly the size stateSizes gives, as a save that opens', async () => {
+    const st = await eng.readState(), want = eng.stateSizes(st.cpu.count);
+    assert.deepEqual(Object.keys(st.gpu).sort(), Object.keys(want).sort());
+    for (const [k, size] of Object.entries(want)) assert.equal(st.gpu[k].byteLength, size, k);
+    // through a save file and back, as the page saves and openWorld checks one
+    const w = await decodeWorld(await encodeWorld({ meta: {}, cpu: st.cpu, ...compactState(st), page: {} }));
+    for (const [k, size] of Object.entries(eng.stateSizes(w.cpu.count))) assert.equal(w.gpu[k]?.byteLength, size, k);
+  });
+
+  await t.test('a world put back with writeState reads back as it was', async () => {
+    const st = await eng.readState(), relief = eng.relief.slice();
+    // the world runs on, and the engine holds another world's grid and floor when it is put back
+    for (let f = 0; f < 5; f++) eng.frame({ target: null, simDt: 1 / 60, time: f / 60 });
+    assert.ok(!Buffer.from((await eng.readState()).gpu.parts).equals(Buffer.from(st.gpu.parts)));
+    eng.grid = [3, 3]; eng.relief = null;
+    eng.writeState(st);
+    const back = await eng.readState();
+    assert.equal(back.cpu.count, st.cpu.count);
+    assert.deepEqual(back.cpu.grid, st.cpu.grid);
+    assert.equal(back.cpu.seedValue, st.cpu.seedValue);
+    for (const k of Object.keys(st.gpu)) assert.ok(Buffer.from(back.gpu[k]).equals(Buffer.from(st.gpu[k])), k);
+    assert.deepEqual(eng.relief, relief);
   });
 
   assert.deepEqual(errors, []);
