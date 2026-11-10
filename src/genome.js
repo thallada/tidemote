@@ -369,7 +369,7 @@ export function dietGuild(g) {
 export function divEnergy(g, K = DEFAULT_K) {
   const body = K.bodyE * g.size;
   let e = g.reproE + body;
-  e += Math.max(0, body + K.provision * g.metab / g.share - g.reproE - body);
+  e += Math.max(0, K.provision * g.metab / g.share - g.reproE);
   return e;
 }
 

@@ -862,7 +862,7 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
   // a torpid cell neither hunts, grazes nor divides
   // a child's body costs bodyCost (K.bodyE, by size); divE: the energy a cell divides at, reproE beyond it
   let bodyCost = ${bodyOf(K, 'g')};
-  let divE = g.reproE + bodyCost + max(0.0, bodyCost + ${f(K.provision)} * g.metab / g.share - g.reproE - bodyCost);
+  let divE = g.reproE + bodyCost + max(0.0, ${f(K.provision)} * g.metab / g.share - g.reproE);
   let hungry = p.energy < divE * ${f(K.sated)} && eatEff > 0.1 && !th.torpid;
   let canHunt = (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN) && hungry;
   // food in reach is gathered by hungry cells; in a coarse step also by any that may grow hungry in it
