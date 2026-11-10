@@ -442,13 +442,19 @@ export function createCards(api) {
   }
   nameIn.addEventListener('change', rename);
   nameIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); rename(); nameIn.blur(); } });
-  nameIn.addEventListener('input', () => {
-    // the card follows the name as it is typed
+  // the card follows the name as it is typed (at most every 60 ms, and once more after the last key)
+  let typed = 0;
+  function preview() {
     const sp = reg().get(cur);
-    if (!sp || performance.now() - drawn < 60) return;
+    if (!sp) return;
     const d = data(sp), v = nameIn.value.trim();
     if (v) { d.name = v; d.given = true; } else { d.name = d.binomial; d.given = false; }
     paint(d);
+  }
+  nameIn.addEventListener('input', () => {
+    clearTimeout(typed);
+    const wait = 60 - (performance.now() - drawn);
+    if (wait > 0) typed = setTimeout(preview, wait); else preview();
   });
   $('card-png').addEventListener('click', async () => {
     if (saved) { saveFile(new Blob([saved.png], { type: 'image/png' }), fileName('png')); return; }
