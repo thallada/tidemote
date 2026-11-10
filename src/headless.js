@@ -132,9 +132,9 @@ export async function runHeadless(device, config, { print, width = 640, height =
         framboids: c.pop[4],
         framboidsMade: prevE ? since(THERMAL_LEDGER.framboidsMade) * 60 / (c.simTime - prevT) : 0 };
       thermal.field = latestField;
-      // the nutrient loop: grains exuded and husks made and eaten per simulated minute, litter lying now
+      // the nutrient loop: husks made and eaten per simulated minute, litter lying now
       const perMin = (i) => (prevE && c.simTime > prevT ? since(i) * 60 / (c.simTime - prevT) : 0);
-      const cycle = { exuded: perMin(59), litterMade: perMin(60), carcassMade: perMin(61), litterEaten: perMin(62),
+      const cycle = { litterMade: perMin(60), carcassMade: perMin(61), litterEaten: perMin(62),
         carcassEaten: perMin(63), litter: c.demography[60] ?? 0 };
       // each guild's cysts now (dormant, counted among the living above)
       const dormant = Object.fromEntries(guilds.map((g, gi) => [g, c.demography[gi < 3 ? 57 + gi : 58 + gi] ?? 0]));
