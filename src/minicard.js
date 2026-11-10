@@ -7,15 +7,16 @@ import { voiceOf } from './audio/mapping.js';
 import { facets, dietMix, DIET_COL } from './facets.js';
 import { esc } from './fmt.js';
 import { tr } from './i18n.js';
+import { eraName } from './climate.js';
 
 /** What a mini-card says the pipette holds of its species: n cells, in bodies (updated in place as they come and go). */
 // i18n: {n} cells, and (when more than one) in how many bodies (organisms)
 export const countText = (n, bodies, flat) => tr('minicard.count', '×{n, number}{bodies, plural, =0 {} one {<small> · # body</small>} other {<small> · # bodies</small>}}', { n, bodies: bodies > 1 && !flat ? bodies : 0 });
 
 /** How a cabinet card's species does here (updated in place): [ 'live', n ] alive, [ 'gone' ], or [ 'from', home ]. */
-const statusText = ([k, v]) => (k === 'live' ? `<i class="mc-live"></i>${tr('minicard.alive', '{n, number} alive', { n: v })}` : k === 'gone' ? tr('minicard.gone', 'extinct here') : fromText(esc(v)));
+const statusText = ([k, v]) => (k === 'live' ? `<i class="mc-live"></i>${tr('minicard.alive', '{n, number} alive', { n: v })}` : k === 'gone' ? tr('minicard.gone', 'extinct here') : fromText(v));
 // i18n: a card's species came from another world: {home} that world's name (its era)
-const fromText = (home) => tr('minicard.from', '↗ from {home}', { home });
+const fromText = (home) => tr('minicard.from', '↗ from {home}', { home: esc(eraName(home)) });
 
 /** A cabinet card's status line (.mc-st) brought up to st, in place. */
 export function setStatus(el, st) {
@@ -78,14 +79,14 @@ export function miniCard(g, K, { gid, key, name, home = '', n = 0, bodies = 0, t
   // i18n: a mini-card's label for screen readers: its species' name, diet and motion, the world it came from, how many
   // cells the pipette holds of it, and whether it leaves the pipette next
   const label = tr('minicard.aria', '{name}, {diet, select, photosynth {photosynth} grazer {grazer} scavenger {scavenger} predator {predator} other {{diet}}}, {mobility, select, anchored {anchored} crawler {crawler} swimmer {swimmer} drifter {drifter} other {{mobility}}}{from, select, yes {, from {home}} other {}}{n, plural, =0 {} one {, {n} cell} other {, {n} cells}}{tip, select, yes {, at the tip} other {}}',
-    { name, diet: f.diet, mobility: f.mobility, from: home ? 'yes' : 'no', home, n, tip: tip ? 'yes' : 'no' });
+    { name, diet: f.diet, mobility: f.mobility, from: home ? 'yes' : 'no', home: eraName(home), n, tip: tip ? 'yes' : 'no' });
   // i18n: the mark on the card that leaves the pipette next
   const tipMark = `<span class="mc-tip">${tr('minicard.tip', 'Tip')}</span>`;
   const open = `<button type="button" class="minicard${flat ? ' flat' : ''}${tip ? ' at-tip' : ''}" data-key="${esc(key)}"${thumb ? ` data-thumb="${esc(thumb)}"` : ''} aria-label="${esc(label)}">`;
   if (flat) return `${open}${ph}${nm}<span class="mc-end">${tip ? tipMark : ''}${count}${keptMark}</span></button>`;
   const kind = `<span class="mc-kind" aria-hidden="true"><svg style="color:${DIET_COL[f.diet]}"><use href="#i-d-${f.diet}"/></svg><svg><use href="#i-m-${f.mobility}"/></svg></span>`;
   const sub = status ? `<span class="mc-sub mc-st${status[0] === 'live' ? '' : ` ${status[0]}`}">${statusText(status)}</span>`
-    : home ? `<span class="mc-sub from">${fromText(esc(home))}</span>`
+    : home ? `<span class="mc-sub from">${fromText(home)}</span>`
     // i18n: under a mini-card's name: its diet (in its color) · how it moves
       : `<span class="mc-sub">${tr('minicard.kind', '<d>{diet, select, photosynth {photosynth} grazer {grazer} scavenger {scavenger} predator {predator} other {{diet}}}</d> · {mobility, select, anchored {anchored} crawler {crawler} swimmer {swimmer} drifter {drifter} other {{mobility}}}', { diet: f.diet, mobility: f.mobility, d: (c) => `<span style="color:${DIET_COL[f.diet]}">${[].concat(c).join('')}</span>` })}</span>`;
   return `${open}${ph}${tip ? tipMark : ''}${count}${keptMark}${kind}${nm}${sub}</button>`;

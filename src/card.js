@@ -405,7 +405,7 @@ export function createCards(api) {
     img.src = savedUrl;
     img.alt = tr('card.img.alt', 'The card of {name}', { name: card.name });
     // i18n: {home}: the name of the world (its era) a saved card came from
-    note.textContent = card.world === api.world() ? '' : tr('card.note.carried', 'Carried from {home}', { home: card.home });
+    note.textContent = card.world === api.world() ? '' : tr('card.note.carried', 'Carried from {home}', { home: eraName(card.home) });
     root.hidden = false;
     acts();
     tune(card.genome);
@@ -418,7 +418,7 @@ export function createCards(api) {
     sv.hidden = !!saved;
     sv.disabled = !!card;
     // i18n: the Save button once its card is in the cabinet: {home} the world it was saved in
-    sv.textContent = card ? tr('card.saved', 'Saved · {home}', { home: card.home }) : tr('card.save', 'Save to cabinet');
+    sv.textContent = card ? tr('card.saved', 'Saved · {home}', { home: eraName(card.home) }) : tr('card.save', 'Save to cabinet');
     $('card-remove').hidden = !card;
     $('card-inspect').hidden = api.inspectable(saved || cur) == null;
   }
