@@ -1800,6 +1800,23 @@ class Engine {
     return { u32: new Uint32Array(copy), f32: new Float32Array(copy) };
   }
 
+  /** What bodyCensus (src/bodies.js) reads of readState(), and only that: { cpu: { count }, gpu: { parts, intent, genomes } }. */
+  async readBodies() {
+    this._lerpBack();
+    const d = this.device, n = this.count, sizes = { parts: n * P_BYTES, intent: n * 16, genomes: MAXK * G_BYTES };
+    const st = d.createBuffer({ size: sizes.parts + sizes.intent + sizes.genomes, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    const enc = d.createCommandEncoder();
+    let at = 0;
+    for (const [k, size] of Object.entries(sizes)) { enc.copyBufferToBuffer(this.b[k], 0, st, at, size); at += size; }
+    d.queue.submit([enc.finish()]);
+    await st.mapAsync(GPUMapMode.READ);
+    const all = st.getMappedRange(), gpu = {};
+    at = 0;
+    for (const [k, size] of Object.entries(sizes)) { gpu[k] = all.slice(at, at + size); at += size; }
+    st.unmap(); st.destroy();
+    return { cpu: { count: n }, gpu };
+  }
+
   /**
    * The water's temperature at a few world points (the hand's sound: what the stage and probe are doing to it), or
    * null while the last read is still out. Each point reads its grid cell; at most 16.
