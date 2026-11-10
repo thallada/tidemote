@@ -1,5 +1,6 @@
 // Field guide text and the glossary that powers hover hints.
 import { tr } from './i18n.js';
+import { term } from './fmt.js';
 
 // i18n: a glossary term's hint: shown when the pointer rests on (or a finger taps) the term, wherever it is underlined
 export const GLOSSARY = {
@@ -161,9 +162,9 @@ export const GLOSSARY = {
   toolreach: tr('gloss.toolreach', 'How far every tool but the needle reaches, the same for all: the ring around the pointer. [ ] or ⇧ wheel change it.'),
 };
 
-const t = (term, label) => `<span class="term" data-tip="${term}">${label}</span>`;
-// the guide's terms: a tag named for a glossary key (<silt>silt</silt>) marks the words that show that term's hint
-const T = Object.fromEntries(Object.keys(GLOSSARY).map((k) => [k, (c) => t(k, c.join(''))]));
+// the guide's terms: a tag named for a glossary key (<silt>silt</silt>) marks the words that show that term's hint (and
+// takes the keyboard's focus, as every term does)
+const T = Object.fromEntries(Object.keys(GLOSSARY).map((k) => [k, (c) => term(k, c.join(''))]));
 const p = (s) => `<p>${s}</p>`;
 const ul = (items) => `<ul>\n${items.map((s) => `<li>${s}</li>`).join('\n')}\n</ul>`;
 const steps = (items) => `<ol class="steps">\n${items.map((s) => `<li>${s}</li>`).join('\n')}\n</ol>`;
