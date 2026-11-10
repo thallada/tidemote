@@ -699,7 +699,7 @@ class Engine {
   async allocate(n) {
     const d = this.device;
     const b = this.b;
-    const names = ['parts', 'sortedFull', 'sortedLite', 'aux', 'intent', 'bondsNow', 'bondsIn', 'touch', 'sway', 'stoneList', 'ledger', 'livingList', 'quads'];
+    const names = ['parts', 'sortedFull', 'sortedLite', 'aux', 'intent', 'bondsNow', 'bondsIn', 'touch', 'sway', 'stoneList', 'ledger', 'livingList', 'quads', 'small', 'smallArgs', 'lerpEnd', 'subL'];
     for (const k of names) { b[k]?.destroy(); b[k] = null; }
     this.capacity = 0;
     this.count = 0;
