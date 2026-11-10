@@ -164,7 +164,7 @@ export function createFilm({ canvas, source = null, overlay = null, caption = nu
     const mime = ask.mime && MediaRecorder.isTypeSupported(ask.mime) ? ask.mime : fmt[0];
     st.n = 0;
     try { rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: ask.bps || filmBitrate(w, h), audioBitsPerSecond: 128000, videoKeyFrameIntervalDuration: ask.kfi ?? 1000 }); }
-    catch { try { rec = new MediaRecorder(stream); } catch { return false; } }
+    catch { try { rec = new MediaRecorder(stream); } catch { for (const k of stream.getVideoTracks()) k.stop(); st.track = null; return false; } }
     const type = rec.mimeType || fmt[0];
     const file = `${name()}.${/mp4/.test(type) ? 'mp4' : 'webm'}`;
     const fix = /webm/.test(type) ? createWebmFix() : null;
