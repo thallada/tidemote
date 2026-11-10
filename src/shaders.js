@@ -9517,8 +9517,8 @@ struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location
   return vec4f(sensor(c, i.pos.xy, k), 1.0);
 }
 
-// loupe: a circular lens composited over the main view
-struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
+// loupe: a circular lens composited over the main view (sea0: the sea at the loupe's center, seaAt there, as vsComp's)
+struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) @interpolate(flat) sea0: vec4f };
 
 @vertex fn vsLoupe(@builtin(vertex_index) vi: u32) -> LV {
   let corners = array<vec2f, 6>(vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0), vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0));
@@ -9528,6 +9528,7 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
   var o: LV;
   o.pos = vec4f(px.x / loupe.res.x * 2.0 - 1.0, 1.0 - px.y / loupe.res.y * 2.0, 0.0, 1.0);
   o.uv = c * rr / loupe.radius;
+  o.sea0 = seaAt(microView.cam, loupe.ppu);
   return o;
 }
 
@@ -9555,7 +9556,7 @@ fn loupeScene(r: vec2f) -> vec3f {
   let r0 = r;
   let wp = microView.cam + r0 / toR;
   let pool = poolAt(wp);
-  let surf = surfaceAt(wp, loupe.ppu, seaAt(microView.cam, loupe.ppu), waterRoom(pool));
+  let surf = surfaceAt(wp, loupe.ppu, i.sea0, waterRoom(pool));
   var bend = surf.shift;
   var water = vec3f(post.heat.x, 0.0, 0.0);
   var bub = Bubbles(vec2f(0.0), 1.0, vec3f(0.0));
