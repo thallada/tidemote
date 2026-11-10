@@ -349,22 +349,25 @@ class Engine {
     // (an RTX 4070 Ti in Chrome on D3D12, a 1M world: 1.94 ms against 2.33 through the pointer)
     const apple = d.adapterInfo?.vendor === 'apple';
     const lifeWG = apple ? 256 : 128;
-    this.simModule = d.createShaderModule({ code: simWGSL(K, { dp4a, lifeWG, genomePtr: apple }), label: 'sim' });
-    this.pickModule = d.createShaderModule({ code: PICK_WGSL, label: 'pick' });
-    this.listenModule = d.createShaderModule({ code: LISTEN_WGSL, label: 'listen' });
-    this.watchModule = d.createShaderModule({ code: WATCH_WGSL, label: 'watch' });
-    this.surveyModule = d.createShaderModule({ code: SURVEY_WGSL, label: 'survey' });
-    this.noteModule = d.createShaderModule({ code: NOTE_WGSL, label: 'note' });
-    this.drawModule = d.createShaderModule({ code: DRAW_WGSL, label: 'draw' });
+    // every module made here, for compileErrors
+    const shader = (desc) => { const m = d.createShaderModule(desc); this.modules.push(m); return m; };
+    this.modules = [];
+    this.simModule = shader({ code: simWGSL(K, { dp4a, lifeWG, genomePtr: apple }), label: 'sim' });
+    this.pickModule = shader({ code: PICK_WGSL, label: 'pick' });
+    this.listenModule = shader({ code: LISTEN_WGSL, label: 'listen' });
+    this.watchModule = shader({ code: WATCH_WGSL, label: 'watch' });
+    this.surveyModule = shader({ code: SURVEY_WGSL, label: 'survey' });
+    this.noteModule = shader({ code: NOTE_WGSL, label: 'note' });
+    this.drawModule = shader({ code: DRAW_WGSL, label: 'draw' });
     // coarse steps drawn in between (LERP_WGSL): this.lerp is how far along the last step to draw the world, or null
-    const lerpModule = d.createShaderModule({ code: LERP_WGSL, label: 'lerp' });
+    const lerpModule = shader({ code: LERP_WGSL, label: 'lerp' });
     this.cpLerp = cPipe({ layout: 'auto', compute: { module: lerpModule, entryPoint: 'lerpApply' }, label: 'lerpApply' });
     this.cpLerpBack = cPipe({ layout: 'auto', compute: { module: lerpModule, entryPoint: 'lerpRestore' }, label: 'lerpRestore' });
     this.lerp = null;
     this._lerpN = 0;
     this._lerpOk = false;
     // culling for the main view, the loupe and the specimen (CULL_WGSL): uniforms, segments, draw arguments
-    const cullModule = d.createShaderModule({ code: CULL_WGSL, label: 'cull' });
+    const cullModule = shader({ code: CULL_WGSL, label: 'cull' });
     this.cpCull = cPipe({ layout: 'auto', compute: { module: cullModule, entryPoint: 'cullRows' }, label: 'cullRows' });
     this.cull = [0, 1, 2].map(() => {
       const u = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
@@ -375,7 +378,7 @@ class Engine {
     // particles are in grid-cell order (cellStart valid) once a step has sorted them
     this.sorted = false;
     b.inbondU = d.createBuffer({ size: 80, usage: U.UNIFORM | U.COPY_DST });
-    const inbond = d.createShaderModule({ code: INBOND_WGSL, label: 'inbond' });
+    const inbond = shader({ code: INBOND_WGSL, label: 'inbond' });
     this.cpInbond = ['inbondReset', 'inbondGather', 'contactGather'].map((entryPoint) => cPipe({ layout: 'auto', compute: { module: inbond, entryPoint }, label: entryPoint }));
     this.cpOrgans = cPipe({ layout: 'auto', compute: { module: inbond, entryPoint: 'organDirs' }, label: 'organDirs' });
     b.organDir = d.createBuffer({ size: MAXK * ORGANS * 4, usage: U.STORAGE });
@@ -389,7 +392,7 @@ class Engine {
     b.studioGenomes = d.createBuffer({ size: (FIRST_LIFE + 1) * G_BYTES, usage: U.STORAGE | U.COPY_DST });
     b.studioOrgans = d.createBuffer({ size: (FIRST_LIFE + 1) * ORGANS * 4, usage: U.STORAGE });
     this.studioN = 0;
-    this.postModule = d.createShaderModule({ code: POST_WGSL, label: 'post' });
+    this.postModule = shader({ code: POST_WGSL, label: 'post' });
 
     const cp = (mod, entryPoint) => cPipe({ layout: 'auto', compute: { module: mod, entryPoint }, label: entryPoint });
     this.cpDefs = {
@@ -443,12 +446,12 @@ class Engine {
     this.cpWatchArgs = cp(this.watchModule, 'watchArgs');
     this.cpSurvey = { pipe: cp(this.surveyModule, 'surveyMain'), bg: null };
     this.cpNote = { pipe: cp(this.noteModule, 'noteMain'), bg: null };
-    const seaModule = d.createShaderModule({ code: SEA_WGSL, label: 'sea' });
+    const seaModule = shader({ code: SEA_WGSL, label: 'sea' });
     // the water's bend over the main view, read back for the page's overlays (seaShiftMap; seaShift)
     this.cpShift = cp(this.postModule, 'seaShiftMap');
     this.cpSeaField = cp(this.postModule, 'seaFieldMain');
     this.cpOptics = cp(this.postModule, 'opticsMain');
-    this.cpIceShow = cp(d.createShaderModule({ code: ICE_SHOW_WGSL, label: 'iceShow' }), 'iceShowMain');
+    this.cpIceShow = cp(shader({ code: ICE_SHOW_WGSL, label: 'iceShow' }), 'iceShowMain');
     b.shiftMap = d.createBuffer({ size: SHIFT_W * SHIFT_H * 8, usage: U.STORAGE | U.COPY_SRC });
     this.shiftRead = [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: SHIFT_W * SHIFT_H * 8, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST }), busy: false }));
     // the last two grids read back: { data (pixels of the view drawn then), cam: { x, y, ppu, w, h }, at (ms) }
@@ -569,7 +572,7 @@ class Engine {
     b.holdU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
     this.pHold = rp(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined, format);
     // the panels' frosted glass (setGlass): blurred across into glassTex[1], then down into the view, faded as its panel
-    const glassMod = d.createShaderModule({ code: GLASS_WGSL, label: 'glass' });
+    const glassMod = shader({ code: GLASS_WGSL, label: 'glass' });
     const glassP = (blend) => rPipe({ layout: 'auto', label: 'fsGlass', primitive: { topology: 'triangle-list' },
       vertex: { module: glassMod, entryPoint: 'vsGlass' }, fragment: { module: glassMod, entryPoint: 'fsGlass', targets: [{ format, blend }] } });
     this.pGlass = [glassP(undefined), glassP({ color: { srcFactor: 'constant', dstFactor: 'one-minus-constant', operation: 'add' }, alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' } })];
@@ -577,7 +580,7 @@ class Engine {
     this.glass = [];
 
     // the main view's micro-suspension: specks found per frame, then drawn as quads (MICRO_WGSL)
-    this.microModule = d.createShaderModule({ code: MICRO_WGSL, label: 'micro' });
+    this.microModule = shader({ code: MICRO_WGSL, label: 'micro' });
     this.cpMicro = defer({ layout: 'auto', compute: { module: this.microModule, entryPoint: 'microSpecks' }, label: 'microSpecks' }, true, (p) => { this.cpMicro = p; });
     this.pSpeck = defer(rpDesc(this.microModule, 'vsSpeck', 'fsSpeck', 'triangle-strip', additive), false, (p) => { this.pSpeck = p; });
     b.microU = d.createBuffer({ size: 256, usage: U.UNIFORM | U.COPY_DST });
@@ -688,7 +691,7 @@ class Engine {
 
   async compileErrors() {
     const out = [];
-    for (const m of [this.simModule, this.pickModule, this.drawModule, this.postModule, this.microModule]) {
+    for (const m of this.modules) {
       const info = await m.getCompilationInfo();
       for (const msg of info.messages) if (msg.type === 'error') out.push(`${m.label}:${msg.lineNum}:${msg.linePos} ${msg.message}`);
     }
