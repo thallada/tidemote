@@ -4,7 +4,7 @@ import { signalAt } from './audio/motif.js';
 import { V_SCALE } from './audio/listen.js';
 import { createEngine, MAXK, FIRST_LIFE, MAX_STEPS, compactState } from './engine.js';
 import { genomeSerial, readGenome, writeGenome, parseParticle, thermalGuild, dietGuild } from './genome.js';
-import { seasonAt, createClimate, abioRate, EVENT_TYPES, excursionAt, eraName } from './climate.js';
+import { seasonAt, createClimate, abioRate, EVENT_TYPES, EVENT_NAME, excursionAt, eraName } from './climate.js';
 import { countPools } from './geography.js';
 import { createLab } from './lab.js';
 import { createSpecimen } from './specimen.js';
@@ -2521,15 +2521,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + (hasTS ? `<div class="opt"><span class="lbl">${term('profile', tr('settings.perf.profile', 'Profile'))}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">${tr('settings.perf.copy-profile', 'Copy profile')}</button></div></div>` : ''));
     }
     // the pool's events: on or off, each kind on or off, and one started now
-    // i18n: the pool's events (Settings → Climate)
-    const EVENT_NAMES = { drought: tr('settings.climate.drought', 'Drought'), storm: tr('settings.climate.storm', 'Storm'), duckweed: tr('settings.climate.duckweed', 'Duckweed'), frost: tr('settings.climate.frost', 'Frost') };
     function climate_() {
       const E = state.events;
-      const kinds = E.on ? EVENT_TYPES.map((x) => onoff(`ev-${x}`, EVENT_NAMES[x], '', E[x], `ev${x}`)).join('') : '';
+      const kinds = E.on ? EVENT_TYPES.map((x) => onoff(`ev-${x}`, EVENT_NAME[x], '', E[x], `ev${x}`)).join('') : '';
       const now = !K.pond ? '' : state.phase === 'running' && !climate.event && E.on && EVENT_TYPES.some((x) => E[x])
-        ? ((on) => `<div class="opt"><span class="lbl">${term('evstart', tr('settings.climate.start-now', 'Start one now'))}</span><div class="row segs${on.length > 3 ? ' many" style="--cols: 2' : ''}">${on.map((x) => `<button type="button" class="chip" data-o="ev-start" data-v="${x}">${EVENT_NAMES[x]}</button>`).join('')}</div></div>`)(EVENT_TYPES.filter((x) => E.on && E[x]))
-        // i18n: the event under way ({name}, settings.climate.drought...) and the stage it has reached
-        : climate?.event ? `<div class="opt"><span class="lbl">${tr('settings.climate.under-way', 'Under way')}</span><span class="note">${tr('settings.climate.event-now', '{name}{phase, select, none {} drying { · drying} dry { · dry} rain { · rain} after { · after} cooling { · cooling} freezing { · freezing} frozen { · frozen} thaw { · thaw} other { · {phase}}}', { name: EVENT_NAMES[climate.event.type], phase: climate.phase && climate.phase !== climate.event.type ? climate.phase : 'none' })}</span></div>` : '';
+        ? ((on) => `<div class="opt"><span class="lbl">${term('evstart', tr('settings.climate.start-now', 'Start one now'))}</span><div class="row segs${on.length > 3 ? ' many" style="--cols: 2' : ''}">${on.map((x) => `<button type="button" class="chip" data-o="ev-start" data-v="${x}">${EVENT_NAME[x]}</button>`).join('')}</div></div>`)(EVENT_TYPES.filter((x) => E.on && E[x]))
+        // i18n: the event under way ({name}, climate.event.drought...) and the stage it has reached
+        : climate?.event ? `<div class="opt"><span class="lbl">${tr('settings.climate.under-way', 'Under way')}</span><span class="note">${tr('settings.climate.event-now', '{name}{phase, select, none {} drying { · drying} dry { · dry} rain { · rain} after { · after} cooling { · cooling} freezing { · freezing} frozen { · frozen} thaw { · thaw} other { · {phase}}}', { name: EVENT_NAME[climate.event.type], phase: climate.phase && climate.phase !== climate.event.type ? climate.phase : 'none' })}</span></div>` : '';
       return group('events', tr('settings.climate.events', 'Pool events'), onoff('ev-on', tr('settings.climate.events-on', 'Events'), '', E.on, 'poolevents') + kinds + now);
     }
     // the saves kept in this browser (null until read; in the desktop app, with the Workshop's worlds
@@ -3918,8 +3916,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
   // The rail's event chip: the pool's event under way (with its turn), else the climate's heat wave or cold snap;
   // hidden when there is none (and on phones, by the stylesheet). Phases go by the climate's names but for these.
-  // i18n: the rail's event chip: the event, and the turn it has taken
-  const EVENT_CHIP = { drought: tr('rail.event.drought', 'Drought'), storm: tr('rail.event.storm', 'Storm'), frost: tr('rail.event.frost', 'Frost'), duckweed: tr('rail.event.duckweed', 'Duckweed') };
+  // i18n: the rail's event chip: the turn the event has taken
   const PHASE_NAMES = { storm: tr('rail.event.phase-storm', 'raining'), thaw: tr('rail.event.phase-thaw', 'thawing'), after: tr('rail.event.phase-after', 'passing'), duckweed: '',
     drying: tr('rail.event.phase-drying', 'drying'), dry: tr('rail.event.phase-dry', 'dry'), rain: tr('rail.event.phase-rain', 'rain'), cooling: tr('rail.event.phase-cooling', 'cooling'),
     freezing: tr('rail.event.phase-freezing', 'freezing'), frozen: tr('rail.event.phase-frozen', 'frozen') };
@@ -3928,7 +3925,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const ex = x && t >= x.t && t <= x.t + x.dur ? (x.dT > 0 ? 'hot' : 'cold') : '';
     let name = '', extra = '', icon = '', tip = '', tone = '', label = '';
     if (ev && t >= ev.t) {
-      name = EVENT_CHIP[ev.type] ?? ev.type[0].toUpperCase() + ev.type.slice(1); icon = `#i-ev-${ev.type}`; tip = `ev${ev.type}`;
+      name = EVENT_NAME[ev.type]; icon = `#i-ev-${ev.type}`; tip = `ev${ev.type}`;
       label = PHASE_NAMES[climate.phase] ?? climate.phase ?? '';
       // i18n: beside the event, the climate's heat wave or cold snap at the same time
       if (ex) extra = tr('rail.event.and-excursion', ' · {ex, select, hot {heat wave} other {cold snap}}', { ex });

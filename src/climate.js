@@ -44,6 +44,8 @@ export function excursionAt(x, t) {
 // grains grow over the thin pool, pushing cells into the veins of water left between them, then thaw). `eventPlan` in K forces events
 // for tests: "drought@900,duckweed@2400" (simulated seconds).
 export const EVENT_TYPES = ['drought', 'storm', 'duckweed', 'frost'];
+// i18n: an event's name (Settings → Climate, the rail's event chip)
+export const EVENT_NAME = { drought: tr('climate.event.drought', 'Drought'), storm: tr('climate.event.storm', 'Storm'), duckweed: tr('climate.event.duckweed', 'Duckweed'), frost: tr('climate.event.frost', 'Frost') };
 const ease = (u) => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u));
 const ramp = (t, a, b) => ease((t - a) / Math.max(b - a, 1e-6));
 
