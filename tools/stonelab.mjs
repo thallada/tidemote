@@ -13,6 +13,7 @@
 // is off for these).
 import fs from 'node:fs'; import path from 'node:path';
 import { openPage, cliArgs, aim } from './pagelab.mjs';
+import { loadBinWorld, saveBinWorld, unpackWorld } from './lib/world.mjs';
 
 const v = { out: 'runs/stone/x', world: 'runs/stone/world.bin', n: 65536, mature: 150, zoom: '25,70,150,400', looks: 'off,normal,strong', spots: 3, loupe: '', w: 1280, h: 800, html: 'dist/tidemote.html', ...cliArgs() };
 fs.mkdirSync(v.out, { recursive: true });
@@ -20,29 +21,12 @@ fs.mkdirSync(path.dirname(v.world), { recursive: true });
 const fresh = !fs.existsSync(v.world);
 const { page, close } = await openPage({ ...v, mature: fresh ? +v.mature : 1, tmp: 'stone-' });
 
-// the world's state as one blob (bench.mjs's .bin: a JSON head, then each buffer), carried as base64
-const save = () => page.evaluate(async () => {
-  const s = await globalThis.__tidemote.eng.readState();
-  const cpu = Object.fromEntries(Object.entries(s.cpu).map(([k, x]) => [k, ArrayBuffer.isView(x) ? Array.from(x) : x]));
-  const head = new TextEncoder().encode(JSON.stringify({ cpu, sizes: Object.entries(s.gpu).map(([k, b]) => [k, b.byteLength]) }));
-  const blob = new Blob([new Uint32Array([head.length]), head, ...Object.values(s.gpu)]);
-  const url = await new Promise((r) => { const f = new FileReader(); f.onload = () => r(f.result); f.readAsDataURL(blob); });
-  return url.slice(url.indexOf(',') + 1);
-});
-
+// the world's state as one blob (tools/lib/world.mjs's .bin), carried as base64
 if (fresh) {
-  fs.writeFileSync(v.world, Buffer.from(await save(), 'base64'));
+  fs.writeFileSync(v.world, Buffer.from((await saveBinWorld(page)).b64, 'base64'));
   console.log(`saved ${v.world}`);
 } else {
-  await page.evaluate(async (b64) => {
-    const T = globalThis.__tidemote, b = await (await fetch(`data:application/octet-stream;base64,${b64}`)).arrayBuffer();
-    const head = new Uint32Array(b, 0, 1)[0];
-    const meta = JSON.parse(new TextDecoder().decode(new Uint8Array(b, 4, head)));
-    const gpu = {};
-    let at = 4 + head;
-    for (const [k, size] of meta.sizes) { gpu[k] = b.slice(at, at + size); at += size; }
-    return T.loadWorld({ cpu: meta.cpu, gpu });
-  }, fs.readFileSync(v.world).toString('base64'));
+  await loadBinWorld(page, `data:application/octet-stream;base64,${fs.readFileSync(v.world).toString('base64')}`);
   // a step or two, so the stone list (gathered as matter moves) is drawn from the loaded world
   await page.evaluate(async () => {
     const T = globalThis.__tidemote, t0 = T.eng.simTime;
@@ -53,8 +37,8 @@ if (fresh) {
 await page.evaluate(() => globalThis.__tidemote.setSpeed(0));
 
 // where stone lies: the densest few-unit squares of bedrock and of reef
-const wb = fs.readFileSync(v.world), wh = wb.readUInt32LE(0), meta = JSON.parse(wb.subarray(4, 4 + wh));
-const P = new DataView(wb.buffer, wb.byteOffset + 4 + wh), grid = meta.cpu.grid, cnt = meta.cpu.count;
+const world = unpackWorld(fs.readFileSync(v.world));
+const P = new DataView(world.gpu.parts), grid = world.cpu.grid, cnt = world.cpu.count;
 const bins = new Map();
 for (let i = 0; i < cnt; i++) {
   const o = i * 40, kind = P.getUint32(o + 16, true);

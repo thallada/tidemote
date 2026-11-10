@@ -11,3 +11,18 @@ test('tools write view preferences at the version the page saves', () => {
   for (const v of saved) assert.equal(PREFS_V, v, 'tools/lib/prefs.mjs PREFS_V follows the page (persist in src/main.js)');
   assert.deepEqual(viewPrefs({ particles: 8192, auto: false }), { v: PREFS_V, particles: 8192, auto: false });
 });
+
+test('a world packed as a .bin unpacks to the same state', async () => {
+  const { packWorld, unpackWorld } = await import('../tools/lib/world.mjs');
+  const bytes = (n, s) => Uint8Array.from({ length: n }, (_, i) => (i * 31 + s) & 255).buffer;
+  const st = { cpu: { count: 3, grid: [8, 4], founders: 24, seen: new Float32Array([0.5, -2]) }, gpu: { parts: bytes(120, 1), genomes: bytes(224, 2), thermal: bytes(0, 3) } };
+  const bin = packWorld(st);
+  // the layout the tools' saved worlds have: a u32 head length, the JSON head, then each buffer
+  const head = bin.readUInt32LE(0);
+  assert.deepEqual(JSON.parse(bin.subarray(4, 4 + head)), { cpu: { ...st.cpu, seen: [0.5, -2] }, sizes: [['parts', 120], ['genomes', 224], ['thermal', 0]] });
+  assert.equal(bin.length, 4 + head + 344);
+  const back = unpackWorld(bin);
+  assert.deepEqual(back.cpu, { ...st.cpu, seen: [0.5, -2] });
+  for (const k of Object.keys(st.gpu)) assert.deepEqual(new Uint8Array(back.gpu[k]), new Uint8Array(st.gpu[k]));
+  assert.deepEqual(unpackWorld(bin.buffer.slice(bin.byteOffset, bin.byteOffset + bin.length)).cpu, back.cpu);
+});

@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { pathToFileURL, fileURLToPath } from 'node:url';
+import { unpackWorld } from '../lib/world.mjs';
 
 const { values: v } = parseArgs({ options: {
   world: { type: 'string' }, k: { type: 'string', default: '{}' }, reps: { type: 'string', default: '20' },
@@ -26,16 +27,10 @@ const device = await adapter.requestDevice({ requiredFeatures: ['timestamp-query
   maxStorageBufferBindingSize: Math.min(lim.maxStorageBufferBindingSize, 2 ** 31 - 4), maxBufferSize: Math.min(lim.maxBufferSize, 2 ** 31 - 4), maxStorageBuffersPerShaderStage: 10 } });
 device.addEventListener?.('uncapturederror', (e) => console.error(e.error.message));
 
-const buf = fs.readFileSync(v.world);
-const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-const head = new Uint32Array(ab, 0, 1)[0];
-const meta = JSON.parse(new TextDecoder().decode(new Uint8Array(ab, 4, head)));
-const state = { cpu: meta.cpu, gpu: {} };
-let at = 4 + head;
-for (const [k, size] of meta.sizes) { state.gpu[k] = ab.slice(at, at + size); at += size; }
+const state = unpackWorld(fs.readFileSync(v.world));
 
 const eng = await createEngine(device, 'rgba8unorm', { hasTimestamps: true, K: JSON.parse(v.k) });
-if (!(await eng.allocate(meta.cpu.count))) throw new Error('allocation failed');
+if (!(await eng.allocate(state.cpu.count))) throw new Error('allocation failed');
 eng.writeState(state);
 const keep = eng.snapshot();
 const dt = +v.ticks / 60;

@@ -40,6 +40,7 @@ import http from 'node:http';
 import { retryAdapter } from '../vk.mjs';
 import { launchOptions, UNTHROTTLED } from '../lib/browser.mjs';
 import { viewPrefs } from '../lib/prefs.mjs';
+import { loadBinWorld, saveBinWorld } from '../lib/world.mjs';
 import { androidChrome, serve, phoneState } from '../android.mjs';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -160,16 +161,7 @@ async function world(page, w) {
   const file = path.join(worldDir, `${w.file || w.name}.bin`);
   if (fs.existsSync(file)) {
     const t0 = Date.now();
-    await page.evaluate(async (url) => {
-      const T = globalThis.__tidemote;
-      const buf = await (await fetch(url)).arrayBuffer();
-      const head = new Uint32Array(buf, 0, 1)[0];
-      const meta = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, head)));
-      const gpu = {};
-      let at = 4 + head;
-      for (const [k, size] of meta.sizes) { gpu[k] = buf.slice(at, at + size); at += size; }
-      T.loadWorld({ cpu: meta.cpu, gpu });
-    }, `${base}/worlds/${w.file || w.name}.bin`);
+    await loadBinWorld(page, `${base}/worlds/${w.file || w.name}.bin`);
     // a .bin is raw buffers, unchecked: one saved before a layout change loads as noise, lifeless
     await page.waitForTimeout(2000);
     const living = await page.evaluate(() => globalThis.__tidemote.life().counts[3]);
@@ -180,18 +172,7 @@ async function world(page, w) {
   console.log(`world ${w.name}: growing ${w.n} particles at Max for ${w.mature} s`);
   await page.evaluate(() => { const T = globalThis.__tidemote; T.state.paused = false; T.setSpeed(Infinity); });
   await page.waitForTimeout(w.mature * 1000);
-  const info = await page.evaluate(async (url) => {
-    const T = globalThis.__tidemote;
-    T.setSpeed(1);
-    const s = await T.eng.readState();
-    const cpu = Object.fromEntries(Object.entries(s.cpu).map(([k, x]) => [k, ArrayBuffer.isView(x) ? Array.from(x) : x]));
-    const sizes = Object.entries(s.gpu).map(([k, b]) => [k, b.byteLength]);
-    const head = new TextEncoder().encode(JSON.stringify({ cpu, sizes }));
-    const blob = new Blob([new Uint32Array([head.length]), head, ...Object.values(s.gpu)]);
-    await fetch(url, { method: 'PUT', body: blob });
-    const L = T.life();
-    return { simTime: T.eng.simTime, living: L.counts[3], species: L.alive };
-  }, `${base}/worlds/${w.file || w.name}.bin`);
+  const info = await saveBinWorld(page, `${base}/worlds/${w.file || w.name}.bin`, { speed: 1 });
   console.log(`world ${w.name}: saved at ${info.simTime.toFixed(0)} sim s, ${info.living} living, ${info.species} species`);
   report.worlds[w.name] = info;
 }

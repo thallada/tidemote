@@ -13,6 +13,7 @@ import fs from 'node:fs'; import path from 'node:path'; import http from 'node:h
 import { chromium } from 'playwright-core';
 import { launchOptions, windowFlags } from '../lib/browser.mjs';
 import { viewPrefs } from '../lib/prefs.mjs';
+import { loadBinWorld, saveBinWorld } from '../lib/world.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith('--') ? [...a, [x.slice(2), all[i + 1] && !all[i + 1].startsWith('--') ? all[i + 1] : '1']] : a), []));
 const v = { world: 'w1', n: 262144, mature: 90, out: 'runs/anim/out/x', zoom: 450, secs: 6, speed: 1, spots: 3, target: 'events', k: '{}', pre: 2, w: 1200, h: 800, html: 'dist/tidemote.html', ...args };
@@ -51,31 +52,13 @@ await page.addStyleTag({ content: '#dock,#floats,#hud,#flash,#caption,#feed,#lab
 
 const file = `${v.world}.bin`;
 if (fs.existsSync(path.join(worldDir, file))) {
-  await page.evaluate(async (url) => {
-    const T = globalThis.__tidemote;
-    const buf = await (await fetch(url)).arrayBuffer();
-    const head = new Uint32Array(buf, 0, 1)[0];
-    const meta = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, head)));
-    const gpu = {};
-    let at = 4 + head;
-    for (const [k, size] of meta.sizes) { gpu[k] = buf.slice(at, at + size); at += size; }
-    T.loadWorld({ cpu: meta.cpu, gpu });
-  }, `${base}/worlds/${file}`);
+  await loadBinWorld(page, `${base}/worlds/${file}`);
   console.log(`opened ${file}`);
 } else {
   console.log(`growing ${v.n} particles at Max for ${v.mature} s`);
   await page.evaluate(() => globalThis.__tidemote.setSpeed(Infinity));
   await page.waitForTimeout(+v.mature * 1000);
-  const info = await page.evaluate(async (url) => {
-    const T = globalThis.__tidemote;
-    T.setSpeed(1);
-    const s = await T.eng.readState();
-    const cpu = Object.fromEntries(Object.entries(s.cpu).map(([k, x]) => [k, ArrayBuffer.isView(x) ? Array.from(x) : x]));
-    const sizes = Object.entries(s.gpu).map(([k, b]) => [k, b.byteLength]);
-    const head = new TextEncoder().encode(JSON.stringify({ cpu, sizes }));
-    await fetch(url, { method: 'PUT', body: new Blob([new Uint32Array([head.length]), head, ...Object.values(s.gpu)]) });
-    return { simTime: T.eng.simTime };
-  }, `${base}/worlds/${file}`);
+  const info = await saveBinWorld(page, `${base}/worlds/${file}`, { speed: 1 });
   console.log(`saved ${file} at ${info.simTime.toFixed(0)} sim s`);
 }
 await page.evaluate(() => globalThis.__tidemote.setSpeed(1));
