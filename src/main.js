@@ -3547,7 +3547,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const speedStops = () => [...SPEEDS.filter((v) => v <= 1 || (v !== Infinity && v <= speedCap)), 'fast', Infinity];
   const speedStop = () => (state.speed === Infinity && fastMode ? 'fast' : state.speed);
   // the speed chip opens the ladder of every speed on offer
-  const ladder = createLadder({ chip: $('t-speed'), el: $('ladder'), choices: speedStops, current: speedStop, fmt: fmtStop, pick: setSpeed, real: () => setSpeed(1) });
+  const ladder = createLadder({ chip: $('t-speed'), el: $('ladder'), choices: speedStops, current: speedStop, fmt: fmtStop, pick: setSpeed, real: () => setSpeed(1), coarse: coarseFrom });
   // one notch along the speeds on offer
   const stepSpeed = (d) => setSpeed(ladder.along(speedStop(), d));
   $('t-slower').addEventListener('click', () => stepSpeed(-1));
@@ -3635,6 +3635,17 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (!S) return Infinity;
     return (Math.max(0, GPU_BUDGET - gpuLoad(0, MAX_TICKS)) / S) * MAX_TICKS / 60;
   }
+  // the ways a fast speed can be run, as updateTicks tries them
+  const WAYS = [[1, false]];
+  // (coarse steps with the world drawn every frame, in between steps (LERP_WGSL), before holding it)
+  for (let m = 2; m <= MAX_TICKS; m++) WAYS.push([m, false]);
+  for (let m = 1; m <= MAX_TICKS; m++) WAYS.push([m, true]);
+  // the slowest speed on offer that the first way to fit (updateTicks' choice, short of its hysteresis) runs in coarse
+  // steps: the ladder marks it; none until a step's cost is known
+  function coarseFrom() {
+    if (!stepCost()) return null;
+    return speedStops().find((s) => typeof s === 'number' && s > 1 && s !== Infinity && (WAYS.find(([m, h]) => gpuLoad(s, m, h) <= GPU_BUDGET) || WAYS.at(-1))[0] > 1) ?? null;
+  }
   // How the chosen speed is run, cheapest first: 1/60 s steps with the world drawn every display
   // frame; the same with it drawn only about every MAX_FRAME_MS (held); then the shortest coarse step the
   // GPU fits (Max: the coarsest). Re-judged each second; a cheaper way is taken back only with room to spare.
@@ -3651,10 +3662,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       while (m > 1 && S1 * (1 + 0.45 * (m - 1)) > MAX_STEP_MS) m--;
       perf.ticks = m; perf.held = true; return;
     }
-    const ways = [[1, false]];
-    // coarse steps with the world drawn every frame, in between steps (LERP_WGSL), before holding it
-    for (let m = 2; m <= MAX_TICKS; m++) ways.push([m, false]);
-    for (let m = 1; m <= MAX_TICKS; m++) ways.push([m, true]);
+    const ways = WAYS;
     const rank = ways.findIndex(([m, h]) => m === perf.ticks && h === perf.held);
     let i = ways.findIndex(([m, h]) => gpuLoad(s, m, h) <= GPU_BUDGET);
     if (i < 0) i = ways.length - 1;
