@@ -134,7 +134,7 @@ version, its own switches, real fullscreen and saves the browser cannot evict.
 
 Chromium keeps compiled WebGPU pipelines per profile (`DawnWebGPUCache`), so a load after the first
 starts the world in about 0.6–0.8 s instead of 4.4 (RTX 4070 Ti; the page's own `boot` times, in
-Settings → Performance → Copy profile). Why an update undid that (Chromium source, October 2026):
+Settings → Perf → Copy profile). Why an update undid that (Chromium source, October 2026):
 
 - The GPU process looks pipelines up only in an in-memory cache of 6 MiB
   (`kDefaultMaxProgramCacheMemoryBytes`), one for the whole profile, every site's WebGPU shared.

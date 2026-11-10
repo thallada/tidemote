@@ -419,8 +419,8 @@ hard to catch):
 
 ## The seed bank (dormancy)
 
-Implemented as `cyst`: a cell short of energy (`cystAt` of its division energy) with no food in reach
-may go dormant; a cyst drifts, cannot eat, divide or be eaten, leaks `cystLeak` a second and wakes at
+Implemented as cysts: a cell short of energy (`cystAt` of its division energy) with no food in reach
+may go dormant (at `cystRate` a second); a cyst drifts, cannot eat, divide or be eaten, leaks `cystLeak` a second and wakes at
 `cystWake` a second. Originally proposed: species leave dormant cysts (a body holding its energy, unable to act, slowly decaying) and cysts wake
 when conditions suit them: food for their diet nearby, their kind scarce around them. A guild wiped
 out in one place returns from its cysts when its niche reopens, as plankton and microbes do. It is

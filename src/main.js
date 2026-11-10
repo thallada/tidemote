@@ -134,7 +134,7 @@ async function boot(tries = 4) {
     const safari = /AppleWebKit/.test(ua) && /Safari\//.test(ua) && !/Chrome|Chromium|CriOS|FxiOS|EdgiOS|Edg\/|OPR\/|Android/.test(ua);
     if (safari && ios) fail(tr('err.no-webgpu.safari-ios', 'Safari has WebGPU from iOS 26'), tr('err.no-webgpu.safari-ios.detail', 'Tidemote simulates its world on your graphics card through WebGPU, which Safari offers from iOS and iPadOS 26. Update the system to run it here.'));
     else if (safari) fail(tr('err.no-webgpu.safari-mac', 'Safari has WebGPU from macOS 26'), tr('err.no-webgpu.safari-mac.detail', 'Tidemote simulates its world on your graphics card through WebGPU, which Safari offers only on macOS 26 Tahoe and later, whatever its own version. On an earlier macOS, open Tidemote in Chrome or Edge, or update macOS.'));
-    else fail(tr('err.no-webgpu', 'This browser has no WebGPU'), tr('err.no-webgpu.detail', 'Tidemote simulates its world on your graphics card through WebGPU. Try a current Chrome, Edge or Safari, or Firefox on Windows.'));
+    else fail(tr('err.no-webgpu', 'This browser has no WebGPU'), tr('err.no-webgpu.detail', 'Tidemote simulates its world on your graphics card through WebGPU. Try a current Chrome or Edge, Safari on macOS 26 or iOS 26, or Firefox on Windows.'));
     return;
   }
   const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });

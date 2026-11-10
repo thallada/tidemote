@@ -44,7 +44,7 @@ neighbor loop is what pays. On 2026-10-09 the neighbor loop was about 93% of it;
 budget `maxScan`: 192 since 2026-10-09 (288 before), which took about 25% off `lifeMain` (1M world
 2.30 → 1.67 ms, 4M 9.9 → 7.8 ms). It passed the 32-seed gate against 288 and against heat-framboids,
 and 128 seeds at 4-tick steps matched 288 or bettered it (effective species 79.5 ± 4.4 against
-72.0 ± 3.9; reports in `balance/maxscan/`). It is a uniform (`sim.maxScan`), so Settings → Performance →
+72.0 ± 3.9; reports in `balance/maxscan/`). It is a uniform (`sim.maxScan`), so Settings → Perf →
 Neighbors changes it live (no measurable cost against a compiled constant); since 2026-10-25 it offers about
 ¾, 1, 1½ and 2 times the default `maxScan` (now 112: 88, 112, 168, 224), the default marked.
 
@@ -173,7 +173,7 @@ Chrome reports its adapter's vendor (`img-tec`) but neither architecture nor des
   cell, against 85 on an M1 and 3 on an RTX 4070 Ti), `contactMain` 1.8, `resolveCount` 1.3-1.8. Seen whole, drawing
   8.6 ms: the sea's spectrum and inverse FFT 2.6, the composite 2.5, cells 1.2, bloom 0.3. Up close (80 pixels a unit)
   14.4 ms: cells 4.2-5.5, `contactGather` 3.3, the sea 2.3, the composite 2.2. 43 fps at full scale there before.
-- **The tuner** (`src/tuner.js`, Settings → Performance: Water motion, Bloom, Specks, Stone light, Finish, Cell
+- **The tuner** (`src/tuner.js`, Settings → Perf: Water motion, Bloom, Specks, Stone light, Finish, Cell
   insides, each Auto or fixed; the neighbors are Settings → Neighbors', Auto while left at the default): render scale and
   seven knobs, moved one step at a time every two seconds by what each step costs this
   device and what it shows. Finish: the heat map's shimmer (barely seen: 1 - SSIM 0.001-0.006), then the optics, their
@@ -421,7 +421,7 @@ The weakest GPU at hand (Android 12, Chrome, 393×786 CSS pixels at 2.75). Chrom
   three windows: the frame rate back first, then the scale. Auto pixel density stays at 1× (until
   2026-11 it rose to 1.5× with room to spare: at 1.5× an M1 MacBook spent 18 ms a frame drawing, 2.25 times
   the pixels for little visible gain), except while a film rolls, whose frames are the screen's size; a level that just proved too slow is
-  not retried for 30 s. Settings → Performance shows the rate aimed for and why, and each Auto choice
+  not retried for 30 s. Settings → Perf shows the rate aimed for and why, and each Auto choice
   (render scale, pixel density, particles) shows what it is using now, with the matching fixed choice
   underlined. A fixed pixel density never changes; prefs saved before v3 holding the old default 1.5
   open as Auto.
@@ -558,7 +558,7 @@ and never during a balance gate.
   DXC as Chrome does, so its kernel timings differ from the browser's.
 - `shots.mjs` screenshots a saved world at several zooms (for pixel comparisons of render variants);
   `flash.mjs` measures every composited frame's brightness around render-scale changes.
-- In the page, Settings → Performance → **Copy profile** (where the GPU gives timestamps) times three
+- In the page, Settings → Perf → **Copy profile** (where the GPU gives timestamps) times three
   seconds of frames pass by pass and a step dispatch by dispatch on that device, and copies it as
   JSON: the way to see how a phone spends its time. Its `world` records what picks a step's work (the
   water's level and the era's, frost, an event and its phase, coarse ticks), so a slow profile says
