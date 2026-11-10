@@ -10,6 +10,7 @@ import { voiceOf } from './audio/mapping.js';
 import { describe, compareMotifs } from './audio/motif.js';
 import { songSVG, sigilSVG, lightSong } from './song.js';
 import { createMindView } from './mindview.js';
+import { belowRange } from './mind.js';
 import { block, kv, trait, section, subHead } from './ui.js';
 import { setHTML } from './live.js';
 import { tr } from './i18n.js';
@@ -226,7 +227,7 @@ export function createSpecimen(api) {
     const m = mind && mind.m;
     if (K.heat && !past && g) {
       // i18n: a cell's temperature ({t}) against its species' best ({opt}): {below} and {warm} are degrees, {perf} a percentage
-      h += kv(tr('spec.cell.warmth', 'Warmth'), !m ? '—' : m.torpid ? tr('spec.cell.warmth.torpid', '{t}° · torpid, {below}° below its range', { t: Math.round(m.warmth), below: Math.max(1, Math.round(g.topt - g.tol * K.torporAt - m.warmth)) })
+      h += kv(tr('spec.cell.warmth', 'Warmth'), !m ? '—' : m.torpid ? tr('spec.cell.warmth.torpid', '{t}° · torpid, {below}° below its range', { t: Math.round(m.warmth), below: belowRange(g, K, m.warmth) })
         : m.x > 0.8 ? tr('spec.cell.warmth.scalding', '{t}° · scalding, best {opt}°', { t: Math.round(m.warmth), opt: Math.round(g.topt) })
           // i18n: {t} its temperature, {opt} its species' best; {warm} degrees above the water (a heat-maker's)
           : tr('spec.cell.warmth.works', '{t}° · works {perf}%, best {opt}°{own, select, yes { · runs {warm}° warm} other {}}', { t: Math.round(m.warmth), perf: Math.round(m.perf * 100), opt: Math.round(g.topt), own: m.warmth - m.water > 0.4 ? 'yes' : 'no', warm: Math.round(m.warmth - m.water) }), 'thermal');

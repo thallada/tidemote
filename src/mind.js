@@ -108,6 +108,9 @@ const MODES = {
 };
 
 /** How well a hunter's build lets it catch a prey cell (0..1), as lifeMain's catch-skill roll. */
+/** How many degrees below its working range a torpid cell at `warmth` is, as the Behavior headline and the specimen's
+ * Warmth row both say it: rounded, and at least 1 (it is below). */
+export const belowRange = (g, K, warmth) => Math.max(1, Math.round(g.topt - g.tol * K.torporAt - warmth));
 export function catchSkill(hunter, prey, K) {
   if (!hunter || !prey) return 0;
   const eatEff = (1 - hunter.photo) ** 2;
@@ -206,7 +209,7 @@ export function interpretMind(m, g, kind, { K, genomeOf, ridden = false }) {
     st = { key: 'cyst', text: tr('mind.state.cyst', 'Dormant'), why: tr('mind.state.cyst.why', 'Asleep as a cyst: it has let go of its body, and neither swims, feeds, divides nor can be eaten; it moves only as the water and its neighbors push it. It leaks {leak}/s of its {e} energy{lasts, select, short { (enough for about {min} min)} other {}} and wakes at random, about once every {wake} s on average, to try its luck again.', { leak: K.cystLeak, e, lasts: lasts < 3600 ? 'short' : 'long', min: Math.round(lasts / 60), wake: Math.round(1 / K.cystWake) }) };
   } else if (K.heat && m.torpid) {
     // i18n: {t} its temperature, {below} degrees below its working range, {range} its preferred range (20° ± 5°), {cost} a percentage
-    st = { key: 'torpid', text: tr('mind.state.torpid', 'Torpid in the cold'), why: tr('mind.state.torpid.why', 'At {t}° it is {below}° below the range it can work in (it prefers {range}): it neither feeds, swims nor divides, and burns {cost}% of its upkeep until the water warms.', { t: deg(m.warmth), below: Math.round((g.topt - g.tol * K.torporAt) - m.warmth + 0.5), range, cost: Math.round(K.torporCost * 100) }) };
+    st = { key: 'torpid', text: tr('mind.state.torpid', 'Torpid in the cold'), why: tr('mind.state.torpid.why', 'At {t}° it is {below}° below the range it can work in (it prefers {range}): it neither feeds, swims nor divides, and burns {cost}% of its upkeep until the water warms.', { t: deg(m.warmth), below: belowRange(g, K, m.warmth), range, cost: Math.round(K.torporCost * 100) }) };
   } else if (E >= need && !m.mature) {
     // i18n: {at} a percentage of its lifespan, {age} that age in seconds
     st = { key: 'young', text: tr('mind.state.young', 'Growing up'), why: tr('mind.state.young.why', 'It has the energy to divide ({e} of {need}) but is too young: a cell divides only once it is {at}% through its lifespan ({age} s). Full, it has stopped feeding.', { e, need: needs, at: Math.round(K.mature * 100), age: Math.round(K.mature * g.lifespan) }) };

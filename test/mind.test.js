@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_K as K, MIND_HEAD, MIND_NBR_WORDS, MIND_BYTES } from '../src/shaders.js';
-import { parseMind, interpretMind, settleMind, catchSkill, strikeChance, attackChance, slotRows, groupsFor } from '../src/mind.js';
+import { parseMind, interpretMind, settleMind, catchSkill, strikeChance, attackChance, slotRows, groupsFor, belowRange } from '../src/mind.js';
 import { divEnergy } from '../src/genome.js';
 
 const NONE = 0xffffffff;
@@ -211,4 +211,12 @@ test('mindMain records the division energy, dormancy, flight and gut', async () 
   const mind = simWGSL(K).slice(simWGSL(K).indexOf('fn mindMain'));
   assert.match(mind, /mPut\(58, divE\)/);
   assert.match(mind, /mPut2\(60, mFlee/);
+});
+
+test('a torpid cell is so many degrees below its range, rounded and at least one', () => {
+  const g = { topt: 20, tol: 5 }, k = { torporAt: 1 };
+  assert.equal(belowRange(g, k, 14.9), 1);
+  assert.equal(belowRange(g, k, 13.6), 1);
+  assert.equal(belowRange(g, k, 13.4), 2);
+  assert.equal(belowRange(g, k, 8), 7);
 });
