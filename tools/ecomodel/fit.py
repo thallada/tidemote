@@ -3,7 +3,7 @@
 surplus. Each set is tagged with the rules it ran under (bite, light per area or per cell, dung).
 
   tools/ecomodel/.venv/bin/python tools/ecomodel/fit.py [tools/ecomodel/meas/points.json]
-Writes tools/ecomodel/meas/fit.json, the fitted processes the model (model.py) is assembled from.
+Writes tools/ecomodel/meas/fit.json, the fitted processes the model (web.py) is assembled from.
 """
 import json, sys
 import numpy as np
