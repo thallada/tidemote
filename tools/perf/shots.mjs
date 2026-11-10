@@ -19,8 +19,9 @@ const dir = fs.mkdtempSync(path.join(process.env.TEMP || '/tmp', 'tm-shots-'));
 const ctx = await chromium.launchPersistentContext(dir, { ...launchOptions({ args: ['--window-size=1600,900', '--window-position=0,0'], vk: false }), viewport: null });
 const page = ctx.pages()[0];
 const meta = JSON.parse(fs.readFileSync(path.join(root, 'runs/perf/worlds', `${world}.bin`)).subarray(4, 4 + fs.readFileSync(path.join(root, 'runs/perf/worlds', `${world}.bin`)).readUInt32LE(0)).toString());
-// the default look (look = 'default'), or plain: no optics, specks or trails, so frames compare pixel by pixel
-const view = viewPrefs({ particles: meta.cpu.count, auto: false, labOpen: false, scale: 1, ...(look === 'default' ? {} : { optics: 0, specks: false, trails: 0 }) });
+// the default look (look = 'default'), or plain: no optics, specks or trails, so frames compare pixel by pixel; the
+// interface hidden (Settings → Display → Interface, U), the scale bar and its ticks with it: only the world shows
+const view = viewPrefs({ particles: meta.cpu.count, auto: false, labOpen: false, ui: false, scale: 1, ...(look === 'default' ? {} : { optics: 0, specks: false, trails: 0 }) });
 await page.addInitScript(({ view, init }) => {
   localStorage.setItem('tidemote.view', JSON.stringify(view));
   localStorage.setItem('tidemote.sound', '{"on":false}');
@@ -29,6 +30,10 @@ await page.addInitScript(({ view, init }) => {
 const base = `http://127.0.0.1:${server.address().port}`;
 await page.goto(`${base}/`);
 await page.waitForFunction(() => globalThis.__tidemote?.state.phase === 'running');
+// the intro gone before the world is loaded: in an automated browser it goes by itself a few seconds after the
+// world first runs (src/main.js, the menu), and a world loaded and paused before then is shot under the title;
+// then faded out (1.2 s)
+await page.waitForFunction(() => document.body.classList.contains('live') && getComputedStyle(document.getElementById('intro')).opacity === '0', null, { polling: 250 });
 await page.evaluate(async (url) => {
   const T = globalThis.__tidemote, buf = await (await fetch(url)).arrayBuffer();
   const head = new Uint32Array(buf, 0, 1)[0], meta = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, head)));
@@ -39,7 +44,6 @@ await page.evaluate(async (url) => {
   await new Promise((r) => setTimeout(r, 300));
   T.state.paused = true;
   document.body.classList.add('cursor-off');
-  for (const id of ['hud', 'dock', 'lab', 'rail']) { const el = document.getElementById(id); if (el) el.style.visibility = 'hidden'; }
 }, `${base}/w`);
 const zooms = (zoomList || '1,4,30,150,600').split(',').map(Number);
 for (const z of zooms) {
