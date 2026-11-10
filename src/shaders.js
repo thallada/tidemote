@@ -18,6 +18,9 @@ export const ICE_SHOWN_ANY = ICE_SHOWN + MAX_CELLS;
 // which water warm enough that bubbles may show near it, ice's rows then hot water's (b.heatTiles; heatMain, and the
 // ice still drawn, ICE_SHOW_WGSL; compPick)
 export const TILES = 32;
+// heatMain's workgroup: a thread a grid cell, whose threads then hand on the workgroup's tile bits a word each (its
+// thread li the word li of 2 × TILES), so it is as wide as there are words
+export const HEAT_WG = 2 * TILES;
 export const META_SLOT = 16;
 export const META_POP = META_SLOT + MAXK;
 export const META_DEATH = META_POP + MAXK;
@@ -2701,7 +2704,7 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
 var<workgroup> iceCells: atomic<u32>;
 var<workgroup> hotCells: atomic<u32>;
 var<workgroup> heatTileBits: array<atomic<u32>, ${2 * TILES}>;
-@compute @workgroup_size(64)
+@compute @workgroup_size(${HEAT_WG})
 fn heatMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) li: u32) {
   if (gid.x < sim.grid.x * sim.grid.y) {
     let h = heatStep(gid.x);
