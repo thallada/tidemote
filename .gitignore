@@ -9,5 +9,8 @@ site/index.html
 .wrangler/
 tools/ecomodel/.venv/
 tools/ecomodel/__pycache__/
+tools/ecomodel/meas/points.json
+tools/ecomodel/meas/points_extra.json
+tools/ecomodel/meas/traits.json
 dist/tidemote.*.html
 locales/context.json

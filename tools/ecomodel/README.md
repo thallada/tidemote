@@ -6,6 +6,12 @@ spending GPU hours on them (docs/ecosystem.md has the results). Python lives in 
 
 1. `node tools/ecomodel/responses.mjs runs/A runs/B ... --json tools/ecomodel/meas/points.json`: every
    run's 5-minute windows (awake densities, per-cell incomes, costs, births and deaths, kills, growth).
+   The windows are not tracked (26 MB; commit 619e639 has the study's). They come back exactly (but for
+   trait columns the older files lacked) from its ensembles under `runs/`, run from the repository's root:
+   `points.json` from feE2b rBb2dL rBb2L lgD60 feE2 rBb2d rBb2 rBb15 rB rAb15 s10base iaA6 iaA6b iaA60
+   trD30 b3 b25 b3ia b25b b25L b4L pr25L defL2 fl5L fl5 flsatL flsatabL, in that order;
+   `points_extra.json` from nd2L sa13L sa2L ndts3L; `traits.json` (evo.py) from trD30 b3 b25 b3ia b25b
+   b25L b4L pr25L defL2 fl5L flsatL flsatabL nd2L sa13L sa2L ndts3L ts3L iaA6b iaA60.
 2. `.venv/bin/python tools/ecomodel/fit.py`: fits the processes (light per producer, grazing, hunters'
    kills, scavenging, births against surplus, deaths by being eaten) to the windows -> `meas/fit.json`.
    Tag new ensembles' rules in `RULES` there.
