@@ -87,7 +87,8 @@ The first version drove the wave as a push on each bend (`beatDrive`). Three thi
   seconds even at real time (`runs/swimlab/before-after.mp4`).
 - **So in worlds, beating colonies were stubs.** In four 16k worlds (15 min, from 5 min on), cells in
   beating bodies of 2-3 cells were as common as those in bodies of 4-5; a two- or three-cell body is one
-  hinge and swims not at all (head-first speed ~0 in `runs/crowd/swim.mjs`).
+  hinge and swims not at all (head-first speed ~0 in `runs/crowd/swim.mjs`, a one-off kept outside the repo;
+`tools/swimlab.mjs` measures one body alone).
 
 In the same four worlds with the muscles below, beating bodies kept together (the longest averaged 14
 cells against 11) but were rarer: 0.9% of the living against 2.5% (four worlds are few; GPU runs diverge).
@@ -245,6 +246,6 @@ Producer swing and takeovers come from the regional dynamics scorer (per region-
 Growth keeps the boom-and-bust (booms, crashes and turnover per region about the same) while fewer
 worlds lose a guild or crash to near empty. With the first, one-sided angle spring, `growStiff` 1 let shapes sag into blobs and 12 held them but
 made long trees thrash; the bending form at 2 holds them with about a quarter of the internal motion
-(`runs/crowd/thrash.mjs`: rms speed of cells relative to their body, 10-24-cell plant trees .17 → .04). Trees for every species with fed animal colonies at stiffness 12 but without plants'
+(`runs/crowd/thrash.mjs`, a one-off kept outside the repo: rms speed of cells relative to their body, 10-24-cell plant trees .17 → .04). Trees for every species with fed animal colonies at stiffness 12 but without plants'
 tips waiting less made hunters dominate (27%) and calmed producers too much (swing .67). A tree costs about 4% more per living cell in `lifeMain`; step time
 is unchanged.

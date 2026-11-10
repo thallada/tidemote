@@ -189,7 +189,8 @@ So on coarse steps both are two-body, like the correction: the viscosity decays 
 (1 + 1/n)` implicitly, damped by `pushTheta` of backward Euler's `1 + k dt²`. Full backward Euler (1)
 overpacks (+9-11% at 4 ticks, +25-37% at 8-12); 0.25 keeps packing within about 6% at 4 and 8 ticks.
 
-Ensembles of 64 seeds × 30 min at 32k (eras on; runs/stride, `compare.py`), mean ± 95%:
+Ensembles of 64 seeds × 30 min at 32k (eras on; runs/stride, pooled by its `compare.py`, a one-off kept outside the repo; `tools/fastforward/pool.mjs`
+does the same for long runs), mean ± 95%:
 
 | step | eff. species | Hill2 | living | top share | diet P/G/Pr/S |
 |---|---|---|---|---|---|

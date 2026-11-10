@@ -205,8 +205,10 @@ procedural caustics as stray hairs; shadows showed only over stone.
 
 Filmed at 4K over a whole season, that first version (all of the light before the tone curve) was hard to see: the tone
 curve squeezed a band's 3.7x over the open water to 1.65x on screen at summer's peak, and in winter, half of every
-five-minute season, the bands rose only 1.4x and showed as nothing (`runs/light/film*.mjs` film one frozen world
-frame by frame, the Tide swept across it, every version swapped in). A second round exposed the view for the season
+five-minute season, the bands rose only 1.4x and showed as nothing (`runs/light/film*.mjs`, one-offs kept outside
+the repo like the other `runs/light` scripts below, film one frozen world frame by frame, the Tide swept across it,
+every version swapped in; in the repo `tools/looklab.mjs` holds a grown world still and photographs it as each new
+composite is swapped in). A second round exposed the view for the season
 (winter's bands stretched to 2.6x), moved most of the light after the tone curve and grayed the shade: plain, but it
 dimmed and grayed the cells out of the light, and the worlds lost their color. So the third (`runs/light/v2.mjs`,
 `metric3.py`: per pixel against the same world unlit, the living, the matter and the empty water apart, at summer's

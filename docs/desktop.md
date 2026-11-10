@@ -146,8 +146,8 @@ Settings → Performance → Copy profile). Why an update undid that (Chromium s
 
 Tidemote's compiled set is about 5–6 MiB of that (47 entries, the largest `lifeMain` at 550 KiB), so
 after an update old plus new no longer fit, and every load compiled the newest, largest pipelines again
-(about 3 s), indefinitely. Measure it with `runs/perf/cpu/cache-probe.mjs` (fresh Chrome per load, one
-profile; `STEPS` of builds and `#k=` hashes, the cache folder after each).
+(about 3 s), indefinitely. It was measured with `runs/perf/cpu/cache-probe.mjs`, a one-off kept outside the
+repo (fresh Chrome per load, one profile; `STEPS` of builds and `#k=` hashes, the cache folder after each).
 
 - The desktop app empties `DawnWebGPUCache` when the page's hash differs from the last launch's
   (`shader-cache-page` in userData), before Chromium opens it: the first launch of each version
@@ -162,9 +162,9 @@ profile; `STEPS` of builds and `#k=` hashes, the cache folder after each).
 - Not done: keeping the compiled set well under 6 MiB (fewer inlined call sites in the largest
   kernels) would leave room for an update and for other sites' WebGPU.
 
-Measure the desktop app with `runs/perf/cpu/boot-read.mjs` (an app started with
-`--remote-debugging-port`, read after it started: Playwright's own launch attaches DevTools early and
-changes the cache's keys).
+The desktop app was measured with `runs/perf/cpu/boot-read.mjs`, also a one-off outside the repo (it reads
+`__tidemote.boot` from an app started with `--remote-debugging-port`, attaching after it started:
+Playwright's own launch attaches DevTools early and changes the cache's keys).
 
 ## Switches
 

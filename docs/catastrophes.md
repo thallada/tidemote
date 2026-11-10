@@ -184,7 +184,7 @@ wrap puts them and show no seam at the world's edges. Raindrop ripples bend the 
   has faded out). An edge wanders as its cells freeze and thaw in turn: slow at real time, but at fast speeds a frame
   spans a second or more of it, and drawn as it stood the edge and its dendrites flickered in and out (on a cold
   probe's patch, consecutive frames at ×64: 1.4-2.4 pixels in 1000 reversing brightness each frame, 0.00-0.04 eased;
-  `runs/ice/flicker2.mjs`). Remembering each grain's stem axis was tried too and made no difference once eased.
+  `runs/ice/flicker2.mjs`, a one-off kept outside the repo). Remembering each grain's stem axis was tried too and made no difference once eased.
   Fixed in the world, so ice once formed stays put and the
   front grows outward (a thaw draws it back the same way): a point is ice once that front has come within `lead` of
   it, `lead` being how far ahead of the front the dendrites reach there; that reach grows with the ice (none where

@@ -189,7 +189,7 @@ Chrome reports its adapter's vendor (`img-tec`) but neither architecture nor des
   as much again for its time; only the dressing pays, the resolution falls only when frames are late). A knob's cost is
   measured every 10 s, 20 frames pass by pass (`tuneProfile`), and guessed as a share of the drawing until then; the
   neighbors' is the step itself, learned at each of their levels (`tuneSteps`). Their eye's weights were judged, then
-  the dressing's ordered by frozen frames scored against full quality (1 - SSIM, `runs/phone/ssim.py`): the sea gone
+  the dressing's ordered by frozen frames scored against full quality (1 - SSIM, `runs/phone/ssim.py`, a one-off kept outside the repo): the sea gone
   0.16-0.36, bloom 0.03-0.09, the specks 0.002-0.004. The sea turns every 1, 2 or 4 frames or not at all (2.6 → 1.3 →
   0.7 ms on the Pixel 11), bloom and the sea fade over a second as they turn (`Engine._fadeFx`), the stone relights every
   0.5, 1 or 2 s. On the Pixel 11 the sea goes to half and quarter rate before the resolution falls; on an RTX 4070 Ti,
@@ -327,14 +327,14 @@ pipette's bore, cells' insides (the main view draws them with the lean point pip
 the specks and the full composite (the lean one compiles in the first wave and draws alone until the full one lands:
 no ice, bubbles or maps for those seconds). Each lands in place with its bind groups (`_rebindLate`), and what uses
 one waits for it: portraits wait for the close-up (`closeupReady`), the loupe and the close-up draw once theirs are
-there. Cold, the Pixel 11 Pro's page runs at 7.6 s; a Pixel 3's at 16-26 s (from 34-40, its cache warm). Measure a
-build's compile on a phone with `runs/phone/compile-times.mjs` (each pipeline's start and finish, from inside the
-page).
+there. Cold, the Pixel 11 Pro's page runs at 7.6 s; a Pixel 3's at 16-26 s (from 34-40, its cache warm). It was measured
+with `runs/phone/compile-times.mjs`, a one-off kept outside the repo (each pipeline's start and finish, from inside
+the page: an init script wraps `create*PipelineAsync`).
 
 ## Firefox
 
 Measured 2026-10-28 on the RTX 4070 Ti, Firefox 159 stable against Chrome 156, 2M particles. Firefox
-launched plainly (`runs/perf/ff/plain.mjs`: no automation attached, the page posting its own numbers;
+launched plainly (`runs/perf/ff/plain.mjs`, a one-off kept outside the repo: no automation attached, the page posting its own numbers;
 under Puppeteer Firefox's frames came unevenly from the start) and a portable Firefox from
 `@puppeteer/browsers`. What each browser does differently, and what the page does about it:
 
@@ -365,7 +365,7 @@ under Puppeteer Firefox's frames came unevenly from the start) and a portable Fi
 The weakest GPU at hand (Android 12, Chrome, 393×786 CSS pixels at 2.75). Chrome reports `qualcomm` / `adreno-6xx`.
 
 - **Its clears skipped ranges, and every world collapsed.** It leaves untouched any `clearBuffer` whose offset is a
-  non-zero multiple of 64 KiB and whose size is under 64 KiB (`runs/phone/cleartest.mjs`: offsets of 64 KiB, 1, 2, 3
+  non-zero multiple of 64 KiB and whose size is under 64 KiB (`runs/phone/cleartest.mjs`, a one-off kept outside the repo: offsets of 64 KiB, 1, 2, 3
   and 6 MiB not cleared; 4 bytes off either side, or 64 KiB of size and more, cleared; an RTX clears every one). The
   living half of the per-cell counts sits at 2 MiB: never cleared, each step's counts grew, the scan left gaps in the
   sorted particles that kept the last step's, and within 60 ticks 8188 of 8192 particles were copies of a few hundred,
