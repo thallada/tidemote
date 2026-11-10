@@ -340,6 +340,8 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       const sp = reg.get(serial);
       if (!sp || (!sp.alive && t - (sp.extinct ?? t) > 30 * MIN)) S.sp.delete(serial);
     }
+    // (and what was told of species the registry no longer holds)
+    for (const serial of S.latest.keys()) if (!reg.has(serial)) { S.latest.delete(serial); S.told.delete(`sp:${serial}`); S.told.delete(`last:${serial}`); }
     for (const [k, p] of S.pairs) if (!p.bins.length) S.pairs.delete(k);
     return choose(cands, obs);
   }
