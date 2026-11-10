@@ -484,6 +484,9 @@ const STONE_COL_WGSL = STONE_KINDS.map((vs, k) => `      case ${k}u: { mc = ${vs
 // raindrops' rings and the founders' births. The engine folds what is wrapped off into the tide's and the
 // currents' phases (in f64), so light and flow run on unbroken; a genome's born is kept modulo it too.
 export const SIM_CLOCK = 32768;
+// the water's edge's wavering (edgeSway): its three waves' angular frequencies (radians a second), whose phases the
+// engine folds the wrapped time into as it does the tide's (Sim.edgePh, Post.edgePh)
+export const EDGE_SWAY_W = [0.7, 0.45, 1.3];
 const COMMON = /* wgsl */ `
 // x squared: pow(x, 2.0) is undefined for negative x (NaN, drawn black, on Metal and Vulkan), so never use it to square
 fn sqr(x: f32) -> f32 { return x * x; }
@@ -705,7 +708,7 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
 // uniforms (sim or post), t their time, K the tunables. dropFlow: raindrops' ring waves, each shoving the water
 // outward as it passes; edgeSway: how far the water's edge stands out from where the floor alone would put it (world
 // units), the currents (flow) pushing the meniscus out over the floor or drawing it back, wavering as it pins and
-// slips; n uphill (toward the dry).
+// slips; n uphill (toward the dry); its phases (edgePh) hold the time wrapped off the clock.
 const pondFlowWGSL = (u, t, K) => /* wgsl */ `
 fn dropFlow(p: vec2f) -> vec2f {
   var v = vec2f(0.0);
@@ -727,8 +730,9 @@ fn dropFlow(p: vec2f) -> vec2f {
 fn edgeSway(p: vec2f, n: vec2f, flow: vec2f) -> f32 {
   let t = ${t};
   let push = clamp(dot(flow, n) * ${f(K.edgeSway)}, -0.9, 0.9);
-  let wob = sin(dot(p, vec2f(0.83, 0.56)) * 0.9 + t * 0.7) * sin(dot(p, vec2f(-0.42, 0.91)) * 0.6 - t * 0.45)
-    + 0.5 * sin(dot(p, vec2f(0.29, -0.96)) * 2.1 + t * 1.3);
+  let ph = ${u}.edgePh;
+  let wob = sin(dot(p, vec2f(0.83, 0.56)) * 0.9 + (t * ${f(EDGE_SWAY_W[0])} + ph.x)) * sin(dot(p, vec2f(-0.42, 0.91)) * 0.6 - (t * ${f(EDGE_SWAY_W[1])} + ph.y))
+    + 0.5 * sin(dot(p, vec2f(0.29, -0.96)) * 2.1 + (t * ${f(EDGE_SWAY_W[2])} + ph.z));
   return push + ${f(K.edgeWobble)} * wob;
 }
 `;
@@ -1413,6 +1417,8 @@ struct Sim {
   // Observational (note).
   watch: vec4f,
   watchEv: vec4u,
+  // the water's edge's three waves' phases (EDGE_SWAY_W: the time wrapped off the clock folded in; edgeSway)
+  edgePh: vec4f,
 };
 // The viewer's hand (docs/hand.md): a local cause the world could have made itself, all zero (its ids NONE) in
 // every headless run. Centers in world units, reaches the radius of a disc (disc).
@@ -7097,6 +7103,8 @@ struct Post {
   // one's (xy) and the middle's (zw), then the far one's (murkB.xy)
   murk: vec4f,
   murkB: vec4f,
+  // the water's edge's phases, as Sim.edgePh
+  edgePh: vec4f,
 };
 `;
 

@@ -1,5 +1,5 @@
 import {
-  simWGSL, SIM_CLOCK, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, LERP_WGSL, POST_WGSL, GLASS_WGSL, SEA_WGSL, ICE_SHOW_WGSL, ICE_SHOWN, ICE_SHOWN_ANY, SHIFT_W, SHIFT_H, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
+  simWGSL, SIM_CLOCK, EDGE_SWAY_W, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, LERP_WGSL, POST_WGSL, GLASS_WGSL, SEA_WGSL, ICE_SHOW_WGSL, ICE_SHOWN, ICE_SHOWN_ANY, SHIFT_W, SHIFT_H, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
   MAXK, FIRST_LIFE, MAX_CELLS, THERMAL_WORDS, TILES, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, NOTE_WORDS, NOTE_WGSL, NOTE_HEAD, NOTE_REC, PIPE_MAX, PIPE_TAKE, PIPE_TAKE_W, PIPE_SP, PIPE_IDS, H_TAKEN, H_CUTS, H_RIDE, RIDE_MAX, H_IN, H_SP, H_CELLS, H_IDS, H_LINKS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES, TUBE_N, TUBE_K, STUDIO_N,
 } from './shaders.js';
 import {
@@ -19,8 +19,10 @@ export const POST_LOOK = POST_LAMP + 16;
 export const VIEW_BYTES = 224;
 // then the murk's cameras (Post.murk, murkB: _murkCam)
 const POST_MURK = POST_LOOK + LOOK_WORDS;
+// then the water's edge's phases (Post.edgePh)
+const POST_EDGE = POST_MURK + 8;
 // the post uniforms' floats (struct Post)
-export const POST_WORDS = POST_MURK + 8;
+export const POST_WORDS = POST_EDGE + 4;
 // how much slower than the focal plane each of the murk's layers pans (MUD_DEPTH in POST_WGSL)
 const MUD_DEPTH = [0.93, 0.85, 0.76];
 
@@ -162,7 +164,7 @@ class Engine {
     // (bloom, the sea and the finish's optics and look fade in and out over a second or so as fx turns them, never
     // flipping: _fadeFx)
     this.fxFade = { bloom: 1, sea: 1, finish: 1, t: null };
-    this.simData = new ArrayBuffer(880);
+    this.simData = new ArrayBuffer(896);
     // the viewer's hand (docs/hand.md; the page's src/hand.js sets it): Hand in simWGSL, its words as floats and
     // as ids. Zero, its ids NONE, in every headless run.
     this.hand = new Float32Array(116);
@@ -221,7 +223,7 @@ class Engine {
 
     const d = device;
     const b = this.b;
-    b.sim = d.createBuffer({ size: 880, usage: U.UNIFORM | U.COPY_DST });
+    b.sim = d.createBuffer({ size: 896, usage: U.UNIFORM | U.COPY_DST });
     // each substep's index (bodyTick), one 256-byte slot apiece, for steps of up to SUB_TICKS ticks
     b.subU = d.createBuffer({ size: SUB_TICKS * 256, usage: U.UNIFORM | U.COPY_DST });
     for (let k = 0; k < SUB_TICKS; k++) d.queue.writeBuffer(b.subU, k * 256, new Uint32Array([k]));
@@ -1321,15 +1323,17 @@ class Engine {
   get tbg() { return this.temp + (2.5 * (this.season - 0.55)) / 0.45 + this.excursion; }
 
   // The GPU's clock: simulated time modulo SIM_CLOCK (shaders.js), and what it wraps off folded into the
-  // tide's and the currents' phases here, in f64, so the light and the flow are continuous across a wrap.
+  // tide's, the currents' and the water's edge's phases here, in f64, so the light, the flow and the edge are
+  // continuous across a wrap.
   // Raindrops' times go relative to it. The real-time clock (drawing) wraps at REAL_WRAP.
   _clock() {
-    const base = Math.floor(this.simTime / SIM_CLOCK) * SIM_CLOCK, c = (this._clk ??= { tidePh: new Float32Array(4), wavePh: new Float32Array(4), drops: new Float32Array(16) });
+    const base = Math.floor(this.simTime / SIM_CLOCK) * SIM_CLOCK, c = (this._clk ??= { tidePh: new Float32Array(4), wavePh: new Float32Array(4), drops: new Float32Array(16), edgePh: new Float32Array(4) });
     for (let k = 0; k < 4; k++) {
       c.tidePh[k] = (this.tidePh[k] + this.tide[k * 4 + 2] * base) % (2 * Math.PI);
       c.wavePh[k] = (k * 1.7 + this.waves[k * 4 + 2] * base) % (2 * Math.PI);
       c.drops.set([this.drops[k * 4], this.drops[k * 4 + 1], this.drops[k * 4 + 2] - base, this.drops[k * 4 + 3]], k * 4);
     }
+    for (let k = 0; k < 3; k++) c.edgePh[k] = (EDGE_SWAY_W[k] * base) % (2 * Math.PI);
     c.t = this.simTime - base;
     return c;
   }
@@ -1555,6 +1559,7 @@ class Engine {
     u.set(this.handU, 96);
     f.set(this.watchRect, 212);
     u[216] = this.watchEv; u[217] = this.watchBites;
+    f.set(clk.edgePh, 220);
     // the needle pricks once
     this.handU[20] = 0xffffffff;
   }
@@ -2856,6 +2861,7 @@ class Engine {
     if (this.fxFade.finish < 1) pd.set(this.look.map((v) => v * this.fxFade.finish), POST_LOOK);
     else pd.set(this.look, POST_LOOK);
     pd.set(this._murkCam(cam, W, H), POST_MURK);
+    pd.set(clk.edgePh, POST_EDGE);
     d.queue.writeBuffer(this.b.post, 0, pd);
     // the water's bend on a coarse grid of the main view, for the page's overlays (read back after the submit)
     this._shiftPending = null;
