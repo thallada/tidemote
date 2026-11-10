@@ -237,7 +237,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     phase: 'calibrating', busy: true, paused: false, speed: 1, warm: false,
     hud: true, follow: false, confirmReset: 0,
     ui: isCoarse || (prefs.ui ?? true), // the interface shown (U hides everything but the world and the loupe)
-    loupeMag: 3.5, loupeR: prefs.loupeR ?? null, currents: false, specCells: 3,
+    loupeMag: 3.5, loupeR: prefs.loupeR ?? null, currents: prefs.currents ?? false, specCells: 3,
     // the Field Lab's column, open or folded to its header ("world": its name when it was the census)
     labOpen: prefs.labOpen ?? prefs.world ?? (innerWidth > 1100 && innerHeight > 600),
     closeup: prefs.closeup ?? true,
@@ -304,7 +304,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ v: 5, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+    savePrefs({ v: 5, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   // the look (src/look.js, docs/look.md): Darkfield as the Display settings ask, how strong as a whole and how much
@@ -3471,7 +3471,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     else if (k === 'g' || k === 'G') { eng.settings.tide = eng.settings.tide ? 0 : 1; flash(eng.settings.tide ? tr('flash.light-map-on', 'Light map') : tr('flash.light-map-off', 'Light map off')); mapsChanged(); }
     else if ((k === 'e' || k === 'E') && K.heat) { eng.settings.heat = (eng.settings.heat + 1) % 3; flash([tr('flash.heat-off', 'Heat map off'), tr('flash.heat-shimmer', 'Heat shimmer'), tr('flash.heat-camera', 'Thermal camera')][eng.settings.heat]); mapsChanged(); }
     else if (k === 'h' || k === 'H') { eng.settings.bands = eng.settings.bands ? 0 : 1; flash(eng.settings.bands ? tr('flash.tide-map-on', 'Tide map') : tr('flash.tide-map-off', 'Tide map off')); mapsChanged(); }
-    else if (k === 'c' || k === 'C') { state.currents = !state.currents; flash(state.currents ? tr('flash.currents-on', 'Currents shown') : tr('flash.currents-off', 'Currents hidden')); view.render(); }
+    else if (k === 'c' || k === 'C') { state.currents = !state.currents; flash(state.currents ? tr('flash.currents-on', 'Currents shown') : tr('flash.currents-off', 'Currents hidden')); persist(); view.render(); }
     else if (k === 'v' || k === 'V') view.toggle();
     else if (k === 'k' || k === 'K') { closeMenus(); lab.toggle(); }
     else if ((k === '[' || k === ']') && inHand()) setReach(reachStep(hand.reach, k === ']' ? 1 : -1), true);
