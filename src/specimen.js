@@ -1,6 +1,6 @@
 import { roleShares, roleColor, affinity, CELL_SHAPES, cellShape, thermalPerf, thermalGuild, divEnergy, growPlan, describeGrowth } from './genome.js';
 import { FIRST_LIFE } from './engine.js';
-import { FRAMBOID, stoneGrain } from './shaders.js';
+import { FRAMBOID, CYST, stoneGrain } from './shaders.js';
 import { tagsOf } from './facets.js';
 import { tideAt, duckShade } from './flow.js';
 import { fmt, fmtClock, fmtDur, esc, cssCol, cssRgb, term, spLink, meter, clamp, ROLE, MATTER, GRAIN, CAUSE, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
@@ -232,7 +232,8 @@ export function createSpecimen(api) {
           // i18n: {t} its temperature, {opt} its species' best; {warm} degrees above the water (a heat-maker's)
           : tr('spec.cell.warmth.works', '{t}° · works {perf}%, best {opt}°{own, select, yes { · runs {warm}° warm} other {}}', { t: Math.round(m.warmth), perf: Math.round(m.perf * 100), opt: Math.round(g.topt), own: m.warmth - m.water > 0.4 ? 'yes' : 'no', warm: Math.round(m.warmth - m.water) }), 'thermal');
     }
-    h += kv(tr('spec.cell.origin', 'Origin'), CAUSE[p.cause] || tr('spec.cell.origin.founder', 'a founder of this world'), 'origin');
+    // (a cyst's cause says it sleeps, CYST, not where it came from)
+    if (p.cause !== CYST) h += kv(tr('spec.cell.origin', 'Origin'), CAUSE[p.cause] || tr('spec.cell.origin.founder', 'a founder of this world'), 'origin');
     h += kv(tr('spec.cell.generation', 'Generation'), fmt(p.gen), 'generation');
     h += kv(tr('spec.cell.speed', 'Speed'), fmtLen(Math.hypot(p.vx, p.vy), '/s'), 'speed');
     return blk(past ? tr('spec.cell.title-past', 'The cell, last seen') : `<i class="corner cell"></i>${tr('spec.cell.title', 'This cell')}`, h);
@@ -563,9 +564,12 @@ export function createSpecimen(api) {
         else v += vital(tr('spec.light-here', 'Light here'), lightAt(p) / 100, 'sun', `${lightAt(p)}%`, 'lighthere');
         setTags(mem ? mem.g : null); // what it was
         let s = `<p class="note">${m.blurb}</p>`;
+        // a husk an eater dropped from its gut (cause 11) never lived
+        const dung = p.kind === 2 && p.cause === 11;
         // i18n: how long a particle has been what it is: a husk dead, a framboid burning, stone stone, silt silt
-        s += kv(p.kind === 2 ? tr('spec.matter.dead-for', 'Dead for') : framboid ? tr('spec.matter.burning-for', 'Burning for') : p.kind === 3 ? tr('spec.matter.stone-for', 'Stone for') : tr('spec.matter.in-state', 'In this state'), fmtDur(p.age));
-        if (p.kind === 2) s += kv(tr('spec.matter.cause', 'Cause of death'), CAUSE[p.cause] || tr('spec.matter.cause-unknown', 'unknown'));
+        s += kv(p.kind === 2 && !dung ? tr('spec.matter.dead-for', 'Dead for') : framboid ? tr('spec.matter.burning-for', 'Burning for') : p.kind === 3 ? tr('spec.matter.stone-for', 'Stone for') : tr('spec.matter.in-state', 'In this state'), fmtDur(p.age));
+        if (dung) s += kv(tr('spec.cell.origin', 'Origin'), tr('spec.matter.dung', 'dropped by an eater as dung'));
+        else if (p.kind === 2) s += kv(tr('spec.matter.cause', 'Cause of death'), CAUSE[p.cause] || tr('spec.matter.cause-unknown', 'unknown'));
         s += kv(tr('spec.light-here', 'Light here'), `${lightAt(p)}%`, 'lighthere');
         flow.push(['state', m.name, blk('', s) + storyHTML(sel)]);
         if (mem) {
