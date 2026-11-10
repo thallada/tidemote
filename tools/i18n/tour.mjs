@@ -12,7 +12,8 @@
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http';
 import { parseArgs } from 'node:util';
 import { chromium } from 'playwright-core';
-import { vkOn as vk, vkLaunch, retryAdapter } from '../vk.mjs';
+import { vkOn as vk, retryAdapter } from '../vk.mjs';
+import { launchOptions } from '../lib/browser.mjs';
 
 const { values: opt } = parseArgs({ options: { out: { type: 'string', default: 'runs/i18n/tour' }, page: { type: 'string', default: 'dist/tidemote.html' },
   shots: { type: 'boolean' }, sizes: { type: 'string', default: 'laptop,phone' }, n: { type: 'string', default: '16384' }, settle: { type: 'string', default: '12' } } });
@@ -21,8 +22,7 @@ fs.mkdirSync(out, { recursive: true });
 const html = fs.readFileSync(path.resolve(opt.page));
 const server = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end(html); });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
-const browser = await chromium.launch(vk ? vkLaunch(['--enable-unsafe-webgpu'])
-  : { executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', headless: false, args: ['--enable-unsafe-webgpu'] });
+const browser = await chromium.launch(launchOptions({ args: ['--enable-unsafe-webgpu'] }));
 
 // in the page: every string it shows right now, with the element that shows it
 const COLLECT = () => {

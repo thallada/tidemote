@@ -6,14 +6,16 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { launchOptions } from '../lib/browser.mjs';
+import { viewPrefs } from '../lib/prefs.mjs';
 const root = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const server = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); fs.createReadStream(path.join(root, process.argv[2] || 'dist/tidemote.html')).pipe(res); });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const dir = fs.mkdtempSync(path.join(process.env.TEMP || '/tmp', 'tm-flash-'));
-const ctx = await chromium.launchPersistentContext(dir, { executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', headless: false, viewport: null,
-  args: ['--window-size=1600,900', '--autoplay-policy=no-user-gesture-required'] });
+const ctx = await chromium.launchPersistentContext(dir, { ...launchOptions({ args: ['--window-size=1600,900', '--autoplay-policy=no-user-gesture-required'], vk: false }), viewport: null });
 const page = ctx.pages()[0];
-await page.addInitScript(() => { localStorage.setItem('tidemote.view', JSON.stringify({ particles: 1048576, trails: 2, auto: false, labOpen: false })); localStorage.setItem('tidemote.sound', '{"on":false}'); });
+await page.addInitScript((view) => { localStorage.setItem('tidemote.view', JSON.stringify(view)); localStorage.setItem('tidemote.sound', '{"on":false}'); },
+  viewPrefs({ particles: 1048576, trails: 2, auto: false, labOpen: false }));
 await page.goto(`http://127.0.0.1:${server.address().port}/`);
 await page.waitForFunction(() => globalThis.__tidemote?.state.phase === 'running');
 await page.waitForTimeout(6000);

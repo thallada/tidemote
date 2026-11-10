@@ -9,6 +9,7 @@ import { chromium } from 'playwright-core';
 import { writeGenome, divEnergy } from '../src/genome.js';
 import { DEFAULT_K, G_WORDS, P_BYTES } from '../src/shaders.js';
 import { testGenome, layout, placeBody } from './swimlab-bodies.mjs';
+import { launchOptions } from './lib/browser.mjs';
 
 const { values: v } = parseArgs({ options: {
   bodies: { type: 'string', default: '["filament:12"]' }, genome: { type: 'string', default: '{}' }, genomes: { type: 'string' },
@@ -29,7 +30,7 @@ const plans = bodies.map((b, k) => { const cells = layout(b); return { cells, ..
 
 const server = http.createServer((req, res) => { const url = decodeURIComponent(req.url.split('?')[0]); const file = path.join(path.resolve(v.dist), url === '/' ? 'tidemote.html' : url); if (!fs.existsSync(file)) { res.writeHead(404); res.end(); return; } res.writeHead(200, { 'content-type': 'text/html' }); fs.createReadStream(file).pipe(res); });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
-const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(process.env.TEMP || os.tmpdir(), 'film-')), { executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', headless: false, viewport: { width: 1000, height: 640 }, args: ['--window-size=1000,640', '--no-first-run'] });
+const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(process.env.TEMP || os.tmpdir(), 'film-')), { ...launchOptions({ args: ['--window-size=1000,640', '--no-first-run'], vk: false }), viewport: { width: 1000, height: 640 } });
 const page = await ctx.newPage();
 await page.addInitScript(() => { try { localStorage.setItem('tidemote.autoCamera', 'off'); } catch {} });
 page.on('pageerror', (e) => console.log('pageerror', e.message));
