@@ -1,0 +1,250 @@
+# The desktop app (desktop/) built for Windows, macOS and Linux, checked on each, and shipped
+# (docs/release.md):
+#   a push to main  → artifacts kept 14 days; Steam's private dev branch (once Steam is set up)
+#   a tag v1.2.3    → the same, then Steam's staging branch, itch.io's channels and a draft GitHub
+#                     release; a pre-release tag (v1.2.3-beta.1) skips itch.io
+# Going live on Steam's default branch is a click in Steamworks: Valve keeps it out of build scripts.
+# The Steam and itch.io jobs are skipped until their repository variables exist.
+name: Desktop
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      steam_branch:
+        description: Steam branch to set this build live on (blank for the usual one; never default)
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      build: ${{ steps.v.outputs.build }}
+      tag: ${{ steps.v.outputs.tag }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+      desc: ${{ steps.v.outputs.desc }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: desktop/package.json
+          sparse-checkout-cone-mode: false
+      - id: v
+        shell: bash
+        run: |
+          base=$(node -p "require('./desktop/package.json').version")
+          sha=${GITHUB_SHA::7}
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag=${GITHUB_REF#refs/tags/}
+            version=${tag#v}
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::tag $tag is not v<semver>"; exit 1; }
+            core=${version%%-*}
+            prerelease=$([[ "$version" == *-* ]] && echo true || echo false)
+            desc="$tag $sha"
+          else
+            tag=''
+            core=$base
+            version="$base-dev.$GITHUB_RUN_NUMBER"
+            prerelease=false
+            desc="${GITHUB_REF_NAME} $sha #$GITHUB_RUN_NUMBER"
+          fi
+          {
+            echo "version=$version"
+            echo "build=$core.$GITHUB_RUN_NUMBER"
+            echo "tag=$tag"
+            echo "prerelease=$prerelease"
+            echo "desc=$desc"
+          } >> "$GITHUB_OUTPUT"
+          echo "### Tidemote $version" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, platform: linux, arch: x64, folder: linux, exe: Tidemote }
+          - { os: windows-2025, platform: win32, arch: x64, folder: windows, exe: Tidemote.exe }
+          - { os: macos-15, platform: darwin, arch: universal, folder: mac, exe: Tidemote.app/Contents/MacOS/Tidemote }
+    runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      OUT: desktop/out/Tidemote-${{ matrix.platform }}-${{ matrix.arch }}
+      ARCHIVE: Tidemote-${{ needs.version.outputs.version }}-${{ matrix.folder }}-${{ matrix.arch }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+      # Electron's zips, which the packager downloads (per OS, per Electron version)
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/Library/Caches/electron
+            ~/AppData/Local/electron/Cache
+          key: electron-${{ runner.os }}-${{ hashFiles('desktop/package-lock.json') }}
+      # scripts off: the page's build needs only esbuild, and the packager fetches its own Electron
+      - run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts
+        working-directory: desktop
+      - name: Package
+        working-directory: desktop
+        run: |
+          node scripts/stage.mjs
+          node scripts/package.mjs --platform ${{ matrix.platform }} --arch ${{ matrix.arch }} \
+            --app-version "$VERSION" --build-version "${{ needs.version.outputs.build }}"
+      # Until there is a Developer ID (docs/release.md, Signing), an ad-hoc signature: Apple silicon will
+      # not run a bundle whose signature the packaging broke.
+      - name: Sign (ad hoc)
+        if: matrix.platform == 'darwin'
+        run: |
+          codesign --force --deep --sign - "$OUT/Tidemote.app"
+          codesign --verify --deep --strict --verbose=2 "$OUT/Tidemote.app"
+          lipo -archs "$OUT/${{ matrix.exe }}"
+      - name: Launch check
+        run: node desktop/scripts/launch-check.mjs --exe "$OUT/${{ matrix.exe }}" --out "launch-${{ matrix.folder }}"
+      # one top folder per archive; the Mac's zipped by ditto, which keeps the framework's symlinks
+      - name: Archive
+        run: |
+          case "${{ matrix.platform }}" in
+            linux)  tar -czf "$ARCHIVE.tar.gz" -C desktop/out "$(basename "$OUT")"; f="$ARCHIVE.tar.gz" ;;
+            win32)  (cd desktop/out && 7z a -tzip -mx=7 "../../$ARCHIVE.zip" "$(basename "$OUT")" > /dev/null); f="$ARCHIVE.zip" ;;
+            darwin) ditto -c -k --keepParent "$OUT" "$ARCHIVE.zip"; f="$ARCHIVE.zip" ;;
+          esac
+          size() { du -sk "$1" | cut -f1; }
+          echo "- ${{ matrix.folder }}: $f, $(( $(size "$f") / 1024 )) MB ($(( $(size "$OUT") / 1024 )) MB unpacked)" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v5
+        with:
+          name: desktop-${{ matrix.folder }}
+          path: |
+            ${{ env.ARCHIVE }}.*
+            launch-${{ matrix.folder }}/
+          compression-level: 0
+          retention-days: ${{ needs.version.outputs.tag && 90 || 14 }}
+          if-no-files-found: error
+
+  steam:
+    needs: [version, build]
+    if: >-
+      vars.STEAM_APP_ID != '' && github.repository == 'thallada/tidemote' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-24.04
+    environment: steam
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: desktop/scripts
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: desktop-*
+          path: artifacts
+      - name: Unpack each OS into its depot's folder
+        run: bash desktop/scripts/unpack-artifacts.sh artifacts content
+      - name: Install steamcmd
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lib32gcc-s1 lib32stdc++6 > /dev/null
+          mkdir -p "$RUNNER_TEMP/steamcmd"
+          curl -sSL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar -xz -C "$RUNNER_TEMP/steamcmd"
+          "$RUNNER_TEMP/steamcmd/steamcmd.sh" +quit > /dev/null || true # updates itself on its first run
+      - name: Upload to Steam
+        env:
+          STEAM_USERNAME: ${{ secrets.STEAM_USERNAME }}
+          STEAM_CONFIG_VDF: ${{ secrets.STEAM_CONFIG_VDF }}
+          BRANCH: ${{ inputs.steam_branch || (needs.version.outputs.tag && (vars.STEAM_RELEASE_BRANCH || 'staging')) || vars.STEAM_DEV_BRANCH || 'dev' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/steamcmd/config" "$RUNNER_TEMP/steam-output"
+          # the build account's login, kept from one interactive steamcmd login (docs/release.md)
+          echo "$STEAM_CONFIG_VDF" | base64 -d > "$RUNNER_TEMP/steamcmd/config/config.vdf"
+          node desktop/scripts/steam-build.mjs --app "${{ vars.STEAM_APP_ID }}" \
+            --depots '{"windows":"${{ vars.STEAM_DEPOT_WINDOWS }}","mac":"${{ vars.STEAM_DEPOT_MAC }}","linux":"${{ vars.STEAM_DEPOT_LINUX }}"}' \
+            --content "$PWD/content" --output "$RUNNER_TEMP/steam-output" --branch "$BRANCH" \
+            --desc "${{ needs.version.outputs.desc }}" > app_build.vdf
+          cat app_build.vdf
+          "$RUNNER_TEMP/steamcmd/steamcmd.sh" +login "$STEAM_USERNAME" +run_app_build "$PWD/app_build.vdf" +quit | tee steamcmd.log
+          # steamcmd can exit 0 on a failed build; its own line says it went through
+          line=$(grep -o 'Successfully finished AppID [0-9]* build (BuildID [0-9]*)' steamcmd.log) || { echo "::error::Steam build failed (steamcmd.log)"; exit 1; }
+          echo "- Steam: $line, live on branch \`$BRANCH\`" >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        run: rm -f "$RUNNER_TEMP/steamcmd/config/config.vdf"
+      - if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: steam-logs
+          path: |
+            steamcmd.log
+            ${{ runner.temp }}/steam-output/
+          if-no-files-found: ignore
+
+  itch:
+    needs: [version, build]
+    if: >-
+      vars.ITCH_GAME != '' && github.repository == 'thallada/tidemote' &&
+      startsWith(github.ref, 'refs/tags/v') && needs.version.outputs.prerelease == 'false'
+    runs-on: ubuntu-24.04
+    environment: itch
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: desktop/scripts
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: desktop-*
+          path: artifacts
+      - run: bash desktop/scripts/unpack-artifacts.sh artifacts content
+      - name: Install butler
+        run: |
+          curl -sSL -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          unzip -q butler.zip -d "$RUNNER_TEMP/butler" && chmod +x "$RUNNER_TEMP/butler/butler"
+          "$RUNNER_TEMP/butler/butler" -V
+      - name: Push to itch.io
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          for ch in windows mac linux; do
+            [ -d "content/$ch" ] || continue
+            "$RUNNER_TEMP/butler/butler" push "content/$ch" "${{ vars.ITCH_GAME }}:$ch" --userversion "$VERSION"
+            echo "- itch.io: ${{ vars.ITCH_GAME }}:$ch at $VERSION" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+  release:
+    needs: [version, build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: desktop-*
+          path: artifacts
+          merge-multiple: true
+      # a draft, seen only by the repository's maintainers until published by hand
+      - name: Draft a GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --generate-notes \
+            --title "Tidemote ${TAG#v}" $([ "${{ needs.version.outputs.prerelease }}" = true ] && echo --prerelease) \
+            artifacts/Tidemote-*

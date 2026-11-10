@@ -11,16 +11,22 @@ const require = createRequire(import.meta.url);
 export const APP_ID = 0;
 
 let client = null;
+// Whether steamworks.js's native addon loaded, and why Steam is off: a release check (scripts/launch-check.mjs)
+// tells a build missing its addon from a machine without Steam running.
+let loaded = false;
+let why = '';
 export function startSteam() {
   const id = Number(process.env.TIDEMOTE_STEAM_APPID) || APP_ID || undefined;
   try {
     const steamworks = require('steamworks.js');
+    loaded = true;
     // a release build relaunches through Steam when started from its folder directly
     if (APP_ID && !process.env.TIDEMOTE_STEAM_APPID && steamworks.restartAppIfNecessary(APP_ID)) return 'restart';
     client = steamworks.init(id);
     client.appId = client.utils.getAppId();
   } catch (e) {
-    console.warn(`Steam is not available: ${e.message || e}`);
+    why = String(e.message || e);
+    console.warn(`Steam is not available: ${why}`);
     client = null;
   }
   return client;
@@ -29,7 +35,7 @@ export const steam = () => client;
 
 /** What the page may offer: { on, appId, cloud, user }. */
 export function status() {
-  if (!client) return { on: false };
+  if (!client) return { on: false, loaded, why };
   let cloud = false;
   try { cloud = client.cloud.isEnabledForAccount() && client.cloud.isEnabledForApp(); } catch { /* off */ }
   return { on: true, appId: client.appId, cloud, user: client.localplayer.getName() };
