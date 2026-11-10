@@ -21,13 +21,17 @@
 export const KNOBS = {
   sea: {
     levels: [0, 4, 2, 1], // frames between turns of the sea (0: no sea)
-    passes: /^seaSpectrum|^fftRows|^fftCols|^seaMip|^seaShiftMap|^seaFieldMain/,
+    // (a pass is named by its first three pipelines, Engine._profileEncoder: a fresh sea's 'seaInit+seaSpectrum+fftRows')
+    passes: /^seaInit|^seaSpectrum|^fftRows|^fftCols|^seaMip|^seaShiftMap|^seaFieldMain/,
     share: (from, to) => rate(to) / Math.max(1e-6, rate(from)),
     loss: [3, 0.6, 0.3],
   },
   bloom: { levels: [false, true], passes: /^fsDown$|^fsUp$/, share: (from, to) => (to ? 1 : 0), loss: [1] },
   specks: { levels: [false, true], passes: /^microSpecks$|^fsSpeck$/, share: (from, to) => (to ? 1 : 0), loss: [0.2] },
-  stone: { levels: [2, 1, 0.5], passes: /^fsStone/, share: (from, to) => from / to, loss: [0.3, 0.2] }, // seconds between relightings
+  // seconds between relightings: the cache's grains ('fsStone', 'fsStone+fsStone edge') and its light ('fsStoneCache'),
+  // not the cache lit under the cells every frame (fsStoneLit, fsStoneLitScene, fsStoneLitMicro). The loupe's and the
+  // close-up's grains, drawn every frame they are open, share the cache's names and are counted with it
+  stone: { levels: [2, 1, 0.5], passes: /^fsStone($|\+)|^fsStoneCache$/, share: (from, to) => from / to, loss: [0.3, 0.2] },
   // The composite's finish (Engine.fx.finish): 2 all of it; 1 without the heat map's shimmer (1 - SSIM 0.001-0.006
   // against full quality: barely seen, 10-15% of the composite); 0 without the optics and the microscope's look
   // either (0.10-0.13, as much as half the render scale; the composite about halved, 0.61 → 0.27 ms on an RTX 4070

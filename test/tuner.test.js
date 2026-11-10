@@ -28,6 +28,13 @@ test('costOf sums each knob\'s passes', () => {
   assert.ok(Math.abs(c.stone - 0.3) < 1e-9);
 });
 
+test('costOf counts a fresh sea\'s pass and the stone cache\'s relighting, not the stone lit every frame', () => {
+  const c = costOf([['seaInit+seaSpectrum+fftRows', 3], ['fsStone', 0.1], ['fsStone+fsStone edge', 0.2], ['fsStoneCache', 0.05],
+    ['fsStoneLit', 1], ['fsStoneLitScene', 1], ['fsStoneLitMicro', 1]]);
+  assert.equal(c.sea, 3);
+  assert.ok(Math.abs(c.stone - 0.35) < 1e-9);
+});
+
 test('behind on a phone, where the sea is dear, the sea is turned less often before the resolution falls', () => {
   const s = base({ knobs: all({ sea: { level: 3, auto: true, cost: 2.6 }, bloom: { level: 1, auto: true, cost: 0.3 } }) });
   assert.deepEqual(decide(s), { id: 'sea', to: 2 });
