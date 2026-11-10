@@ -84,9 +84,11 @@ export async function clearFilms() {
     for await (const n of dir.keys()) if (n.startsWith(OPFS_PREFIX)) await dir.removeEntry(n).catch(() => {});
   } catch { /* nothing kept */ }
 }
+let sweep = 0; // the timer that clears a finished film's file
 async function opfsSink(name) {
   if (!opfsOk()) throw new Error('no private files');
   const file = OPFS_PREFIX + name;
+  clearTimeout(sweep); // (or it would take this film's file with the last one's)
   await clearFilms();
   const dir = await navigator.storage.getDirectory();
   const h = await dir.getFileHandle(file, { create: true });
@@ -101,7 +103,7 @@ async function opfsSink(name) {
       await w.close();
       const blob = await h.getFile();
       // the download reads it from here: removed once that is surely done (or at the next film)
-      setTimeout(() => clearFilms(), 10 * 60 * 1000);
+      sweep = setTimeout(() => clearFilms(), 10 * 60 * 1000);
       return { blob };
     },
     abort: async () => { try { await w.abort(); } catch { /* closed */ } clearFilms(); },
