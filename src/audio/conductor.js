@@ -102,6 +102,7 @@ export class Conductor {
     this.queue = [];
     this.world = { light: 0.6, tide: 0.5, warm: 0 };
     this.warm = 0; // the water's warmth, eased over a few bars (world.warm)
+    this.hallUntil = 0; // an overture's long reverb rings until then (Score.overture)
     this.nodeN = 0;
     this.setEra(eraMusic('The First Tides', null, this.ws), true);
     this.score = new Score(this);
@@ -156,7 +157,7 @@ export class Conductor {
       // (the old world's notes still to come are dropped: its overture, a bridge, the cells' songs; its sea's and
       // drone's fades and frees stay, and the reverb and the echo are set afresh, by the next bar and the new era)
       this.queue = this.queue.filter((q) => (q.def ? q.id != null : q.free || (q.set !== 'fdn' && q.set !== 'ping')));
-      this.fdnDecay = this.fdnDamp = null;
+      this.fdnDecay = this.fdnDamp = null; this.hallUntil = 0;
       this.score.reset();
       this.rekey(m.seed ?? this.ws, m.era);
     }
@@ -221,9 +222,9 @@ export class Conductor {
     if (bar % 12 === 0) this.pivot = this.pivots[(bar / 12) % this.pivots.length | 0];
     const fx = this.era.fx, lvl = fx.level || 1;
     // the water: cold is a clear, long-ringing hall; warm is close, humid air (the bridge's long
-    // reverb wins while it plays)
+    // reverb wins while it plays, and an overture's hall while it rings)
     this.warm += ((W.warm || 0) - this.warm) * 0.25;
-    if (this.switchAt == null) {
+    if (this.switchAt == null && !(ts < this.hallUntil)) {
       const w = this.warm, damp = Math.round(w < 0 ? 5000 - 2000 * w : 5000 - 1500 * w), decay = Math.round((w < 0 ? 9 - 2 * w : 9 - w) * 10) / 10;
       if (damp !== this.fdnDamp || decay !== this.fdnDecay) { this.setAt(ts, 'fdn', { damp, decay }); this.fdnDamp = damp; this.fdnDecay = decay; }
     }

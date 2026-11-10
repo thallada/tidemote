@@ -336,7 +336,8 @@ export class Score {
   // reigning motif (by then a species usually reigns) at real time.
   overture(ts, form = OVERTURES[worldHash('overture', this.c.ws) % OVERTURES.length]) {
     const c = this.c, T = 10, th = this.openTheme(), tonic = [c.root - 12, ...this.chord(0)];
-    const hall = () => { c.setAt(ts, 'fdn', { decay: 18 }); c.setAt(ts + T, 'fdn', { decay: 9 }); };
+    // (the water's own reverb waits while the hall rings, then is sent afresh: Conductor.bar)
+    const hall = () => { c.setAt(ts, 'fdn', { decay: 18 }); c.setAt(ts + T, 'fdn', { decay: 9 }); c.hallUntil = ts + T; c.fdnDecay = null; };
     const lowChord = (amp) => [c.root - 24, c.root - 12, d2m(4, c.root, c.scale) - 12, d2m(2, c.root, c.scale)].forEach((m, i) => {
       c.at(ts + i * 0.02, 'piano', { freq: midicps(m), amp, dec: 9, felt: 0.35, pan: (i - 1.5) * 0.2, rev: 0.95, dly: 0.1 });
     });

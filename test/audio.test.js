@@ -262,6 +262,19 @@ test("a new world drops the old one's notes still to come, but still frees the o
   assert.ok(!eng.nodes.has(sea0) && !eng.nodes.has(sea1) && eng.nodes.has(cond.sea), 'the old seas are freed');
 });
 
+test("an overture's hall rings out, then the water's own reverb comes back", () => {
+  const eng = new Engine(48000, { seed: 1 }), cond = new Conductor(eng, { seed: 1 });
+  cond.message({ type: 'world', world: { light: 0.6, tide: 0.5, warm: -1 } });
+  renderBars(cond, 12); // (cold water: a long hall of its own)
+  const own = eng.fdn.p.decay;
+  assert.ok(own > 10, `cold water's decay ${own}`);
+  cond.message({ type: 'open', seed: 1 });
+  renderBars(cond, 2);
+  assert.equal(eng.fdn.p.decay, 18, 'the overture rings in its hall');
+  renderBars(cond, 6);
+  assert.ok(eng.fdn.p.decay >= own && eng.fdn.p.decay === cond.fdnDecay, `the water's reverb is back (${eng.fdn.p.decay})`);
+});
+
 test('sparks shower in many shapes, a few times a minute, never one figure on repeat', () => {
   const eng = new Engine(48000, { seed: 6 }), cond = new Conductor(eng, { seed: 6 });
   const glints = [];
