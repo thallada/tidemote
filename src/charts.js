@@ -65,7 +65,7 @@ const CLOCK = [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 2
 export function timeTicks(t0, t1, px, minGap = 58) {
   const span = t1 - t0;
   if (!(span > 0)) return [];
-  const step = CLOCK.find((s) => (s / span) * px >= minGap) || Math.ceil(span / 86400) * 86400;
+  const step = CLOCK.find((s) => (s / span) * px >= minGap) || Math.ceil((span * minGap) / px / 86400) * 86400; // (past a day apart: whole days)
   const out = [];
   for (let t = Math.ceil(t0 / step) * step; t <= t1; t += step) out.push(t);
   return out;
