@@ -13,8 +13,9 @@ const WARMING = ['Warm', 'Rising'], COOLING = ['Bitter', 'Pale']; // i18n-ignore
 const TEMPERATE = ERA_ADJ.filter((a) => !WARMING.includes(a) && !COOLING.includes(a));
 export const TEMP_MIN = 4, TEMP_MAX = 28;
 // A world runs for days: its record keeps the last ERA_KEEP eras (about five simulated days; the charts' era lines, the
-// Lab's list of eras and the lineage plots read them, the log the one before)
-export const ERA_KEEP = 500;
+// Lab's list of eras and the lineage plots read them, the log the one before) and the last EVENT_KEEP pool events (headless
+// runs report them; the page reads only the one under way, climate.event)
+export const ERA_KEEP = 500, EVENT_KEEP = 64;
 // An era's name (climate.name) is kept in English, as a key: the soundtrack hears it (each era's music is keyed by its
 // words: audio/conductor.js eraMusic, score.js), saves and headless runs record it. eraName gives it in the page's words.
 const FIRST_ERA = 'The First Tides'; // i18n-ignore (the key; eraName gives its words)
@@ -141,6 +142,7 @@ export function createClimate(eng, rng = Math.random) {
     climate.event = makeEvent(type, eng.simTime + delay, rng, eng.grid[0], eng.grid[1], K);
     climate.event.startLevel = climate.levelTo;
     climate.events.push(climate.event);
+    if (climate.events.length > EVENT_KEEP) climate.events.splice(0, climate.events.length - EVENT_KEEP);
     return climate.event;
   }
   function eventTick(dt) {

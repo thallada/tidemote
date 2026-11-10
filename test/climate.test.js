@@ -46,3 +46,14 @@ test('a world running for days keeps only its last eras', async () => {
   assert.ok(prev && prev.t < climate.history.at(-1).t, 'the era before the last is still there for the log');
   for (let i = 1; i < climate.history.length; i++) assert.ok(climate.history[i].t > climate.history[i - 1].t);
 });
+
+test('the record keeps the last pool events, the one under way among them', async () => {
+  const { createClimate, EVENT_KEEP } = await import('../src/climate.js');
+  const eng = { K: {}, simTime: 0, ambient: 0.2, temp: 16, excursion: 0, tide: new Float32Array(16), waves: new Float32Array(16), grid: [50, 50],
+    newTideWave() {}, randomizeCurrents: (r, into) => into };
+  const climate = createClimate(eng, () => 0.5);
+  for (let i = 0; i < EVENT_KEEP + 30; i++) { eng.simTime = i * 1000; climate.force('storm'); }
+  assert.equal(climate.events.length, EVENT_KEEP);
+  assert.equal(climate.events.at(-1), climate.event);
+  assert.equal(climate.events[0].t, 30 * 1000);
+});
