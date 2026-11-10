@@ -980,6 +980,13 @@ export function createNoteView(g) {
     const shows = (p, m = 0) => p[0] > F.open.l + m && p[0] < F.open.r - m && p[1] > F.open.t + m && p[1] < F.open.b - m
       && !F.block.some((b) => p[0] > b.l - m && p[0] < b.r + m && p[1] > b.t - m && p[1] < b.b + m);
     const group = (key, rows) => steady((S.c[key] ||= {}), rows, F);
+    // the rows of a census read from the view's cells: found once a look at the view (M.view is new at each readback),
+    // the same array until the next, so steady's cache holds between (dep: what else they are found from)
+    const viewRows = (key, dep, scan) => {
+      const c = (S.rows ||= {})[key];
+      if (c && c.view === M.view && c.dep === dep) return c.rows;
+      return (S.rows[key] = { view: M.view, dep, rows: scan(M.view) }).rows;
+    };
     // a label's anchor: one cell of the group, chosen once and kept, found every frame by its id (the page looks for it
     // on the GPU: n.pins) wherever the group's sample goes; another only when that cell is gone altogether (its note
     // ends when that cell leaves the view)
@@ -1362,12 +1369,16 @@ export function createNoteView(g) {
     } else if (d.type === 'shelter') {
       // shelter among stone: the stone's patches, the cells among them
       if (S.stoneOf !== d.stone) { S.stoneOf = d.stone; S.loops = gridLoops(d.stone, d.grid, 6, M.view.sqOnce); }
-      const loops = S.loops, v = M.view, W2 = F.world, rows = [];
-      for (let i = 0; i < v.n; i++) {
-        if (!(v.kind[i] >= 5) || F.species(v.kind[i])?.guild === 'predator') continue;
-        const k = squareOf(v, v.x[i], v.y[i], W2);
-        if (k >= 0 && d.stone[k] >= 6) rows.push(i);
-      }
+      const loops = S.loops, W2 = F.world;
+      const rows = viewRows('s', d.stone, (v) => {
+        const rows = [];
+        for (let i = 0; i < v.n; i++) {
+          if (!(v.kind[i] >= 5) || F.species(v.kind[i])?.guild === 'predator') continue;
+          const k = squareOf(v, v.x[i], v.y[i], W2);
+          if (k >= 0 && d.stone[k] >= 6) rows.push(i);
+        }
+        return rows;
+      });
       const pts = group('s', rows), an = hang(0, pts, -2);
       if (!an) return null;
       P.draws.push((t) => blob(loops, INK2, t, F, { dash: [4, 3], width: 1.2 }));
@@ -1435,8 +1446,7 @@ export function createNoteView(g) {
       P.keys.push({ glyph: 'square', text: tr('notes.key.most-died', 'WHERE MOST DIED'), tone: HOT });
     } else if (d.type === 'stranded') {
       // stranded on dry land: the cells there, a shape about them, the cause
-      const v = M.view, rows = [];
-      for (let i = 0; i < v.n; i++) if (v.dry[i] && v.kind[i] >= 5) rows.push(i);
+      const rows = viewRows('d', null, (v) => { const rows = []; for (let i = 0; i < v.n; i++) if (v.dry[i] && v.kind[i] >= 5) rows.push(i); return rows; });
       const pts = group('d', rows), an = hang(0, pts, -2);
       if (!an) return null;
       const sh = ride((S.ride ||= {}), rows, -2, clamp(F.radius(d.kind) * 3, 18, 100) / F.ppu);
@@ -1454,12 +1464,16 @@ export function createNoteView(g) {
       P.keys.push({ glyph: 'ring', text: tr('notes.key.dry-land', 'ON DRY LAND'), tone: SAND });
     } else if (d.type === 'frozen') {
       // locked in the ice: the ice where it lies, rings on the cells stilled in it
-      const v = M.view, W2 = F.world, rows = [];
-      for (let i = 0; i < v.n; i++) {
-        if (!(v.kind[i] >= 5) || !v.torpid[i]) continue;
-        const k = squareOf(v, v.x[i], v.y[i], W2);
-        if (k >= 0 && v.ice[k] > 0.5) rows.push(i);
-      }
+      const v = M.view, W2 = F.world;
+      const rows = viewRows('i', null, (v) => {
+        const rows = [];
+        for (let i = 0; i < v.n; i++) {
+          if (!(v.kind[i] >= 5) || !v.torpid[i]) continue;
+          const k = squareOf(v, v.x[i], v.y[i], W2);
+          if (k >= 0 && v.ice[k] > 0.5) rows.push(i);
+        }
+        return rows;
+      });
       const pts = group('i', rows), an = hang(0, pts, -2);
       if (!an) return null;
       S.ppu0 ||= F.ppu;
@@ -1478,8 +1492,12 @@ export function createNoteView(g) {
     } else if (d.type === 'shade') {
       // under duckweed: its shade where it falls dark, the producers in it
       if (!F.shade) return null;
-      const v = M.view, rows = [];
-      for (let i = 0; i < v.n; i++) if (v.kind[i] >= 5 && F.species(v.kind[i])?.guild === 'producer' && F.shade(v.x[i], v.y[i]) > 0.4) rows.push(i);
+      // (the shade where the view's cells were at its look, as its shape below is drawn from it)
+      const v = M.view, rows = viewRows('u', null, (v) => {
+        const rows = [];
+        for (let i = 0; i < v.n; i++) if (v.kind[i] >= 5 && F.species(v.kind[i])?.guild === 'producer' && F.shade(v.x[i], v.y[i]) > 0.4) rows.push(i);
+        return rows;
+      });
       const pts = group('u', rows), an = hang(0, pts, -2);
       if (!an) return null;
       if (S.shadeView !== v) {
