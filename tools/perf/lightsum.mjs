@@ -1,5 +1,5 @@
 // The total light of the scene image (before bloom and tone mapping) of a saved world drawn from afar,
-// with sprites splatted and as quads: the two should bring the same light.
+// with sprites splatted and as quads (eng.plainDraw: no splatting, culling or listing): the two should bring the same light.
 //   tools/gpu-node.sh tools/perf/lightsum.mjs runs/perf/worlds/w1m.bin
 import fs from 'node:fs';
 const { create, globals } = await import('webgpu');
@@ -27,8 +27,8 @@ const ppu = Math.max(W / eng.grid[0], H / eng.grid[1]) * +(process.argv[3] || 1)
 const cam = { x: eng.grid[0] * 0.37, y: eng.grid[1] * 0.61, ppu };
 eng.frame({ target: null, steps: 1 }); // a step sorts the world
 const half = (h) => { const e = (h >> 10) & 31, m = h & 1023, s = h & 0x8000 ? -1 : 1; return s * (e ? (1 + m / 1024) * 2 ** (e - 15) : m * 2 ** -24); };
-async function light(noSplat) {
-  globalThis.__noSplat = noSplat;
+async function light(quads) {
+  eng.plainDraw = quads;
   eng.frame({ target: target.createView(), cam, paused: true, time: 1 });
   const rb = device.createBuffer({ size: W * H * 8, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
   const enc = device.createCommandEncoder();
