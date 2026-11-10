@@ -24,3 +24,6 @@ spending GPU hours on them (docs/ecosystem.md has the results). Python lives in 
 `web.py` is the model; `terms.py` and `residuals.py` check its processes at measured states;
 `decomp.mjs` the routing x cost identity behind guild sizes; `measure.mjs` one ensemble window's state;
 `model.py` the first, hand-calibrated version (rule A against rule B, stability by eigenvalues).
+Beyond it: `web2.py` (animals as histograms over their energy) and `validate.py` (both against measured
+windows), `web3.py` (patches in space, its parameters fitted by `fit3.py`), `web4.py` (species within
+guilds, unfitted) and `evo.py` (swim and lifespan by adaptive dynamics, from `traits.json`).
