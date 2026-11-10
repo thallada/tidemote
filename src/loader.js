@@ -11,23 +11,23 @@ const C = {
   ink2: '#a3bdbe', ink3: '#6f8a8c', sun: '#f1e3a0', sunLine: 'rgba(241, 227, 160, 0.5)',
 };
 // the guilds' tints, muted (photosynth, grazer, predator, scavenger)
-// i18n: the intro's loading animation: a specimen's kind in its readout (shown in capitals), in full on a wide screen,
+// i18n: the intro's loading animation: a specimen's kind in its readout, in capitals, in full on a wide screen,
 // short on a narrow one
-const KINDS = [['#cfe86a', tr('loader.kind.photosynth', 'photosynth'), tr('loader.kind-short.photosynth', 'photo')], ['#7fd6df', tr('loader.kind.grazer', 'grazer'), tr('loader.kind-short.grazer', 'grazer')],
-  ['#ff8a6a', tr('loader.kind.predator', 'predator'), tr('loader.kind-short.predator', 'pred')], ['#c3a2f0', tr('loader.kind.scavenger', 'scavenger'), tr('loader.kind-short.scavenger', 'scav')]];
-// i18n: the intro's loading animation's readouts (shown in capitals): a specimen locked onto (its number, cells, size)
-// and the field's (how many particles, the water's temperature, the light)
+const KINDS = [['#cfe86a', tr('loader.kind.photosynth', 'PHOTOSYNTH'), tr('loader.kind-short.photosynth', 'PHOTO')], ['#7fd6df', tr('loader.kind.grazer', 'GRAZER'), tr('loader.kind-short.grazer', 'GRAZER')],
+  ['#ff8a6a', tr('loader.kind.predator', 'PREDATOR'), tr('loader.kind-short.predator', 'PRED')], ['#c3a2f0', tr('loader.kind.scavenger', 'SCAVENGER'), tr('loader.kind-short.scavenger', 'SCAV')]];
+// i18n: the intro's loading animation's readouts, in capitals (µm a length): a specimen locked onto (its number, cells,
+// size) and the field's (how many particles, the water's temperature, the light)
 const WORDS = {
-  acquiring: tr('loader.acquiring', 'acquiring'),
-  specimen: tr('loader.specimen', 'specimen'),
-  specimenNo: (no) => tr('loader.specimen-no', 'specimen {no}', { no }),
-  no: (no) => tr('loader.no', 'no {no}', { no }),
-  cells: (n) => tr('loader.cells', 'cells {n}', { n }),
+  acquiring: tr('loader.acquiring', 'ACQUIRING'),
+  specimen: tr('loader.specimen', 'SPECIMEN'),
+  specimenNo: (no) => tr('loader.specimen-no', 'SPECIMEN {no}', { no }),
+  no: (no) => tr('loader.no', 'NO {no}', { no }),
+  cells: (n) => tr('loader.cells', 'CELLS {n}', { n }),
   size: (n) => tr('loader.size', '{n} µm', { n }),
-  field: tr('loader.field', 'field 01'),
-  count: (n) => tr('loader.count', 'n {n}', { n }),
+  field: tr('loader.field', 'FIELD 01'),
+  count: (n) => tr('loader.count', 'N {n}', { n }),
   temp: (t) => tr('loader.temp', '{t}°', { t }),
-  lux: (n) => tr('loader.lux', 'lux {n}%', { n }),
+  lux: (n) => tr('loader.lux', 'LUX {n}%', { n }),
 };
 const TAU = Math.PI * 2;
 const SWEEP = 1.2; // radians of afterglow behind the sweep
@@ -41,8 +41,7 @@ const font = (ctx) => { ctx.font = "500 9px Saira, 'Bahnschrift', sans-serif"; c
 function label(ctx, text, x, y, { color = C.ink3, align = 'left' } = {}) {
   font(ctx);
   ctx.textAlign = align; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = color;
-  // (µ stays as it is: uppercased it would read as an M)
-  ctx.fillText(text.toUpperCase().replace(/Μ/g, 'µ'), x, y);
+  ctx.fillText(text, x, y); // (its words are written in capitals)
 }
 function line(ctx, x0, y0, x1, y1, color = C.line) {
   ctx.strokeStyle = color; ctx.lineWidth = 1;
@@ -62,7 +61,7 @@ function reticle(W, H, ctx) {
   // in columns as wide as their longest, and the lens gives up what room they still lack.
   const wide = W >= 2 * (H / 2 - 16) + 220;
   font(ctx);
-  const colW = Math.max(...[WORDS.acquiring, WORDS.specimen, WORDS.cells('00'), KINDS[1][2], WORDS.size('000'), WORDS.field, WORDS.lux('00'), WORDS.temp('00.0')].map((x) => ctx.measureText(x.toUpperCase()).width));
+  const colW = Math.max(...[WORDS.acquiring, WORDS.specimen, WORDS.cells('00'), KINDS[1][2], WORDS.size('000'), WORDS.field, WORDS.lux('00'), WORDS.temp('00.0')].map((x) => ctx.measureText(x).width));
   const gap = 16;
   const R = wide ? H / 2 - 16 : Math.max(36, Math.min(H / 2 - 16, W / 2 - gap - colW - 4));
   const cx = W / 2, cy = H / 2;

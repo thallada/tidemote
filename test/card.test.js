@@ -24,12 +24,12 @@ test('a card says how a species lives, where it came from and what the chronicle
   assert.ok(d.given);
   assert.deepEqual(d.lineage, ['Thax grazer', 'Thax grazer']);
   assert.equal(d.story, 'It was hunted down.');
-  assert.deepEqual(d.body.map(([k]) => k), ['Speed', 'Size', 'Lifespan', 'Division']);
+  assert.deepEqual(d.body.map(([k]) => k), ['SPEED', 'SIZE', 'LIFESPAN', 'DIVISION']);
   for (const [, v] of [...d.body, ...d.diet]) assert.ok(v >= 0 && v <= 1, 'gauges are shares of their range');
   assert.ok(Math.abs(d.diet.reduce((a, [, v]) => a + v, 0) - 1) < 1e-6, 'what it lives on adds up');
   assert.ok(d.water && d.water.tol > 0);
   assert.equal(d.tags.length, 3);
-  assert.deepEqual(d.stats.map(([k]) => k), ['Peak', 'Age', 'Arose']);
+  assert.deepEqual(d.stats.map(([k]) => k), ['PEAK', 'AGE', 'AROSE']);
   assert.equal(d.stats[0][1], '900');
   // its numbers from the census history, ending at its count now
   const history = [0, 600, 1200, 1800, 2400, 3000].map((t, i) => ({ t, sp: [[40, 100 * i], [30, 5]] }));
@@ -37,6 +37,6 @@ test('a card says how a species lives, where it came from and what the chronicle
   assert.deepEqual(h.series.v, [100, 200, 300, 400, 500, 400]); // from its birth (60 s)
   assert.equal(h.series.t.at(-1), 3600);
   const gone = cardData({ ...a, alive: false, extinct: 600 }, { reg, K: DEFAULT_K, founders: 24 });
-  assert.deepEqual(gone.stats[2], ['Extinct at', '10:00']);
+  assert.deepEqual(gone.stats[2], ['EXTINCT AT', '10:00']);
   assert.match(gone.origin, /sparked from silt/);
 });

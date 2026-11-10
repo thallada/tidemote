@@ -20,11 +20,14 @@ export const ERA_KEEP = 500, EVENT_KEEP = 64;
 // words: audio/conductor.js eraMusic, score.js), saves and headless runs record it. eraName gives it in the page's words.
 const FIRST_ERA = 'The First Tides'; // i18n-ignore (the key; eraName gives its words)
 const ERA_RE = /^The (\w+) (\w+)$/;
-/** An era's name (climate.name, or a history entry's) as the page shows it. */
-export function eraName(name) {
-  if (name === FIRST_ERA) return tr('climate.era.first', 'The First Tides');
+/** An era's name (climate.name, or a history entry's) as the page shows it; caps: in capitals (a species card's foot). */
+export function eraName(name, caps = false) {
+  // i18n: the first era's name, in capitals at a species card's foot (climate.era.first)
+  if (name === FIRST_ERA) return caps ? tr('card.era.first', 'THE FIRST TIDES') : tr('climate.era.first', 'The First Tides');
   const m = ERA_RE.exec(name || '');
-  if (!m || !ERA_ADJ.includes(m[1]) || !ERA_NOUN.includes(m[2])) return name;
+  if (!m || !ERA_ADJ.includes(m[1]) || !ERA_NOUN.includes(m[2])) return caps && name ? name.toUpperCase() : name; // (a name this version does not know: a key, not a message)
+  // i18n: an era's name, in capitals at a species card's foot (climate.era)
+  if (caps) return tr('card.era', 'THE {adj, select, Restless {RESTLESS} Dim {DIM} Bright {BRIGHT} Still {STILL} Pale {PALE} Warm {WARM} Hollow {HOLLOW} Rising {RISING} Long {LONG} Bitter {BITTER} Green {GREEN} Silver {SILVER} other {{adj}}} {noun, select, Glare {GLARE} Tides {TIDES} Drift {DRIFT} Calm {CALM} Surge {SURGE} Murk {MURK} Bloom {BLOOM} Shallows {SHALLOWS} Gyre {GYRE} Hush {HUSH} other {{noun}}}', { adj: m[1], noun: m[2] });
   // i18n: an era's name, drawn at random from these words; in a language whose adjectives agree with their noun, nest
   // the selects (one for each noun, the adjectives inside it)
   return tr('climate.era', 'The {adj, select, Restless {Restless} Dim {Dim} Bright {Bright} Still {Still} Pale {Pale} Warm {Warm} Hollow {Hollow} Rising {Rising} Long {Long} Bitter {Bitter} Green {Green} Silver {Silver} other {{adj}}} {noun, select, Glare {Glare} Tides {Tides} Drift {Drift} Calm {Calm} Surge {Surge} Murk {Murk} Bloom {Bloom} Shallows {Shallows} Gyre {Gyre} Hush {Hush} other {{noun}}}', { adj: m[1], noun: m[2] });

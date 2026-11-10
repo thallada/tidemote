@@ -4428,9 +4428,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
       octx.stroke();
     }
     // the readout, beside the ring (inside the screen)
-    // i18n: the tool's readout by the pointer: {tool} its name (in capitals), and what the pipette holds ({n} cells of
+    // i18n: the tool's readout by the pointer: its name, in capitals (hand.readout.pipette, hand.readout.reach)
+    const tool = tr('hand.readout.tool', '{t, select, loupe {LOUPE} touch {TOUCH} lamp {LAMP} shade {SHADE} warm {WARM} cold {COLD} needle {NEEDLE} pipette {PIPETTE} other {PAN}}', { t: toolOf(t).id });
+    // i18n: the tool's readout by the pointer: {tool} its name (hand.readout.tool), and what the pipette holds ({n} cells of
     // {max}) or the tool's reach ({reach}, a length)
-    const tool = toolOf(t).name.toLocaleUpperCase(LOCALE);
     const lines = [t === 'pipette' ? tr('hand.readout.pipette', '{tool} · {n, number} / {max, number}', { tool, n: pipette.count, max: PIPE_LIMIT }) : t === 'needle' ? tool : tr('hand.readout.reach', '{tool} · {reach}', { tool, reach: fmtLen(hand.reach) }), handDoing()];
     const mode = t === 'pipette' && modeChip(pipDispensing());
     const chip = mode ? mode.w + 8 : 0;
@@ -4667,10 +4668,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const g = p.kind >= FIRST_LIFE ? genomeFor(p.kind) : null;
     const sp = g && life.reg.get(g.serial);
     // the camera lingering on a death keeps the species' name on its remains
-    const name = sp ? sp.name : sel.film && sel.memory && sel.memory.sp ? sel.memory.sp.name : p.kind === 3 ? stoneGrain(p.id, p.info).name : p.kind < FIRST_LIFE ? MATTER[p.kind].name : '';
-    if (!name) return true;
+    const name = sp ? sp.name : sel.film && sel.memory && sel.memory.sp ? sel.memory.sp.name : p.kind === 3 ? stoneGrain(p.id, p.info).name : '';
+    // in capitals: a species' or a grain's name upper-cased (generated, not messages), other matter by its kind
+    // i18n: the label by a picked grain of matter, its kind in capitals
+    const label = name ? name.toLocaleUpperCase(LOCALE) : p.kind < FIRST_LIFE ? tr('stage.plate.matter', '{kind, select, 0 {SILT} 2 {HUSK} other {FRAMBOID}}', { kind: p.kind }) : '';
+    if (!label) return true;
     octx.font = '500 11px Saira, system-ui, sans-serif'; // i18n-ignore (a CSS font)
-    const label = name.toLocaleUpperCase(LOCALE);
     octx.letterSpacing = '1.5px';
     const tw = octx.measureText(label).width;
     // the label goes to whichever side of the frame has room inside the area the panels leave open

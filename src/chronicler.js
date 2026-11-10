@@ -52,8 +52,6 @@ const GUILDS = ['producer', 'grazer', 'scavenger', 'predator'];
 const numWord = (n) => tr('chron.word.num', '{n, select, 0 {no} 1 {one} 2 {two} 3 {three} 4 {four} 5 {five} 6 {six} 7 {seven} 8 {eight} 9 {nine} 10 {ten} 11 {eleven} 12 {twelve} other {{n, number}}}', { n });
 // i18n: the same, beginning a sentence ("Seven cells from elsewhere were set down")
 const numWordStart = (n) => tr('chron.word.num-start', '{n, select, 0 {No} 1 {One} 2 {Two} 3 {Three} 4 {Four} 5 {Five} 6 {Six} 7 {Seven} 8 {Eight} 9 {Nine} 10 {Ten} 11 {Eleven} 12 {Twelve} other {{n, number}}}', { n });
-// a species' name beginning a sentence (the page's names are links, which this leaves as they are)
-const capName = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 /** A span of simulated time in words: "40 seconds", "12 minutes", "1 hour 5 minutes". */
 export function durWords(s) {
   s = Math.max(0, s);
@@ -398,6 +396,8 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
   const vary = (kind, n) => { const k = S.voice[kind] = (S.voice[kind] || 0) + 1; return (k - 1) % n; };
   // i18n: in place of a species' name, when its record is gone
   const L = (reg, serial) => { const sp = reg.get(serial); return sp ? link(serial, sp.name) : tr('chron.word.unrecorded', 'an unrecorded species'); };
+  // i18n: the same, beginning a sentence
+  const Lstart = (reg, serial) => { const sp = reg.get(serial); return sp ? link(serial, sp.name) : tr('chron.word.unrecorded-start', 'An unrecorded species'); };
   const guildOf = (sp) => dietGuild(sp.genome);
   const descendants = (reg, serial) => {
     const out = [];
@@ -1191,7 +1191,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     }
     // the clauses of the aftermath (the first begins its sentence: a name there is capitalized, a count is chron.word.num-start)
     const bits = [];
-    const named = (serial) => (bits.length ? L(reg, serial) : capName(L(reg, serial)));
+    const named = (serial) => (bits.length ? L(reg, serial) : Lstart(reg, serial));
     // i18n: after an event: {name} (a link) slept through it as cysts; {event}: which (drought, frost, other)
     if (slept) bits.push(tr('chron.event.slept', '{name} {event, select, drought {lay sleeping as cysts upon the mud and woke with the rain} frost {slept in the ice as cysts and woke with the thaw} other {withdrew into cysts and waited for better days}}', { name: named(slept[0]), event: ev.type }));
     // i18n: after an event: {name} (a link) grew from {from} cells to {to}
@@ -1202,7 +1202,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       const first = !bits.length;
       bits.push(lost.length <= 2
         // i18n: after an event: {names}, one or two species ({n}, links in a list), died out
-        ? tr('chron.event.lost', '{names} did not live to see it end', { names: andList(lost.map((sp, i) => (i || !first ? L(reg, sp.serial) : capName(L(reg, sp.serial))))), n: lost.length })
+        ? tr('chron.event.lost', '{names} did not live to see it end', { names: andList(lost.map((sp, i) => (i || !first ? L(reg, sp.serial) : Lstart(reg, sp.serial)))), n: lost.length })
         // i18n: after an event: {count} species died out, in words ({n} as a number; at the start of a sentence, {count} begins it, chron.word.num-start); {name}: the greatest of them (a link)
         : tr('chron.event.lost-many', '{count} species did not live to see it end, {name} the greatest of them', { count: first ? numWordStart(lost.length) : numWord(lost.length), n: lost.length, name: L(reg, lost[0].serial) }));
     }

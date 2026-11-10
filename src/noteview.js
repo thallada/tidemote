@@ -531,7 +531,7 @@ export function createNoteView(g) {
       text('micro', String(i + 1).padStart(2, '0'), x - W + 10, yy, rgba(INK3, 1));
       spGlyph(r.kind, x - W + 36, yy - 4, 3.8);
       // the name has the row less its number
-      const nm = fit('micro', r.name.toUpperCase(), W - 66 - width('micro', num));
+      const nm = fit('micro', up(r.name), W - 66 - width('micro', num));
       text('micro', nm, x - W + 46, yy, rgba(col, r.hot ? 1 : 0.92));
       text('micro', num, x - 10, yy, rgba(col, 0.95), 'right');
       g.fillStyle = rgba(col, r.hot ? 0.9 : 0.4); g.fillRect(x - W + 46, yy + 4, Math.max(1, (W - 56) * r.bar), 1);

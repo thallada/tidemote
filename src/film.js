@@ -20,7 +20,7 @@
 // lower limit; tools/film-check.mjs, tools/film-quality.mjs) and __FILM_PROBE (film-quality's barcode
 // and lossless frames).
 import { createWebmFix } from './webm.js';
-import { tr } from './i18n.js';
+import { tr, LOCALE } from './i18n.js';
 
 // H.264 in MP4 first: browsers encode it on the GPU where they can (Chrome on Windows and macOS), so a film
 // keeps its 30 frames a second and the page its pace, and it plays everywhere; AAC where the browser has
@@ -249,7 +249,7 @@ export function createFilm({ canvas, source = null, overlay = null, caption = nu
     g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.55)');
     ctx.fillStyle = g; ctx.fillRect(0, y - 90 * s, w, h - y + 90 * s);
     ctx.fillStyle = '#7fd6df'; ctx.font = `500 ${Math.round(18 * s)}px ${F}`;
-    ctx.fillText(eye.toUpperCase(), w / 2, y - 44 * s);
+    ctx.fillText(eye.toLocaleUpperCase(LOCALE), w / 2, y - 44 * s); // (as .cap-eye's text-transform shows it on the page)
     ctx.fillStyle = 'rgba(150,222,230,0.55)'; ctx.fillRect(w / 2 - 24 * s, y - 34 * s, 48 * s, Math.max(1, s));
     ctx.fillStyle = '#e2f1f0'; ctx.font = `400 ${Math.round(32 * s)}px ${F}`;
     ctx.fillText(main, w / 2, y);

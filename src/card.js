@@ -38,29 +38,32 @@ export function cardData(sp, { reg, K, story = null, simTime = 0, founders = 0, 
     : tr('card.origin.unknown', 'an ancestor too rare to be named');
   const swim = g.swim * (1 - g.photo), div = divEnergy(g, K);
   // what it is, in a word or two each: its diet, how it moves, its body
-  // i18n: the three chips under a card's portrait (shown in capitals): its diet, how it moves, its body
-  const tags = [tr('card.tag.diet', '{diet, select, photosynth {photosynth} grazer {grazer} scavenger {scavenger} predator {predator} other {{diet}}}', { diet: f.diet }),
-    tr('card.tag.motion', '{motion, select, schooling {schooling} anchored {anchored} crawler {crawler} swimmer {swimmer} drifter {drifter} other {{motion}}}', { motion: f.schooling ? 'schooling' : f.mobility }),
-    tr('card.tag.body', '{body, select, types {{n, plural, one {# cell type} other {# cell types}}} many {many-celled} other {single cells}}', { body: f.body === 'multicellular' ? (f.types > 1 ? 'types' : 'many') : 'single', n: f.types })];
+  // i18n: the three chips under a card's portrait, in capitals: its diet, how it moves, its body
+  const tags = [tr('card.tag.diet', '{diet, select, photosynth {PHOTOSYNTH} grazer {GRAZER} scavenger {SCAVENGER} predator {PREDATOR} other {{diet}}}', { diet: f.diet }),
+    tr('card.tag.motion', '{motion, select, schooling {SCHOOLING} anchored {ANCHORED} crawler {CRAWLER} swimmer {SWIMMER} drifter {DRIFTER} other {{motion}}}', { motion: f.schooling ? 'schooling' : f.mobility }),
+    tr('card.tag.body', '{body, select, types {{n, plural, one {# CELL TYPE} other {# CELL TYPES}}} many {MANY-CELLED} other {SINGLE CELLS}}', { body: f.body === 'multicellular' ? (f.types > 1 ? 'types' : 'many') : 'single', n: f.types })];
   // its body as gauges against the ranges species take (the archetypes' and sparks')
+  // i18n: a card's gauges of its body, labeled in capitals
   const body = [
-    [tr('card.body.speed', 'Speed'), share(swim, 0, 2.2), swim < 0.05 ? tr('card.body.speed-still', 'still') : swim.toFixed(2)],
-    [tr('card.body.size', 'Size'), share(g.size, 0.4, 1.8), fmtLen(0.17 * g.size)],
-    [tr('card.body.lifespan', 'Lifespan'), share(g.lifespan, 40, 480, true), fmtDur(g.lifespan)],
+    [tr('card.body.speed', 'SPEED'), share(swim, 0, 2.2), swim < 0.05 ? tr('card.body.speed-still', 'still') : swim.toFixed(2)],
+    [tr('card.body.size', 'SIZE'), share(g.size, 0.4, 1.8), fmtLen(0.17 * g.size)],
+    [tr('card.body.lifespan', 'LIFESPAN'), share(g.lifespan, 40, 480, true), fmtDur(g.lifespan)],
     // i18n: the energy a cell divides at, {e} in the game's energy units (E)
-    [tr('card.body.division', 'Division'), 1 - share(div, 1, 8, true), tr('card.body.division-e', '{e} E', { e: div.toFixed(1) })],
+    [tr('card.body.division', 'DIVISION'), 1 - share(div, 1, 8, true), tr('card.body.division-e', '{e} E', { e: div.toFixed(1) })],
   ];
   // what it lives on: the light, and each of grazing (glint), carrion (husks) and hunting (flesh)
-  const DIETS = [tr('card.diet.light', 'Light'), tr('card.diet.grazing', 'Grazing'), tr('card.diet.carrion', 'Carrion'), tr('card.diet.hunting', 'Hunting')];
+  // i18n: a card's gauges of what it lives on, labeled in capitals
+  const DIETS = [tr('card.diet.light', 'LIGHT'), tr('card.diet.grazing', 'GRAZING'), tr('card.diet.carrion', 'CARRION'), tr('card.diet.hunting', 'HUNTING')];
   const diet = dietMix(g).map(([, v], i) => [DIETS[i], v, tr('card.diet.share', '{p}%', { p: Math.round(v * 100) })]);
   const water = K.heat ? { opt: g.topt ?? 19, tol: g.tol ?? 7, maker: !!th.maker, pref: th.pref } : null;
   const food = relations?.food && reg.get(relations.food), eater = relations?.eater && reg.get(relations.eater);
   const end = sp.alive ? simTime : (sp.extinct ?? simTime);
   // its record, as a card's back gives a player's: not how many live this moment, but what it has done
+  // i18n: a card's record, each figure labeled in capitals
   const stats = [
-    [tr('card.stat.peak', 'Peak'), fmt(sp.peak)],
-    [sp.alive ? tr('card.stat.age', 'Age') : tr('card.stat.lived', 'Lived'), fmtDur(end - (sp.born || 0))],
-    sp.alive ? [tr('card.stat.arose', 'Arose'), fmtClock(sp.born || 0)] : [tr('card.stat.extinct', 'Extinct at'), fmtClock(sp.extinct ?? 0)],
+    [tr('card.stat.peak', 'PEAK'), fmt(sp.peak)],
+    [sp.alive ? tr('card.stat.age', 'AGE') : tr('card.stat.lived', 'LIVED'), fmtDur(end - (sp.born || 0))],
+    sp.alive ? [tr('card.stat.arose', 'AROSE'), fmtClock(sp.born || 0)] : [tr('card.stat.extinct', 'EXTINCT AT'), fmtClock(sp.extinct ?? 0)],
   ];
   // its numbers over its life: from the census history (evenly spaced, unlike the lineage view's record, which
   // keeps its older points ever more sparsely), else that record
@@ -127,7 +130,7 @@ export function drawCard(ctx, d, art = {}) {
   const W = CARD_W, H = CARD_H, F = 'Saira, Bahnschrift, "Segoe UI", system-ui, sans-serif'; // i18n-ignore (a font)
   const M = 30, R = W - M, w = R - M;
   const INK = '#e2f1f0', INK2 = '#a3bdbe', INK3 = '#7d999b', LINE = 'rgba(130,205,214,0.22)';
-  const label = (t, x, y, col = INK3, size = 17) => { ctx.fillStyle = col; ctx.font = `600 ${size}px ${F}`; ctx.letterSpacing = '0.08em'; ctx.fillText(t.toUpperCase(), x, y); ctx.letterSpacing = '0px'; };
+  const label = (t, x, y, col = INK3, size = 17) => { ctx.fillStyle = col; ctx.font = `600 ${size}px ${F}`; ctx.letterSpacing = '0.08em'; ctx.fillText(t, x, y); ctx.letterSpacing = '0px'; }; // (its words are written in capitals)
   const text = (t, x, y, size, col = INK, weight = 400, maxW = Infinity) => { ctx.fillStyle = col; ctx.font = `${weight} ${size}px ${F}`; ctx.fillText(fit(ctx, t, maxW), x, y); };
   ctx.save();
   ctx.fillStyle = '#06090a';
@@ -175,7 +178,7 @@ export function drawCard(ctx, d, art = {}) {
   let y = AY + AH + 16, cx = M;
   ctx.font = `600 18px ${F}`; ctx.letterSpacing = '0.08em';
   d.tags.forEach((t, i) => {
-    const s = t.toUpperCase(), tw = ctx.measureText(s).width + 26;
+    const s = t, tw = ctx.measureText(s).width + 26;
     ctx.fillStyle = i ? 'rgba(130,205,214,0.07)' : d.col; ctx.globalAlpha = i ? 1 : 0.16; ctx.fillRect(cx, y, tw, 34); ctx.globalAlpha = 1;
     ctx.strokeStyle = i ? LINE : d.col; ctx.strokeRect(cx + 0.5, y + 0.5, tw - 1, 33);
     ctx.fillStyle = i ? INK2 : INK; ctx.fillText(s, cx + 13, y + 24);
@@ -222,14 +225,16 @@ export function drawCard(ctx, d, art = {}) {
       ctx.textAlign = 'right'; text(val, x + colW, yy + 6, 18, INK, 500, VW - 6); ctx.textAlign = 'left';
     });
   };
-  gauges(M, tr('card.body', 'Body'), d.body);
-  gauges(M + colW + gap, tr('card.diet', 'Lives on'), d.diet);
+  // i18n: the headings over a card's gauges, in capitals
+  gauges(M, tr('card.body', 'BODY'), d.body);
+  gauges(M + colW + gap, tr('card.diet', 'LIVES ON'), d.diet);
   y += 30 + 4 * 36 + 10;
 
   // the water it likes: a thermometer from ice to 45°, its band and its best
   if (d.water) {
     const T0 = 0, T1 = 45, bx = M + LW, bw = w - LW - 150, X = (t) => bx + ((Math.max(T0, Math.min(T1, t)) - T0) / (T1 - T0)) * bw;
-    label(tr('card.water', 'Water'), M, y + 6, INK2);
+    // i18n: the heading of a card's thermometer, in capitals
+    label(tr('card.water', 'WATER'), M, y + 6, INK2);
     const g = ctx.createLinearGradient(bx, 0, bx + bw, 0);
     g.addColorStop(0, '#2d6fb8'); g.addColorStop(0.45, '#2f8f7c'); g.addColorStop(0.75, '#c08a2e'); g.addColorStop(1, '#c4462e');
     ctx.globalAlpha = 0.3; ctx.fillStyle = g; ctx.fillRect(bx, y - 10, bw, 16); ctx.globalAlpha = 1;
@@ -258,7 +263,7 @@ export function drawCard(ctx, d, art = {}) {
   const lines = line ? wrap(ctx, line, fw) : [], room = ties ? 2 : 3;
   lines.slice(0, room).forEach((l, i) => text(i === room - 1 && lines.length > room ? `${l} …` : l, M, ly + i * 26, 18, d.story ? '#e8dcc0' : INK3, d.story ? 'italic 400' : 400, fw));
   ctx.font = `600 17px ${F}`;
-  label(fit(ctx, eraName(d.home), fw - 20), M, H - 30, INK3);
+  label(fit(ctx, eraName(d.home, true), fw - 20), M, H - 30, INK3);
   if (d.qr) {
     // dark modules on a cyan tile (many phone cameras read no light-on-dark code), whole device pixels a module
     // (crisp edges read best), a quiet zone of at least three modules (a code up to version 13, a card with a body
@@ -283,7 +288,8 @@ export async function strangerCard(card, link, K, portrait = null) {
   const sp = { serial: 0, name: card.name, binomial: card.name, genome: card.genome, alive: false, founder: true, born: 0, peak: 0, pop: 0, genus: card.name.split(' ')[0], established: true };
   const d = cardData(sp, { reg: new Map(), K });
   Object.assign(d, {
-    stats: [[tr('card.stat.home', 'Home water'), eraName(card.home)], [tr('card.stat.genus', 'Genus'), d.genus], [tr('card.stat.mutations', 'Mutations'), String(card.genome.depth)]], lineage: [],
+    // i18n: a carried card's record, each figure labeled in capitals
+    stats: [[tr('card.stat.home', 'HOME WATER'), eraName(card.home)], [tr('card.stat.genus', 'GENUS'), d.genus], [tr('card.stat.mutations', 'MUTATIONS'), String(card.genome.depth)]], lineage: [],
     // i18n: {home} is the name of the world (its era) a card was carried from
     origin: tr('card.origin.carried', 'carried from {home}', { home: eraName(card.home) }),
     home: card.home, qr: qr(link),
