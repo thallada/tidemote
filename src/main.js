@@ -233,6 +233,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const prefs = loadPrefs();
   let lab = null, specimen = null, view = null; // panels, created below
   let dockTop = innerHeight, railBottom = 0;
+  // The Field Lab's right edge and the specimen panel's inset, read once a page frame (pageFrame): the lens's readout,
+  // the labels, the caption, the annotations and the follow camera each ask, and every getBoundingClientRect after the
+  // panels' writes in a frame forces a layout of its own (they see a panel moved since the frame's first read a frame on)
+  let pageFrame = 0, edgesAt = -1, labEdge = 0, specEdge = null;
+  function readEdges() { if (edgesAt === pageFrame) return; edgesAt = pageFrame; labEdge = $('lab').getBoundingClientRect().right; specEdge = specimen.inset(); }
+  const labRight = () => { readEdges(); return labEdge; };
+  const specInset = () => { readEdges(); return specEdge; };
   const state = {
     phase: 'calibrating', busy: true, paused: false, speed: 1, warm: false,
     hud: true, follow: false, confirmReset: 0,
@@ -399,9 +406,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // The middle of the part of the screen the panels leave open, as a world offset from the camera:
   // a followed specimen sits there rather than behind the panel.
   function viewOffset() {
-    const ins = specimen.inset();
+    const ins = specInset();
     const top = phone() ? 48 : 52, bot = phone() ? 62 : 56;
-    const left = lab && lab.isOpen() && !phone() && state.ui ? $('lab').getBoundingClientRect().right : 0;
+    const left = lab && lab.isOpen() && !phone() && state.ui ? labRight() : 0;
     const cx = (left + innerWidth - ins.right) / 2, cy = (top + innerHeight - Math.max(bot, ins.bottom)) / 2;
     const p = cssPPU();
     return [(innerWidth / 2 - cx) / p, (innerHeight / 2 - cy) / p];
@@ -4277,7 +4284,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     if (phone()) return;
     const len = (NICE_UM.find((u) => (u / UM_PER_UNIT) * p >= 50) || 50000) / UM_PER_UNIT;
-    const w = len * p, x1 = innerWidth - 24 - (specimen.isOpen() ? specimen.inset().right : 0), x0 = x1 - w, by = y - 16;
+    const w = len * p, x1 = innerWidth - 24 - (specimen.isOpen() ? specInset().right : 0), x0 = x1 - w, by = y - 16;
     octx.fillStyle = 'rgba(226,241,240,0.85)';
     octx.fillRect(x0, by, w, 1);
     octx.fillRect(x0, by - 4, 1, 5); octx.fillRect(x1 - 1, by - 4, 1, 5);
@@ -4295,7 +4302,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const marking = markSlot() !== -2 && songEvents.some((e) => now - e.at < MARK_MS);
     const R = reticleAt();
     const key = state.currents || (sel && sel.particle) || L || R || marking || notesShown ? null
-      : `${state.hud}|${state.ui}|${director.active}|${cssPPU()}|${cam.x}|${dockTop}|${innerWidth}|${overlay.width}|${specimen.isOpen() && specimen.inset().right}|${document.fonts.status}`;
+      : `${state.hud}|${state.ui}|${director.active}|${cssPPU()}|${cam.x}|${dockTop}|${innerWidth}|${overlay.width}|${specimen.isOpen() && specInset().right}|${document.fonts.status}`;
     if (key !== null && key === overlayKey) return;
     overlayKey = key;
     octx.setTransform(1, 0, 0, 1, 0, 0);
@@ -4434,7 +4441,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     octx.letterSpacing = '1.5px';
     const w = Math.max(...lines.map((l, i) => octx.measureText(l).width + (i ? chip : 0))) + 12;
     // beside the ring, within the water the panels leave open
-    const left = lab.isOpen() && !phone() && state.ui ? $('lab').getBoundingClientRect().right : 0, right = innerWidth - specimen.inset().right;
+    const left = lab.isOpen() && !phone() && state.ui ? labRight() : 0, right = innerWidth - specInset().right;
     let x = sx + Math.min(r, 160) + 16;
     if (x + w > right - 8) x = sx - Math.min(r, 160) - 16 - w;
     x = clamp(x, left + 8, right - 8 - w);
@@ -4670,8 +4677,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     octx.letterSpacing = '1.5px';
     const tw = octx.measureText(label).width;
     // the label goes to whichever side of the frame has room inside the area the panels leave open
-    const lo = lab.isOpen() && !phone() ? $('lab').getBoundingClientRect().right : 0;
-    const hi = innerWidth - specimen.inset().right;
+    const lo = lab.isOpen() && !phone() ? labRight() : 0;
+    const hi = innerWidth - specInset().right;
     const left = r + 38 + tw > hi - 8 && l - 38 - tw >= lo + 8;
     const ex = (left ? l - 14 : r + 14), ey = Math.max(t - 14, 64);
     octx.strokeStyle = 'rgba(255,95,58,0.75)';
@@ -4925,8 +4932,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // the part of the window the world shows clear of the panels (CSS px)
   function openArea() {
     const top = railBottom;
-    const l = lab.isOpen() && !phone() ? $('lab').getBoundingClientRect().right : phone() ? 0 : 40;
-    return { l: l + 8, t: top + 8, r: innerWidth - specimen.inset().right - 8, b: dockTop - 8 };
+    const l = lab.isOpen() && !phone() ? labRight() : phone() ? 0 : 40;
+    return { l: l + 8, t: top + 8, r: innerWidth - specInset().right - 8, b: dockTop - 8 };
   }
   // each frame: the stretch of world to watch (the view and a margin), or none
   function watchNotes() {
@@ -5044,8 +5051,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     capEl.classList.toggle('on', !!(sh && cap.html && sh.t < sh.dur - 2.5));
     // centered in the part of the view the panels leave open
-    const l = lab.isOpen() && !phone() && state.ui ? $('lab').getBoundingClientRect().right : 0;
-    const r = specimen.inset().right;
+    const l = lab.isOpen() && !phone() && state.ui ? labRight() : 0;
+    const r = specInset().right;
     const x = `${Math.round((l + innerWidth - r) / 2)}px`;
     if (capEl.style.left !== x) capEl.style.left = x;
   }
@@ -5466,6 +5473,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // on often works (an error in the page's bookkeeping), and saving it first keeps it either way.
   let lastStop = -Infinity;
   function frame(now) {
+    pageFrame++;
     try { frameWork(now); } catch (e) { stopped(e); return; }
     requestAnimationFrame(frame);
   }
