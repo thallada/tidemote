@@ -194,7 +194,7 @@ export function createLab(api) {
         li.tabIndex = 0;
         const f = api.facets(sp.genome);
         li.innerHTML = `<span class="spsig term" data-tip="sigil">${sigilSVG(voiceOf(sp.genome), sp.genome, { size: 26 })}</span><div class="spmain">${spLink(sp.serial, sp.name)}<small>${tr('lab.sp.row', '{diet} · {mobility} · {body}', { diet: FACET_NAME[f.diet] ?? f.diet, mobility: FACET_NAME[f.mobility] ?? f.mobility, body: FACET_NAME[f.body] ?? f.body })}</small></div><svg viewBox="0 0 78 22" class="spark" aria-hidden="true"><path stroke="${cssCol(sp.genome.col)}"/></svg><div class="spnum"><b></b><span></span></div>`;
-        r = { li, path: li.querySelector('path'), b: li.querySelector('.spnum b'), s: li.querySelector('.spnum span'), key: '' };
+        r = { li, path: li.querySelector('path'), b: li.querySelector('.spnum b'), s: li.querySelector('.spnum span'), a: li.querySelector('a.sp'), name: sp.name, key: '' };
         rows.set(sp.serial, r);
       }
       return r;
@@ -230,6 +230,8 @@ export function createLab(api) {
         const share = sp.alive ? tr('lab.sp.share', '{share}%', { share: ((sp.pop / living) * 100).toFixed(1) }) : tr('lab.sp.ended', 'ended {t}', { t: fmtClock(sp.extinct ?? 0) });
         const k = `${sp.pop}|${share}`;
         if (k !== r.key) { r.key = k; setText(r.b, sp.alive ? fmt(sp.pop) : '–'); setText(r.s, share); }
+        // (a name given, or cleared, since the row was made)
+        if (r.name !== sp.name) { r.name = sp.name; setText(r.a, sp.name); }
         r.li.classList.toggle('gone', !sp.alive);
         r.li.classList.toggle('hl', hl === `sp:${sp.serial}`);
         if (sparks || !known) r.path.setAttribute('d', sparkPath(life.history, sp.serial, 78, 22));
