@@ -29,8 +29,8 @@
 
 import { d2m, STEP, noteParams } from './conductor.js';
 import { LISTEN } from './listen.js';
+import { midicps } from './ugens.js';
 
-const midicps = (m) => 440 * Math.pow(2, (m - 69) / 12);
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 
 const T = LISTEN.index;

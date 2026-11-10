@@ -7,8 +7,8 @@
 // with what the hand does, never a train of notes restarting; while the rod or the pipette is at work the field
 // steps back a little (duck), more in the ice, most riding.
 
-import { d2m, midicps } from './conductor.js';
-import { BS } from './ugens.js';
+import { d2m } from './conductor.js';
+import { BS, midicps } from './ugens.js';
 
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 const AHEAD = 0.02; // seconds from a message to its sound (the next block or so)

@@ -3,7 +3,7 @@
 // mix (field.js) schedules the cells' notes on it and the score (score.js) the long form. Runs
 // inside the AudioWorklet; times are in seconds of audio rendered.
 
-import { BS } from './ugens.js';
+import { BS, midicps } from './ugens.js';
 import { Field } from './field.js';
 import { Score } from './score.js';
 import { HandSound } from './handsound.js';
@@ -57,7 +57,6 @@ export const d2m = (deg, root, scale) => {
   const n = scale.length, o = Math.floor(sd / n);
   return root + scale[((sd % n) + n) % n] + 12 * o + acc;
 };
-export const midicps = (m) => 440 * Math.pow(2, (m - 69) / 12);
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 
 

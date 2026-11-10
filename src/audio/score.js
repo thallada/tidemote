@@ -26,8 +26,8 @@
 // heard without the score turning into a blur of notes or a bell ringing on repeat.
 
 import { d2m, worldHash, STEP } from './conductor.js';
+import { midicps } from './ugens.js';
 
-const midicps = (m) => 440 * Math.pow(2, (m - 69) / 12);
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 // Levels: amps are set so that one note sits a little under one cell's note heard up close.
 // A struck bar's loudness falls with pitch (its strike excites less of a higher bar): even it out.

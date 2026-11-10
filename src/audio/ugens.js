@@ -24,6 +24,8 @@ const LOG1 = Math.log(0.1);
 const TWOPI = Math.PI * 2;
 const f32 = Math.fround;
 
+// MIDI note → Hz (SuperCollider's midicps), for every part of the soundtrack
+export const midicps = (m) => 440 * Math.pow(2, (m - 69) / 12);
 export const zap = (x) => { const a = Math.abs(x); return a > 1e-15 && a < 1e15 ? x : 0; };
 
 // ── taus88, seeded like RGen::init ───────────────────────────────────────────
