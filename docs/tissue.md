@@ -32,7 +32,7 @@ merged to main: these rules are now always on, and only their strengths remain t
   cells touch (`bondTouch` of the pair's summed radii), their kin keep personal space only down to touching,
   and they keep `tissueSig` of their long-range signature forces, so contact shapes them. Loose species keep
   open, strung-out bodies.
-- `liveFirst`: each grid cell's living sort first (`resolveCount` ranks living and matter apart; `LIVE_AT`
+- Each grid cell's living sort first (the switch was `liveFirst`) (`resolveCount` ranks living and matter apart; `LIVE_AT`
   holds the counts), and a cell weighs its living neighbors exactly up to `liveScan`, sampling the matter
   with what `maxScan` leaves. Strides follow the crowd interpolated between grid-cell centers (floored at a
   third of the totals' stride beside a heap), so nothing jumps at a grid line.
@@ -44,14 +44,14 @@ merged to main: these rules are now always on, and only their strengths remain t
   - `bodyPush`: and a push by their overlap besides;
   - `crowdVisc`: cells that touch take on each other's motion, more the more they touch (compounded per
     1/60 s, so coarse steps blend as far as their ticks would).
-- `budding`: a daughter appears beside her mother, toward the grain she is built from, not at the grain.
+- Budding (the switch was `budding`): a daughter appears beside her mother, toward the grain she is built from, not at the grain.
 - Grains read the water's warmth between grid cells (they were shaken harder cell by cell).
 
 ## Drawing
 
 - A tight species' cells among their kin fill out toward the walls they share (`PO.tile`, per direction:
-  only facing a kin contact, growing as it presses closer) and keep their own outline facing open water;
-  bonds between them draw no tube (`view.tissue`).
+  only facing a kin contact, growing as it presses closer: `tile` in `vsPoint`'s output) and keep their own
+  outline facing open water; bonds between them draw no tube (`vsBridge`, by `view.tightFrom`).
 - The main view's scene pass gathers the living alone in a second target (`fsPointLive`, `liveTex`): the
   composite lays cells over the averaged matter, cells and grains hide the stone beneath them, and the
   micro-suspension stays behind the living.
@@ -79,10 +79,11 @@ producers. In main's piles about half the cells were hungry hunters stuck in the
 Single knobs did not restore it: `hunt` 0.08 looked like 31% over 16 seeds but gated at 16% over 32 (and
 fewer guilds); `killEvery` 12 starved the producers (13%). Balancing the ecology for these rules is open.
 
-Tools: `film.mjs` (real-time screencasts of the densest pile and the largest tight and loose bodies,
-motion and bond turnover), `jitter.mjs` (wobble from positions over 10 ticks), `pileinfo.mjs` (what a pile
-holds), `gridbias.mjs`, `check.mjs` (the page starts under each tunable set: run it before long runs, as an
-unknown tunable stops the page).
+Tools (one-offs in runs/crowd, kept outside the repo): `film.mjs` (real-time screencasts of the densest pile
+and the largest tight and loose bodies, motion and bond turnover), `jitter.mjs` (wobble from positions over
+10 ticks), `pileinfo.mjs` (what a pile holds), `gridbias.mjs`, `check.mjs` (the page starts under each
+tunable set). In the repo, `tools/sim.mjs` samples packing each record (`packing` in `src/ecostats.js`), and
+an unknown tunable now stops any run at once (`createEngine` throws `unknown tunables`).
 
 Cheaper settings tried (runs/perf/cost23.json): `liveScan` 96 -> 64 saves 0.5 ms in `lifeMain` for 0.77 ->
 0.87 px of wobble (taken). `contactCap` 128 -> 64 saves as much in `contactMain` but wobbles 1.1 px and
