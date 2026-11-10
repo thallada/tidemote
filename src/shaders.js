@@ -7576,6 +7576,16 @@ fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
 // the optics and the look take stone as they take cells (the lens's fringes and blur, its shallow focus, the
 // darkfield rims and relief, the glow), and it is lit once a pixel however many times they read it.
 fn underCells(t: vec4f, st: vec3f) -> vec4f { return vec4f(t.rgb + st * (1.0 - min(1.0, t.a)) * max(1.0, t.a), t.a); }
+// The main view's, with the living over what lies beneath them (l: liveTex, the living alone, fsPointLive): where
+// they cover a pixel they show alone, not averaged with the grains they sit on (or the stone beside them), as their
+// coverage has it; still scaled so scene() divides out the cover. (The loupe and the close-up draw no living alone:
+// their cells are averaged with the grains under them.)
+fn overCells(t: vec4f, l: vec4f, st: vec3f) -> vec4f {
+  let under = underCells(t, st);
+  if (l.a <= 0.0) { return under; }
+  let a = max(1.0, t.a);
+  return vec4f(mix(under.rgb / a, l.rgb / max(1.0, l.a), min(1.0, l.a)) * a, t.a);
+}
 // The main view's stone is lit once into the stone cache, in the cache's own frame (microView: engine viewC), and
 // served from there until it goes stale (engine _stoneStale). Its alpha is the pixel's place in the pile (fsStone's
 // alpha past 1, or on a grain's edge over bare water its neighbor's; 0 for none), for the composite's focus.
@@ -7594,12 +7604,12 @@ struct LitOut { @location(0) scene: vec4f, @location(1) pile: vec4f };
   let cuv = i.uv * stoneXf.xy + stoneXf.zw;
   let cs = vec2f(textureDimensions(stoneCacheTex));
   let pile = textureLoad(stoneCacheTex, vec2i(clamp(cuv * cs, vec2f(0.0), cs - 1.0)), 0).a;
-  return LitOut(underCells(textureLoad(src, vec2i(i.pos.xy), 0), textureSampleLevel(stoneCacheTex, samp, cuv, 0.0).rgb), vec4f(0.0, 0.0, 0.0, pile));
+  return LitOut(overCells(textureLoad(src, vec2i(i.pos.xy), 0), textureLoad(liveTex, vec2i(i.pos.xy), 0), textureSampleLevel(stoneCacheTex, samp, cuv, 0.0).rgb), vec4f(0.0, 0.0, 0.0, pile));
 }
 // (the scene alone, where the composite reads no pile: its focus deep in a pile is for views past lensScene's start)
 @fragment fn fsStoneLitScene(i: VO) -> @location(0) vec4f {
   let cuv = i.uv * stoneXf.xy + stoneXf.zw;
-  return underCells(textureLoad(src, vec2i(i.pos.xy), 0), textureSampleLevel(stoneCacheTex, samp, cuv, 0.0).rgb);
+  return overCells(textureLoad(src, vec2i(i.pos.xy), 0), textureLoad(liveTex, vec2i(i.pos.xy), 0), textureSampleLevel(stoneCacheTex, samp, cuv, 0.0).rgb);
 }
 // (the loupe's and the close-up's, lit as they are drawn, at their own scale)
 @fragment fn fsStoneLitMicro(i: VO) -> @location(0) vec4f {
@@ -9511,12 +9521,13 @@ struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location
   uv += keepInView(bend * post.ppu, i.pos.xy) / post.res;
   uv += toolBend(wp) / post.res;
   // Cells lie over what is beneath them: where the living cover a pixel they show alone, not averaged
-  // with the grains they sit on, and cells and grains both hide the stone under them (fsStoneLit).
+  // with the grains they sit on, and cells and grains both hide the stone under them (the scene as fsStoneLit
+  // lays it, overCells, which the optics and the bloom read too).
   let all = textureSampleLevel(src, samp, uv, 0.0);
   let live = textureSampleLevel(liveTex, samp, uv, 0.0);
   var hdr: vec3f;
   if (k > 0.0) { hdr = lensScene(uv, q, wp, i.pos.xy, k); }
-  else { hdr = mix(all.rgb / max(1.0, all.a), live.rgb / max(1.0, live.a), min(1.0, live.a)); }
+  else { hdr = scene(uv); }
   let bl = textureSampleLevel(bloomTex, samp, uv, 0.0).rgb;
   // in the scene's light, which the sea focuses onto what lies beneath it, and in which the bloom spreads further
   var lit = sceneLit(wp, surf.light);

@@ -53,7 +53,8 @@ merged to main: these rules are now always on, and only their strengths remain t
   only facing a kin contact, growing as it presses closer: `tile` in `vsPoint`'s output) and keep their own
   outline facing open water; bonds between them draw no tube (`vsBridge`, by `view.tightFrom`).
 - The main view's scene pass gathers the living alone in a second target (`fsPointLive`, `liveTex`): the
-  composite lays cells over the averaged matter, cells and grains hide the stone beneath them, and the
+  scene the composite, its optics and the bloom read lays cells over the averaged matter (`overCells` in
+  `fsStoneLit`; the loupe and the close-up have no such target), cells and grains hide the stone beneath them, and the
   micro-suspension stays behind the living.
 
 ## Measurements (runs/crowd, runs/recur; scripts in runs/crowd are not committed)

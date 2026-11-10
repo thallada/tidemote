@@ -969,6 +969,7 @@ class Engine {
     this.down0BG = sbg(this.pDown, this.sceneView);
     const litBG = (pipe) => this.accumViews.map((v) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: v },
+      { binding: 12, resource: this.liveView },
       { binding: 16, resource: this.stoneCacheView }, { binding: 17, resource: { buffer: this.b.stoneXf } }] }));
     this.litBG = litBG(this.pStoneLit);
     this.litSceneBG = litBG(this.pStoneLitScene);
