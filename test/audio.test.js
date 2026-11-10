@@ -249,6 +249,19 @@ test('a world opens with its own overture, and it lands only after the warm-up',
   }
 });
 
+test("a new world drops the old one's notes still to come, but still frees the old sea", () => {
+  const eng = new Engine(48000, { seed: 1 }), cond = new Conductor(eng, { seed: 1 });
+  const sea0 = cond.sea;
+  cond.message({ type: 'reset', seed: 3 }); cond.message({ type: 'open', seed: 3 });
+  renderBars(cond, 1);
+  assert.ok(cond.queue.some((q) => q.def && q.id == null), 'the overture is under way');
+  const sea1 = cond.sea;
+  cond.message({ type: 'reset', seed: 8 });
+  assert.ok(!cond.queue.some((q) => (q.def && q.id == null) || q.set === 'fdn'), "the old world's notes and reverb are gone");
+  renderBars(cond, 8);
+  assert.ok(!eng.nodes.has(sea0) && !eng.nodes.has(sea1) && eng.nodes.has(cond.sea), 'the old seas are freed');
+});
+
 test('sparks shower in many shapes, a few times a minute, never one figure on repeat', () => {
   const eng = new Engine(48000, { seed: 6 }), cond = new Conductor(eng, { seed: 6 });
   const glints = [];

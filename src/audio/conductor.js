@@ -153,6 +153,10 @@ export class Conductor {
     else if (m.type === 'mix') { Object.assign(this.eng.groupTo, m.groups); this.eng.set('fdn', m.fdn); this.eng.set('master', m.master); }
     else if (m.type === 'reset') {
       this.field.slots.clear(); this.pendingEra = null; this.switchAt = null; this.pendingOpen = false; this.lapse = false;
+      // (the old world's notes still to come are dropped: its overture, a bridge, the cells' songs; its sea's and
+      // drone's fades and frees stay, and the reverb and the echo are set afresh, by the next bar and the new era)
+      this.queue = this.queue.filter((q) => (q.def ? q.id != null : q.free || (q.set !== 'fdn' && q.set !== 'ping')));
+      this.fdnDecay = this.fdnDamp = null;
       this.score.reset();
       this.rekey(m.seed ?? this.ws, m.era);
     }
