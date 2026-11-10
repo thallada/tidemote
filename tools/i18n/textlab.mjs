@@ -105,24 +105,25 @@ const shots = {
 shots.load();
 
 function capture() {
-  if (shots.job) return;
+  if (shots.job && !shots.job.done) return;
   const log = [];
   shots.job = { started: Date.now(), log };
   const run = (cmd, args, env = {}) => new Promise((res, rej) => {
-    const p = spawn(cmd, args, { cwd: ROOT, env: { ...process.env, ...env } });
+    const p = spawn(cmd, args, { cwd: ROOT, env: { ...process.env, ...env }, timeout: 15 * 60 * 1000 });
     p.stdout.on('data', (d) => log.push(...d.toString().split('\n').filter(Boolean)));
     p.stderr.on('data', (d) => log.push(...d.toString().split('\n').filter(Boolean)));
-    p.on('close', (c) => (c ? rej(new Error(`${cmd} exited ${c}`)) : res()));
+    p.on('error', rej);
+    p.on('close', (c, signal) => (c !== 0 ? rej(new Error(`${cmd} exited ${signal || c}`)) : res()));
   });
   const capped = path.join(process.env.HOME, '.local/bin/capped');
   const wsl = (() => { try { return /microsoft/i.test(fs.readFileSync('/proc/version', 'utf8')); } catch { return false; } })();
   const tour = ['tools/i18n/tour.mjs', '--page', 'dist/tidemote.textlab.capture.html', '--out', 'runs/i18n/shots', '--shots'];
-  run('node', ['build.mjs', '--mark', '--out', 'dist/tidemote.textlab.capture.html'])
+  run(process.execPath, ['build.mjs', '--mark', '--out', 'dist/tidemote.textlab.capture.html'])
     // (under WSL the tour runs in Windows Chrome on the GPU through Windows' node, tools/gpu-node.sh)
-    .then(() => (wsl ? run('tools/gpu-node.sh', tour) : fs.existsSync(capped) ? run(capped, ['-m', '900M', 'node', ...tour], { TIDEMOTE_VK: '1' }) : run('node', tour)))
+    .then(() => (wsl ? run('tools/gpu-node.sh', tour) : process.platform === 'linux' && fs.existsSync(capped) ? run(capped, ['-m', '900M', process.execPath, ...tour], { TIDEMOTE_VK: '1' }) : run(process.execPath, tour)))
     .then(() => { shots.load(); log.push('done'); })
-    .catch((e) => log.push(`failed: ${e.message}`))
-    .finally(() => { shots.job.done = Date.now(); setTimeout(() => { shots.job = null; }, 60000); });
+    .catch((e) => { shots.job.error = e.message; log.push(`failed: ${e.message}`); })
+    .finally(() => { shots.job.done = Date.now(); });
 }
 
 let rebuilding = null;
@@ -155,7 +156,7 @@ const server = http.createServer(async (req, res) => {
       if (url.searchParams.has('fresh')) src = extract();
       fresh();
       return json(res, { root: ROOT, locale: L, order: [...src.messages.keys()], source: Object.fromEntries(src.messages), context: src.context, errors: src.errors,
-        catalog, review, shots: { at: shots.index, taken: shots.taken || null, job: shots.job && { started: shots.job.started, done: shots.job.done || null, log: shots.job.log.slice(-6) } } });
+        catalog, review, shots: { at: shots.index, taken: shots.taken || null, job: shots.job && { started: shots.job.started, done: shots.job.done || null, error: shots.job.error || null, log: shots.job.log.slice(-6) } } });
     }
     if (p === '/api/msg' && req.method === 'PUT') {
       const { id, text, status } = await body(req);

@@ -21,8 +21,13 @@ fs.mkdirSync(out, { recursive: true });
 const html = fs.readFileSync(path.resolve(opt.page));
 const server = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end(html); });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
-const browser = await chromium.launch(vk ? vkLaunch(['--enable-unsafe-webgpu'])
-  : { executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', headless: false, args: ['--enable-unsafe-webgpu'] });
+let browser;
+try {
+const executablePath = process.env.PLAYWRIGHT_CHROMIUM || (process.platform === 'darwin'
+  ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+  : process.platform === 'win32' ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' : chromium.executablePath());
+browser = await chromium.launch(vk ? { ...vkLaunch(['--enable-unsafe-webgpu']), executablePath }
+  : { executablePath, headless: false, args: ['--enable-unsafe-webgpu'] });
 
 // in the page: every string it shows right now, with the element that shows it
 const COLLECT = () => {
@@ -160,7 +165,11 @@ for (const size of opt.sizes.split(',')) {
   await T(() => document.getElementById('t-play').click());
   await ctx.close();
 }
-await browser.close();
-server.close();
 fs.writeFileSync(path.join(out, 'texts.json'), JSON.stringify({ page: opt.page, states }, null, 1));
 console.log(`wrote ${path.join(out, 'texts.json')}`);
+} catch (e) {
+  console.error(e.message);
+  process.exitCode = 1;
+} finally {
+  try { await browser?.close(); } finally { server.close(); }
+}

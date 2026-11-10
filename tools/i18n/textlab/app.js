@@ -285,7 +285,10 @@ async function where(id) {
   const box = $('w-shots');
   box.replaceChildren();
   $('w-cap').textContent = at.length ? '' : S.data.shots.taken ? 'Not seen on the tour of the page: it shows in moments the tour does not reach (a story in the log, an error, a rare state). The code below says when.' : 'No screenshots yet: Capture runs a tour of the page (several minutes) and shows where each message sits.';
-  if (!S.data.shots.taken || S.data.shots.job) box.append(el('button', { type: 'button', onclick: capture, disabled: !!S.data.shots.job }, S.data.shots.job ? 'Capturing…' : 'Capture screenshots'));
+  const job = S.data.shots.job, active = job && !job.done;
+  if (active) $('w-cap').textContent = `Capturing: ${job.log?.at(-1) || 'starting'}`;
+  else if (job?.error) $('w-cap').textContent = `Capture failed: ${job.error}. ${job.log?.join('\n') || ''}`;
+  box.append(el('button', { type: 'button', onclick: capture, disabled: !!active }, active ? 'Capturing…' : S.data.shots.taken ? 'Recapture screenshots' : 'Capture screenshots'));
   for (const [st, b, attr] of at) {
     const im = await image(st);
     if (!im || S.sel !== id) continue;
@@ -309,16 +312,32 @@ async function where(id) {
     el('div', { class: 'where' }, el('a', { href: `vscode://file/${S.root}/${r.file}:${r.line}`, text: `${r.file}:${r.line}` }), r.fn ? el('code', { text: `${r.fn}()` }) : null, el('span', { class: 'cap', text: SINKS[r.sink] || r.sink })),
     r.code ? el('pre', { text: r.code }) : null)));
 }
-async function capture() {
-  await fetch('/api/capture', { method: 'POST' });
-  S.data.shots.job = { started: Date.now() };
-  where(S.sel);
-  const poll = setInterval(async () => {
-    const d = await fetch('/api/state').then((r) => r.json());
-    S.data.shots = d.shots;
-    $('w-cap').textContent = d.shots.job ? `Capturing: ${d.shots.job.log.at(-1) || 'starting'}` : '';
-    if (!d.shots.job || d.shots.job.done) { clearInterval(poll); shotCache.clear(); if (S.sel) where(S.sel); }
+let capturePoll = null;
+function pollCapture() {
+  clearTimeout(capturePoll);
+  capturePoll = setTimeout(async () => {
+    try {
+      const r = await fetch('/api/state');
+      if (!r.ok) throw new Error(`Status request failed (${r.status})`);
+      const d = await r.json();
+      S.data.shots = d.shots;
+      if (!d.shots.job || d.shots.job.done) shotCache.clear();
+      if (S.sel) where(S.sel);
+      if (d.shots.job && !d.shots.job.done) pollCapture();
+    } catch (e) {
+      $('w-cap').textContent = `Cannot check capture: ${e.message}. Retrying…`;
+      pollCapture();
+    }
   }, 3000);
+}
+async function capture() {
+  try {
+    const r = await fetch('/api/capture', { method: 'POST' });
+    if (!r.ok) throw new Error(`Capture request failed (${r.status})`);
+    S.data.shots.job = { started: Date.now() };
+    if (S.sel) where(S.sel);
+    pollCapture();
+  } catch (e) { $('w-cap').textContent = e.message; }
 }
 
 // ---- the live page ----
@@ -383,6 +402,7 @@ async function start() {
   const want = decodeURIComponent(location.hash.slice(1));
   if (want && d.source[want]) select(want, { focus: false }); else if (S.visible[0]) select(S.visible[0], { focus: false });
   tab(load('textlab.tab', 'where'));
+  if (d.shots.job && !d.shots.job.done) pollCapture();
 }
 addEventListener('hashchange', () => { const id = decodeURIComponent(location.hash.slice(1)); if (id !== S.sel && S.data?.source[id]) select(id); });
 start();
