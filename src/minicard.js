@@ -77,7 +77,7 @@ export function miniCard(g, K, { gid, key, name, home = '', n = 0, bodies = 0, t
   const nm = `<span class="mc-name" translate="no"><b>${esc(genus)}</b><span>${esc(rest)}</span></span>`;
   // i18n: a mini-card's label for screen readers: its species' name, diet and motion, the world it came from, how many
   // cells the pipette holds of it, and whether it leaves the pipette next
-  const label = tr('minicard.aria', '{name}, {diet, select, photosynth {photosynth} grazer {grazer} scavenger {scavenger} predator {predator} other {{diet}}}, {mobility, select, anchored {anchored} crawler {crawler} swimmer {swimmer} drifter {drifter} other {{mobility}}}{from, select, yes {, from {home}} other {}}{n, plural, =0 {} other {, {n} cells}}{tip, select, yes {, at the tip} other {}}',
+  const label = tr('minicard.aria', '{name}, {diet, select, photosynth {photosynth} grazer {grazer} scavenger {scavenger} predator {predator} other {{diet}}}, {mobility, select, anchored {anchored} crawler {crawler} swimmer {swimmer} drifter {drifter} other {{mobility}}}{from, select, yes {, from {home}} other {}}{n, plural, =0 {} one {, {n} cell} other {, {n} cells}}{tip, select, yes {, at the tip} other {}}',
     { name, diet: f.diet, mobility: f.mobility, from: home ? 'yes' : 'no', home, n, tip: tip ? 'yes' : 'no' });
   // i18n: the mark on the card that leaves the pipette next
   const tipMark = `<span class="mc-tip">${tr('minicard.tip', 'Tip')}</span>`;

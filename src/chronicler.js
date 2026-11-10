@@ -1157,7 +1157,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     if (lostGenera.length) {
       bits.push(lostGenera.length <= 2
         // i18n: in an era's summary: one or two genera ({n}) died out; {genera}: their names, in a list
-        ? tr('chron.era.genera-lost', '{n, plural, one {the genus {genera} died out} other {the genuses {genera} died out}}', { n: lostGenera.length, genera: andList(lostGenera.map((g) => `<b>${esc(g)}</b>`)) })
+        ? tr('chron.era.genera-lost', '{n, plural, one {the genus {genera} died out} other {the genera {genera} died out}}', { n: lostGenera.length, genera: andList(lostGenera.map((g) => `<b>${esc(g)}</b>`)) })
         // i18n: in an era's summary: {count} genera died out, in words ({n} as a number)
         : tr('chron.era.genera-many', '{count} genera of note died out', { count: numWord(lostGenera.length), n: lostGenera.length }));
     }
