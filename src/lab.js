@@ -630,9 +630,17 @@ export function createLab(api) {
     const cvs = [...p.scroll.querySelectorAll('canvas.dyn')];
     const niches = p.scroll.querySelector('canvas.niches');
     let erasKey = '';
-    function update() {
+    function update(force) {
       const life = api.life(), hist = life.history, eras = api.climate().history;
-      cvs.forEach((cv, i) => drawLines(cv, hist, CHARTS[i][2], eras, CHARTS[i][3] || ''));
+      // each chart drawn again only with something new to draw (a sample, an era, its size: samples come every few
+      // seconds or more, the pane's updates every 900 ms); pointing at one redraws it by itself (charts.js)
+      const hk = `${hist.length}:${hist.at(-1)?.t}:${eras.length}:${eras.at(-1)?.t}:${devicePixelRatio}`;
+      cvs.forEach((cv, i) => {
+        const k = `${hk}:${cv.clientWidth}x${cv.clientHeight}`;
+        if (!force && cv._drawn === k && cv._hist === hist) return;
+        cv._drawn = k; cv._hist = hist;
+        drawLines(cv, hist, CHARTS[i][2], eras, CHARTS[i][3] || '');
+      });
       if (niches) {
         const sp = [];
         for (const s of life.reg.values()) if (s.alive && s.pop > 0) sp.push({ serial: s.serial, name: s.name, topt: s.genome.topt, tol: s.genome.tol, pop: s.pop, maker: s.genome.thermo > 0.2, col: s.genome.col });
