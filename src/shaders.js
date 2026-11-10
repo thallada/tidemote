@@ -2653,11 +2653,19 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   let pos = select(wrapPos(moved + handPush(moved)), p.pos, frozen);
   p.age += sim.dt;
   if (p.kind == SILT) {
-    let tide = lampLight(pos, (tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient) * sim.pond.z * (1.0 - duckShade(pos, sim.duck, sim.duckB, sim.world)));
     // life sparks from silt (about one spark per 30 s in the world, sim.abio per grain), in the light, and
     // more in hot water (around framboids); a spark founds a species suited to the water here, so a world
-    // whose life died begins again
-    if (sim.abio > 0.0 && !dryHere && rnd(&s) < sim.abio * 2.0 * clamp(tide, 0.0, 1.0) * (1.0 + ${f(K.abioHeat)} * smoothstep(4.0, 20.0, hot))) {
+    // whose life died begins again. (The draw first, the same one: the light is reckoned only for the rare grain
+    // whose draw falls under the chance in full light and the hottest water, a little over, which bounds it.)
+    var spark = false;
+    if (sim.abio > 0.0 && !dryHere) {
+      let r = rnd(&s);
+      if (r < sim.abio * ${f(2.02 * (1 + Math.max(0, K.abioHeat)))}) {
+        let tide = lampLight(pos, (tideAt(pos, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season + 0.2 * sim.ambient) * sim.pond.z * (1.0 - duckShade(pos, sim.duck, sim.duckB, sim.world)));
+        spark = r < sim.abio * 2.0 * clamp(tide, 0.0, 1.0) * (1.0 + ${f(K.abioHeat)} * smoothstep(4.0, 20.0, hot));
+      }
+    }
+    if (spark) {
       let k = allocSlot(&s);
       if (k != NONE) {
         randomInto(k, &s, T);
