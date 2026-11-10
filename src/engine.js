@@ -235,6 +235,7 @@ class Engine {
     // (then the ice as drawn, ICE_SHOWN, past what saves keep)
     b.thermal = d.createBuffer({ size: (ICE_SHOWN_ANY + 4) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.iceShowU = d.createBuffer({ size: 16, usage: U.UNIFORM | U.COPY_DST });
+    b.iceArgs = d.createBuffer({ size: 12, usage: U.STORAGE | U.INDIRECT });
     // the tiles of the water holding ice and hot water after the last step, and ice still drawn (TILES; heatMain,
     // iceShowMain, compPick): never saved, a step makes them again
     b.heatTiles = d.createBuffer({ size: 2 * TILES * 4, usage: U.STORAGE | U.COPY_DST });
@@ -453,7 +454,9 @@ class Engine {
     this.cpShift = cp(this.postModule, 'seaShiftMap');
     this.cpSeaField = cp(this.postModule, 'seaFieldMain');
     this.cpOptics = cp(this.postModule, 'opticsMain');
-    this.cpIceShow = cp(shader({ code: ICE_SHOW_WGSL, label: 'iceShow' }), 'iceShowMain');
+    const iceShowModule = shader({ code: ICE_SHOW_WGSL, label: 'iceShow' });
+    this.cpIceShow = cp(iceShowModule, 'iceShowMain');
+    this.cpIceArgs = cp(iceShowModule, 'iceArgsMain');
     b.shiftMap = d.createBuffer({ size: SHIFT_W * SHIFT_H * 8, usage: U.STORAGE | U.COPY_SRC });
     this.shiftRead = [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: SHIFT_W * SHIFT_H * 8, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST }), busy: false }));
     // the last two grids read back: { data (pixels of the view drawn then), cam: { x, y, ppu, w, h }, at (ms) }
@@ -624,6 +627,8 @@ class Engine {
       { binding: 27, resource: { buffer: b.heatTiles } }] });
     this.iceShowBG = d.createBindGroup({ layout: this.cpIceShow.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.thermal } }, { binding: 1, resource: { buffer: b.iceShowU } }, { binding: 2, resource: { buffer: b.heatTiles } }] });
+    this.iceArgsBG = d.createBindGroup({ layout: this.cpIceArgs.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: b.thermal } }, { binding: 1, resource: { buffer: b.iceShowU } }, { binding: 3, resource: { buffer: b.iceArgs } }] });
     this._leanP();
     this._rebindLate();
   }
@@ -1506,7 +1511,8 @@ class Engine {
     f.finish = ease(f.finish, this.fx.finish >= 1 ? 1 : 0, 1.5);
   }
 
-  // the ice as drawn eased toward the simulation's (ICE_SHOW_WGSL), at once in a world just made or loaded
+  // the ice as drawn eased toward the simulation's (ICE_SHOW_WGSL), at once in a world just made or loaded; over no
+  // grid cells where there is no ice to draw or still drawn (iceArgsMain)
   _iceShow(enc, realT) {
     if (!this.K.heat) return;
     const fresh = this._iceGen !== this.worldGeneration, dt = fresh ? Infinity : Math.max(0, realT - this._iceT);
@@ -1514,9 +1520,9 @@ class Engine {
     const cells = this.grid[0] * this.grid[1], u = new ArrayBuffer(16), w = new Uint32Array(u);
     new Float32Array(u)[0] = 1 - Math.exp(-dt / ICE_EASE); w[1] = cells; w[2] = this.grid[0]; w[3] = this.grid[1];
     this.device.queue.writeBuffer(this.b.iceShowU, 0, u);
-    this._clear(enc, this.b.thermal, ICE_SHOWN_ANY * 4, 4);
     const cp = enc.beginComputePass();
-    cp.setPipeline(this.cpIceShow); cp.setBindGroup(0, this.iceShowBG); cp.dispatchWorkgroups(Math.ceil(cells / 64)); cp.end();
+    cp.setPipeline(this.cpIceArgs); cp.setBindGroup(0, this.iceArgsBG); cp.dispatchWorkgroups(1);
+    cp.setPipeline(this.cpIceShow); cp.setBindGroup(0, this.iceShowBG); cp.dispatchWorkgroupsIndirect(this.b.iceArgs, 0); cp.end();
   }
 
   _seaPost(pd) {

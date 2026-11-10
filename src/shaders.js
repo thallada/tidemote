@@ -9743,12 +9743,20 @@ export const GLASS_WGSL = /* wgsl */ `
 // spans seconds of it and the edge drawn as it stood jumped in and out from frame to frame. Eased, it moves smoothly
 // at any speed, as a long exposure shows it. Observational: the simulation reads its own ice.
 // Whatever is drawn marks ICE_SHOWN_ANY and its tile (b.heatTiles, after the step's), so the passes that draw ice run
-// until it has faded out (the engine clears the word first; what is left under 0.002 ends).
+// until it has faded out (iceArgsMain clears the word first; what is left under 0.002 ends).
 export const ICE_SHOW_WGSL = /* wgsl */ `
 struct IceShow { k: f32, cells: u32, w: u32, h: u32 };
 @group(0) @binding(0) var<storage, read_write> heat: array<atomic<u32>>;
 @group(0) @binding(1) var<uniform> u: IceShow;
 @group(0) @binding(2) var<storage, read_write> tiles: array<atomic<u32>>;
+@group(0) @binding(3) var<storage, read_write> args: array<u32>;
+// iceShowMain's workgroups (b.iceArgs): none when the simulation holds no ice (ICE_N) and none is drawn
+// (ICE_SHOWN_ANY), where it would ease nothing toward nothing; every grid cell's otherwise. Only the GPU knows either.
+@compute @workgroup_size(1) fn iceArgsMain() {
+  let any = atomicLoad(&heat[${4 * MAX_CELLS}u]) | atomicLoad(&heat[${ICE_SHOWN_ANY}u]);
+  atomicStore(&heat[${ICE_SHOWN_ANY}u], 0u);
+  args[0] = select(0u, (u.cells + 63u) / 64u, any != 0u); args[1] = 1u; args[2] = 1u;
+}
 @compute @workgroup_size(64) fn iceShowMain(@builtin(global_invocation_id) gid: vec3u) {
   let c = gid.x;
   if (c >= u.cells) { return; }
