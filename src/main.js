@@ -964,7 +964,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const MAPS = [
     { gauge: 'g-light', name: tr('maps.light', 'Light'), on: (s) => s.tide > 0, open: (s) => { s.tide = 1; }, close: (s) => { s.tide = defaults.tide; }, ramp: () => ['', tr('maps.light.lo', 'dark'), tr('maps.light.hi', 'full light')] },
     { gauge: 'g-heat', name: tr('maps.heat', 'Temperature'), on: (s) => s.heat === 2, open: (s) => { s.heat = 2; }, close: (s) => { s.heat = defaults.heat; }, ramp: () => ['heat', tr('maps.heat.deg', '{t}°', { t: Math.round(eng.tbg - 2) }), tr('maps.heat.deg', '{t}°', { t: Math.round(eng.tbg + 10) })] },
-    { gauge: 'g-tide', name: tr('maps.tide', 'Tide'), on: (s) => s.bands > 0, open: (s) => { s.bands = 1; }, close: (s) => { s.bands = 0; }, ramp: () => ['light', tr('maps.tide.lo', 'dim'), tr('maps.tide.hi', 'bright')] },
+    { gauge: 'g-tide', name: tr('maps.tide', 'Tide'), on: (s) => s.bands > 0, open: (s) => { s.bands = 1; }, close: (s) => { s.bands = 0; }, ramp: () => ['tide', tr('maps.tide.lo', 'dim'), tr('maps.tide.hi', 'bright')] },
   ];
   const rampHtml = (m) => { const [cls, lo, hi] = m.ramp(); return `<div class="ramp ${cls}"><span>${lo}</span><i></i><span>${hi}</span></div>`; };
   const mapsOn = () => MAPS.filter((m) => m.on(eng.settings));
