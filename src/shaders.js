@@ -1419,6 +1419,8 @@ struct Sim {
   watchEv: vec4u,
   // the water's edge's three waves' phases (EDGE_SWAY_W: the time wrapped off the clock folded in; edgeSway)
   edgePh: vec4f,
+  // x: how many times the clock has wrapped (modulo 2^32; beatFold)
+  wraps: vec4u,
 };
 // The viewer's hand (docs/hand.md): a local cause the world could have made itself, all zero (its ids NONE) in
 // every headless run. Centers in world units, reaches the radius of a disc (disc).
@@ -2977,8 +2979,20 @@ fn bendOn(i: u32, gr: Grow) -> vec2f {
 // opposite halves, so the body cannot push itself; it swims only as the water holds its cells harder
 // across their branches than along them (sideDrag). Pulling bonds one by one, rather than bending the
 // stem, carries a long wave down it as fast as a short one: a bend's push reaches the cells beside it only.
-fn beatSpeed(gr: Grow, size: f32, gen: u32, t: f32) -> f32 {
-  return min(gr.beat.x * ${f(K.beatGain * 0.16)} * gr.beat.y / max(gr.beat.z, 0.05), ${f(K.beatTop)}) * size * cos(gr.beat.y * t - gr.beat.z * f32(gen));
+fn beatSpeed(gr: Grow, size: f32, gen: u32, t: f32, ph: f32) -> f32 {
+  return min(gr.beat.x * ${f(K.beatGain * 0.16)} * gr.beat.y / max(gr.beat.z, 0.05), ${f(K.beatTop)}) * size * cos((gr.beat.y * t + ph) - gr.beat.z * f32(gen));
+}
+// The phase a beat of w radians a second has run through in the time wrapped off the clock (sim.wraps.x × SIM_CLOCK),
+// so it runs on across a wrap: the frequency f (w / TAU, a float M × 2^(E − 150)) times SIM_CLOCK (2^15) times the
+// wraps n is M × n × 2^(E − 135), its fraction of a cycle the low 135 − E bits of M × n, exact in u32 at any n. A
+// whole number of cycles (135 − E <= 0) adds nothing; so slow a beat (f under 2^-23 Hz) that a wrap moves it by
+// under 0.03 radians is left as it is.
+fn beatFold(w: f32) -> f32 {
+  let b = bitcast<u32>(abs(w) / TAU);
+  let k = 135 - i32(b >> 23u);
+  if (k <= 0 || k >= 32) { return 0.0; }
+  let m = (b & 0x7fffffu) | 0x800000u;
+  return sign(w) * TAU * ldexp(f32((m * sim.wraps.x) & ((1u << u32(k)) - 1u)), -k);
 }
 // how many tree bonds a cell has (its mother and daughters), at least two: a bond's share is split by the busier end
 fn treeDeg(x: u32) -> f32 {
@@ -2991,7 +3005,8 @@ fn beatPull(i: u32, gr: Grow, size: f32) -> vec2f {
   let tm = select(sim.time - 0.5 * sim.dt, sim.time - sim.dt + (f32(subK) + 0.5) * sim.dt / f32(sim.ticks), SUBSTEP);
   // (a tail drives a whole body: it swings tailGain harder)
   let tg = select(1.0, ${f(K.tailGain)}, orderOf(info) == 2u);
-  let si = beatSpeed(gr, size, genOf(info), tm) * tg;
+  let ph = beatFold(gr.beat.y);
+  let si = beatSpeed(gr, size, genOf(info), tm, ph) * tg;
   let di = treeDeg(i);
   let vi = treeVel(i);
   var dv = vec2f(0.0);
@@ -3003,7 +3018,7 @@ fn beatPull(i: u32, gr: Grow, size: f32) -> vec2f {
     // the bond's normal, from mother to daughter
     let a = select(treeRel(i, j), treeRel(j, i), k == 0u);
     let n = vec2f(-a.y, a.x) / max(length(a), 1e-6);
-    let sj = beatSpeed(gr, size, genOf(sortedFull[j].info), tm) * tg;
+    let sj = beatSpeed(gr, size, genOf(sortedFull[j].info), tm, ph) * tg;
     // a joint pulled well past its rest goes slack: its muscle lets go
     let slack = smoothstep(1.6, 1.3, length(a) / (${f(0.153)} * size));
     dv += (treeVel(j) - vi + n * ((si - sj) * slack)) * (2.0 / max(di, treeDeg(j)));

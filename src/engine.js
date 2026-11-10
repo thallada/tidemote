@@ -164,7 +164,7 @@ class Engine {
     // (bloom, the sea and the finish's optics and look fade in and out over a second or so as fx turns them, never
     // flipping: _fadeFx)
     this.fxFade = { bloom: 1, sea: 1, finish: 1, t: null };
-    this.simData = new ArrayBuffer(896);
+    this.simData = new ArrayBuffer(912);
     // the viewer's hand (docs/hand.md; the page's src/hand.js sets it): Hand in simWGSL, its words as floats and
     // as ids. Zero, its ids NONE, in every headless run.
     this.hand = new Float32Array(116);
@@ -223,7 +223,7 @@ class Engine {
 
     const d = device;
     const b = this.b;
-    b.sim = d.createBuffer({ size: 896, usage: U.UNIFORM | U.COPY_DST });
+    b.sim = d.createBuffer({ size: 912, usage: U.UNIFORM | U.COPY_DST });
     // each substep's index (bodyTick), one 256-byte slot apiece, for steps of up to SUB_TICKS ticks
     b.subU = d.createBuffer({ size: SUB_TICKS * 256, usage: U.UNIFORM | U.COPY_DST });
     for (let k = 0; k < SUB_TICKS; k++) d.queue.writeBuffer(b.subU, k * 256, new Uint32Array([k]));
@@ -1324,7 +1324,7 @@ class Engine {
 
   // The GPU's clock: simulated time modulo SIM_CLOCK (shaders.js), and what it wraps off folded into the
   // tide's, the currents' and the water's edge's phases here, in f64, so the light, the flow and the edge are
-  // continuous across a wrap.
+  // continuous across a wrap (and the wraps counted, Sim.wraps, for the swimmers' beats: beatFold).
   // Raindrops' times go relative to it. The real-time clock (drawing) wraps at REAL_WRAP.
   _clock() {
     const base = Math.floor(this.simTime / SIM_CLOCK) * SIM_CLOCK, c = (this._clk ??= { tidePh: new Float32Array(4), wavePh: new Float32Array(4), drops: new Float32Array(16), edgePh: new Float32Array(4) });
@@ -1560,6 +1560,7 @@ class Engine {
     f.set(this.watchRect, 212);
     u[216] = this.watchEv; u[217] = this.watchBites;
     f.set(clk.edgePh, 220);
+    u[224] = Math.floor(this.simTime / SIM_CLOCK) >>> 0;
     // the needle pricks once
     this.handU[20] = 0xffffffff;
   }
