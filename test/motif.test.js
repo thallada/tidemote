@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { archetypeGenome, ARCHETYPE_TYPES, finalizeGenome, mutateLike } from '../src/genome.js';
-import { voiceOf } from '../src/audio/mapping.js';
+import { voiceOf, ARCH } from '../src/audio/mapping.js';
 import { motifOf, describe, compareMotifs, motifDistance, contourWord, noteSeconds, character, signalAt } from '../src/audio/motif.js';
 import { songSVG, sigilSVG } from '../src/song.js';
 
@@ -87,6 +87,10 @@ test('the song in words and pictures', () => {
     assert.equal((sig.match(/class="cell"/g) || []).length, v.motif.notes.length + (v.motif.voice2 ? v.motif.voice2.length : 0), 'a cell per note');
     assert.equal(sig.includes('class="bonds"'), (g.adhesion || 0) > 0.15, 'bonds only where the species bonds');
   }
+  // every instrument a species can sing with has its word (a tick sings in drops, so is tagged as drops)
+  const v0 = voiceOf(founders(1)[0]), mats = new Set(Object.values(ARCH).flatMap((a) => a.mats));
+  for (const mat of mats) assert.ok(describe({ ...v0, mat }).tags[0], mat);
+  assert.equal(describe({ ...v0, mat: 'tick' }).tags[0], describe({ ...v0, mat: 'drop' }).tags[0]);
   assert.equal(contourWord([0, 2, 4, 2, 0]), 'arching');
   assert.equal(contourWord([0, 1, 2, 3]), 'rising');
   assert.equal(contourWord([3, 3, 3]), 'hovering');

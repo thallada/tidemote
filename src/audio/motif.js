@@ -287,6 +287,7 @@ export function signalAt(m) {
 // i18n: a song's instrument, a tag under its roll (the specimen panel, the card)
 const MAT_WORD = { glass: tr('song.mat.glass', 'singing glass'), swell: tr('song.mat.swell', 'swell'), breath: tr('song.mat.breath', 'reed breath'), cplx: tr('song.mat.cplx', 'buzzing reed'),
   tine: tr('song.mat.tine', 'kalimba'), bite: tr('song.mat.bite', 'snapping drum'), wood: tr('song.mat.wood', 'woodblock'), drop: tr('song.mat.drop', 'water drops'), pluck: tr('song.mat.pluck', 'plucked string') };
+MAT_WORD.tick = MAT_WORD.drop; // (a scavenger whose instrument is the tick sings its song in drops: Field.strike)
 // i18n: a song's register and tempo, tags under its roll
 const REGISTER = { high: tr('song.register.high', 'high'), middle: tr('song.register.middle', 'middle'), low: tr('song.register.low', 'low') };
 const TEMPO = { quick: tr('song.tempo.quick', 'quick'), brisk: tr('song.tempo.brisk', 'brisk'), moderate: tr('song.tempo.moderate', 'moderate'), slow: tr('song.tempo.slow', 'slow'), very_slow: tr('song.tempo.very-slow', 'very slow') };
