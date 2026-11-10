@@ -557,11 +557,13 @@ struct Genome {
 };
 
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
-fn renderHash(id: u32) -> f32 {
-  var h = id * 747796405u + 2891336453u;
-  h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
-  return f32((h >> 22u) ^ h) / 4294967296.0;
+// the PCG hash (RXS-M-XS), for the observational passes (the simulation's pcg is its own), and as 0..1
+fn pcgHash(v: u32) -> u32 {
+  let s = v * 747796405u + 2891336453u;
+  let w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+  return (w >> 22u) ^ w;
 }
+fn renderHash(id: u32) -> f32 { return f32(pcgHash(id)) / 4294967296.0; }
 fn genOf(info: u32) -> u32 { return (info >> 16u) & 4095u; }
 // A tree's cell: the turn it grew at from its mother (0 straight on, 1 left, 2 right) and its
 // branch order (0: the main axis)
@@ -4092,11 +4094,6 @@ ${WOKE_WGSL}${shownWater('lu.world')}// layout: [0,8) in-view events per type, [
 // 21 records written, then records of ${LISTEN_REC} words from word 32.
 var<workgroup> wc: array<atomic<u32>, 21>;
 
-fn lhash(v: u32) -> u32 {
-  let s = v * 747796405u + 2891336453u;
-  let w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
-  return (w >> 22u) ^ w;
-}
 
 @compute @workgroup_size(256)
 fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) l: u32) {
@@ -4142,7 +4139,7 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
       if (t < 8u) { atomicAdd(&wc[select(8u + t, t, inView)], 1u); }
       var keep = lu.keep[t / 4u][t % 4u];
       if (t == 8u && p.kind == lu.selKind) { keep = 1.0; }
-      if (inView && f32(lhash(p.id ^ lhash(lu.seed + t)) >> 8u) / 16777216.0 < keep) {
+      if (inView && f32(pcgHash(p.id ^ pcgHash(lu.seed + t)) >> 8u) / 16777216.0 < keep) {
         let r = atomicAdd(&lout[21], 1u);
         if (r < ${LISTEN_CAP}u) {
           let o = ${LISTEN_HEAD}u + r * ${LISTEN_REC}u;
@@ -4192,11 +4189,6 @@ struct NoteU { corner: vec2f, size: vec2f, world: vec2f, count: u32, cap: u32, k
 @group(0) @binding(4) var<storage, read> heatField: array<f32>;
 @group(0) @binding(5) var<storage, read> intent: array<vec4u>;
 ${shownWater('nu.world')}
-fn nhash(v: u32) -> u32 {
-  let s = v * 747796405u + 2891336453u;
-  let w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
-  return (w >> 22u) ^ w;
-}
 
 @compute @workgroup_size(256)
 fn noteMain(@builtin(global_invocation_id) gid: vec3u) {
@@ -4222,7 +4214,7 @@ fn noteMain(@builtin(global_invocation_id) gid: vec3u) {
   d -= nu.world * floor(d / nu.world);
   if (d.x >= nu.size.x || d.y >= nu.size.y) { return; }
   atomicAdd(&nout[0], 1u);
-  if (f32(nhash(p.id) >> 8u) / 16777216.0 >= nu.keep) { return; }
+  if (f32(pcgHash(p.id) >> 8u) / 16777216.0 >= nu.keep) { return; }
   let k = atomicAdd(&nout[1], 1u);
   if (k >= nu.cap) { return; }
   atomicAdd(&nout[2], 1u);
@@ -4953,7 +4945,6 @@ fn focusPass(p: Particle, index: u32) -> bool {
 }
 
 fn wrapd(d: vec2f) -> vec2f { return d - view.world * round(d / view.world); }
-fn pcgR(v: u32) -> u32 { let st = v * 747796405u + 2891336453u; let w = ((st >> ((st >> 28u) + 4u)) ^ st) * 277803737u; return (w >> 22u) ^ w; }
 fn toClip(px: vec2f) -> vec4f { return vec4f(px.x / (view.res.x * 0.5), -px.y / (view.res.y * 0.5), 0.0, 1.0); }
 
 // Radii are in framebuffer pixels: the same LOD works in the main, loupe and specimen views.
@@ -6374,8 +6365,6 @@ fn huskLight(v: vec2f, seed: f32, aa: f32, dir: vec2f) -> vec2f {
   return vec2f(max(membrane + film, 0.0) * spriteMean(12u) / 0.30,
     clamp(tube * breaks + 0.6 * (1.0 - smoothstep(wall - 0.14, wall - 0.04, fold)), 0.0, 1.0));
 }
-// A grain of matter resolved: a silt chip, a husk (or a husk just eaten, shrinking into silt: plan 12),
-// a grain of stone.
 // How far into the light wp lies as the composite shows it (sceneLit's r, without the duckweed's shade): 0 in the open
 // water's light, 1 in a summer band, more under the lamp; 0 in views shown unlit (the close-up, the stone cache).
 fn sunAt(wp: vec2f) -> f32 {
@@ -6402,6 +6391,7 @@ fn sparkle(p: Particle) -> f32 {
   let r = sparkRock(p.id);
   return SPARK * sun * pow(max(r.x, 0.0), 24.0) * (0.6 + 0.4 * r.y);
 }
+// A grain of matter resolved: a silt chip, a husk (or a husk just eaten, shrinking into silt: plan 12).
 fn matterColor(i: PO, p: Particle, far: f32) -> vec4f {
   let lod = detailLOD(min(i.geom.x, view.pointSize));
   let seed = renderHash(p.id);
@@ -6612,7 +6602,7 @@ fn cobbleZ(seed: vec2f) -> f32 { return (0.45 + 0.55 * seed.x) * (0.62 + 0.18 * 
   // a framboid is smaller than a cobble: a few microns of crystals
   let r = max(STONE_R * view.ppu * select(0.8 + 0.4 * renderHash(p.id + 77u), 0.5, framboid), 1.5);
   if (any(abs(d) > view.res * 0.5 + vec2f(r * STONE_QUAD))) { return o; }
-  o.seed = vec2f(f32(pcgR(p.id) & 0xffffu), f32(pcgR(p.id) >> 16u)) / 65536.0;
+  o.seed = vec2f(f32(pcgHash(p.id) & 0xffffu), f32(pcgHash(p.id) >> 16u)) / 65536.0;
   // the cobble's peak height orders it: the higher lies over its neighbors, and depth is per cobble,
   // not per pixel, so the GPU can reject hidden cobbles before shading them; a grain of another band is left before
   // its look is worked out (each of _drawStone's five draws meets every grain: it cost an M1 2-5 ms of vertex work
@@ -7495,6 +7485,8 @@ fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
     // glow from within, brightest in the gaps between crystals, fading as it is spent
     let fuel = (sw - f32(flags)) / 0.45;
     let n = normalize(vec3f(-s.xy, 1.0));
+    // (from the upper left as every resolved shape's light, TO_LIGHT, and the lamp's, LAMP_L, but steeper than the
+    // raking light the other grains take below)
     let light = normalize(vec3f(-0.45, -0.55, 0.7));
     let spec = glint(max(dot(n, normalize(light + vec3f(0.0, 0.0, 1.0))), 0.0), 18.0, smoothstep(3.0, 12.0, 0.02 * ppu)); // (a crystal's size, framboidSurf)
     var lit = c.rgb * (0.25 + 0.65 * max(dot(n, light), 0.0)) + mix(c.rgb, vec3f(1.0, 0.95, 0.8), 0.3) * spec * 1.8;
