@@ -4650,7 +4650,7 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
         if (dE < -${f(0.6 * DEFAULT_K.bite)} && g.photo > 0.4 && young == NONE) {
           let was = f32(biteAt) / 256.0 * TAU;
           var toward = select(renderHash(p.id) * TAU, was, markSize > 0.0);
-          if (stranger != NONE) { let d = parts[stranger].pos - p.pos; toward = atan2z(d.y, d.x); }
+          if (stranger != NONE) { var d = parts[stranger].pos - p.pos; d -= world * round(d / world); toward = atan2z(d.y, d.x); }
           let bitten = clamp(-dE / ${f(DEFAULT_K.bite)}, 0.5, 1.0);
           let v = vec2f(cos(was), sin(was)) * markSize + vec2f(cos(toward), sin(toward)) * 0.6 * bitten;
           toward = atan2z(v.y, v.x);
@@ -4667,7 +4667,8 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
         }
         // a mother whose daughter has just budded off is drawn out toward her
         if (dE < -0.2 * g.reproE && young != NONE && !born) {
-          let d = parts[young].pos - p.pos;
+          var d = parts[young].pos - p.pos;
+          d -= world * round(d / world);
           let a = atan2z(d.y, d.x);
           rate -= 4.0 * vec2f(cos(2.0 * a), sin(2.0 * a));
         }
