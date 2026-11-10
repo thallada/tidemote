@@ -121,6 +121,7 @@ export function viewWords(data, K, { cam, W, H, dpr, time, selId, detail = true,
   vu[25] = lit ? 1 : 0;
   // the radius from which listMain gives cells their insides (none when the tuner leaves them out)
   v[26] = w.interiors ? 12 : 1e9;
+  v[27] = K.tightSpan;
   v.set(w.tide, 28); v.set(w.tidePh, 44);
   v[48] = w.season; v[49] = w.ambient; v[50] = w.sky; v[51] = w.t;
   v.set(w.hand.subarray(0, 4), 52);

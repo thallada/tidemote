@@ -4791,14 +4791,17 @@ struct View {
   // sprites no larger than this radius in pixels are splatted (splatMain), not drawn as quads; 0: none; below 0:
   // none, the sprites sized once and listed (listMain)
   splat: f32,
-  // the adhesion where bodies start to close into tissue (K.tightFrom)
+  // the adhesion where bodies start to close into tissue (K.tightFrom; with tightSpan, the run's tunables, as the
+  // simulation's tissue has them, where whether a species bonds at all is the defaults' adhMin, as in COMMON)
   tightFrom: f32,
   // the pool (docs/catastrophes.md): its water level, to show cells stranded
   // lit: 1 where the world's light shows (the main view, the loupe), 0 in views shown unlit (the close-up, the stone cache)
   level: f32, lit: u32,
   // the radius in pixels from which listMain gives a cell the full pipeline, its insides drawn (12; past any cell's
   // when the tuner leaves insides out, Engine.fx.interiors, a new species' sparkle still drawn full)
-  interiorFrom: f32, pad3: u32,
+  interiorFrom: f32,
+  // how much more adhesion than tightFrom makes tissue through and through (K.tightSpan)
+  tightSpan: f32,
   // the world's light as the composite shows it (sceneLit), for silt's sparkle: the Tide's waves and phases, x the
   // season, y the open water's light, z the sky's, w the light's clock; the hand's lamp
   tide: array<vec4f, 4>,
@@ -5750,7 +5753,7 @@ struct PO {
       }
       // a tight species' cells among their kin fill out to their shared walls: tissue
       if (g.adhesion > ${f(DEFAULT_K.adhMin)}) {
-        o.tile.x = clamp((g.adhesion - view.tightFrom) / ${f(DEFAULT_K.tightSpan)}, 0.0, 1.0) * min(1.0, kinTouch);
+        o.tile.x = clamp((g.adhesion - view.tightFrom) / view.tightSpan, 0.0, 1.0) * min(1.0, kinTouch);
       }
       o.jelly.x = 1.0 / sqrt(1.0 - 0.7 * min(lost, 0.45));
       extent *= o.jelly.x;
@@ -5866,7 +5869,7 @@ fn soloCell(p: Particle, ii: u32) -> PO {
     lost += (acos(x) - x * sqrt(1.0 - x * x)) * (2.0 / TAU);
   }
   if (g.adhesion > ${f(DEFAULT_K.adhMin)}) {
-    o.tile.x = clamp((g.adhesion - view.tightFrom) / ${f(DEFAULT_K.tightSpan)}, 0.0, 1.0) * min(1.0, f32(n));
+    o.tile.x = clamp((g.adhesion - view.tightFrom) / view.tightSpan, 0.0, 1.0) * min(1.0, f32(n));
   }
   o.jelly.x = 1.0 / sqrt(1.0 - 0.7 * min(lost, 0.45));
   let extent = 1.35 * o.jelly.x;
@@ -6439,7 +6442,7 @@ struct LO { @builtin(position) pos: vec4f, @location(0) col: vec3f };
   if (view.pointSize > 6.0) { o.col *= 1.0 - bondLOD(view.pointSize); }
   // tissue shows no bond once its cells take shape (vsBridge): its line goes as they resolve
   let adhesion = min(genomes[p.kind].adhesion, genomes[q.kind].adhesion);
-  if ((adhesion - view.tightFrom) / ${f(DEFAULT_K.tightSpan)} > 0.5) { o.col *= 1.0 - detailLOD(view.pointSize); }
+  if ((adhesion - view.tightFrom) / view.tightSpan > 0.5) { o.col *= 1.0 - detailLOD(view.pointSize); }
   return o;
 }
 
@@ -6507,7 +6510,7 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
   let normal = vec2f(-tangent.y, tangent.x) / max(length(tangent), 0.00001);
   let adhesion = min(genomes[p.kind].adhesion, genomes[q.kind].adhesion);
   // tissue: its cells share a wall, which is the bond; no tube shows through them
-  if ((adhesion - view.tightFrom) / ${f(DEFAULT_K.tightSpan)} > 0.5) { return o; }
+  if ((adhesion - view.tightFrom) / view.tightSpan > 0.5) { return o; }
   let taper = 0.55 + 0.45 * sqr(2.0 * t - 1.0);
   let tension = pow(min(1.0, rest / len), 3.0);
   // a neck is never wider than the cells it joins (cells shrink to fit dense bodies)
