@@ -12,6 +12,9 @@ const ERA_NOUN = ['Glare', 'Tides', 'Drift', 'Calm', 'Surge', 'Murk', 'Bloom', '
 const WARMING = ['Warm', 'Rising'], COOLING = ['Bitter', 'Pale']; // i18n-ignore
 const TEMPERATE = ERA_ADJ.filter((a) => !WARMING.includes(a) && !COOLING.includes(a));
 export const TEMP_MIN = 4, TEMP_MAX = 28;
+// A world runs for days: its record keeps the last ERA_KEEP eras (about five simulated days; the charts' era lines, the
+// Lab's list of eras and the lineage plots read them, the log the one before)
+export const ERA_KEEP = 500;
 // An era's name (climate.name) is kept in English, as a key: the soundtrack hears it (each era's music is keyed by its
 // words: audio/conductor.js eraMusic, score.js), saves and headless runs record it. eraName gives it in the page's words.
 const FIRST_ERA = 'The First Tides'; // i18n-ignore (the key; eraName gives its words)
@@ -218,6 +221,7 @@ export function createClimate(eng, rng = Math.random) {
     // and the floor itself shifts a little as sediment moves, so each low water shows new bars and islands
     if (K.pond) eng.shiftFloor?.(climate.index, K.floorDrift);
     climate.history.push({ t, name: climate.name, ambient: climate.ambientTo, temp: climate.tempTo, level: climate.levelTo });
+    if (climate.history.length > ERA_KEEP) climate.history.splice(0, climate.history.length - ERA_KEEP);
     climate.onEra?.(climate.history.at(-1), prevAmb, prevTemp);
   }
   function tick(dt) {

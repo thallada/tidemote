@@ -29,3 +29,20 @@ test('the water walks within its bounds, and excursions ease in and out', async 
   assert.ok(Math.abs(excursionAt(x, 200) - 6) < 1e-9);
   assert.equal(excursionAt(x, 301), 0);
 });
+
+test('a world running for days keeps only its last eras', async () => {
+  const { createClimate, ERA_KEEP } = await import('../src/climate.js');
+  let seed = 11;
+  const rng = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32);
+  const eng = { simTime: 0, ambient: 0.2, temp: 16, excursion: 0, tide: new Float32Array(16).fill(1), waves: new Float32Array(16),
+    newTideWave() {}, randomizeCurrents: (r, into) => into };
+  const climate = createClimate(eng, rng);
+  let prev = null, seen = 0;
+  climate.onEra = (era) => { prev = climate.history.at(-2); seen++; };
+  for (let t = 0; t < (ERA_KEEP + 40) * 1100; t += 5) { eng.simTime = t; climate.tick(5); }
+  assert.ok(seen > ERA_KEEP, `eras ${seen}`);
+  assert.equal(climate.history.length, ERA_KEEP);
+  assert.equal(climate.index, seen + 1);
+  assert.ok(prev && prev.t < climate.history.at(-1).t, 'the era before the last is still there for the log');
+  for (let i = 1; i < climate.history.length; i++) assert.ok(climate.history[i].t > climate.history[i - 1].t);
+});

@@ -494,7 +494,7 @@ export function createLab(api) {
       const key = `${mk}:${t0}:${t1}:${st.linAll}:${st.linK}:${st.linRoot}:${W}`;
       if (!force && key === lastKey) return;
       lastKey = key;
-      eras = api.climate().history.slice(1);
+      eras = api.climate().history.filter((e) => e.t > 0);
       const r = rootStrand();
       c = cut(model, { t0, t1, k: st.linK, live: !st.linAll, root: r, n: Math.min(320, Math.round(W / 2)) });
       crumbs(r, T);
@@ -627,7 +627,7 @@ export function createLab(api) {
       + block(tr('lab.graph.eras', 'Eras'), '<ol class="eras" id="eras"></ol>');
     const cvs = [...p.scroll.querySelectorAll('canvas.dyn')];
     const niches = p.scroll.querySelector('canvas.niches');
-    let erasN = -1, excN = 0;
+    let erasKey = '';
     function update() {
       const life = api.life(), hist = life.history, eras = api.climate().history;
       cvs.forEach((cv, i) => drawLines(cv, hist, CHARTS[i][2], eras, CHARTS[i][3] || ''));
@@ -640,9 +640,10 @@ export function createLab(api) {
         if (now && (!felt1 || c.simTime - felt1.t > 30 || c.simTime < felt1.t)) felt1 = { t: c.simTime, n: now };
         drawNiches(niches, sp, api.eng.tbg, now ? now.map((v, b) => (v - felt0.n[b]) >>> 0) : [], HEAT_BIN);
       }
-      const exc = eras.filter((h) => h.excursion).length;
-      if (eras.length !== erasN || exc !== excN) {
-        erasN = eras.length; excN = exc;
+      // (the record keeps the last eras, so its length stops changing: the last era's start tells a new one)
+      const ek = `${eras.length}:${eras.at(-1)?.t}:${eras.filter((h) => h.excursion).length}`;
+      if (ek !== erasKey) {
+        erasKey = ek;
         // i18n: an era in Lab → Charts → Eras, after its start and name: its baseline light (percent), the water's temperature
         // (degrees) and a heat wave or cold snap in it, by how many degrees ({dT}) it warmed or cooled the water
         const line = (h) => {

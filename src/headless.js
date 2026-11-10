@@ -205,7 +205,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
     const mature = samples.filter((s) => s.t > 60);
     const summary = { finalLiving: latest.living, finalLivingFrac: latest.living / eng.count, minLivingFrac,
       meanEffSpecies: mature.length ? mature.reduce((sum, s) => sum + s.effSpecies, 0) / mature.length : null,
-      finalEffSpecies: latest.effSpecies, collapses, guildLosses: lost.size, erasSeen: climate.history.length,
+      finalEffSpecies: latest.effSpecies, collapses, guildLosses: lost.size, erasSeen: climate.index,
       frames, msPerFrame: wallSeconds * 1000 / frames, wallSeconds, ...(profile.length ? { profile } : {}) };
     if (snapshot) await snapshot(eng, frames);
     checkErrors();
