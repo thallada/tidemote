@@ -139,13 +139,15 @@ export class Swell extends Voice {
   }
 }
 
-// DynKlank: a bank of Ringz resonators summed (freqscale applied to the frequencies)
+// DynKlank: a bank of Ringz resonators summed (freqscale applied to the frequencies). (Its voice fills f, a and d
+// each block: nothing is allocated on the audio thread once a note has begun.)
 class Klank {
-  constructor(sr, n) { this.r = Array.from({ length: n }, () => new Ringz(sr)); }
+  constructor(sr, n) { this.r = Array.from({ length: n }, () => new Ringz(sr)); this.f = new Array(n).fill(0); this.a = new Array(n).fill(0); this.d = new Array(n).fill(0); }
   ar(exc, freqs, amps, rings, out) { out.fill(0); for (let i = 0; i < this.r.length; i++) this.r[i].arAdd(exc, f32(freqs[i]), rings[i], amps[i], out); }
 }
 
 // ── \glass: singing glass (modal resonators bowed by noise) ──────────────────
+const GLASS_RING = [1.2, 0.9, 0.7, 0.5, 0.4];
 export class Glass extends Voice {
   constructor(eng, p) {
     super(eng, p);
@@ -167,7 +169,10 @@ export class Glass extends Voice {
     this.excA.fill(0.3 + 0.7 * e, k1);
     for (let i = 0; i < BS; i++) exc[i] *= k1[i];
     const fs = freq * (1 + this.n1.kr(0.15) * 0.0015);
-    this.kl.ar(exc, [fs, fs * 2.003, fs * 3.011, fs * 4.03, fs * 5.08], [1, 0.45, 0.3 * bright, 0.18 * bright, 0.1 * bright], [1.2, 0.9, 0.7, 0.5, 0.4], sig);
+    const kf = this.kl.f, ka = this.kl.a;
+    kf[0] = fs; kf[1] = fs * 2.003; kf[2] = fs * 3.011; kf[3] = fs * 4.03; kf[4] = fs * 5.08;
+    ka[0] = 1; ka[1] = 0.45; ka[2] = 0.3 * bright; ka[3] = 0.18 * bright; ka[4] = 0.1 * bright;
+    this.kl.ar(exc, kf, ka, GLASS_RING, sig);
     this.lp.ar(sig, Math.min(freq * 7, 11000), k2);
     this.envA.fill(e, k1);
     for (let i = 0; i < BS; i++) k2[i] *= k1[i] * amp * 0.0095;
@@ -207,6 +212,7 @@ class Saw {
 }
 
 // ── \breath: reed formants over noise and a faint saw ────────────────────────
+const BREATH_RQ = [0.012, 0.015, 0.02, 0.025, 0.03], BREATH_H = [1, 2, 3, 4, 6];
 export class Breath extends Voice {
   constructor(eng, p) {
     super(eng, p);
@@ -216,7 +222,7 @@ export class Breath extends Voice {
     this.n1 = new LFNoise2(this.kr, this.rg); this.pink = new PinkNoise(this.rg);
     this.sawA = new Saw(this.sr, freq * (1 + glide)); this.sawB = new Saw(this.sr, freq * (1 + glide) * 1.003);
     this.rz = [1, 2, 3, 4, 6].map(() => new Resonz(this.sr)); this.lp = new LPF(this.sr);
-    this.envA = new KtoA(0); this.pan = new Pan2(p.pan ?? 0); this.first = true;
+    this.envA = new KtoA(0); this.pan = new Pan2(p.pan ?? 0); this.first = true; this.muls = [0, 0, 0, 0, 0];
   }
   render(B, S) {
     const p = this.p, freq = p.freq ?? 220, bright = p.bright ?? 0.4, amp = p.amp ?? 0.1;
@@ -227,7 +233,8 @@ export class Breath extends Voice {
     this.sawA.kr(f, a); this.sawB.kr(f32(f * 1.003), b);
     this.pink.ar(t);
     for (let i = 0; i < BS; i++) src[i] = (a[i] + b[i]) * 0.25 * bright + t[i] * 0.8;
-    const muls = [9, 5, 3.5 * bright, 2.5 * bright, 1.5 * bright], rqs = [0.012, 0.015, 0.02, 0.025, 0.03], h = [1, 2, 3, 4, 6];
+    const muls = this.muls, rqs = BREATH_RQ, h = BREATH_H;
+    muls[0] = 9; muls[1] = 5; muls[2] = 3.5 * bright; muls[3] = 2.5 * bright; muls[4] = 1.5 * bright;
     sig.fill(0);
     for (let j = 0; j < 5; j++) { this.rz[j].ar(src, f32(f * h[j]), rqs[j], t); const m = muls[j]; for (let i = 0; i < BS; i++) sig[i] += t[i] * m; }
     this.lp.ar(sig, Math.min(f * 8, 11000), t);
@@ -260,7 +267,9 @@ export class Tine extends Voice {
     const exc = S.get(), n = S.get(), sig = S.get(), t = S.get();
     this.st.ar(exc); this.wn.ar(n);
     for (let i = 0; i < BS; i++) exc[i] *= 1 + n[i] * 0.3 * bright;
-    this.kl.ar(exc, [freq, freq * 5.95, freq * 13.1], [1, 0.45 * bright, 0.2 * bright], [dec, dec * 0.22, dec * 0.09], sig);
+    const { f: kf, a: ka, d: kd } = this.kl;
+    kf[0] = freq; kf[1] = freq * 5.95; kf[2] = freq * 13.1; ka[0] = 1; ka[1] = 0.45 * bright; ka[2] = 0.2 * bright; kd[0] = dec; kd[1] = dec * 0.22; kd[2] = dec * 0.09;
+    this.kl.ar(exc, kf, ka, kd, sig);
     this.lp.ar(sig, Math.min(freq * 16, 13000), t);
     for (let i = 0; i < BS; i++) t[i] *= amp * 0.0332;
     const L = S.zero(), R = S.zero();
@@ -309,7 +318,9 @@ export class Wood extends Voice {
     const exc = S.get(), n = S.get(), bp = S.get(), sig = S.get(), t = S.get();
     this.st.ar(exc); this.wn.ar(n); this.bp.ar(n, 1800, 0.5, bp);
     for (let i = 0; i < BS; i++) exc[i] *= 1 + bp[i] * 0.6 * bright;
-    this.kl.ar(exc, [freq, freq * 3.93, freq * 9.24], [1, 0.3 * bright, 0.1 * bright], [dec, dec * 0.22, dec * 0.06], sig);
+    const { f: kf, a: ka, d: kd } = this.kl;
+    kf[0] = freq; kf[1] = freq * 3.93; kf[2] = freq * 9.24; ka[0] = 1; ka[1] = 0.3 * bright; ka[2] = 0.1 * bright; kd[0] = dec; kd[1] = dec * 0.22; kd[2] = dec * 0.06;
+    this.kl.ar(exc, kf, ka, kd, sig);
     this.lp.ar(sig, Math.min(freq * 12, 9000), t);
     for (let i = 0; i < BS; i++) t[i] *= amp * 0.0224;
     const L = S.zero(), R = S.zero();
@@ -494,12 +505,13 @@ export class Sea extends Voice {
     this.sw = [new SinOscK(this.kr, 0), new SinOscK(this.kr, 2)];
     this.hp = [new HPF(this.sr), new HPF(this.sr)];
     this.resA = [0, 1, 2, 3, 4].map(() => new KtoA(0)); this.wavA = [new KtoA(0), new KtoA(0)];
-    this.first = true;
+    this.first = true; this.fs = [0, 0, 0, 0, 0];
   }
   render(B, S) {
     const P = this.p;
     const tl = this.tl.kr(P.tide, 6), ll = this.ll.kr(P.light, 6);
-    const fs = [P.f1, P.f2, P.f3, P.f4, P.f5].map(midicps), fd = this.fl.kr(P.fade, P.fadeTime);
+    const fs = this.fs, fd = this.fl.kr(P.fade, P.fadeTime);
+    fs[0] = midicps(P.f1); fs[1] = midicps(P.f2); fs[2] = midicps(P.f3); fs[3] = midicps(P.f4); fs[4] = midicps(P.f5);
     const L = S.zero(), R = S.zero(), t = S.get(), n = S.get(), k = S.get();
     const resGain = 9 * P.sing * (0.5 + ll);
     for (let i = 0; i < 5; i++) {
@@ -580,7 +592,9 @@ export class Piano extends Voice {
     const p = this.p, freq = p.freq ?? 220, dec = p.dec ?? 5, felt = p.felt ?? 0.6, amp = p.amp ?? 0.1;
     const exc = S.get(), sig = S.get(), n = S.get(), kn = S.get(), ke = S.get();
     this.st.ar(exc);
-    this.kl.ar(exc, PIANO_F.map((f) => f * freq), PIANO_A, PIANO_D.map((d) => d * dec), sig);
+    const kf = this.kl.f, kd = this.kl.d;
+    for (let j = 0; j < 12; j++) { kf[j] = PIANO_F[j] * freq; kd[j] = PIANO_D[j] * dec; }
+    this.kl.ar(exc, kf, PIANO_A, kd, sig);
     this.wn.ar(n); this.lp.ar(n, 260, kn); this.kenv.ar(ke);
     const g = 0.0045 * Math.sqrt(freq / 220);
     for (let i = 0; i < BS; i++) sig[i] = (sig[i] * g + kn[i] * ke[i] * felt * 0.3) * amp;
@@ -637,7 +651,9 @@ export class Vibe extends Voice {
     const p = this.p, freq = p.freq ?? 440, dec = p.dec ?? 3, bright = p.bright ?? 0.5, amp = p.amp ?? 0.1, depth = p.depth ?? 0.3;
     const exc = S.get(), sig = S.get(), t = S.get(), k = S.get();
     this.st.ar(exc);
-    this.kl.ar(exc, [freq, freq * 3.99, freq * 10.1], [1, 0.3 * bright, 0.1 * bright], [dec, dec * 0.25, dec * 0.08], sig);
+    const { f: kf, a: ka, d: kd } = this.kl;
+    kf[0] = freq; kf[1] = freq * 3.99; kf[2] = freq * 10.1; ka[0] = 1; ka[1] = 0.3 * bright; ka[2] = 0.1 * bright; kd[0] = dec; kd[1] = dec * 0.25; kd[2] = dec * 0.08;
+    this.kl.ar(exc, kf, ka, kd, sig);
     this.lp.ar(sig, Math.min(freq * 14, 12000), t);
     const tv = 1 - depth * (this.trem.kr(p.trem ?? 4.5) * 0.5 + 0.5);
     if (this.first) { this.tA.prev = tv; this.first = false; }
@@ -652,6 +668,8 @@ export class Vibe extends Voice {
 
 // ── \swarm: a multitude heard from afar (bands of soft-attack resonator pairs rung by Dust) ──
 const SWARM_POS = [-0.75, 0.55, -0.35, 0.15, -0.15, 0.35, -0.55, 0.75];
+// (each band's parameters' names: f1, d1, a1, ...)
+const SWARM_F = SWARM_POS.map((_, i) => `f${i + 1}`), SWARM_D = SWARM_POS.map((_, i) => `d${i + 1}`), SWARM_A = SWARM_POS.map((_, i) => `a${i + 1}`);
 export class Swarm extends Voice {
   constructor(eng, p) {
     super(eng, p);
@@ -667,7 +685,7 @@ export class Swarm extends Voice {
     const P = this.p, ring = P.ring, atk = P.atk;
     const x = S.get(), k = S.get(), t = S.get(), L = S.zero(), R = S.zero();
     for (let i = 0; i < 8; i++) {
-      const d = P['d' + (i + 1)], a = P['a' + (i + 1)], f = midicps(P['f' + (i + 1)]);
+      const d = P[SWARM_D[i]], a = P[SWARM_A[i]], f = midicps(P[SWARM_F[i]]);
       if (d > 0) this.dust[i].ar(d, x); else x.fill(0); // (no impulses: skip the random draws)
       this.aA[i].fill(a, k);
       for (let j = 0; j < BS; j++) x[j] *= k[j];
@@ -689,14 +707,15 @@ export class Wave extends Voice {
     this.env = new EnvGen({ levels: [0, 1, 0.3, 0], times: [dur * 0.4, dur * 0.2, dur * 0.4], curves: [2, -2, -2] }, this.kr);
     this.pink = [new PinkNoise(this.rg), new PinkNoise(this.rg)]; this.lp = [new LPF(this.sr), new LPF(this.sr)];
     this.n1 = new LFNoise2(this.kr, this.rg); this.bal = new Balance2(p.pan ?? 0, 1);
-    this.envA = new KtoA(0); this.first = true;
+    this.envA = new KtoA(0); this.first = true; this.c2 = [null, null];
   }
   render(B, S) {
     const p = this.p, bright = p.bright ?? 0.5, amp = p.amp ?? 0.1;
     const e = this.env.kr();
     if (this.first) { this.envA.prev = e; this.first = false; }
     const ke = this.envA.fill(e, S.get());
-    const n = S.get(), c2 = [S.get(), S.get()];
+    const n = S.get(), c2 = this.c2;
+    c2[0] = S.get(); c2[1] = S.get();
     const cut = 200 + e * e * 2400 * bright;
     for (let c = 0; c < 2; c++) {
       const o = c2[c];
@@ -730,6 +749,7 @@ export class PingPong {
 }
 
 // ── \fdn: 8-line feedback delay network reverb ───────────────────────────────
+const FDN_TIMES = [0.0503, 0.0611, 0.0719, 0.0823, 0.0937, 0.1049, 0.1153, 0.1279], FDN_AP = [0.0047, 0.0071, 0.0113, 0.0163];
 export class FDN {
   constructor(sr, rg, p = {}) {
     // (space and wet: the viewer's mix, Settings → Audio → Space: the decay's multiple and the wet share's)
@@ -745,12 +765,14 @@ export class FDN {
     let h = [[1]];
     for (let k = 0; k < 3; k++) h = [...h.map((r) => [...r, ...r]), ...h.map((r) => [...r, ...r.map((v) => -v)])];
     this.H = h;
+    this.times = new Array(8).fill(0); this.g = new Array(8).fill(0);
   }
   process(B, S) {
-    const P = this.p, times = [0.0503, 0.0611, 0.0719, 0.0823, 0.0937, 0.1049, 0.1153, 0.1279].map((t) => t * P.size);
+    const P = this.p, times = this.times, g = this.g;
+    for (let c = 0; c < 8; c++) times[c] = FDN_TIMES[c] * P.size;
     const sL = S.get(), sR = S.get(), t = S.get(), dt = S.get();
     this.pre[0].ar(B.revL, 0.035, sL); this.pre[1].ar(B.revR, 0.035, sR);
-    const apt = [0.0047, 0.0071, 0.0113, 0.0163];
+    const apt = FDN_AP;
     for (let i = 0; i < 4; i++) { this.ap[i][0].ar(sL, apt[i], 0.3, t); sL.set(t); this.ap[i][1].ar(sR, f32(apt[i] * 1.13), 0.3, t); sR.set(t); }
     const x = this.x;
     for (let c = 0; c < 8; c++) {
@@ -762,7 +784,8 @@ export class FDN {
       this.dl[c].ar(t, dt, x[c]);
       this.hp[c].ar(x[c], 70, t); this.lp[c].ar(t, P.damp, x[c]);
     }
-    const g = times.map((tt) => Math.pow(10, (-3 * tt) / (P.decay * P.space))), s8 = 1 / Math.sqrt(8);
+    for (let c = 0; c < 8; c++) g[c] = Math.pow(10, (-3 * times[c]) / (P.decay * P.space));
+    const s8 = 1 / Math.sqrt(8);
     for (let r = 0; r < 8; r++) {
       const row = this.H[r], li = this.loc[r], gr = g[r] * s8;
       for (let i = 0; i < BS; i++) { let acc = 0; for (let c = 0; c < 8; c++) acc += row[c] * x[c][i]; li[i] = acc * gr; }
@@ -789,10 +812,12 @@ export class Master {
     this.bl = two(() => new BLowPass(sr)); this.tone = new Lag(sr / BS, this.p.tone);
     this.comp = two(() => new Compander(sr)); this.lpa = two(() => new LPF(sr)); this.lpb = two(() => new LPF(sr));
     this.lim = two(() => new Limiter(sr, 0.01)); this.gainA = two(() => new KtoA(this.p.gain));
+    this.ins = [null, null]; this.x = [null, null]; this.lo = [null, null]; this.outs = [null, null]; // (filled each block)
   }
   process(B, S, outL, outR) {
-    const P = this.p, ins = [B.dryL, B.dryR];
-    const x = [S.get(), S.get()], lo = [S.get(), S.get()], t = S.get(), ctl = S.get(), k = S.get();
+    const P = this.p, ins = this.ins, x = this.x, lo = this.lo, outs = this.outs;
+    ins[0] = B.dryL; ins[1] = B.dryR; x[0] = S.get(); x[1] = S.get(); lo[0] = S.get(); lo[1] = S.get();
+    const t = S.get(), ctl = S.get(), k = S.get();
     for (let c = 0; c < 2; c++) {
       this.hp28[c].ar(ins[c], 28, x[c]);
       this.lo1[c].ar(x[c], 120, t); this.lo2[c].ar(t, 120, lo[c]);
@@ -807,7 +832,8 @@ export class Master {
       for (let i = 0; i < BS; i++) x[c][i] *= k[i];
     }
     for (let i = 0; i < BS; i++) ctl[i] = (x[0][i] + x[1][i]) * 0.5;
-    const dn = Math.tanh(P.drive), outs = [outL, outR];
+    const dn = Math.tanh(P.drive);
+    outs[0] = outL; outs[1] = outR;
     for (let c = 0; c < 2; c++) {
       this.comp[c].ar(x[c], ctl, P.thresh, 1, 0.5, 0.03, 0.4, t);
       for (let i = 0; i < BS; i++) t[i] = Math.tanh(t[i] * P.drive) / dn;
