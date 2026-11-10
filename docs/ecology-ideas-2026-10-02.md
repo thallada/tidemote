@@ -1,5 +1,7 @@
 # Why diet guilds swing, and rules that would keep them, 2026-10-02
 
+**Status:** a dated study and set of proposals (2026-10-02) on the rules of f770005, kept as a record. Glint, the omnivore guild and many tunables it names were removed since; the ecology as built is in docs/energy.md and docs/ecosystem.md, today's tunables in `DEFAULT_K`.
+
 Prompted by watching the page at 2M+ particles: predators, scavengers and omnivores crash in the first
 minutes, sessile reefs are rare, and half an hour later the world can flip to almost nothing but
 predators and scavengers, with producers not recovering even when an era raises the light.

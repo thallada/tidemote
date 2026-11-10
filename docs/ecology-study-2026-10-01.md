@@ -1,5 +1,7 @@
 # Ecology balance study, 2026-10-01
 
+**Status:** a dated study (2026-10-01), kept as a record. The regulators it describes (`blight`, `guildCap`, `turbid`, immigration) and several tunables it names no longer exist; for the ecology as built see docs/energy.md and docs/ecosystem.md, for today's tunables `DEFAULT_K`.
+
 A record of the first headless study of Tidemote's ecology, the decisions it drove, and what the next
 person should do. It is written for an agent picking the work up on a different machine, ideally one
 with a real GPU.

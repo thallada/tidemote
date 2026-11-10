@@ -1,5 +1,7 @@
 # What would take Tidemote to the next level, 2026-10-20
 
+**Status:** a dated brainstorm (2026-10-20). Built from it since: phototaxis (4.3, docs/phototaxis.md), catastrophes and the pool (4.4, docs/catastrophes.md), and the chronicler, species cards and film (4.5, docs/chronicler.md, docs/film.md). Not built: symbiosis (4.1), division of labor (4.2), replaying the tape in the page (4.6), toxins, a chemical channel (4.7) and oxygen (5); a nerve (4.7) was tried on a branch and shelved.
+
 A long look at the project as it stands, a diagnosis of where its ceiling sits, a field of options, and
 the six avenues judged strongest, each with a rule sketch, what it would need from the code, what to
 watch for and what could go wrong. Written in the spirit of docs/ecology-ideas-2026-10-02.md and

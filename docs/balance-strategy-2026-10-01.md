@@ -1,5 +1,7 @@
 # Balancing Tidemote without regulators: strategy, 2026-10-01
 
+**Status:** a dated strategy note (2026-10-01), kept as a record. The census-driven regulators it set aside are gone, its gate is `npm run gate` (docs/headless-gpu.md), and the tunables and values it names are that day's; many were removed since (`DEFAULT_K` in `src/shaders.js` has today's).
+
 Follows `ecology-study-2026-10-01.md`. Written after moving the headless runs onto a GPU (RTX 4070 Ti,
 see `headless-gpu.md`), where a 30-minute run at 32k particles takes about 2 minutes of wall time with
 four in parallel.

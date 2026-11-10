@@ -1,5 +1,7 @@
 # A hand in the world: interaction for Tidemote, 2026-10-27
 
+**Status:** a dated brainstorm (2026-10-27); the bench, the ride, the pipette and the cabinet were built from it (2026-10-28), as docs/hand.md describes. The rest is options, not plans.
+
 A brainstorm in the spirit of docs/next-level-2026-10-20.md, on one question that document set aside as
 "a decision for the owner" (its option 23): how a viewer could have a hand in the simulation without
 cheapening it. Today the page is a thing to watch, inspect and name; the one act on the world is Settings →
