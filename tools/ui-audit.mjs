@@ -9,6 +9,7 @@ import fs from 'node:fs'; import path from 'node:path'; import http from 'node:h
 import { chromium } from 'playwright-core';
 import { vkOn as vk, retryAdapter } from './vk.mjs';
 import { launchOptions, UNTHROTTLED } from './lib/browser.mjs';
+import { viewPrefs } from './lib/prefs.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith('--') ? [...a, [x.slice(2), all[i + 1] && !all[i + 1].startsWith('--') ? all[i + 1] : '1']] : a), []));
 const out = path.resolve(args.out || 'runs/ui/audit');
@@ -133,13 +134,13 @@ const report = { when: new Date().toISOString(), base, sizes: {} };
 for (const s of SIZES) {
   console.log(`— ${s.id} ${s.w}×${s.h} (${s.note})`);
   const ctx = await browser.newContext({ viewport: { width: s.w, height: s.h }, deviceScaleFactor: s.dpr, hasTouch: !!s.touch, isMobile: !!s.touch });
-  await ctx.addInitScript((n) => {
+  await ctx.addInitScript((view) => {
     if (sessionStorage.getItem('ui-init')) return;
     sessionStorage.setItem('ui-init', '1');
     localStorage.clear();
     localStorage.setItem('tidemote.sound', JSON.stringify({ on: false, volume: 0.7 }));
-    if (n) localStorage.setItem('tidemote.view', JSON.stringify({ v: 4, particles: n }));
-  }, +(args.particles || 0));
+    if (view) localStorage.setItem('tidemote.view', JSON.stringify(view));
+  }, +(args.particles || 0) ? viewPrefs({ particles: +args.particles }) : null);
   if (vk) await ctx.addInitScript(retryAdapter);
   const page = await ctx.newPage();
   const errs = [];

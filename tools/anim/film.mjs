@@ -12,6 +12,7 @@
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http'; import os from 'node:os';
 import { chromium } from 'playwright-core';
 import { launchOptions, windowFlags } from '../lib/browser.mjs';
+import { viewPrefs } from '../lib/prefs.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith('--') ? [...a, [x.slice(2), all[i + 1] && !all[i + 1].startsWith('--') ? all[i + 1] : '1']] : a), []));
 const v = { world: 'w1', n: 262144, mature: 90, out: 'runs/anim/out/x', zoom: 450, secs: 6, speed: 1, spots: 3, target: 'events', k: '{}', pre: 2, w: 1200, h: 800, html: 'dist/tidemote.html', ...args };
@@ -35,12 +36,12 @@ const page = ctx.pages()[0];
 page.setDefaultTimeout(0);
 page.on('pageerror', (e) => console.log(`[page error] ${e.message}`));
 page.on('console', (m) => { if (m.type() === 'error' || /WGSL|shader/i.test(m.text())) console.log(`[console ${m.type()}] ${m.text().slice(0, 600)}`); });
-await page.addInitScript((n) => {
+await page.addInitScript((view) => {
   if (sessionStorage.getItem('tm-init')) return;
   sessionStorage.setItem('tm-init', '1');
-  localStorage.setItem('tidemote.view', JSON.stringify({ v: 2, particles: n, auto: false, labOpen: false, trails: 0 }));
+  localStorage.setItem('tidemote.view', JSON.stringify(view));
   localStorage.setItem('tidemote.sound', JSON.stringify({ on: false, volume: 0 }));
-}, +v.n);
+}, viewPrefs({ particles: +v.n, auto: false, labOpen: false, trails: 0 }));
 await page.goto(`${base}/#k=${encodeURIComponent(v.k)}`);
 await page.waitForFunction(() => globalThis.__tidemote?.state.phase === 'running', null, { polling: 250 });
 await page.keyboard.press('Shift');

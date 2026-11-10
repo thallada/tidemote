@@ -39,6 +39,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { retryAdapter } from '../vk.mjs';
 import { launchOptions, UNTHROTTLED } from '../lib/browser.mjs';
+import { viewPrefs } from '../lib/prefs.mjs';
 import { androidChrome, serve, phoneState } from '../android.mjs';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -123,12 +124,12 @@ async function openPage(n, extra = {}, k = null, init = null, html = null) {
   if (init) await page.addInitScript(init);
   // the first adapter asked for in a headless page can come back null: ask once more
   if (v.linux) await page.addInitScript(retryAdapter);
-  await page.addInitScript(({ n, extra }) => {
+  await page.addInitScript((view) => {
     if (sessionStorage.getItem('tm-init')) return;
     sessionStorage.setItem('tm-init', '1');
-    localStorage.setItem('tidemote.view', JSON.stringify({ particles: n ?? null, auto: false, labOpen: false, ...extra }));
+    localStorage.setItem('tidemote.view', JSON.stringify(view));
     localStorage.setItem('tidemote.sound', JSON.stringify({ on: false, volume: 0.5 }));
-  }, { n, extra });
+  }, viewPrefs({ particles: n ?? null, auto: false, labOpen: false, ...extra }));
   page.on('console', (m) => { if (m.type() === 'error' || /tidemote|perf/.test(m.text())) console.log(`  [page] ${m.text()}`); });
   page.on('pageerror', (e) => console.log(`  [page error] ${e.message}`));
   const hash = k ? `#k=${encodeURIComponent(JSON.stringify(k))}` : '';

@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
 import { retryAdapter } from './vk.mjs';
 import { launchOptions } from './lib/browser.mjs';
+import { viewPrefs } from './lib/prefs.mjs';
 
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d; };
 const html = path.resolve(arg('html', fileURLToPath(new URL('../dist/tidemote.html', import.meta.url))));
@@ -26,12 +27,12 @@ page.setDefaultTimeout(0);
 page.on('pageerror', (e) => console.log(`[page error] ${e.message}`));
 page.on('console', (m) => { if (m.type() === 'error') console.log(`[console] ${m.text().slice(0, 400)}`); });
 await page.addInitScript(retryAdapter);
-await page.addInitScript((n) => {
+await page.addInitScript((view) => {
   if (sessionStorage.getItem('tm-init')) return;
   sessionStorage.setItem('tm-init', '1');
-  localStorage.setItem('tidemote.view', JSON.stringify({ v: 2, particles: n, auto: false, labOpen: false }));
+  localStorage.setItem('tidemote.view', JSON.stringify(view));
   localStorage.setItem('tidemote.sound', JSON.stringify({ on: false, volume: 0 }));
-}, n);
+}, viewPrefs({ particles: n, auto: false, labOpen: false }));
 await page.goto(`http://127.0.0.1:${server.address().port}/${arg('k') ? `#k=${encodeURIComponent(arg('k'))}` : ''}`);
 await page.waitForFunction(() => globalThis.__tidemote?.state.phase === 'running', null, { polling: 250 });
 await page.keyboard.press('Shift'); // without a gesture the page holds the world on its intro

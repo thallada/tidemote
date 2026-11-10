@@ -5,6 +5,7 @@ import fs from 'node:fs'; import path from 'node:path'; import http from 'node:h
 import { chromium } from 'playwright-core';
 import { vkOn, retryAdapter } from './vk.mjs';
 import { launchOptions, windowFlags } from './lib/browser.mjs';
+import { viewPrefs } from './lib/prefs.mjs';
 
 /** --name value pairs (a bare --name is '1'). */
 export const cliArgs = () => Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith('--') ? [...a, [x.slice(2), all[i + 1] && !all[i + 1].startsWith('--') ? all[i + 1] : '1']] : a), []));
@@ -22,12 +23,12 @@ export async function openPage({ html = 'dist/tidemote.html', k = '{}', n = 2621
   page.setDefaultTimeout(0);
   page.on('pageerror', (e) => console.log(`[page error] ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') console.log(`[console] ${m.text().slice(0, 400)}`); });
-  await page.addInitScript(([n, prefs]) => {
+  await page.addInitScript((view) => {
     if (sessionStorage.getItem('tm-init')) return;
     sessionStorage.setItem('tm-init', '1');
-    localStorage.setItem('tidemote.view', JSON.stringify({ v: 2, particles: n, auto: false, labOpen: false, trails: 0, ...prefs }));
+    localStorage.setItem('tidemote.view', JSON.stringify(view));
     localStorage.setItem('tidemote.sound', JSON.stringify({ on: false, volume: 0 }));
-  }, [+n, prefs]);
+  }, viewPrefs({ particles: +n, auto: false, labOpen: false, trails: 0, ...prefs }));
   await page.goto(`http://127.0.0.1:${server.address().port}/#k=${encodeURIComponent(k)}`);
   await page.waitForFunction(() => globalThis.__tidemote?.state.phase === 'running', null, { polling: 250 });
   await page.keyboard.press('Shift');

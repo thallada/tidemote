@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { retryAdapter } from '../vk.mjs';
 import { launchOptions } from '../lib/browser.mjs';
+import { viewPrefs } from '../lib/prefs.mjs';
 
 export const root = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
 
@@ -26,10 +27,10 @@ export async function start() {
 export async function open(env, { viewport = { width: 1280, height: 800 }, mobile = false, particles = null, hash = '' } = {}) {
   const page = await env.browser.newPage({ viewport, deviceScaleFactor: mobile ? 2 : 1, isMobile: mobile, hasTouch: mobile });
   page.on('pageerror', (e) => console.error('page:', e.stack));
-  await page.addInitScript((particles) => {
-    localStorage.setItem('tidemote.view', JSON.stringify({ v: 2, auto: false, labOpen: false, ...(particles ? { particles } : {}) }));
+  await page.addInitScript((view) => {
+    localStorage.setItem('tidemote.view', JSON.stringify(view));
     localStorage.setItem('tidemote.sound', '{"on":false}');
-  }, particles);
+  }, viewPrefs({ auto: false, labOpen: false, ...(particles ? { particles } : {}) }));
   await page.addInitScript(retryAdapter);
   await page.goto(env.url + hash);
   await page.waitForFunction(() => globalThis.__tidemote?.state.phase === 'running', null, { timeout: 120000 });

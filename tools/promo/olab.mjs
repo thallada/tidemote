@@ -9,6 +9,7 @@ import fs from 'node:fs'; import path from 'node:path'; import http from 'node:h
 import { spawn, spawnSync } from 'node:child_process';
 import { chromium } from 'playwright-core';
 import { launchOptions } from '../lib/browser.mjs';
+import { viewPrefs } from '../lib/prefs.mjs';
 import { LIB } from './paths.mjs';
 export { aim } from '../pagelab.mjs';
 export { cliArgs } from './paths.mjs';
@@ -73,10 +74,10 @@ export async function openOffline({ html = 'dist/tidemote.html', notes = 0, k = 
     };
     window.__release = () => { window.__own = false; for (const cb of q.splice(0)) orig(cb); for (const a of document.getAnimations()) if (a.__vt0 != null) { a.__vt0 = null; a.play(); } };
   });
-  await page.addInitScript(({ n, notes }) => {
+  await page.addInitScript((view) => {
     if (!sessionStorage.getItem('tm-init')) {
       sessionStorage.setItem('tm-init', '1');
-      localStorage.setItem('tidemote.view', JSON.stringify({ v: 5, particles: n || null, auto: false, labOpen: false, trails: 1, density: 2, scale: 1, notes, ui: true }));
+      localStorage.setItem('tidemote.view', JSON.stringify(view));
       localStorage.setItem('tidemote.sound', JSON.stringify({ on: true, volume: 0 }));
     }
     globalThis.__snd = [];
@@ -90,7 +91,7 @@ export async function openOffline({ html = 'dist/tidemote.html', notes = 0, k = 
       }
       return post.call(this, m, tr);
     };
-  }, { n: +n, notes: +notes });
+  }, viewPrefs({ particles: +n || null, auto: false, labOpen: false, trails: 1, density: 2, scale: 1, notes: +notes, ui: true }));
   if (ui) await page.addInitScript(() => {
     // a pointer drawn into the page (headless screenshots have none), with a ring on each press
     addEventListener('DOMContentLoaded', () => {
