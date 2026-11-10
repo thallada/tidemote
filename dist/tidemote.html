@@ -6006,12 +6006,24 @@ fn budKin(a: Genome, b: Genome) -> bool { return a.serial == b.serial || a.paren
 fn budGrowth(age: f32) -> f32 { let t = clamp(age / BIRTH_T, 0.0, 1.0) - 1.0; return 1.0 + 2.0 * t * t * t + t * t; }
 `
   );
-  var LISTEN_WGSL = COMMON + /* wgsl */
+  var SCAN_WGSL = (
+    /* wgsl */
+    `
+fn eventIn(p: Particle, code: u32, window: f32, slack: f32) -> bool {
+  // made in resolveCount, before its step aged it: a birth (9), a kill's carcass or a grain eaten (3)
+  let early = select(code == 3u && (p.kind == HUSK || p.kind == SILT), code == 9u, p.kind >= FIRST_LIFE);
+  return p.age < window + select(-slack, slack, early);
+}
+`
+  );
+  var LISTEN_WGSL = COMMON + SCAN_WGSL + /* wgsl */
   `
 struct ListenU {
   center: vec2f, half: vec2f, world: vec2f, count: u32, seed: u32,
   now: f32, window: f32, vscale: f32, selKind: u32,
   keep: array<vec4f, 3>,
+  // half the shortest step since the step before the window
+  slack: f32,
 };
 @group(0) @binding(0) var<uniform> lu: ListenU;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
@@ -6054,15 +6066,15 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
       let warmth = ${shownWarmth("waterTempAt(p.pos)", "g", "it")};
       if (!${shownThermal("g", "warmth")}.torpid) { t = 8u; }
     }
-    if (p.age < lu.window) {
-      let code = p.info & 15u;
+    let code = p.info & 15u;
+    if (eventIn(p, code, lu.window, lu.slack)) {
       if (life) {
-        // (a cell woken from a cyst is no birth: WOKE)
+        // (a cell woken from a cyst is no birth: it wakes as itself, WOKE)
         if (code == 9u) {
           t = 0u;
           let g = genomes[p.kind];
           if (g.depth > 0u && abs(clockDiff(g.born, lu.now - p.age)) < 0.05) { t = 1u; }
-        } else if (code == 8u) { t = 2u; }
+        } else if (code == 8u) { t = 2u; } else if (code == WOKE) { t = 7u; }
       } else if (p.kind == HUSK) {
         // a scalded cell (10) dies as a starved one sounds
         if (code == 1u || code == 10u) { t = 3u; } else if (code == 2u) { t = 4u; } else if (code == 3u) { t = 5u; }
@@ -6175,9 +6187,9 @@ fn noteMain(@builtin(global_invocation_id) gid: vec3u) {
   var SURVEY_WORDS = 10;
   var SURVEY = { living: 0, bonded: 1, births: 2, mutations: 3, sparks: 4, deaths: 5, kills: 6, species: 7, speed: 8, glint: 9 };
   var SURVEY_MAX_TILES = 4096;
-  var SURVEY_WGSL = COMMON + /* wgsl */
+  var SURVEY_WGSL = COMMON + SCAN_WGSL + /* wgsl */
   `
-struct SurveyU { grid: vec2u, tiles: vec2u, tile: u32, now: f32, window: f32, adhMin: f32 };
+struct SurveyU { grid: vec2u, tiles: vec2u, tile: u32, now: f32, window: f32, adhMin: f32, slack: f32 };
 @group(0) @binding(0) var<uniform> su: SurveyU;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
 @group(0) @binding(2) var<storage, read> genomes: array<Genome>;
@@ -6192,8 +6204,8 @@ fn surveyMain(@builtin(global_invocation_id) gid: vec3u) {
   var mask = 0u;
   for (var i = cellStart[c]; i < cellStart[c + 1u]; i++) {
     let p = parts[i];
-    let recent = p.age < su.window;
     let code = p.info & 15u;
+    let recent = eventIn(p, code, su.window, su.slack);
     if (p.kind >= FIRST_LIFE) {
       let g = genomes[p.kind];
       n[0] += 1u;
@@ -16307,12 +16319,12 @@ struct SV {
   var LISTEN = {
     stride: 9,
     // floats per decoded event (decodeRecords)
-    // ('charged' keeps its place in the layout but is never found now: the tide no longer charges silt into glint)
-    types: ["birth", "mutation", "spark", "starved", "old", "killed", "eaten", "charged", "alive"],
-    index: { birth: 0, mutation: 1, spark: 2, starved: 3, old: 4, killed: 5, eaten: 6, charged: 7, alive: 8 },
+    // ('woke': a cell woken from a cyst, in the place of 'charged', which the tide's glint used to fill)
+    types: ["birth", "mutation", "spark", "starved", "old", "killed", "eaten", "woke", "alive"],
+    index: { birth: 0, mutation: 1, spark: 2, starved: 3, old: 4, killed: 5, eaten: 6, woke: 7, alive: 8 },
     // how many of each type per second the scan reports at most (it samples down to this); 'alive'
     // is a sample of the living cells in view
-    target: [14, 1e3, 1e3, 4, 4, 6, 12, 10, 60]
+    target: [14, 1e3, 1e3, 4, 4, 6, 12, 6, 60]
   };
   var hueOf = (col) => {
     const r = (col & 255) / 255, g = (col >>> 8 & 255) / 255, b = (col >>> 16 & 255) / 255;
@@ -19129,20 +19141,20 @@ var Engine = class {
 var LISTEN = {
   stride: 9,
   // floats per decoded event (decodeRecords)
-  // ('charged' keeps its place in the layout but is never found now: the tide no longer charges silt into glint)
-  types: ["birth", "mutation", "spark", "starved", "old", "killed", "eaten", "charged", "alive"],
-  index: { birth: 0, mutation: 1, spark: 2, starved: 3, old: 4, killed: 5, eaten: 6, charged: 7, alive: 8 },
+  // ('woke': a cell woken from a cyst, in the place of 'charged', which the tide's glint used to fill)
+  types: ["birth", "mutation", "spark", "starved", "old", "killed", "eaten", "woke", "alive"],
+  index: { birth: 0, mutation: 1, spark: 2, starved: 3, old: 4, killed: 5, eaten: 6, woke: 7, alive: 8 },
   // how many of each type per second the scan reports at most (it samples down to this); 'alive'
   // is a sample of the living cells in view
-  target: [14, 1e3, 1e3, 4, 4, 6, 12, 10, 60]
+  target: [14, 1e3, 1e3, 4, 4, 6, 12, 6, 60]
 };
 
 // src/audio/field.js
 var clamp = (x, a, b) => x < a ? a : x > b ? b : x;
 var T = LISTEN.index;
-var AMP = { alive: 0.13, birth: 0.19, mutation: 0.09, spark: 0.045, starved: 0.13, old: 0.11, killed: 0.2, eaten: 0.075, rustle: 0.035 };
-var GRID = { starved: 2, old: 4, killed: 1, eaten: 0.5 };
-var PER_SLOT = { starved: 1, old: 1, killed: 1, eaten: 2 };
+var AMP = { alive: 0.13, birth: 0.19, mutation: 0.09, spark: 0.045, starved: 0.13, old: 0.11, killed: 0.2, eaten: 0.075, woke: 0.05, rustle: 0.035 };
+var GRID = { starved: 2, old: 4, killed: 1, eaten: 0.5, woke: 1 };
+var PER_SLOT = { starved: 1, old: 1, killed: 1, eaten: 2, woke: 1 };
 var LATENCY = 0.22;
 var BG_GAIN = 0.05;
 var P_REF = 0.05;
@@ -19156,6 +19168,9 @@ var GRAIN = 1.75;
 var SHOWERS = 0.4;
 var GRAINS = 2.5;
 var RINGS = 1.5;
+var STIRS = 1.6;
+var STIR_FOR = 2;
+var STIR_SWARM = 0.3;
 var SHAPES = [(i) => i, (i, n) => n - 1 - i, (i, n) => Math.min(i, n - 1 - i) * 2, (i) => [0, 2, 1, 3, 2, 4][i]];
 var CLOSE = 0.9;
 var FOCUS_FADE = 2.5;
@@ -19264,7 +19279,7 @@ var Field = class {
     const solo = this.c.time < this.duckUntil, duck = solo ? 0.3 : 1;
     for (const n of plan) {
       if (!(n[2] > 0)) continue;
-      if (solo && n[3].slot === this.soloSlot && (n[0] === "alive" || n[0] === "birth")) continue;
+      if (solo && n[3].slot === this.soloSlot && (n[0] === "alive" || n[0] === "birth" || n[0] === "woke")) continue;
       this.play(n[0], n[1], n[2] * this.agc * close * duck, n[3]);
     }
     this.swarm();
@@ -19356,9 +19371,10 @@ var Field = class {
       if (AMP[type] == null) continue;
       let t = now + LATENCY - ev[o + 4] / Math.max(m.speed, 1e-6);
       if (t < now + 0.01) t = now + 0.01 + 0.03 * this.rnd();
-      const rare = type === "spark";
-      if (!rare && slot >= 0) crowd(slot, comp[ti] ** 2 * toSwarm);
-      const g = AMP[type] * this.gd * comp[ti] * focusGain(slot) * Math.sqrt(rare ? 0.3 + 0.7 * solo : solo);
+      const rare = type === "spark", woke = type === "woke";
+      if (!rare && slot >= 0) crowd(slot, comp[ti] ** 2 * toSwarm * (woke ? STIR_SWARM : 1));
+      if (woke && !(solo > 0.05 && this.spend("stir", STIRS))) continue;
+      const g = AMP[type] * this.gd * (woke ? Math.min(comp[ti], Math.sqrt(STIR_FOR)) : comp[ti]) * focusGain(slot) * Math.sqrt(rare ? 0.3 + 0.7 * solo : solo);
       this.play(type, t, g, { slot, ...space(slot, ev[o + 2]), hue: ev[o + 6], idb: ev[o + 7], spd: ev[o + 5], role: ev[o + 8], rec: [m.seq, i] });
     }
     this.background(m, wall, light, td);
@@ -19520,6 +19536,9 @@ var Field = class {
       case "spark":
         this.spark(t, g, o);
         return;
+      case "woke":
+        this.stir(t, g, o);
+        return;
       case "starved":
         c.at(t, "wood", { freq: midicps(d2m(-(o.idb % 4) + piv, root, scale) - 12), amp: g, dec: 0.5, bright: 0.45 * o.dim, pan: o.pan, rev: o.wet(0.3) });
         return;
@@ -19568,6 +19587,31 @@ var Field = class {
     } else if (this.spend("grain", GRAINS)) {
       c.at(t, "glint", { freq: midicps(d2m(Math.floor(this.rnd() * 7) * 2 + piv, root, scale)) * (this.rnd() < 0.5 ? 4 : 2), amp: g * 0.5, dec: this.rr(0.15, 0.35), pan: pan(this.rr(-0.2, 0.2)), rev: o.wet(0.6), dly: 0.3 });
     }
+  }
+  // A cell waking from a cyst: a breath drawn in, rising from a little under its species' note (the
+  // note of its motif it wakes on, in its own register) onto it as it swells, with no struck attack,
+  // then let go. The mirror of a dying cell's fall, and nothing like a birth's bright ring. Quicker
+  // when the world is sped up, as the rustle is.
+  stir(t, g, o) {
+    const c = this.c, { root, scale } = c, piv = c.pivot, v = this.slots.get(o.slot)?.v;
+    let midi;
+    if (v) {
+      const line = o.role === 1 && v.motif.voice2 ? v.motif.voice2 : v.motif.notes;
+      midi = d2m(line[this.onset(v.motif, line, t, o.idb).j].deg + piv, root, scale) + 12 * v.oct;
+    } else midi = d2m(Math.floor(o.hue * 7) + piv, root, scale) + 12;
+    const atk = this.rr(0.28, 0.45) / Math.sqrt(c.tempo);
+    c.at(t, "breath", {
+      freq: midicps(Math.min(midi, 88)),
+      amp: g,
+      atk,
+      sus: atk * 0.35,
+      rel: atk * 2.4,
+      glide: -this.rr(0.08, 0.12),
+      bright: 0.3 * o.dim,
+      pan: o.pan,
+      rev: o.wet(0.45),
+      dly: 0.1
+    });
   }
   // A few of a kind of sound per second at most: one is spent if the budget, refilled at \`rate\` a
   // second up to two, holds one.
@@ -23444,20 +23488,20 @@ var Engine = class {
 var LISTEN = {
   stride: 9,
   // floats per decoded event (decodeRecords)
-  // ('charged' keeps its place in the layout but is never found now: the tide no longer charges silt into glint)
-  types: ["birth", "mutation", "spark", "starved", "old", "killed", "eaten", "charged", "alive"],
-  index: { birth: 0, mutation: 1, spark: 2, starved: 3, old: 4, killed: 5, eaten: 6, charged: 7, alive: 8 },
+  // ('woke': a cell woken from a cyst, in the place of 'charged', which the tide's glint used to fill)
+  types: ["birth", "mutation", "spark", "starved", "old", "killed", "eaten", "woke", "alive"],
+  index: { birth: 0, mutation: 1, spark: 2, starved: 3, old: 4, killed: 5, eaten: 6, woke: 7, alive: 8 },
   // how many of each type per second the scan reports at most (it samples down to this); 'alive'
   // is a sample of the living cells in view
-  target: [14, 1e3, 1e3, 4, 4, 6, 12, 10, 60]
+  target: [14, 1e3, 1e3, 4, 4, 6, 12, 6, 60]
 };
 
 // src/audio/field.js
 var clamp = (x, a, b) => x < a ? a : x > b ? b : x;
 var T = LISTEN.index;
-var AMP = { alive: 0.13, birth: 0.19, mutation: 0.09, spark: 0.045, starved: 0.13, old: 0.11, killed: 0.2, eaten: 0.075, rustle: 0.035 };
-var GRID = { starved: 2, old: 4, killed: 1, eaten: 0.5 };
-var PER_SLOT = { starved: 1, old: 1, killed: 1, eaten: 2 };
+var AMP = { alive: 0.13, birth: 0.19, mutation: 0.09, spark: 0.045, starved: 0.13, old: 0.11, killed: 0.2, eaten: 0.075, woke: 0.05, rustle: 0.035 };
+var GRID = { starved: 2, old: 4, killed: 1, eaten: 0.5, woke: 1 };
+var PER_SLOT = { starved: 1, old: 1, killed: 1, eaten: 2, woke: 1 };
 var LATENCY = 0.22;
 var BG_GAIN = 0.05;
 var P_REF = 0.05;
@@ -23471,6 +23515,9 @@ var GRAIN = 1.75;
 var SHOWERS = 0.4;
 var GRAINS = 2.5;
 var RINGS = 1.5;
+var STIRS = 1.6;
+var STIR_FOR = 2;
+var STIR_SWARM = 0.3;
 var SHAPES = [(i) => i, (i, n) => n - 1 - i, (i, n) => Math.min(i, n - 1 - i) * 2, (i) => [0, 2, 1, 3, 2, 4][i]];
 var CLOSE = 0.9;
 var FOCUS_FADE = 2.5;
@@ -23579,7 +23626,7 @@ var Field = class {
     const solo = this.c.time < this.duckUntil, duck = solo ? 0.3 : 1;
     for (const n of plan) {
       if (!(n[2] > 0)) continue;
-      if (solo && n[3].slot === this.soloSlot && (n[0] === "alive" || n[0] === "birth")) continue;
+      if (solo && n[3].slot === this.soloSlot && (n[0] === "alive" || n[0] === "birth" || n[0] === "woke")) continue;
       this.play(n[0], n[1], n[2] * this.agc * close * duck, n[3]);
     }
     this.swarm();
@@ -23671,9 +23718,10 @@ var Field = class {
       if (AMP[type] == null) continue;
       let t = now + LATENCY - ev[o + 4] / Math.max(m.speed, 1e-6);
       if (t < now + 0.01) t = now + 0.01 + 0.03 * this.rnd();
-      const rare = type === "spark";
-      if (!rare && slot >= 0) crowd(slot, comp[ti] ** 2 * toSwarm);
-      const g = AMP[type] * this.gd * comp[ti] * focusGain(slot) * Math.sqrt(rare ? 0.3 + 0.7 * solo : solo);
+      const rare = type === "spark", woke = type === "woke";
+      if (!rare && slot >= 0) crowd(slot, comp[ti] ** 2 * toSwarm * (woke ? STIR_SWARM : 1));
+      if (woke && !(solo > 0.05 && this.spend("stir", STIRS))) continue;
+      const g = AMP[type] * this.gd * (woke ? Math.min(comp[ti], Math.sqrt(STIR_FOR)) : comp[ti]) * focusGain(slot) * Math.sqrt(rare ? 0.3 + 0.7 * solo : solo);
       this.play(type, t, g, { slot, ...space(slot, ev[o + 2]), hue: ev[o + 6], idb: ev[o + 7], spd: ev[o + 5], role: ev[o + 8], rec: [m.seq, i] });
     }
     this.background(m, wall, light, td);
@@ -23835,6 +23883,9 @@ var Field = class {
       case "spark":
         this.spark(t, g, o);
         return;
+      case "woke":
+        this.stir(t, g, o);
+        return;
       case "starved":
         c.at(t, "wood", { freq: midicps(d2m(-(o.idb % 4) + piv, root, scale) - 12), amp: g, dec: 0.5, bright: 0.45 * o.dim, pan: o.pan, rev: o.wet(0.3) });
         return;
@@ -23883,6 +23934,31 @@ var Field = class {
     } else if (this.spend("grain", GRAINS)) {
       c.at(t, "glint", { freq: midicps(d2m(Math.floor(this.rnd() * 7) * 2 + piv, root, scale)) * (this.rnd() < 0.5 ? 4 : 2), amp: g * 0.5, dec: this.rr(0.15, 0.35), pan: pan(this.rr(-0.2, 0.2)), rev: o.wet(0.6), dly: 0.3 });
     }
+  }
+  // A cell waking from a cyst: a breath drawn in, rising from a little under its species' note (the
+  // note of its motif it wakes on, in its own register) onto it as it swells, with no struck attack,
+  // then let go. The mirror of a dying cell's fall, and nothing like a birth's bright ring. Quicker
+  // when the world is sped up, as the rustle is.
+  stir(t, g, o) {
+    const c = this.c, { root, scale } = c, piv = c.pivot, v = this.slots.get(o.slot)?.v;
+    let midi;
+    if (v) {
+      const line = o.role === 1 && v.motif.voice2 ? v.motif.voice2 : v.motif.notes;
+      midi = d2m(line[this.onset(v.motif, line, t, o.idb).j].deg + piv, root, scale) + 12 * v.oct;
+    } else midi = d2m(Math.floor(o.hue * 7) + piv, root, scale) + 12;
+    const atk = this.rr(0.28, 0.45) / Math.sqrt(c.tempo);
+    c.at(t, "breath", {
+      freq: midicps(Math.min(midi, 88)),
+      amp: g,
+      atk,
+      sus: atk * 0.35,
+      rel: atk * 2.4,
+      glide: -this.rr(0.08, 0.12),
+      bright: 0.3 * o.dim,
+      pan: o.pan,
+      rev: o.wet(0.45),
+      dly: 0.1
+    });
   }
   // A few of a kind of sound per second at most: one is spent if the budget, refilled at \`rate\` a
   // second up to two, holds one.
@@ -25805,14 +25881,15 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.onWatch = null;
       b.mind = d.createBuffer({ size: MIND_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
       this.mindStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: MIND_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
-      b.listenU = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
+      b.listenU = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
       b.listen = d.createBuffer({ size: LISTEN_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
       this.listenStage = [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: LISTEN_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
       this.listen = null;
       this.onListen = null;
       this._listenFrames = 0;
       this._listenSim = null;
-      b.surveyU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
+      this._listenDt = this._surveyDt = Infinity;
+      b.surveyU = d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
       b.survey = d.createBuffer({ size: SURVEY_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
       this.surveyStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: SURVEY_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
       b.noteU = d.createBuffer({ size: 64, usage: U.UNIFORM | U.COPY_DST });
@@ -27293,6 +27370,8 @@ ${e.message}` : String(e?.message || e));
       this._lerpOk = true;
       this.dt = simDt;
       this.simTime += simDt;
+      if (simDt < this._listenDt) this._listenDt = simDt;
+      if (simDt < this._surveyDt) this._surveyDt = simDt;
       this.frameNo++;
       this.ticks = Math.max(1, Math.round(simDt * 60));
       if (this.ticks > SUB_TICKS) throw new Error(`a step of ${this.ticks} ticks: at most ${SUB_TICKS}`);
@@ -28372,7 +28451,10 @@ ${e.message}` : String(e?.message || e));
         this._surveySim = null;
         return null;
       }
-      if (this._surveySim == null || this._surveySim > this.simTime) this._surveySim = this.simTime - 1 / 60;
+      if (this._surveySim == null || this._surveySim > this.simTime) {
+        this._surveySim = this.simTime - 1 / 60;
+        this._surveyDt = Math.min(this.dt, 1 / 60);
+      }
       if (++this._surveyFrames < (S.every || 60)) return null;
       const st = this.surveyStage.find((s) => !s.busy);
       if (!st) return null;
@@ -28385,7 +28467,7 @@ ${e.message}` : String(e?.message || e));
       const tiles = [Math.ceil(gw / tile), Math.ceil(gh / tile)];
       const window2 = this.simTime - this._surveySim;
       this._surveySim = this.simTime;
-      const u = new ArrayBuffer(32), f2 = new Float32Array(u), w = new Uint32Array(u);
+      const u = new ArrayBuffer(48), f2 = new Float32Array(u), w = new Uint32Array(u);
       w[0] = gw;
       w[1] = gh;
       w[2] = tiles[0];
@@ -28394,6 +28476,8 @@ ${e.message}` : String(e?.message || e));
       f2[5] = this._clock().t;
       f2[6] = window2;
       f2[7] = this.K.adhMin;
+      f2[8] = 0.5 * this._surveyDt;
+      this._surveyDt = this.dt;
       this.device.queue.writeBuffer(b.surveyU, 0, u);
       const bytes = tiles[0] * tiles[1] * SURVEY_WORDS * 4;
       this._clear(enc, b.survey, 0, bytes);
@@ -28424,7 +28508,10 @@ ${e.message}` : String(e?.message || e));
         this._listenSim = null;
         return null;
       }
-      if (this._listenSim == null || this._listenSim > this.simTime) this._listenSim = this.simTime - 1 / 60;
+      if (this._listenSim == null || this._listenSim > this.simTime) {
+        this._listenSim = this.simTime - 1 / 60;
+        this._listenDt = Math.min(this.dt, 1 / 60);
+      }
       if (++this._listenFrames < (L.every || 6)) return null;
       const st = this.listenStage.find((s) => !s.busy);
       if (!st) return null;
@@ -28435,7 +28522,7 @@ ${e.message}` : String(e?.message || e));
       const view = { x: cam.x, y: cam.y, hx: W > 0 ? W / (2 * ppu) : this.grid[0], hy: H2 > 0 ? H2 / (2 * ppu) : this.grid[1] };
       const window2 = this.simTime - this._listenSim;
       this._listenSim = this.simTime;
-      const u = new ArrayBuffer(96), f2 = new Float32Array(u), w = new Uint32Array(u);
+      const u = new ArrayBuffer(112), f2 = new Float32Array(u), w = new Uint32Array(u);
       f2[0] = view.x;
       f2[1] = view.y;
       f2[2] = view.hx;
@@ -28449,6 +28536,8 @@ ${e.message}` : String(e?.message || e));
       f2[10] = L.vscale || 1;
       w[11] = L.selKind ?? 4294967295;
       for (let t = 0; t < 9; t++) f2[12 + t] = L.keep ? L.keep[t] : t === 8 ? 0.05 : 1;
+      f2[24] = 0.5 * this._listenDt;
+      this._listenDt = this.dt;
       this.device.queue.writeBuffer(b.listenU, 0, u);
       this._clear(enc, b.listen, 0, LISTEN_HEAD * 4);
       const pass = enc.beginComputePass();
@@ -43726,9 +43815,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "319bdfaf783e7734") return;
+      if (localStorage.getItem(key) === "7a26e71badaace0b") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "319bdfaf783e7734");
+      if (res) localStorage.setItem(key, "7a26e71badaace0b");
     } catch {
     }
   }
