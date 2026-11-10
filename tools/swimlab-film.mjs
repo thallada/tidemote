@@ -33,12 +33,15 @@ const server = http.createServer((req, res) => { const url = decodeURIComponent(
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(process.env.TEMP || os.tmpdir(), 'film-')), { ...launchOptions({ args: ['--window-size=1000,640', '--no-first-run'], vk: false }), viewport: { width: 1000, height: 640 } });
 const page = await ctx.newPage();
-await page.addInitScript((view) => { try { localStorage.setItem('tidemote.view', JSON.stringify(view)); } catch {} }, viewPrefs({ auto: false }));
+// the interface hidden (Settings → Display → Interface, U): only the world shows
+await page.addInitScript((view) => { try { localStorage.setItem('tidemote.view', JSON.stringify(view)); } catch {} }, viewPrefs({ auto: false, ui: false }));
 page.on('pageerror', (e) => console.log('pageerror', e.message));
 await page.goto(`http://127.0.0.1:${server.address().port}/`);
 await page.waitForFunction(() => globalThis.__tidemote?.state.phase === 'running', null, { timeout: 60000 });
-await page.mouse.move(500, 320); await page.mouse.wheel(0, 100);
-await page.keyboard.press('i'); await page.mouse.move(999, 1);
+// the intro gone (in an automated browser it goes by itself a few seconds after the world first runs) and faded out
+await page.waitForFunction(() => document.body.classList.contains('live') && getComputedStyle(document.getElementById('intro')).opacity === '0', null, { polling: 250, timeout: 60000 });
+// nothing in hand (0, Pan): the loupe, the tool a page opens with, would follow the pointer over the frame
+await page.mouse.move(999, 1); await page.keyboard.press('0');
 await page.evaluate(() => __tidemote.setSpeed(1));
 await page.waitForTimeout(500);
 const info = await page.evaluate(async ({ genomes, plans, words, PW, width, gap }) => {
