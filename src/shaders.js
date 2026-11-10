@@ -4959,7 +4959,6 @@ fn spriteFalloff(uv: vec2f, shape: u32) -> f32 {
       let t = max(0.0, 1.0 - a.x * a.y * 40.0 - d2 * 0.7);
       return t * t * (1.0 - d2);
     }
-    case 14u: { return 1.0 - smoothstep(0.7, 1.0, d2); }
     default: { let t = 1.0 - d2; return t * t; }
   }
 }
@@ -4968,7 +4967,6 @@ fn spriteMean(shape: u32) -> f32 {
   switch (shape) {
     case 12u: { return 0.4369; }
     case 13u: { return 0.0391; }
-    case 14u: { return 0.85; }
     default: { return 0.33333; }
   }
 }
@@ -5268,7 +5266,7 @@ fn bodyArea(shape: u32, s: vec2f) -> f32 {
 }
 
 // A particle as its distant sprite: its color, profile and radius in pixels (and how much a resolved
-// cell swims, which sets its reach). vsPoint uses it, and splatMain for sprites too small for quads.
+// cell swims, which sets its reach). vsPoint uses it, and splatMain for sprites too small for quads (never for stone or framboids, drawn as one field of boulders: vsStone).
 // A dead cell's ghost (ghostOf) is drawn as the cell it was (kind) fading into its husk; live is its own
 // color before that fade, for the resolved ghost, which fades into its husk pixel by pixel.
 struct Sprite { col: vec3f, shape: u32, px: f32, swim: f32, kind: u32, live: vec3f, anim: Anim, ghost: Ghost };
@@ -5373,9 +5371,6 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     col = vec3f(0.30, 0.34, 0.46) * view.matterGain * mix(0.85, 1.0, smoothstep(0.5, 2.0, view.pointSize * size));
     // in the light it sparkles; seen as a chip, its facets do (matterColor)
     col *= 1.0 + sparkle(p) * (1.0 - smoothstep(1.5, 4.0, view.pointSize * size));
-  } else if (k == STONE) {
-    shape = 14u;
-    col = mix(unpack4x8unorm(p.col).rgb, vec3f(0.9, 0.86, 0.78), 0.5) * view.matterGain * 1.1;
   } else {
     // a husk; dung (state 11) is a smaller pellet. One that appears with no cell seen dying there
     // (dung, or a death out of sight a moment ago) swells into view.
@@ -5402,8 +5397,7 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     size *= 1.0 + 0.15 * grow;
   }
   if (p.id == view.selId) { col = col * 1.5 + vec3f(0.5); live = live * 1.5 + vec3f(0.5); size = mix(size, max(size, 1.2) * 1.5, grow); }
-  let px = select(max(view.pointSize * size, 0.9), max(view.ppu * 0.13, 0.9), k == STONE);
-  return Sprite(col, shape, px, swim, kind, live, a, gh);
+  return Sprite(col, shape, max(view.pointSize * size, 0.9), swim, kind, live, a, gh);
 }
 
 // Sprites of a pixel or so (the main view from afar) are added straight into the image, as their light
@@ -6418,10 +6412,6 @@ fn matterColor(i: PO, p: Particle, far: f32) -> vec4f {
       }
       f = body * facets * spriteMean(i.shape) / 0.56;
       cover = body;
-      if (p.kind == STONE) {
-        let seams = exp(-sqr(sin(v.x * 5.0 + seed * 13.0) + 0.5 * sin(v.y * 7.0)) * 150.0);
-        f *= 1.0 - 0.32 * seams;
-      }
     }
   }
   return vec4f(i.col * mix(far, max(0.0, f), lod), lod * cover);
