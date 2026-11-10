@@ -7,7 +7,10 @@ the world balances itself and a whole guild rarely dies out. Everything stays lo
 The on/off switches named below (and the alternatives they chose between) were removed when this work
 merged to main: these rules are now always on, and only their strengths remain tunable.
 
-## Where the world stands now (2026-10-17)
+## Where the world stood (2026-10-17)
+
+(Measured before growth, swimming, the pool's events, phototaxis and ice reached main; today's worlds
+differ, so rerun before quoting these numbers.)
 
 The default before the boom-and-bust work below, over 64 seeds x 60 min at 32k (awake cells; "thriving":
 all four core guilds at 5%+); the current default trades some of the thriving for twice the boom and bust
@@ -26,7 +29,7 @@ What makes it work, each found with the fitted model (tools/ecomodel) or the GPU
 - light is a flux per area (`shadeP`, `photo`): producers share a patch's light, so a grazed meadow
   regrows and a crowded one burns its light in its own upkeep;
 - grazers take bites big enough to pass energy up and to eat a patch down faster than it regrows (`bite`
-  0.5), and what any eater cannot digest is dropped as dung for the scavengers (`dung`); husks are hard
+  0.5), and what any eater cannot digest is dropped as dung for the scavengers (`dungE`); husks are hard
   to eat for all but specialists (`matterSkill` 1.0), which keeps generalists out of the scavengers' niche;
 - producers grow slowly alone and fully among their own species (`allee` 0.65), so grazed-bare water
   stays bare a while and patches boom, crash and change hands;
@@ -249,7 +252,7 @@ worlds), and losing a guild costs the others nothing.
 10. **Prey refuges** in tissue, reefs and stone (partly exists), so prey never runs out entirely.
 11. **Predator satiation and switching** (search images exist): hunters turn to the common prey.
 12. **Ratio dependence** (`interfere` exists): crowded hunters catch less.
-13. **Scent** (`scent` exists): rare predators can still find prey.
+13. **Scent** (`scent`, since tried and removed: Boom and bust, above): rare predators can still find prey.
 14. **Spatial structure**: the world is big enough for patches to be out of phase, so a guild lost in
     one place re-seeds from another.
 
@@ -257,7 +260,7 @@ worlds), and losing a guild costs the others nothing.
 
 15. **Trade-offs per niche.** Each guild has a resource only it uses well (spec(), catchSkill):
     generalists exist but never beat a specialist on its own ground.
-16. **Life-history niches.** r and K strategies through body cost by size (`bodySize` exists): small
+16. **Life-history niches.** r and K strategies through body cost by size (`bodyE`, built since): small
     fast-breeding cells and big long-lived ones coexist.
 
 ## The approach taken first: a closed nutrient loop (ideas 1, 2, 3, with 8 following)
@@ -274,7 +277,7 @@ silt → producers. Each link is needed:
 
 All of it reuses what the world already has: particles are matter (a child is a grain made alive, an
 eaten husk becomes silt again), husks rot, glint carries energy. Tunables (`cycle` and its own): see
-`DEFAULT_K`.
+`DEFAULT_K` (since then glint, the switch `cycle`, `litterTo` and `exude` are gone; what stayed is always on).
 
 ## Measurements
 
@@ -342,7 +345,7 @@ The direction: energy enters only as light, through producers; herbivory is graz
 steep trade-offs keep each guild on its own stream (`specPow`, `photoPow`); decomposers return the dead
 (`cycle`, `litterTo` 1, `matterSkill`).
 
-## A trophic chain (in progress)
+## A trophic chain (as it was built)
 
 Short probes (8 seeds × 8-16 min, `runs/pr*`, `runs/pv*`), each change kept when the stories showed why:
 
@@ -360,7 +363,7 @@ Short probes (8 seeds × 8-16 min, `runs/pr*`, `runs/pv*`), each change kept whe
   divide only when its child's share covers that many seconds. With `provision` 90 predators held on to
   16 minutes in 38% of worlds and all four guilds in 13% (16 min, 8 seeds).
 
-Current probe set: `{"cycle":1,"litterTo":1,"matterSkill":0.5,"exude":0,"tideCharge":0,"bite":0.1,
+The probe set then (several of these switches are gone and values have moved; `DEFAULT_K` has today's): `{"cycle":1,"litterTo":1,"matterSkill":0.5,"exude":0,"tideCharge":0,"bite":0.1,
 "grazePref":1,"biteEvery":1,"specPow":2,"photoPow":3,"sharpFounders":1,"dietMin":0.15,"mature":0.2,
 "leanHunters":2,"killEvery":4,"photo":0.9,"provision":90}`.
 
