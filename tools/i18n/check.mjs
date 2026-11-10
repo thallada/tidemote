@@ -1,6 +1,6 @@
 // A rewritten or translated message checked against its source (docs/i18n.md): it must parse, use no argument
 // or tag the source does not give, and should keep what the source shows. Shared by the text editor, the
-// review (tools/i18n/review.mjs) and test/i18n.test.js's catalog check.
+// review (tools/i18n/review.mjs), promote.mjs and the build's catalogs (locale.mjs catalogFor).
 import { parse } from '@formatjs/icu-messageformat-parser';
 import { OWN_TAGS, shapeOf } from './extract.mjs';
 
