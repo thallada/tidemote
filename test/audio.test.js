@@ -262,6 +262,18 @@ test("a new world drops the old one's notes still to come, but still frees the o
   assert.ok(!eng.nodes.has(sea0) && !eng.nodes.has(sea1) && eng.nodes.has(cond.sea), 'the old seas are freed');
 });
 
+test("a world set before anything is heard (a card's song clip) has its sea at once; later, the seas crossfade", () => {
+  const eng = new Engine(48000, { seed: 1 }), cond = new Conductor(eng, { seed: 1 });
+  const sea0 = cond.sea;
+  cond.message({ type: 'reset', seed: 1, era: 'The Dim Gyre' });
+  renderBars(cond, 0.1);
+  assert.ok(!eng.nodes.has(sea0) && eng.nodes.get(cond.sea).p.fade === 1, 'the clip is in its own key from the start');
+  const sea1 = cond.sea;
+  cond.message({ type: 'reset', seed: 2 });
+  renderBars(cond, 1);
+  assert.ok(eng.nodes.has(sea1) && eng.nodes.get(sea1).p.fadeTime === 10, 'a world begun later crossfades its sea');
+});
+
 test("an overture's hall rings out, then the water's own reverb comes back", () => {
   const eng = new Engine(48000, { seed: 1 }), cond = new Conductor(eng, { seed: 1 });
   cond.message({ type: 'world', world: { light: 0.6, tide: 0.5, warm: -1 } });

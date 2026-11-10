@@ -167,7 +167,8 @@ export class Conductor {
   rekey(seed, era) {
     this.ws = seed >>> 0;
     this.setEra(eraMusic(era || 'The First Tides', null, this.ws), true); this.score.played = []; this.score.setEra(this.era);
-    this.sea = this.swap(this.time, 'sea', this.seaChord(this.root), 10, this.sea);
+    // (crossfaded over 10 s, unless nothing has been heard yet: a card's song clip, a soundtrack just started)
+    this.sea = this.swap(this.time, 'sea', this.seaChord(this.root), this.time > 0 ? 10 : 0, this.sea);
     this.droneNote = null;
   }
 
