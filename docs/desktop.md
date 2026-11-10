@@ -233,7 +233,7 @@ still open on our side. Valve's own pages are the authority for their rules and 
    - macOS last: signing and notarization.
 6. **Store page.** Description, short description, tags, the content survey (age ratings), system
    requirements (a WebGPU-capable GPU: D3D12 on Windows, Vulkan on Linux), price (decided: free or
-   $1–2), screenshots, the capsule images in Valve's sizes, and a trailer (`runs/promo` has the
+   $1–2), screenshots, the capsule images in Valve's sizes, and a trailer (`tools/promo`, docs/promo.md, has the
    tab-capture pipeline and the chosen track). Mark it ready for review: Valve takes 3–5 business days
    and asks for at least 7. The store page must pass before the build can be submitted.
 7. **Coming Soon.** Once the page is approved, publish it as Coming Soon. A new game's page must be

@@ -180,7 +180,7 @@ export const DEFAULT_K = {
   kinShade: 0.25,   // how much a bonded body shades itself, relative to strangers
   armor: 1,         // bonded bodies resist being killed or bitten
   searchImage: 0.7, // chance a hunter or grazer misses living prey unlike its last catch
-  specPow: 2,       // >0: a diet's share d earns d^specPow of a specialist's take (0: d(0.4 + 0.6d)); steep: mixing pays little
+  specPow: 2,       // >0: a diet's share d earns d^specPow of a specialist's take; steep: mixing pays little
   photoPow: 3,      // light earned grows as photo^photoPow: steep, and an animal with a little photosynthesis gets nearly none
   mutScale: 3,      // scale on every species' chance that a birth is a mutant (a new species)
   plantRefuge: 0.25,   // an attack on an animal fails with this × the producers close around (up to refugeMax): prey hide in meadows
@@ -309,7 +309,7 @@ export const DEFAULT_K = {
   phototaxisCost: 0.012, // so a drifting producer can follow the light; its upkeep per second at a full gene (either sign)
   photoSoft: 0.3,   // the share of the waves' steepest slope below which the push fades with it (0: a full push up to the crest)
   thermoCost: 0.03, // energy per second a full heat-maker burns to warm itself and its water
-  selfWarm: 4,      // degrees a full heat-maker runs above its water (×1.5 with two bonds)
+  selfWarm: 4,      // degrees a full heat-maker runs above its water (×1.5 with one bond, ×2 with two)
   rotQ10: 2.5,      // husks rot this much faster per 10° above tRef
   abioHeat: 3,      // extra weight of sparks of life in hot water
   marangoni: 0,     // matter drifts from warm water toward cold at this many cells/s per °/cell
@@ -1449,7 +1449,7 @@ const LIVE_AT = MAX_CELLS + 1u;
 const LIVE_BIT = 0x80000000u;
 // Intent: x bits 0..1 action (0 none, 1 eat, 2 birth, 3 bite),
 // 2..11 child kind (birth) or observed target kind (eat/bite),
-// 12..13 child role, 14..30 child generation; y child energy, z/w bond neighbors.
+// 12..13 child role, 14..25 child generation, 26..29 its bud; y child energy, z/w bond neighbors.
 @group(0) @binding(9) var<storage, read_write> intent: array<vec4u>;
 @group(0) @binding(10) var<storage, read_write> genomes: array<Genome>;
 @group(0) @binding(11) var<storage, read_write> ledger: array<atomic<u32>>;
@@ -5155,7 +5155,6 @@ fn animOf(p: Particle, g: Genome) -> Anim {
   a.sleep = sl.x;
   a.fed = unpack2x16float(st.fed).x;
   let ev = unpack2x16float(st.ev);
-  // a bite is taken at once and heals
   // a wound: deepened at once by each bite, healing steadily (contactGather)
   a.mark = sl.y;
   a.markAt = f32((st.look >> 13u) & 255u) / 256.0 * TAU;
@@ -8905,7 +8904,6 @@ fn duckRoot(p: vec2f, o: vec2f, dir: vec2f, len: f32, wr: f32, seed: f32, ppu: f
   let light = (walls * (0.6 + 0.4 * vnoise(vec2f(along * len * 0.7, seed))) + inner * 0.18 * bands + sheath) * mix(0.06, 1.0, pow(max(focus, 0.0), 1.5));
   return vec2f(light, inner * mix(0.1, 1.0, focus));
 }
-// How much open water lies over wp: none on the dry floor or under ice, fading over the thin film at their edges.
 // How far wp lies into open water (units): to the nearer of the pool's edge and the ice's, by each field's slope; 0 or
 // less on the dry floor or under ice, and 1e4 with neither. The ice is as drawn (iceSeen, its dendrites' reach ahead
 // of its edge, so a patch just starting is ice too).

@@ -94,7 +94,7 @@ The pool's looks (`poolOver`, shared by the main view and the loupe) are drawn f
 coordinates, with noise that tiles the world (`vnoiseT`, `fbm3T`, `vborderT`: each lattice stretched a little so a
 whole number of its cells spans the world), so the mud, its stains and the ice look the same wherever the view's
 wrap puts them and show no seam at the world's edges. Raindrop ripples bend the view on open water only
-(`openWater`); the light map shows the light as producers get it, clouds and duckweed's shade included.
+(`waterRoom`); the light map shows the light as producers get it, clouds and duckweed's shade included.
 
 - **Dry ground** (`dryGround`): the film of silt and clay the water left. Wet, water fills the spaces between its
   grains and it scatters little, dark and smooth; as it dries air takes their place and it pales to a grainy buff
@@ -123,7 +123,7 @@ wrap puts them and show no seam at the world's edges. Raindrop ripples bend the 
   capillary packet, short crests crowding its leading edge and broadening toward its center, uneven in amplitude and
   radius around its circle, with up to two splash droplets ringing beside it.
 - **The sea** (`src/sea.js`, `SEA_WGSL`, `seaSurface`): the water's surface, always there: calm water sways gently
-  (`SEA_CALM`: 0.3 of a storm's height, no choppy crests, `SEA_CALM_PACE` 0.45 of its pace) and a storm is the same sea
+  (`calm` in `src/seatune.js`: 0.3 of a storm's height, no choppy crests, `calmPace` 0.45 of its pace) and a storm is the same sea
   exaggerated, rising with the rain and the storm's currents (`Engine.seaRough`); its clock is summed frame by frame at
   the sea's pace, so a change of pace never jumps it, and it is the world's own (from its seed). The clock follows the
   sim's speed only as its square root (`seaTune.follow` 0.5: at 64× the waves move 8 times faster), so a sped-up world

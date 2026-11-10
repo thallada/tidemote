@@ -1,7 +1,7 @@
 // Profile the page in a real browser on the real GPU: Windows Chrome driven by playwright-core,
 // serving dist/ from here. Under WSL run it with tools/gpu-node.sh (Windows Node).
 //
-//   tools/gpu-node.sh tools/perf/bench.mjs --plan tools/perf/plans/zoom.json --out runs/perf/zoom.json
+//   tools/gpu-node.sh tools/perf/bench.mjs --plan tools/perf/plans/baseline.json --out runs/perf/baseline.json
 //
 // A plan is { worlds: [{ name, n, mature }], scenarios: [{ name, world, zoom, ... }] }. A world of
 // n particles is grown once at Max for `mature` real seconds, saved to runs/perf/worlds/NAME.bin and

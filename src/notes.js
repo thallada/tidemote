@@ -194,7 +194,7 @@ export class Notes {
     this.watched = new Map();
     this.firstSeen = new Map(); // story key -> when it was first found (a story must hold a moment before it is told)
     this.shownAt = []; // [type, when] of the notes shown lately (variety)
-    this.history = []; // [type, seconds shown] of the notes that have ended
+    this.history = []; // [type, seconds shown, why it went] of the notes that have ended
     this.spCache = new Map();
     this.cands = [];
     this.stats = null;
@@ -333,7 +333,7 @@ export class Notes {
   /**
    * Each frame. ctx: { now (real seconds), speed (sim seconds a real second), ppu (CSS px a world unit), phone,
    * visible(x, y) whether a world point shows clear of the panels, inner(x, y) whether it lies well inside them,
-   * still (seconds the camera has held still), leaving (the camera is setting off elsewhere), flow(x, y) the water's
+   * leaving (the camera is setting off elsewhere), flow(x, y) the water's
    * current there (world units a second) }. Returns the notes to draw.
    */
   update(ctx) {
