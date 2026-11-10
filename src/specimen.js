@@ -3,7 +3,7 @@ import { FIRST_LIFE } from './engine.js';
 import { FRAMBOID, stoneGrain } from './shaders.js';
 import { tagsOf } from './facets.js';
 import { tideAt, duckShade } from './flow.js';
-import { fmt, fmtClock, fmtDur, esc, cssCol, cssRgb, term, spLink, meter, clamp, ROLE, MATTER, CAUSE, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
+import { fmt, fmtClock, fmtDur, esc, cssCol, cssRgb, term, spLink, meter, clamp, ROLE, MATTER, GRAIN, CAUSE, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
 import { glyphURL, MATTER_GLYPH } from './glyphs.js';
 import { drawLines, popOf } from './charts.js';
 import { voiceOf } from './audio/mapping.js';
@@ -541,7 +541,7 @@ export function createSpecimen(api) {
         // of its builder's tint)
         const grain = p.kind === 3 ? stoneGrain(p.id, p.info) : null;
         // i18n: the header over matter that was once a cell: {matter} what it is now (Husk)
-        setHead(mem ? tr('spec.head.once', 'Now {matter} · once', { matter: m.name }) : m.name, mem && mem.sp ? spLink(mem.sp.serial, mem.sp.name) : grain ? grain.name : m.name,
+        setHead(mem ? tr('spec.head.once', 'Now {matter} · once', { matter: m.name }) : m.name, mem && mem.sp ? spLink(mem.sp.serial, mem.sp.name) : grain ? GRAIN[grain.key] : m.name,
           // i18n: {dur} a duration (3m 05s)
           sel.lost ? tr('spec.lost', 'Lost track of it') : (mem && sel.diedAt != null ? code('died', tr('spec.code.died-ago', '{dur} ago', { dur: fmtDur(eng.simTime - sel.diedAt) })) : '') + code('id', fmt(p.id)));
         if (grain) {

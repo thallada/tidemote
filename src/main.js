@@ -4677,10 +4677,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const g = p.kind >= FIRST_LIFE ? genomeFor(p.kind) : null;
     const sp = g && life.reg.get(g.serial);
     // the camera lingering on a death keeps the species' name on its remains
-    const name = sp ? sp.name : sel.film && sel.memory && sel.memory.sp ? sel.memory.sp.name : p.kind === 3 ? stoneGrain(p.id, p.info).name : '';
-    // in capitals: a species' or a grain's name upper-cased (generated, not messages), other matter by its kind
-    // i18n: the label by a picked grain of matter, its kind in capitals
-    const label = name ? name.toLocaleUpperCase(LOCALE) : p.kind < FIRST_LIFE ? tr('stage.plate.matter', '{kind, select, 0 {SILT} 2 {HUSK} other {FRAMBOID}}', { kind: p.kind }) : '';
+    const name = sp ? sp.name : sel.film && sel.memory && sel.memory.sp ? sel.memory.sp.name : '';
+    // in capitals: a species' name upper-cased (generated, not a message), matter by its kind, stone by its grain
+    // i18n: the label by a picked grain of matter, its kind in capitals ({grain}: a stone's kind of grain, as GRAIN in fmt.js names them)
+    const label = name ? name.toLocaleUpperCase(LOCALE) : p.kind === 3 ? tr('stage.plate.grain', '{grain, select, quartz {QUARTZ} smokyQuartz {SMOKY QUARTZ} roseQuartz {ROSE QUARTZ} pinkFeldspar {PINK FELDSPAR} creamFeldspar {CREAM FELDSPAR} hornblende {HORNBLENDE} sand {SAND GRAIN} ironSand {IRON-STAINED SAND GRAIN} foraminifer {FORAMINIFER SHELL} diatom {DIATOM} shell {SHELL FRAGMENT} other {SPONGE SPICULE}}', { grain: stoneGrain(p.id, p.info).key })
+      : p.kind < FIRST_LIFE ? tr('stage.plate.matter', '{kind, select, 0 {SILT} 2 {HUSK} other {FRAMBOID}}', { kind: p.kind }) : '';
     if (!label) return true;
     octx.font = '500 11px Saira, system-ui, sans-serif'; // i18n-ignore (a CSS font)
     octx.letterSpacing = '1.5px';

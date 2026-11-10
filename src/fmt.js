@@ -60,6 +60,11 @@ export const MATTER = [
   { name: tr('matter.stone', 'Stone'), css: '#c2b8a8', blurb: tr('matter.stone.blurb', 'Bedrock, or the skeleton a calcifying cell left where it settled. Stone never drifts and the living cannot pass through it. Prey shelters in its crevices, and it slowly wears back into silt.') },
   { name: tr('matter.framboid', 'Framboid'), css: '#ccb373', blurb: tr('matter.framboid.blurb', 'A pyrite framboid: a sphere of tiny iron sulfide crystals, grown from the sulfide a pile of rotting husks releases in cool mud. As it oxidizes it warms the water around it, faster the warmer that water is, until it is spent and crumbles to silt. Solid, like stone.') },
 ];
+// i18n: the kinds of grain a stone is drawn as, by their keys in STONE_KINDS (shaders.js): a picked grain's name
+export const GRAIN = { quartz: tr('matter.grain.quartz', 'Quartz'), smokyQuartz: tr('matter.grain.smoky-quartz', 'Smoky quartz'), roseQuartz: tr('matter.grain.rose-quartz', 'Rose quartz'),
+  pinkFeldspar: tr('matter.grain.pink-feldspar', 'Pink feldspar'), creamFeldspar: tr('matter.grain.cream-feldspar', 'Cream feldspar'), hornblende: tr('matter.grain.hornblende', 'Hornblende'),
+  sand: tr('matter.grain.sand', 'Sand grain'), ironSand: tr('matter.grain.iron-sand', 'Iron-stained sand grain'), foraminifer: tr('matter.grain.foraminifer', 'Foraminifer shell'),
+  diatom: tr('matter.grain.diatom', 'Diatom'), shell: tr('matter.grain.shell', 'Shell fragment'), spicule: tr('matter.grain.spicule', 'Sponge spicule') };
 // i18n: how a particle came to be what it is, or how a cell died: "It {cause}." (a cell's Origin, a husk's Cause of death)
 export const CAUSE = { 0: '', 1: tr('cause.starved', 'starved'), 2: tr('cause.old-age', 'died of old age'), 3: tr('cause.consumed', 'was consumed'), 4: tr('cause.husk-crumbled', 'crumbled from a husk'),
   6: tr('cause.faded', 'faded back to silt'), 7: tr('cause.stone-wore', 'wore away from stone'), 8: tr('cause.sparked', 'sparked into life from silt'), 9: tr('cause.built', 'built from silt by its parent'), 10: tr('cause.scalded', 'scalded'),

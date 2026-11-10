@@ -436,17 +436,17 @@ fn needleW(s: f32) -> f32 { return NEEDLE_W * pow(clamp(s / NEEDLE_TAPER, 0.0, 1
 `;
 
 // The kinds of sediment grain, shared by the stone pass (vsStone, mineralSurf) and the specimen panel:
-// each kind's color variants (a name and color, from a share of grains on), and how bedrock and reef
-// stone (laid down by calcifiers) mix them, as [kind, cumulative share].
+// each kind's color variants (a key naming it, GRAIN in fmt.js, and a color, from a share of grains on), and how
+// bedrock and reef stone (laid down by calcifiers) mix them, as [kind, cumulative share].
 export const STONE_KINDS = [
-  [{ name: 'Quartz', col: [0.74, 0.75, 0.73] }, { from: 0.6, name: 'Smoky quartz', col: [0.56, 0.48, 0.41] }, { from: 0.9, name: 'Rose quartz', col: [0.82, 0.62, 0.64] }],
-  [{ name: 'Pink feldspar', col: [0.95, 0.55, 0.42] }, { from: 0.6, name: 'Cream feldspar', col: [0.95, 0.85, 0.64] }],
-  [{ name: 'Hornblende', col: [0.16, 0.18, 0.17] }, { from: 0.5, name: 'Hornblende', col: [0.18, 0.26, 0.15] }, { from: 0.85, name: 'Hornblende', col: [0.28, 0.15, 0.12] }],
-  [{ name: 'Sand grain', col: [0.92, 0.78, 0.55] }, { from: 0.55, name: 'Sand grain', col: [0.76, 0.75, 0.72] }, { from: 0.85, name: 'Iron-stained sand grain', col: [0.9, 0.56, 0.32] }],
-  [{ name: 'Foraminifer shell', col: [1.0, 0.95, 0.85] }, { from: 0.7, name: 'Foraminifer shell', col: [1.0, 0.8, 0.74] }],
-  [{ name: 'Diatom', col: [0.74, 0.9, 0.84] }, { from: 0.6, name: 'Diatom', col: [0.9, 0.85, 0.55] }],
-  [{ name: 'Shell fragment', col: [0.98, 0.9, 0.78] }, { from: 0.6, name: 'Shell fragment', col: [0.9, 0.7, 0.54] }],
-  [{ name: 'Sponge spicule', col: [0.84, 0.87, 0.87] }],
+  [{ key: 'quartz', col: [0.74, 0.75, 0.73] }, { from: 0.6, key: 'smokyQuartz', col: [0.56, 0.48, 0.41] }, { from: 0.9, key: 'roseQuartz', col: [0.82, 0.62, 0.64] }],
+  [{ key: 'pinkFeldspar', col: [0.95, 0.55, 0.42] }, { from: 0.6, key: 'creamFeldspar', col: [0.95, 0.85, 0.64] }],
+  [{ key: 'hornblende', col: [0.16, 0.18, 0.17] }, { from: 0.5, key: 'hornblende', col: [0.18, 0.26, 0.15] }, { from: 0.85, key: 'hornblende', col: [0.28, 0.15, 0.12] }],
+  [{ key: 'sand', col: [0.92, 0.78, 0.55] }, { from: 0.55, key: 'sand', col: [0.76, 0.75, 0.72] }, { from: 0.85, key: 'ironSand', col: [0.9, 0.56, 0.32] }],
+  [{ key: 'foraminifer', col: [1.0, 0.95, 0.85] }, { from: 0.7, key: 'foraminifer', col: [1.0, 0.8, 0.74] }],
+  [{ key: 'diatom', col: [0.74, 0.9, 0.84] }, { from: 0.6, key: 'diatom', col: [0.9, 0.85, 0.55] }],
+  [{ key: 'shell', col: [0.98, 0.9, 0.78] }, { from: 0.6, key: 'shell', col: [0.9, 0.7, 0.54] }],
+  [{ key: 'spicule', col: [0.84, 0.87, 0.87] }],
 ];
 const BEDROCK_MIX = [[0, 0.35], [1, 0.55], [2, 0.67], [3, 0.82], [4, 0.88], [5, 0.93], [6, 0.97], [7, 1]];
 const REEF_MIX = [[4, 0.3], [6, 0.55], [3, 0.75], [5, 0.88], [7, 1]];
@@ -456,12 +456,12 @@ const hashU = (id) => {
   h = Math.imul(((h >>> ((h >>> 28) + 4)) ^ h) >>> 0, 277803737) >>> 0;
   return (((h >>> 22) ^ h) >>> 0) / 4294967296;
 };
-/** The kind of sediment a stone grain is drawn as (vsStone): { kind, name, col } from its id and info. */
+/** The kind of sediment a stone grain is drawn as (vsStone): { kind, key (its variant's), col } from its id and info. */
 export function stoneGrain(id, info) {
   const h = hashU(id ^ 0x9e3779b9), h2 = hashU(id ^ 0x85ebca6b);
   const kind = ((info & 15) !== 0 ? REEF_MIX : BEDROCK_MIX).find(([, upTo]) => h < upTo)?.[0] ?? 7;
   const v = STONE_KINDS[kind].filter((x) => !x.from || h2 > x.from).at(-1);
-  return { kind, name: v.name, col: v.col };
+  return { kind, key: v.key, col: v.col };
 }
 // The same choices in WGSL: a nested select over the mix, and each kind's color over its variants.
 const v3 = (c) => `vec3f(${c.map(f).join(', ')})`;
