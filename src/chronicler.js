@@ -124,7 +124,7 @@ export function firstsOf(g, K = DEFAULT_K) {
   out.push([`guild:${dietGuild(g)}`]);
   const multi = (g.adhesion || 0) > K.adhMin;
   if (multi) out.push(['multi']);
-  if (multi && growPlan(g)) out.push(['tree']);
+  if (multi && growPlan(g, K)) out.push(['tree']);
   if (multi && g.swim * (1 - g.photo) >= 0.8) out.push(['swimbody']);
   if ((g.calcify || 0) > 0.1) out.push(['calcify']);
   if ((g.thermo || 0) > 0.2) out.push(['heat']);

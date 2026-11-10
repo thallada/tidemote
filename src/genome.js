@@ -204,24 +204,24 @@ export function randomGenome(r = Math.random, K = DEFAULT_K, t = 19) {
   return finalizeGenome(g, K);
 }
 
-/** A species' growth plan as growOf in shaders.js reads it (null: it does not grow as a tree). */
-export function growPlan(g) {
+/** A species' growth plan as growOf in shaders.js reads it (null: it does not grow as a tree), by the run's tunables K. */
+export function growPlan(g, K = DEFAULT_K) {
   const v = g.grow;
-  if (!v || !(v[0] >= 0.5) || !((g.adhesion || 0) > DEFAULT_K.adhMin)) return null;
+  if (!v || !(v[0] >= 0.5) || !((g.adhesion || 0) > K.adhMin)) return null;
   const e = Math.min(7, Math.round(v[2] * 255) >> 5);
   return { angle: 0.25 + 1.85 * v[1], every: e === 1 ? 2 : e, curl: (v[3] * 2 - 1) ** 3 * 0.7,
     pattern: ['alternate', 'one-sided', 'opposite', 'forking', 'zigzag'][Math.min(4, Math.floor(v[4] * 5))], depth: Math.min(3, Math.floor(v[5] * 4)) };
 }
 
 /** Whether a species grows tails: a packed body (not a tree) whose edge buds them (tail[0]). */
-export function hasTails(g) {
-  return !growPlan(g) && (g.adhesion || 0) > DEFAULT_K.adhMin && (g.tail?.[0] ?? 0) > 0;
+export function hasTails(g, K = DEFAULT_K) {
+  return !growPlan(g, K) && (g.adhesion || 0) > K.adhMin && (g.tail?.[0] ?? 0) > 0;
 }
 
 /** The growth plan in words, e.g. "forking every 3 cells at 40°, 2 orders deep, curling 5°". */
-export function describeGrowth(plan, g) {
+export function describeGrowth(plan, g, K = DEFAULT_K) {
   // i18n: how a many-celled species grows (the specimen panel's Growth): a packed body, its tails up to {n} cells long
-  if (!plan) return g && hasTails(g) ? tr('genome.growth.tails', 'a body that packs as it meets, budding tails of up to {n, plural, one {# cell} other {# cells}}', { n: 3 + Math.floor(g.tail[1] * (DEFAULT_K.tailMax - 3)) })
+  if (!plan) return g && hasTails(g, K) ? tr('genome.growth.tails', 'a body that packs as it meets, budding tails of up to {n, plural, one {# cell} other {# cells}}', { n: 3 + Math.floor(g.tail[1] * (K.tailMax - 3)) })
     : tr('genome.growth.packed', 'a body that packs as it meets');
   const deg = (a) => Math.round(Math.abs(a) * 57.3);
   // (curl: whether, and which way, its branches bend as they grow, by curlDeg degrees)
@@ -240,7 +240,7 @@ export function finalizeGenome(g, K = DEFAULT_K) {
   g.metab = (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
     + (K.anchorCost ?? 0) * (1 - g.advect) + 0.004 * g.size + (K.swimCost ?? 0.018) * g.swim * (1 - g.photo) + 0.006 * g.align + 0.004 * (g.adhesion || 0) + (K.calcCost ?? 0) * (g.calcify || 0)
     + (K.phototaxisCost ?? 0) * Math.abs(g.phototaxis || 0)
-    + (K.beatCost ?? 0) * (g.beat?.[0] ?? 0) * (g.beat?.[1] ?? 0) * (growPlan(g) || hasTails(g) ? 1 : 0)) * K.metab;
+    + (K.beatCost ?? 0) * (g.beat?.[0] ?? 0) * (g.beat?.[1] ?? 0) * (growPlan(g, K) || hasTails(g, K) ? 1 : 0)) * K.metab;
   g.col = packUnorm(...roleColor(g, 0));
   return g;
 }

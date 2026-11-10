@@ -400,7 +400,7 @@ export function createSpecimen(api) {
     let b = comp(tr('spec.body.plan', 'Body plan'), 'bodyplan', sh, g, tr('spec.body.plan.hint', 'Of every 100 cells it grows: {mix}.', { mix: [0, 1, 2].filter((r) => sh[r] > 0.0005).map((r) => `${(sh[r] * 100).toFixed(sh[r] < 0.01 ? 1 : 0)} ${ROLE[r]}`).join(', ') }));
     // i18n: {p} a percentage; {bonds} yes when it is sticky enough to bond
     b += trait(tr('spec.body.adhesion', 'Adhesion'), g.adhesion || 0, 0, 1, tr('spec.body.adhesion-value', '{p}%{bonds, select, yes { · bonds} other {}}', { p: Math.round((g.adhesion || 0) * 100), bonds: (g.adhesion || 0) > K.adhMin ? 'yes' : 'no' }), 'adhesion');
-    if ((g.adhesion || 0) > K.adhMin) b += kv(tr('spec.body.growth', 'Growth'), describeGrowth(growPlan(g), g), 'growth');
+    if ((g.adhesion || 0) > K.adhMin) b += kv(tr('spec.body.growth', 'Growth'), describeGrowth(growPlan(g, K), g, K), 'growth');
     if (g.calcify > 0.005) b += trait(tr('spec.body.calcify', 'Calcifying'), g.calcify, 0, 1, `${Math.round(g.calcify * 100)}%`, 'calcify');
     b += trait(tr('spec.body.size', 'Size'), g.size, 0.45, 2.6, fmtLen(0.17 * g.size), 'size');
     b += kv(tr('spec.body.shape', 'Shape'), CELL_SHAPES[cellShape(g, role)], 'size');

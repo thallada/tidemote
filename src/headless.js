@@ -153,7 +153,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
       // the body-type mix (src/bodies.js: single cells, clumps, mats, chains, filaments, branched trees), once a simulated minute
       if (c.simTime - bodiesT >= 60) {
         bodiesT = c.simTime;
-        eng.readBodies().then((st) => { latestBodies = morphMix(bodyCensus(st.cpu, st.gpu)); }).catch(() => {});
+        eng.readBodies().then((st) => { latestBodies = morphMix(bodyCensus(st.cpu, st.gpu, eng.K)); }).catch(() => {});
       }
       samples.push({ ...latest, thermal, rates, demography, meals, energy, cycle, dormant, packing: pk, spatial: latestSpatial, bodies: latestBodies });
       prevG = Array.from(c.globals); prevD = Array.from(c.demography); prevE = Array.from(c.energy); prevT = lastSample = c.simTime;

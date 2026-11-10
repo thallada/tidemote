@@ -40,7 +40,7 @@ export function communitySample(species, adhMin) {
     if ((g.grow?.[0] ?? 0) >= 0.5 && (g.adhesion || 0) > adhMin) {
       const tips = g.photo > 0.4 || (g.beat?.[3] ?? 0) > 0.5, beats = (g.beat?.[0] ?? 0) > 0.05;
       gt[d].tree += pop; if (tips) gt[d].tips += pop; if (beats) gt[d].beater += pop; if (tips && beats) gt[d].tadpole += pop;
-    } else if (hasTails(g) && (g.beat?.[0] ?? 0) > 0.05) gt[d].tailed += pop;
+    } else if (hasTails(g, { adhMin }) && (g.beat?.[0] ?? 0) > 0.05) gt[d].tailed += pop;
   }
   top.sort((a, b) => b.share - a.share);
   const guildTop = Object.fromEntries(DIETS.map((k) => {

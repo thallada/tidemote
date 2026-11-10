@@ -7,8 +7,8 @@ import { FIRST_LIFE, MAXK, DEFAULT_K } from './shaders.js';
 const NONE = 0xffffffff;
 const PW = 10; // Particle words
 
-/** Body census of one world: { living, guilds: {g: {cells, kinds: {type: cells}}}, bodies: {type: {n, cells, sizes}} }. */
-export function bodyCensus(cpu, gpu) {
+/** Body census of one world: { living, guilds: {g: {cells, kinds: {type: cells}}}, bodies: {type: {n, cells, sizes}} }; K its run's tunables. */
+export function bodyCensus(cpu, gpu, K = DEFAULT_K) {
   const count = cpu.count;
   const pu = new Uint32Array(gpu.parts), it = new Uint32Array(gpu.intent);
   const gu = new Uint32Array(gpu.genomes), gf = new Float32Array(gpu.genomes);
@@ -42,7 +42,7 @@ export function bodyCensus(cpu, gpu) {
   const out = { living, guilds: {}, bodies: {}, tailCells: 0 };
   for (const b of bodies.values()) {
     const g = genomeOf(b.kind), guild = dietGuild(g);
-    const tree = (g.grow?.[0] ?? 0) >= 0.5 && (g.adhesion || 0) > DEFAULT_K.adhMin;
+    const tree = (g.grow?.[0] ?? 0) >= 0.5 && (g.adhesion || 0) > K.adhMin;
     const type = b.n === 1 ? 'single' : !tree ? (b.tail >= 2 && b.n > b.tail ? 'tailed' : b.n < 6 ? 'clump' : 'mat')
       : `${b.branch ? 'branched' : 'chain'} ${b.n < 6 ? '2-5' : b.n < 20 ? '6-19' : '20+'}`;
     // swimmers: bodies of a species that beats, a tree's or a tailed body's, by how many cells they have
