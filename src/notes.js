@@ -182,6 +182,7 @@ export class Notes {
 
   reset() {
     this.view = null;
+    this.looking = null; // (a look in flight reads the view just dropped)
     this.ringLast = null;
     this.events = [];
     this.notes = [];
@@ -364,6 +365,9 @@ export class Notes {
         const keys = new Set(this.cands.map((c) => c.key));
         for (const k of keys) if (!this.firstSeen.has(k)) this.firstSeen.set(k, ctx.now);
         for (const k of this.firstSeen.keys()) if (!keys.has(k)) this.firstSeen.delete(k);
+        // (and the cool-downs that have run out: their keys name cells and moments, new ones all day)
+        const cold = ctx.now - Math.max(this.T.keyCool, this.T.subjectCool);
+        for (const [k, at] of this.keyAt) if (at < cold) this.keyAt.delete(k);
       }
     }
     this.schedule(ctx);
@@ -468,7 +472,7 @@ export class Notes {
       // (deaths seen with a fair share too warm, or most of it too warm: water merely warm for some is not a story)
       const scalds = c30(EV.scalded, s.kind);
       if (!((scalds >= 3 && s.hot >= 0.2 * s.n) || (s.hot >= 8 && s.hot >= 0.4 * s.n)) || !name(s.kind)) continue;
-      const hot = this._hotCells(this.sp(s.kind));
+      const hot = this._hotCells(this.sp(s.kind), v);
       let fine = null;
       if (band !== 'wide') for (const o of S.by.values()) {
         if (o.kind === s.kind || o.n < 4 || o.hot > 0 || !name(o.kind)) continue;
@@ -1031,8 +1035,8 @@ export class Notes {
   }
 
   // the squares of the view whose water lies past 0.8 of species g's tolerance above its optimum
-  _hotCells(g) {
-    const out = new Set(), v = this.view;
+  _hotCells(g, v) {
+    const out = new Set();
     if (!g) return out;
     for (let k = 0; k < v.temps.length; k++) if (v.sqIn[k] && (v.temps[k] - g.topt) / Math.max(g.tol, 0.5) > 0.8) out.add(k);
     return out;

@@ -4979,7 +4979,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     return out;
   };
   let noteCap = null;
-  const NOTE_MODE = { follow: 'FOLLOW', linger: 'LINGER', scene: 'SURVEY', wide: 'WIDE', event: 'EVENT' };
+  // i18n: Live annotations: the tag on the frame's corner, what the camera is doing (the auto camera's kind of shot, or the viewer's own hand)
+  const NOTE_MODE = { follow: tr('notes.mode.follow', 'FOLLOW'), linger: tr('notes.mode.linger', 'LINGER'), scene: tr('notes.mode.scene', 'SURVEY'), wide: tr('notes.mode.wide', 'WIDE'), event: tr('notes.mode.event', 'EVENT'),
+    auto: tr('notes.mode.auto', 'AUTO'), observe: tr('notes.mode.observe', 'OBSERVE') };
   // the loupe on the screen while it shows (the annotations' marks under it are drawn magnified within it)
   let noteLens = null;
   function drawNotes(dtMs, L) {
@@ -5007,7 +5009,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (noteCap && (cr?.width || (director.active && now - noteCap.at < 30))) avoid.push(noteCap);
     if (plateRect) avoid.push(plateRect);
     const sh = director.active ? director.shot : null;
-    const mode = director.active ? NOTE_MODE[sh && sh.why && sh.why.kind] || 'AUTO' : 'OBSERVE';
+    const mode = director.active ? NOTE_MODE[sh && sh.why && sh.why.kind] || NOTE_MODE.auto : NOTE_MODE.observe;
     noteView.draw({ now, dt: dtMs / 1000, ppu: cssPPU(), world: eng.grid, flow: noteFlow, shade: noteShade, lens: noteLens, notes: list, model: notes, species: noteSp, project: noteProject, radius: noteRadius,
       open: noteOpen, avoid, mode, pool: eng.tbg, phone: phone(), roster: true, since: notesSince, cap: cssPPU() >= notes.T.close ? 400 : 220 });
     const ms = performance.now() - t0;
