@@ -169,10 +169,10 @@ wrap puts them and show no seam at the world's edges. Raindrop ripples bend the 
   filtered for the zoom, or as a cubic B-spline where its texels are magnified (linear filtering's kinks at texel
   edges show as a grid, and as blocks in the caustics, which take the slope's derivative). Crests are sharpened as a
   choppy sea's are (the point seen came from x0 = x − D(x0)), less D at the view's center, which keeps a ripple wider
-  than the view from carrying the whole view to and fro. Checked with `tools/waterlook/`: `dbg.py` draws the GPU's
-  sea alone (its sheen, or its light) for looklab, `gpucheck.py` measures it (the view at 2z averaged down against
-  the view at z, and the change from frame to frame), `zoomclip.mjs` films a storm through a steady zoom (`--calm`:
-  calm water), `shore.py` photographs a low shore in a storm through looklab, `displaycheck.mjs` drives the Display
+  than the view from carrying the whole view to and fro. Checked with `tools/waterlook/`: the composite draws the
+  GPU's sea alone (`Engine.seaTune.view`: 1 its light, 2 its sheen), `gpucheck.py` measures the sheen through looklab
+  (the view at 2z averaged down against the view at z, and the change from frame to frame), `zoomclip.mjs` films a
+  storm through a steady zoom (`--calm`: calm water), `shore.py` photographs a low shore in a storm through looklab, `displaycheck.mjs` drives the Display
   settings. What failed on the way: plane-wave sums (a few regular sines, then
   a quilt or crosshatch), value-noise envelopes (their lattice shows as patches), a spectrum tied to the screen's
   pixels (other waves at every zoom, and fine detail that a microscope would show blown up), wave vectors rounded to
