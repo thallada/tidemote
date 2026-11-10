@@ -4,6 +4,7 @@
 // second with a NaN in their heading, squash, its rate or bend, by the cell's state (cause), and the living in view.
 // `node tools/popnan.mjs --html dist/tidemote.html --n 262144 --ppu 60`
 import { openPage, cliArgs, aim } from './pagelab.mjs';
+import { P_BYTES, FIRST_LIFE } from '../src/shaders.js';
 
 const a = cliArgs();
 const pg = await openPage({ html: a.html || 'dist/tidemote.html', n: +(a.n || 262144), w: 1280, h: 800, mature: +(a.mature || 60), prefs: { scale: 1 } });
@@ -11,7 +12,7 @@ const { page } = pg;
 await aim(page, null, +(a.ppu || 60));
 await page.evaluate(() => globalThis.__tidemote.setSpeed(1));
 await page.waitForTimeout(+(a.wait || 4000));
-const res = await page.evaluate(async () => {
+const res = await page.evaluate(async ({ P_BYTES, FIRST_LIFE }) => {
   const e = globalThis.__tidemote.eng, d = e.device, N = e.count;
   const read = async (buf, size) => {
     const st = d.createBuffer({ size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
@@ -19,9 +20,9 @@ const res = await page.evaluate(async () => {
     await st.mapAsync(GPUMapMode.READ); const out = st.getMappedRange().slice(0); st.destroy(); return out;
   };
   const sw = new Uint32Array(await read(e.b.sway, e.b.sway.size)), swf = new Float32Array(sw.buffer);
-  const parts = await read(e.b.parts, N * 40), pu = new Uint32Array(parts);
+  const parts = await read(e.b.parts, N * P_BYTES), pu = new Uint32Array(parts), PW = P_BYTES / 4;
   const byId = new Map();
-  for (let k = 0; k < N; k++) if (pu[k * 10 + 4] >= 5) byId.set(pu[k * 10 + 7], pu[k * 10 + 9] & 15);
+  for (let k = 0; k < N; k++) if (pu[k * PW + 4] >= FIRST_LIFE) byId.set(pu[k * PW + 7], pu[k * PW + 9] & 15);
   const half = (h) => (h & 0x7c00) === 0x7c00 && (h & 0x3ff) !== 0;
   const nan2 = (w) => half(w & 0xffff) || half(w >>> 16);
   const W = 14, slots = sw.length / W;
@@ -39,6 +40,6 @@ const res = await page.evaluate(async () => {
     if (bad) { out.nan++; c.nan++; }
   }
   return out;
-});
+}, { P_BYTES, FIRST_LIFE });
 console.log(JSON.stringify(res));
 await pg.close();

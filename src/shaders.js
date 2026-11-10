@@ -6,6 +6,7 @@ import { SEA, SEA_N, SEA_CASCADES } from './sea.js';
 
 export const MAXK = 1024;
 export const FIRST_LIFE = 5;
+export const STONE = 3;
 // grid cells at most: K.density particles to a cell, 2^19 holds 8M particles with room
 export const MAX_CELLS = 1 << 19;
 // the heat field's words (b.thermal): four blocks of MAX_CELLS (temperature, floor, freeze order, ice), then ICE_N and HOT_N
@@ -513,7 +514,7 @@ const LITTER = 0x8000u;
 const CYST = ${CYST}u;
 // META_DEATH slots counting each guild's cysts, afresh each step (57-59, 61, 62; 60 is the litter)
 fn cystSlot(gi: u32) -> u32 { return META_DEATH + select(57u + gi, 58u + gi, gi >= 3u); }
-const STONE = 3u;
+const STONE = ${STONE}u;
 const FRAMBOID = ${FRAMBOID}u;
 const NONE = 0xffffffffu;
 const SIM_CLOCK = ${SIM_CLOCK}.0;

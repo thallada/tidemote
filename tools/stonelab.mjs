@@ -14,6 +14,7 @@
 import fs from 'node:fs'; import path from 'node:path';
 import { openPage, cliArgs, aim } from './pagelab.mjs';
 import { loadBinWorld, saveBinWorld, unpackWorld } from './lib/world.mjs';
+import { P_BYTES, STONE } from '../src/shaders.js';
 
 const v = { out: 'runs/stone/x', world: 'runs/stone/world.bin', n: 65536, mature: 150, zoom: '25,70,150,400', looks: 'off,normal,strong', spots: 3, loupe: '', w: 1280, h: 800, html: 'dist/tidemote.html', ...cliArgs() };
 fs.mkdirSync(v.out, { recursive: true });
@@ -41,8 +42,8 @@ const world = unpackWorld(fs.readFileSync(v.world));
 const P = new DataView(world.gpu.parts), grid = world.cpu.grid, cnt = world.cpu.count;
 const bins = new Map();
 for (let i = 0; i < cnt; i++) {
-  const o = i * 40, kind = P.getUint32(o + 16, true);
-  if (kind !== 3) continue;
+  const o = i * P_BYTES, kind = P.getUint32(o + 16, true);
+  if (kind !== STONE) continue;
   const x = P.getFloat32(o, true), y = P.getFloat32(o + 4, true), reef = (P.getUint32(o + 36, true) & 15) !== 0;
   const key = `${reef ? 'reef' : 'bed'}:${Math.floor(x / 3)}:${Math.floor(y / 3)}`;
   const e = bins.get(key) ?? { n: 0, x: 0, y: 0, reef };

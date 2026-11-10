@@ -49,7 +49,7 @@ let living = 0;
   eng.restore(keep);
   await eng.profileStep(dt);
   const { u32, f32 } = await eng.readParticles();
-  for (let i = 0; i < eng.count; i++) if (u32[i * 10 + 4] >= FIRST_LIFE) living++;
+  for (let i = 0; i < eng.count; i++) if (u32[i * (P_BYTES / 4) + 4] >= FIRST_LIFE) living++;
   if (v.dump) fs.writeFileSync(v.dump, Buffer.from(u32.buffer));
   if (v.against) {
     const b = fs.readFileSync(v.against), o = new Float32Array(b.buffer, b.byteOffset, b.byteLength / 4), ou = new Uint32Array(o.buffer, o.byteOffset, o.length);

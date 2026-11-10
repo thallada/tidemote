@@ -7,6 +7,7 @@ export async function runLab(device, v, { log = console.error, saved = null, sav
     const rng = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
     Math.random = rng;
     const E = await import('../src/engine.js');
+    const { P_BYTES } = await import('../src/shaders.js'), PW = P_BYTES / 4;
     const { readGenome, dietGuild } = await import('../src/genome.js');
     const { communitySample, DIETS } = await import('../src/ecostats.js');
     const { createClimate, seasonAt, abioRate } = await import('../src/climate.js');
@@ -83,8 +84,8 @@ export async function runLab(device, v, { log = console.error, saved = null, sav
       const [gw, gh] = eng.grid, RS = 16, nx = Math.max(1, Math.round(gw / RS)), ny = Math.max(1, Math.round(gh / RS));
       const reg = Array.from({ length: nx * ny }, () => new Map()), all = new Map();
       for (let i = 0; i < eng.count; i++) {
-        const k = p.u32[i * 10 + 4]; if (k < E.FIRST_LIFE) continue;
-        const r = Math.min(ny - 1, Math.floor(p.f32[i * 10 + 1] / gh * ny)) * nx + Math.min(nx - 1, Math.floor(p.f32[i * 10] / gw * nx));
+        const k = p.u32[i * PW + 4]; if (k < E.FIRST_LIFE) continue;
+        const r = Math.min(ny - 1, Math.floor(p.f32[i * PW + 1] / gh * ny)) * nx + Math.min(nx - 1, Math.floor(p.f32[i * PW] / gw * nx));
         reg[r].set(k, (reg[r].get(k) || 0) + 1); all.set(k, (all.get(k) || 0) + 1);
       }
       let hw = 0, n = 0; const dens = [];
@@ -121,15 +122,15 @@ export async function runLab(device, v, { log = console.error, saved = null, sav
       const inRefuge = (x, y) => keepAt.some(([cx, cy, R]) => { let dx = x - cx, dy = y - cy; dx -= gw * Math.round(dx / gw); dy -= gh * Math.round(dy / gh); return dx * dx + dy * dy < R * R; });
       let killed = 0, kept = 0;
       for (let i = 0; i < eng.count; i++) {
-        const k = u[i * 10 + 4]; if (k < E.FIRST_LIFE) continue;
-        const die = keepAt ? !inRefuge(f[i * 10], f[i * 10 + 1]) || rng() < frac : rng() < frac;
+        const k = u[i * PW + 4]; if (k < E.FIRST_LIFE) continue;
+        const die = keepAt ? !inRefuge(f[i * PW], f[i * PW + 1]) || rng() < frac : rng() < frac;
         if (!die) { kept++; continue; }
         let g = gs.get(k); if (!g) gs.set(k, (g = readGenome(gu, gf, k)));
-        u[i * 10 + 4] = 2; f[i * 10 + 5] = eng.K.bodyE * g.size; f[i * 10 + 6] = 0;
-        u[i * 10 + 9] = (u[i * 10 + 9] & 0xffff7fc0) | 1 | (g.photo > 0.4 ? 0x8000 : 0);
+        u[i * PW + 4] = 2; f[i * PW + 5] = eng.K.bodyE * g.size; f[i * PW + 6] = 0;
+        u[i * PW + 9] = (u[i * PW + 9] & 0xffff7fc0) | 1 | (g.photo > 0.4 ? 0x8000 : 0);
         killed++;
       }
-      device.queue.writeBuffer(eng.b.parts, 0, u.buffer, 0, eng.count * 40);
+      device.queue.writeBuffer(eng.b.parts, 0, u.buffer, 0, eng.count * P_BYTES);
       eng.sorted = false;
       log(`cull at ${(eng.simTime - t0).toFixed(0)}s: ${killed} died, ${kept} live on (${mode})`);
     }

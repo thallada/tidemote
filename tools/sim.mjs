@@ -7,7 +7,7 @@ import { parseArgs } from 'node:util';
 import { runHeadless } from '../src/headless.js';
 import { launchOptions } from './lib/browser.mjs';
 import { refuseSoftware } from './adapter.mjs';
-import { P_BYTES, FIRST_LIFE, FRAMBOID } from '../src/shaders.js';
+import { P_BYTES, FIRST_LIFE, FRAMBOID, STONE } from '../src/shaders.js';
 
 const { values: v } = parseArgs({ options: {
   n: { type: 'string', default: '8192' }, minutes: { type: 'string', default: '10' },
@@ -123,22 +123,22 @@ async function writePNG(device, eng, frames) {
     device.queue.submit([enc.finish()]);
     await buf.mapAsync(GPUMapMode.READ);
     const f = new Float32Array(buf.getMappedRange()), u = new Uint32Array(f.buffer);
-    const bonds = new Uint32Array(f.buffer, partBytes), incoming = new Uint32Array(eng.count);
-    for (let i = 0; i < eng.count; i++) if (u[i * 10 + 4] >= FIRST_LIFE) {
+    const bonds = new Uint32Array(f.buffer, partBytes), incoming = new Uint32Array(eng.count), PW = P_BYTES / 4;
+    for (let i = 0; i < eng.count; i++) if (u[i * PW + 4] >= FIRST_LIFE) {
       for (const n of [bonds[i * 4 + 2], bonds[i * 4 + 3]]) {
-        if (n < eng.count && u[n * 10 + 4] === u[i * 10 + 4]) incoming[n]++;
+        if (n < eng.count && u[n * PW + 4] === u[i * PW + 4]) incoming[n]++;
       }
     }
     let at = -1, best = -1;
     for (let i = 0; i < eng.count; i++) {
-      if (u[i * 10 + 4] >= FIRST_LIFE && incoming[i] > best) { best = incoming[i]; at = i; }
+      if (u[i * PW + 4] >= FIRST_LIFE && incoming[i] > best) { best = incoming[i]; at = i; }
     }
-    if (at >= 0) { x = f[at * 10]; y = f[at * 10 + 1]; }
+    if (at >= 0) { x = f[at * PW]; y = f[at * PW + 1]; }
     console.log(`PNG camera: ${x}, ${y}; incoming bonds ${Math.max(0, best)}`);
     buf.unmap(); buf.destroy();
   }
   // FRAMBOID=1 (or STONE=1) centers the PNG on the densest cluster of pyrite framboids (or stone)
-  const aimKind = process.env.FRAMBOID ? FRAMBOID : process.env.STONE ? 3 : -1;
+  const aimKind = process.env.FRAMBOID ? FRAMBOID : process.env.STONE ? STONE : -1;
   if (aimKind >= 0) {
     const buf = device.createBuffer({ size: eng.count * P_BYTES, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
     const enc = device.createCommandEncoder();
@@ -146,8 +146,8 @@ async function writePNG(device, eng, frames) {
     device.queue.submit([enc.finish()]);
     await buf.mapAsync(GPUMapMode.READ);
     const f = new Float32Array(buf.getMappedRange()), u = new Uint32Array(f.buffer);
-    const at = [];
-    for (let i = 0; i < eng.count; i++) if (u[i * 10 + 4] === aimKind) at.push([f[i * 10], f[i * 10 + 1]]);
+    const at = [], PW = P_BYTES / 4;
+    for (let i = 0; i < eng.count; i++) if (u[i * PW + 4] === aimKind) at.push([f[i * PW], f[i * PW + 1]]);
     let best = -1;
     for (const [px, py] of at) {
       const n = at.filter(([qx, qy]) => Math.hypot(qx - px, qy - py) < 1.5).length;

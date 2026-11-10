@@ -17,6 +17,7 @@ const out = path.resolve(root, arg('out', 'site/og.jpg'));
 
 const entry = `
 import { createEngine, FIRST_LIFE } from './src/engine.js';
+import { P_BYTES } from './src/shaders.js';
 window.shoot = async ({ N, SEC, VIEW, SEED, W, H }) => {
   let s = SEED >>> 0; const rng = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
   const device = await (await navigator.gpu.requestAdapter()).requestDevice({ requiredLimits: { maxStorageBuffersPerShaderStage: 10 } });
@@ -29,11 +30,11 @@ window.shoot = async ({ N, SEC, VIEW, SEED, W, H }) => {
   }
   await device.queue.onSubmittedWorkDone();
   // frame the camera where living cells are densest
-  const rb = device.createBuffer({ size: eng.count * 40, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
-  let enc = device.createCommandEncoder(); enc.copyBufferToBuffer(eng.b.parts, 0, rb, 0, eng.count * 40); device.queue.submit([enc.finish()]);
+  const rb = device.createBuffer({ size: eng.count * P_BYTES, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+  let enc = device.createCommandEncoder(); enc.copyBufferToBuffer(eng.b.parts, 0, rb, 0, eng.count * P_BYTES); device.queue.submit([enc.finish()]);
   await rb.mapAsync(GPUMapMode.READ); const pu = new Uint32Array(rb.getMappedRange().slice(0)), pf = new Float32Array(pu.buffer); rb.unmap();
-  const cells = [];
-  for (let i = 0; i < eng.count; i++) if (pu[i * 10 + 4] >= FIRST_LIFE) cells.push([pf[i * 10], pf[i * 10 + 1]]);
+  const cells = [], PW = P_BYTES / 4;
+  for (let i = 0; i < eng.count; i++) if (pu[i * PW + 4] >= FIRST_LIFE) cells.push([pf[i * PW], pf[i * PW + 1]]);
   const wrap = (d, L) => d - L * Math.round(d / L), r2 = (VIEW / 4) ** 2;
   let best = [GW / 2, GH / 2], bestN = -1;
   for (const a of cells.filter((_, j) => j % Math.max(1, Math.ceil(cells.length / 300)) === 0)) {
