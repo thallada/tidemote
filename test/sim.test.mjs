@@ -12,9 +12,7 @@ test('headless ecology produces living cells and samples', { timeout: 120_000 },
   const dir = await mkdtemp(path.join(tmpdir(), 'tidemote-sim-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const out = path.join(dir, 'run.json');
-  const cached = '/home/thallada/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome';
-  const executable = process.env.PLAYWRIGHT_CHROMIUM ||
-    (existsSync(cached) ? cached : chromium.executablePath());
+  const executable = process.env.PLAYWRIGHT_CHROMIUM || chromium.executablePath();
   const backend = existsSync(executable) ? '--chrome' : '--cpu';
   const deadline = Date.now() + 110_000;
   const runSim = (backend) => new Promise((resolve, reject) => {

@@ -57,9 +57,7 @@ async function runChrome() {
     entryPoints: [fileURLToPath(new URL('../src/headless.js', import.meta.url))],
     bundle: true, format: 'iife', globalName: 'Tidemote', write: false,
   });
-  const cached = '/home/thallada/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome';
-  const executablePath = process.env.PLAYWRIGHT_CHROMIUM ||
-    (fs.existsSync(cached) ? cached : chromium.executablePath());
+  const executablePath = process.env.PLAYWRIGHT_CHROMIUM || chromium.executablePath();
   const dir = fs.mkdtempSync(path.join(tmpdir(), 'tidemote-chrome-'));
   let browser;
   try {
