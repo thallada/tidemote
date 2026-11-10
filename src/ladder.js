@@ -51,6 +51,7 @@ export function createLadder({ chip, el, choices, current, fmt, pick, real }) {
   // speed is taken when let go and the ladder closes; on the ladder, it stays open)
   function press(e, onChip) {
     if (e.button > 0) return;
+    if (drag) { clearTimeout(drag.timer); stopCreep(); } // (a second finger: the first's timers go with it)
     drag = { id: e.pointerId, y: e.clientY, from: current(), v: current(), on: !onChip, moved: false, onChip, el: e.currentTarget };
     if (onChip) drag.timer = setTimeout(() => { if (drag && !drag.on) { drag.on = true; toggle(true); } }, HOLD);
   }
