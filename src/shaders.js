@@ -8944,18 +8944,27 @@ fn duckRoot(p: vec2f, o: vec2f, dir: vec2f, len: f32, wr: f32, seed: f32, ppu: f
   let light = (walls * (0.6 + 0.4 * vnoise(vec2f(along * len * 0.7, seed))) + inner * 0.18 * bands + sheath) * mix(0.06, 1.0, pow(max(focus, 0.0), 1.5));
   return vec2f(light, inner * mix(0.1, 1.0, focus));
 }
-// How far wp lies into open water (units): to the nearer of the pool's edge and the ice's, by each field's slope; 0 or
-// less on the dry floor or under ice, and 1e4 with neither. The ice is as drawn (iceSeen, its dendrites' reach ahead
-// of its edge, so a patch just starting is ice too).
-fn waterRoom(wpIn: vec2f) -> f32 {
+// The pool's edge (pondPost) and the ice (iceSeen) at wp, in the world's own coordinates, each only while there is
+// any: read once a pixel for both waterRoom and poolOver.
+struct PoolAt { pd: vec3f, ic: IceSeen }
+fn poolAt(wpIn: vec2f) -> PoolAt {
   let wp = wpIn - post.world * floor(wpIn / post.world);
+  var o: PoolAt;
+  if (!LEAN && post.pond.x < 1.0) { o.pd = pondPost(wp); }
+  if (!LEAN && iceShownAny()) { o.ic = iceSeen(wp); }
+  return o;
+}
+// How far a point lies into open water (units), from its poolAt: to the nearer of the pool's edge and the ice's, by
+// each field's slope; 0 or less on the dry floor or under ice, and 1e4 with neither. The ice is as drawn (iceSeen,
+// its dendrites' reach ahead of its edge, so a patch just starting is ice too).
+fn waterRoom(pool: PoolAt) -> f32 {
   var room = 1e4;
   if (!LEAN && post.pond.x < 1.0) {
-    let pd = pondPost(wp);
+    let pd = pool.pd;
     room = min(room, pd.x / max(length(pd.yz), 1e-4));
   }
   if (!LEAN && iceShownAny()) {
-    let ic = iceSeen(wp);
+    let ic = pool.ic;
     room = min(room, ic.sd - (ICE_LEAD + ICE_OWN) * ic.reach);
   }
   return room;
@@ -8989,11 +8998,10 @@ fn keepInFrame(d: vec2f, lo: vec2f, hi: vec2f, band: f32) -> vec2f {
 fn keepInView(d: vec2f, pos: vec2f) -> vec2f { return keepInFrame(d, pos, post.res - pos, 0.1 * post.res.y); }
 // The water's surface at wp, seen at ppu pixels a unit from a view centered where the sea is c0 (seaAt there): the sea, gently swaying in calm
 // water and heaving in a storm, and the rings raindrops send across it (on open water only: dry mud and ice have no
-// surface to wave).
-fn surfaceAt(wp: vec2f, ppu: f32, c0: vec4f) -> Surface {
+// surface to wave; room: waterRoom there).
+fn surfaceAt(wp: vec2f, ppu: f32, c0: vec4f, room: f32) -> Surface {
   var o: Surface;
   o.light = 1.0;
-  let room = waterRoom(wp);
   let wet = smoothstep(0.0, 0.4, room);
   if (wet <= 0.0) { return o; }
   if (post.seaHead.z > 0.0) { o = seaSurface(wp, ppu, c0); }
@@ -9045,7 +9053,7 @@ fn seaFieldAt(pos: vec2f) -> Surface {
   if (g.x >= ${SHIFT_W}u || g.y >= ${SHIFT_H}u) { return; }
   let px = (vec2f(g.xy) + 0.5) / vec2f(${SHIFT_W}.0, ${SHIFT_H}.0) * post.res;
   let wp = post.cam + (px - post.res * 0.5) / post.ppu;
-  let surf = surfaceAt(wp, post.ppu, seaAt(post.cam, post.ppu));
+  let surf = surfaceAt(wp, post.ppu, seaAt(post.cam, post.ppu), waterRoom(poolAt(wp)));
   shiftMap[g.y * ${SHIFT_W}u + g.x] = keepInView(surf.shift * post.ppu, px);
 }
 // Schlieren, in pixels: with the heat map on Shimmer, warm water bends the light passing through it like the
@@ -9325,9 +9333,10 @@ fn lensAt(wp: vec2f) -> f32 {
   return 1.0 - smoothstep(0.62 * post.lens.z, post.lens.z, length(d));
 }
 // What lies on and over the focal plane at world point wp, seen at ppu pixels per unit, in the main view and the
-// loupe alike: the pool's dry floor and edge, ice, the rain's waves and duckweed. k: optics; behind: how little
-// light the cells here give (they hide the floor); surf: the water's slope (surfaceAt, nothing off open water).
-fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f, lit: f32) -> vec3f {
+// loupe alike: the pool's dry floor and edge, ice, the rain's waves and duckweed. pool: poolAt(wpIn); k: optics;
+// behind: how little light the cells here give (they hide the floor); surf: the water's slope (surfaceAt, nothing
+// off open water).
+fn poolOver(cIn: vec3f, wpIn: vec2f, pool: PoolAt, ppu: f32, k: f32, behind: f32, surf: vec2f, lit: f32) -> vec3f {
   var c = cIn;
   // in the world's own coordinates, as the simulation finds the edge (its wobble does not tile the world); what
   // the floor and the ice show tiles it (vnoiseT...), so it stays put however the view wraps, seamless at its edges
@@ -9335,7 +9344,7 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f,
   // the pool's edge and dry floor (docs/catastrophes.md), behind what lies on them; the water's edge itself, a
   // meniscus, is a bright thin line, and the thinning film just inside it a faint sheen
   if (!LEAN && post.pond.x < 1.0) {
-    let pd = pondPost(wp);
+    let pd = pool.pd;
     let sd = pd.x / max(length(pd.yz), 1e-4);
     let px = 1.0 / ppu;
     let dry = 1.0 - smoothstep(-px, px, sd);
@@ -9367,7 +9376,7 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, ppu: f32, k: f32, behind: f32, surf: vec2f,
   // ice (a frost's, the cold probe's): over what is frozen in it, its front a crisp bright line, crystals
   // (frazil) in the near-freezing water ahead of it while it grows
   if (!LEAN && iceShownAny()) {
-    let ic = iceSeen(wp);
+    let ic = pool.ic;
     let grow = iceGrowth(waterAt(wp).x);
     if (ic.sd < (ICE_LEAD + ICE_OWN) * ic.reach + 0.3) { c += iceLook(wp, ic.sd, ppu, grow, ic.reach, ic.rg) * (0.35 + 0.65 * behind); }
     if (ic.sd > 0.0 && ic.sd < 9.0 && grow > 0.0) { c += frazil(wp, ic.sd, ppu, grow) * (0.35 + 0.65 * behind); }
@@ -9434,17 +9443,18 @@ struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location
   var uv = i.uv;
   // the water's surface (the sea, raindrops' rings) bends the view and focuses the light
   var surf: Surface;
+  let pool = poolAt(wp);
   if (post.seaLook.w > 0.5) {
     // (the sea from its field: surfaceAt's otherwise)
     surf.light = 1.0;
-    let room = waterRoom(wp);
+    let room = waterRoom(pool);
     if (smoothstep(0.0, 0.4, room) > 0.0) {
       var sea: Surface;
       sea.light = 1.0;
       if (post.seaHead.z > 0.0) { sea = seaFieldAt(i.pos.xy); }
       surf = surfaceNear(sea, wp, room);
     }
-  } else { surf = surfaceAt(wp, post.ppu, i.sea0); }
+  } else { surf = surfaceAt(wp, post.ppu, i.sea0, waterRoom(pool)); }
   if (post.seaLook.z > 0.5 && post.seaLook.z < 2.5) {
     return vec4f(vec3f(clamp(select(0.5 + 2.5 * dot(surf.slope, LAMP_L), 0.25 * surf.light, post.seaLook.z < 1.5), 0.0, 1.0)), 1.0);
   }
@@ -9493,7 +9503,7 @@ struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location
   bg = mix(bg, bg * mix(vec3f(0.85, 0.88, 0.94), vec3f(1.12, 1.06, 1.0), lamp), k) + (murkColor(ml) + floorLit(lit, m) * k) * behind;
   c = c * mix(0.72, 1.0, v) * mix(1.0, mix(0.88, 1.05, lamp), k) + bg;
   c = pondSpecks(c, hdr, i.pos.xy, min(1.0, live.a), litGain(lit, 0.0));
-  c = poolOver(c, wp, post.ppu, k, behind, surf.slope, litGain(lit, 0.0));
+  c = poolOver(c, wp, pool, post.ppu, k, behind, surf.slope, litGain(lit, 0.0));
   c = extremes(c, water, behind, bub);
   c = shadeOver(c, wp);
   c = instrument(c, wp, post.ppu);
@@ -9544,7 +9554,8 @@ fn loupeScene(r: vec2f) -> vec3f {
   let toR = microView.ppu / (microView.res * 0.5);
   let r0 = r;
   let wp = microView.cam + r0 / toR;
-  let surf = surfaceAt(wp, loupe.ppu, seaAt(microView.cam, loupe.ppu));
+  let pool = poolAt(wp);
+  let surf = surfaceAt(wp, loupe.ppu, seaAt(microView.cam, loupe.ppu), waterRoom(pool));
   var bend = surf.shift;
   var water = vec3f(post.heat.x, 0.0, 0.0);
   var bub = Bubbles(vec2f(0.0), 1.0, vec3f(0.0));
@@ -9578,7 +9589,7 @@ fn loupeScene(r: vec2f) -> vec3f {
   var c = mapsOver(sunGrade(litShow(lookTone(hdr), lit, 1.0), lit), wp, i.pos.xy, water.x) + vec3f(0.006, 0.006, 0.012) + (murkColor(ml) + floorLit(lit, m) * k) * behind;
   c = pondMicro(c, hdr, microView.cam, r0 * microView.res * 0.5, microView.ppu, loupe.ppu, m, litGain(lit, 0.0));
   // the drought's dry floor and its rain, the frost's ice, the storm's waves, duckweed
-  c = poolOver(c, wp, loupe.ppu, k, behind, surf.slope, litGain(lit, 0.0));
+  c = poolOver(c, wp, pool, loupe.ppu, k, behind, surf.slope, litGain(lit, 0.0));
   c = extremes(c, water, behind, bub);
   c = shadeOver(c, wp);
   c = lookDisplay(pow(max(c, vec3f(0.0)), vec3f(1.0 / 2.2)), i.pos.xy);
