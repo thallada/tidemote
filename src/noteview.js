@@ -13,7 +13,7 @@
 // never blinks back once gone. No two pieces of text overlap: a label with no room waits hidden, its marks with it.
 import { NOTE_TG } from './shaders.js';
 import { createAudit } from './noteaudit.js';
-import { fmtLen, UM_PER_UNIT } from './fmt.js';
+import { fmtLen, lenParts, UM_PER_UNIT } from './fmt.js';
 import { contours, smooth } from './contour.js';
 import { squareOf } from './notes.js';
 import { tr } from './i18n.js';
@@ -979,6 +979,8 @@ export function createNoteView(g) {
   }
   function plan(n, M, F) {
     const d = n.data, sp = (k) => F.species(k), nm = (k) => (sp(k)?.name ? up(sp(k).name) : tr('notes.unnamed', 'UNNAMED')), S = noteState(n.id);
+    // a label names a species by its kind beside the words (its glyph drawn by its name: kind, and dataKinds a line's)
+    const kd = (k) => (k != null && k >= 0 ? k : null);
     const pos = (id) => { const c = M.cell(id); return c ? markAt(id, c, c.kind === -1 ? (d.akind ?? d.kind) : c.kind, F.project, F.dt) : null; };
     // in the open world, out from under the frame's panels (by a margin, for what a label hangs on)
     const shows = (p, m = 0) => p[0] > F.open.l + m && p[0] < F.open.r - m && p[1] > F.open.t + m && p[1] < F.open.b - m
@@ -1044,8 +1046,8 @@ export function createNoteView(g) {
       P.pts = [a, b];
       P.label = d.type === 'hunt'
         // i18n: Live annotations: a hunter's label: its kills in view, the species ({name}) it killed
-        ? { tone: HOT, eye: tr('notes.hunt.eye', 'HUNTER'), num: String(d.kills), main: nm(d.akind), data: [tr('notes.hunt.killed', 'KILLED {name}', { name: nm(d.kind) }), tr('notes.hunt.count', 'KILLS IN VIEW · LAST 30 S')] }
-        : { tone: INK, eye: tr('notes.scavenge.eye', 'SCAVENGER'), num: String(d.meals), main: nm(d.akind), data: [tr('notes.scavenge.data', 'EATS THE REMAINS OF THE DEAD')] };
+        ? { tone: HOT, eye: tr('notes.hunt.eye', 'HUNTER'), num: String(d.kills), main: nm(d.akind), kind: kd(d.akind), data: [tr('notes.hunt.killed', 'KILLED {name}', { name: nm(d.kind) }), tr('notes.hunt.count', 'KILLS IN VIEW · LAST 30 S')], dataKinds: [kd(d.kind), null] }
+        : { tone: INK, eye: tr('notes.scavenge.eye', 'SCAVENGER'), num: String(d.meals), main: nm(d.akind), kind: kd(d.akind), data: [tr('notes.scavenge.data', 'EATS THE REMAINS OF THE DEAD')] };
       if (d.type === 'hunt') P.keys.push({ glyph: 'cross', text: tr('notes.key.killed', 'KILLED'), tone: HOT });
     } else if (d.type === 'graze') {
       const pts = group('g', M.rows(d.census));
@@ -1064,8 +1066,8 @@ export function createNoteView(g) {
       P.pts = pts;
       const g2 = sp(d.akind);
       // i18n: Live annotations: a grazer's label (or a hunter's, grazing): its bites on a species ({name}), and how many it grazed to death
-      P.label = { tone: INK, eye: g2?.guild === 'predator' ? tr('notes.hunt.eye', 'HUNTER') : tr('notes.graze.eye', 'GRAZER'), num: String(d.bites), main: nm(d.akind),
-        data: [tr('notes.graze.bites', 'BITES ON {name} · LAST 30 S', { name: nm(d.kind) }), ...(d.dead ? [tr('notes.graze.dead', '{n} GRAZED TO DEATH', { n: d.dead })] : [])] };
+      P.label = { tone: INK, eye: g2?.guild === 'predator' ? tr('notes.hunt.eye', 'HUNTER') : tr('notes.graze.eye', 'GRAZER'), num: String(d.bites), main: nm(d.akind), kind: kd(d.akind),
+        data: [tr('notes.graze.bites', 'BITES ON {name} · LAST 30 S', { name: nm(d.kind) }), ...(d.dead ? [tr('notes.graze.dead', '{n} GRAZED TO DEATH', { n: d.dead })] : [])], dataKinds: [kd(d.kind), null] };
       P.keys.push({ glyph: 'plus', text: cellOf(nm(d.akind)), tone: INK });
       if (d.dead) {
         const deaths = recent(new Set(['grazed']), d.kind, 10).filter((e) => e.akind === d.akind || e.aid === NONE);
@@ -1089,8 +1091,8 @@ export function createNoteView(g) {
       const kindLine = tr('notes.newsp.kind', '{guild}{has, select, yes { · {comfort}} other {}}', { guild: guildUp(g2?.guild), has: comfort ? 'yes' : 'no', comfort });
       // i18n: Live annotations: life sparked from silt (a new lineage: its diet), or a new species, a mutant of another ({name})
       P.label = d.type === 'spark'
-        ? { tone: HOT, tag: tr('notes.spark.tag', 'LIFE FROM SILT'), main: nm(d.kind), data: [tr('notes.spark.data', 'A NEW LINEAGE · {guild}', { guild: guildUp(g2?.guild) }), comfort].filter(Boolean) }
-        : { tone: HOT, tag: tr('notes.newsp.tag', 'NEW SPECIES'), main: nm(d.kind), data: [tr('notes.newsp.data', 'A MUTANT OF {name}', { name: nm(d.akind) }), kindLine] };
+        ? { tone: HOT, tag: tr('notes.spark.tag', 'LIFE FROM SILT'), main: nm(d.kind), kind: kd(d.kind), data: [tr('notes.spark.data', 'A NEW LINEAGE · {guild}', { guild: guildUp(g2?.guild) }), comfort].filter(Boolean) }
+        : { tone: HOT, tag: tr('notes.newsp.tag', 'NEW SPECIES'), main: nm(d.kind), kind: kd(d.kind), data: [tr('notes.newsp.data', 'A MUTANT OF {name}', { name: nm(d.akind) }), kindLine], dataKinds: [kd(d.akind), null] };
     } else if (d.type === 'bloom' || d.type === 'waking' || d.type === 'dormant') {
       const pts = group('c', M.rows(d.kind, d.type === 'dormant' ? 'cyst' : 'all'));
       const an = hang(0, pts, d.kind);
@@ -1101,9 +1103,9 @@ export function createNoteView(g) {
       P.pts = pts;
       const s = M.stats.by.get(d.kind), g2 = sp(d.kind);
       // i18n: Live annotations: a species dividing ({n} of it in view), cysts waking, or cells going dormant
-      if (d.type === 'bloom') P.label = { tone: INK, eye: tr('notes.bloom.eye', 'DIVIDING'), num: `+${d.births}`, main: nm(d.kind), data: [tr('notes.bloom.data', 'BORN IN 20 S · {n} IN VIEW', { n: Math.round((s?.n ?? 0) * M.stats.scale) }), guildUp(g2?.guild)] };
-      else if (d.type === 'waking') P.label = { tone: INK, eye: tr('notes.waking.eye', 'WAKING'), num: String(d.count), main: nm(d.kind), data: [tr('notes.waking.data', 'CYSTS WAKING IN 20 S'), tr('notes.waking.why', 'TO TRY THEIR LUCK AGAIN')] };
-      else P.label = { tone: INK, eye: tr('notes.dormant.eye', 'GOING DORMANT'), num: String(d.count), main: nm(d.kind), data: [tr('notes.dormant.data', 'CURLED INTO CYSTS IN 20 S'), tr('notes.dormant.why', 'NOTHING IN REACH TO EAT')] };
+      if (d.type === 'bloom') P.label = { tone: INK, eye: tr('notes.bloom.eye', 'DIVIDING'), num: `+${d.births}`, main: nm(d.kind), kind: kd(d.kind), data: [tr('notes.bloom.data', 'BORN IN 20 S · {n} IN VIEW', { n: Math.round((s?.n ?? 0) * M.stats.scale) }), guildUp(g2?.guild)] };
+      else if (d.type === 'waking') P.label = { tone: INK, eye: tr('notes.waking.eye', 'WAKING'), num: String(d.count), main: nm(d.kind), kind: kd(d.kind), data: [tr('notes.waking.data', 'CYSTS WAKING IN 20 S'), tr('notes.waking.why', 'TO TRY THEIR LUCK AGAIN')] };
+      else P.label = { tone: INK, eye: tr('notes.dormant.eye', 'GOING DORMANT'), num: String(d.count), main: nm(d.kind), kind: kd(d.kind), data: [tr('notes.dormant.data', 'CURLED INTO CYSTS IN 20 S'), tr('notes.dormant.why', 'NOTHING IN REACH TO EAT')] };
       P.keys.push({ glyph, text: d.type === 'dormant' ? tr('notes.key.cyst', '{name} CYST', { name: nm(d.kind) }) : cellOf(nm(d.kind)), tone: INK });
     } else if (d.type === 'heat') {
       const g2 = sp(d.kind);
@@ -1137,7 +1139,7 @@ export function createNoteView(g) {
       const lo = g2.topt - g2.tol, hi = g2.topt + g2.tol, w = M.water.hi;
       const scale = { min: Math.floor(Math.min(lo, w) / 5) * 5 - 5, max: Math.ceil(Math.max(hi, w) / 5) * 5 + 5 };
       // i18n: Live annotations: a species scalding in warm water: how it bears the water ({comfort}, notes.comfort), how many died of it
-      P.label = { tone: HOT, tag: tr('notes.heat.tag', 'SCALDING'), num: String(d.hot), main: nm(d.kind), data: [tr('notes.heat.data', '{comfort} · {n} DEAD / 30 S', { comfort: comfortOf(lo, hi), n: d.scalds })], range: { lo, hi, v: w, ...scale } };
+      P.label = { tone: HOT, tag: tr('notes.heat.tag', 'SCALDING'), num: String(d.hot), main: nm(d.kind), kind: kd(d.kind), data: [tr('notes.heat.data', '{comfort} · {n} DEAD / 30 S', { comfort: comfortOf(lo, hi), n: d.scalds })], range: { lo, hi, v: w, ...scale } };
       P.gauge = { v: w, lo, hi, ...scale, sub: poolOf(F.pool) };
       P.keys.push({ glyph: 'square', text: wide ? tr('notes.key.too-warm-for', 'WATER TOO WARM FOR {name}', { name: nm(d.kind) }) : tr('notes.key.too-warm', 'TOO WARM: SCALDING'), tone: HOT });
       if (deaths.length) P.keys.push({ glyph: 'cross', text: tr('notes.key.scalded', 'SCALDED, LAST 10 S'), tone: HOT });
@@ -1148,7 +1150,7 @@ export function createNoteView(g) {
         if (fa) {
           const flo = f2.topt - f2.tol, fhi = f2.topt + f2.tol;
           // i18n: Live annotations: beside a species scalding, one that bears the same water
-          P.extra = { anchor: fa, pts: fpts, label: { tone: INK, tag: tr('notes.heat.fine', 'NOT SCALDING'), num: String(Math.round(d.fine.n * M.stats.scale)), main: nm(d.fine.kind),
+          P.extra = { anchor: fa, pts: fpts, label: { tone: INK, tag: tr('notes.heat.fine', 'NOT SCALDING'), num: String(Math.round(d.fine.n * M.stats.scale)), main: nm(d.fine.kind), kind: kd(d.fine.kind),
             data: [comfortOf(flo, fhi)], range: { lo: flo, hi: fhi, v: w, min: Math.floor(Math.min(flo, w) / 5) * 5 - 5, max: Math.ceil(Math.max(fhi, w) / 5) * 5 + 5 } } };
           P.draws.push((t) => census(fpts, 'plus', INK, t - 0.6, fa, glyphOf(d.fine.kind)));
           P.keys.push({ glyph: 'plus', text: cellOf(nm(d.fine.kind)), tone: INK });
@@ -1188,7 +1190,7 @@ export function createNoteView(g) {
         const wa = w2 && hang(1, wpts, d.warm);
         if (wa) {
           // i18n: Live annotations: beside cells stilled by the cold, a species still moving ({name})
-          P.extra = { anchor: wa, pts: wpts, label: { tone: INK, tag: tr('notes.cold.warm', 'STILL ACTIVE'), num: String(Math.round((St.by.get(d.warm)?.n ?? 0) * St.scale)), main: nm(d.warm), data: [comfortOf(w2.topt - w2.tol, w2.topt + w2.tol)] } };
+          P.extra = { anchor: wa, pts: wpts, label: { tone: INK, tag: tr('notes.cold.warm', 'STILL ACTIVE'), num: String(Math.round((St.by.get(d.warm)?.n ?? 0) * St.scale)), main: nm(d.warm), kind: kd(d.warm), data: [comfortOf(w2.topt - w2.tol, w2.topt + w2.tol)] } };
           P.draws.push((t) => census(wpts, 'plus', INK, t - 0.6, wa, glyphOf(d.warm)));
           P.keys.push({ glyph: 'plus', text: tr('notes.key.still-active', '{name}: STILL ACTIVE', { name: nm(d.warm) }), tone: INK });
         }
@@ -1221,7 +1223,7 @@ export function createNoteView(g) {
       const form = formUp(d.form);
       // i18n: Live annotations: a swimming organism ({name} its species, {n} cells, {form} notes.form, {speed} a speed, {heading} notes.compass), or an organism ({size} across)
       P.label = swim
-        ? { tone: HOT, eye: tr('notes.swim.eye', 'SWIMMING'), num: d.lengths.toFixed(1), main: tr('notes.swim.main', 'BODY LENGTHS / S'), data: [tr('notes.body.cells', '{name} · {n}-CELL {form}', { name: nm(d.kind), n: d.cells, form }), tr('notes.swim.speed', '{speed} · HEADING {heading}', { speed: fmtLen(d.speed, '/s'), heading: compass(d.heading) })] }
+        ? { tone: HOT, eye: tr('notes.swim.eye', 'SWIMMING'), num: d.lengths.toFixed(1), main: tr('notes.swim.main', 'BODY LENGTHS / S'), data: [tr('notes.body.cells', '{name} · {n}-CELL {form}', { name: nm(d.kind), n: d.cells, form }), tr('notes.swim.speed', '{speed} · HEADING {heading}', { speed: fmtLen(d.speed, '/s'), heading: compass(d.heading) })], dataKinds: [kd(d.kind), null] }
         : { tone: INK, eye: tr('notes.body.eye', 'ORGANISM'), num: String(d.cells), main: tr('notes.body.main', 'CELLS · {name}', { name: nm(d.kind) }), data: [tr('notes.body.data', 'ONE BODY: A {form} {size} ACROSS', { form, size: fmtLen(d.size) }), tr('notes.body.share', '{guild} · BONDED CELLS SHARE WHAT THEY GATHER', { guild: guildUp(g2?.guild) })] };
       P.keys.push({ glyph: 'plus', text: tr('notes.key.body', '{name}: ONE BODY', { name: nm(d.kind) }), tone });
     } else if (d.type === 'stalk') {
@@ -1238,7 +1240,7 @@ export function createNoteView(g) {
       P.anchor = [a[0], a[1] - r];
       P.pts = [a, b];
       // i18n: Live annotations: a hunter closing on its quarry ({name} its species), at {speed}
-      P.label = { tone: HOT, eye: tr('notes.stalk.eye', 'HUNTING'), main: nm(d.akind), data: [tr('notes.stalk.data', 'CLOSING ON {name}', { name: nm(d.kind) }), tr('notes.stalk.why', 'ITS LAST MEAL WAS ONE OF THEM · {speed}', { speed: fmtLen(d.speed, '/s') })] };
+      P.label = { tone: HOT, eye: tr('notes.stalk.eye', 'HUNTING'), main: nm(d.akind), kind: kd(d.akind), data: [tr('notes.stalk.data', 'CLOSING ON {name}', { name: nm(d.kind) }), tr('notes.stalk.why', 'ITS LAST MEAL WAS ONE OF THEM · {speed}', { speed: fmtLen(d.speed, '/s') })], dataKinds: [kd(d.kind), null] };
       P.keys.push({ glyph: 'cross', text: tr('notes.key.quarry', 'QUARRY'), tone: INK });
     } else if (d.type === 'web') {
       // the food web: a panel, its species marked in the view by their guild's glyph
@@ -1257,7 +1259,7 @@ export function createNoteView(g) {
       const net = d.born - d.dead, CAUSE = { kill: HOT, grazed: HOT, starved: INK2, old: INK3, scalded: HOT, froze: CYAN, dried: INK3 };
       const deaths = Object.entries(d.died).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).map(([c, k]) => [causeUp(c), k, CAUSE[c]]);
       // i18n: Live annotations: a species' births against its deaths: thriving, declining or turning over; its deaths by cause ({cause} notes.cause, {n} of them)
-      P.label = { tone: net >= 0 ? CYAN : HOT, tag: net > d.dead * 0.2 ? tr('notes.balance.thriving', 'THRIVING') : -net > d.born * 0.2 ? tr('notes.balance.declining', 'DECLINING') : tr('notes.balance.turnover', 'TURNOVER'), num: `${net > 0 ? '+' : ''}${net}`, main: nm(d.kind),
+      P.label = { tone: net >= 0 ? CYAN : HOT, tag: net > d.dead * 0.2 ? tr('notes.balance.thriving', 'THRIVING') : -net > d.born * 0.2 ? tr('notes.balance.declining', 'DECLINING') : tr('notes.balance.turnover', 'TURNOVER'), num: `${net > 0 ? '+' : ''}${net}`, main: nm(d.kind), kind: kd(d.kind),
         data: [tr('notes.balance.data', 'BORN {born} · DIED {dead} · LAST 30 S', { born: d.born, dead: d.dead }), causeList(deaths.slice(0, 3).map(([c, k]) => tr('notes.cause-count', '{cause} {n}', { cause: c, n: k }))) || tr('notes.balance.none-died', 'NONE DIED')], split: { born: d.born, deaths } };
       P.keys.push({ glyph: 'plus', text: cellOf(nm(d.kind)), tone: INK });
       if (died.length) P.keys.push({ glyph: 'cross', text: tr('notes.key.died', 'DIED, LAST 10 S'), tone: HOT });
@@ -1317,7 +1319,7 @@ export function createNoteView(g) {
       P.anchor = an;
       P.pts = pts;
       // i18n: Live annotations: scavengers eating the dead
-      P.label = { tone: INK, eye: tr('notes.scavenging.eye', 'SCAVENGERS'), num: String(d.meals), main: nm(d.kind), data: [tr('notes.scavenging.data', 'HUSKS EATEN · LAST 30 S'), tr('notes.scavenging.why', 'THEY LIVE ON THE DEAD: NOTHING IS WASTED')] };
+      P.label = { tone: INK, eye: tr('notes.scavenging.eye', 'SCAVENGERS'), num: String(d.meals), main: nm(d.kind), kind: kd(d.kind), data: [tr('notes.scavenging.data', 'HUSKS EATEN · LAST 30 S'), tr('notes.scavenging.why', 'THEY LIVE ON THE DEAD: NOTHING IS WASTED')] };
       P.keys.push({ glyph: 'plus', text: cellOf(nm(d.kind)), tone: INK });
       if (meals.length) P.keys.push({ glyph: 'cross', text: tr('notes.key.husk-eaten', 'A HUSK EATEN, LAST 10 S'), tone: INK2 });
     } else if (d.type === 'sprint') {
@@ -1334,8 +1336,9 @@ export function createNoteView(g) {
       lockBox(a, r);
       P.anchor = [a[0], a[1] - r];
       P.pts = [a];
-      // i18n: Live annotations: the fastest cell in view: its speed's unit ({unit}, as µm) a second, its species ({name}); {n} times as fast as most; its heading (notes.compass)
-      P.label = { tone: HOT, eye: tr('notes.sprint.eye', 'FASTEST IN VIEW'), num: fmtLen(d.speed).split(' ')[0], main: tr('notes.sprint.main', '{unit}/s · {name}', { unit: fmtLen(d.speed).split(' ')[1], name: nm(d.kind) }),
+      const sp1 = lenParts(d.speed);
+      // i18n: Live annotations: the fastest cell in view (its speed's number beside this): its speed's unit a second, its species ({name}); {n} times as fast as most; its heading (notes.compass)
+      P.label = { tone: HOT, eye: tr('notes.sprint.eye', 'FASTEST IN VIEW'), num: String(sp1.n), main: tr('notes.sprint.main', '{unit, select, mm {mm} other {µm}}/s · {name}', { unit: sp1.unit, name: nm(d.kind) }),
         data: [tr('notes.sprint.data', '{n}× AS FAST AS MOST HERE', { n: d.times.toFixed(0) }), tr('notes.heading', 'HEADING {heading}', { heading: compass(d.heading) })] };
     } else if (d.type === 'beat') {
       // a beating body: its cells, brackets, and its beat drawn as an oscillograph at its own rate
@@ -1353,7 +1356,7 @@ export function createNoteView(g) {
       // i18n: Live annotations: a beating body: its species ({name}), {n} cells, its form (notes.form); how it beats; how fast it swims ({n} body lengths a second)
       P.label = { tone: HOT, eye: tr('notes.beat.eye', 'BEATING'), num: d.hz.toFixed(1), main: tr('notes.beat.main', 'BEATS / S'), data: [tr('notes.body.cells', '{name} · {n}-CELL {form}', { name: nm(d.kind), n: d.cells, form: formUp(d.form) }),
         d.tail ? tr('notes.beat.tail', 'ITS TAIL BEATS: A WAVE RUNS DOWN IT') : tr('notes.beat.wave', 'ITS CELLS BEAT IN A WAVE ALONG IT'), moving ? tr('notes.beat.swims', 'IT SWIMS {n} BODY LENGTHS / S', { n: d.lengths.toFixed(1) }) : tr('notes.beat.held', 'BEATING, BUT HELD WHERE IT IS')],
-        wave: { hz: d.hz, amp: d.beat } };
+        dataKinds: [kd(d.kind), null, null], wave: { hz: d.hz, amp: d.beat } };
       P.keys.push({ glyph: 'plus', text: tr('notes.key.beating', '{name}: ONE BEATING BODY', { name: nm(d.kind) }), tone: HOT });
     } else if (d.type === 'light') {
       // the light: where it falls brightest in view (a shape where it crosses halfway from the view's mean to its
@@ -1559,7 +1562,7 @@ export function createNoteView(g) {
       P.anchor = an;
       P.pts = pts;
       // i18n: Live annotations: cells of a species dying of old age
-      P.label = { tone: INK, eye: tr('notes.old.eye', 'OLD AGE'), num: String(d.count), main: nm(d.kind), data: [tr('notes.old.data', 'DIED OF AGE IN 20 S'), tr('notes.old.why', 'A COHORT REACHING ITS END')] };
+      P.label = { tone: INK, eye: tr('notes.old.eye', 'OLD AGE'), num: String(d.count), main: nm(d.kind), kind: kd(d.kind), data: [tr('notes.old.data', 'DIED OF AGE IN 20 S'), tr('notes.old.why', 'A COHORT REACHING ITS END')] };
       P.keys.push({ glyph: 'cross', text: tr('notes.key.died-of-age', 'DIED OF AGE'), tone: INK });
     } else if (d.type === 'rot') {
       const pts = group('r', M.stats.husks);
@@ -1626,18 +1629,11 @@ export function createNoteView(g) {
       P.pts = pts;
       P.label = d.type === 'starving'
         // i18n: Live annotations: cells starving, or drying on the mud (mostly of one species, {name})
-        ? { tone: HOT, eye: tr('notes.starving.eye', 'STARVING'), num: String(d.count), main: nm(d.kind), data: [tr('notes.starving.data', 'STARVED IN 20 S'), tr('notes.starving.why', 'NOTHING TO EAT IN REACH')] }
-        : { tone: HOT, tag: tr('notes.stranded.tag', 'STRANDED'), num: String(d.count), main: tr('notes.drying.main', 'DRYING ON THE MUD'), data: [tr('notes.drying.data', 'MOSTLY {name}', { name: nm(d.kind) }), tr('notes.drying.why', 'THE WATER WITHDREW FROM THEM')] };
+        ? { tone: HOT, eye: tr('notes.starving.eye', 'STARVING'), num: String(d.count), main: nm(d.kind), kind: kd(d.kind), data: [tr('notes.starving.data', 'STARVED IN 20 S'), tr('notes.starving.why', 'NOTHING TO EAT IN REACH')] }
+        : { tone: HOT, tag: tr('notes.stranded.tag', 'STRANDED'), num: String(d.count), main: tr('notes.drying.main', 'DRYING ON THE MUD'), data: [tr('notes.drying.data', 'MOSTLY {name}', { name: nm(d.kind) }), tr('notes.drying.why', 'THE WATER WITHDREW FROM THEM')], dataKinds: [kd(d.kind), null] };
       P.keys.push({ glyph: 'cross', text: d.type === 'starving' ? tr('notes.key.starved', 'STARVED, LAST 20 S') : tr('notes.key.dried', 'DRIED OUT, LAST 20 S'), tone: HOT });
     }
     n.pins = S.an.filter((a) => a.anchor != null && a.pin).map((a) => a.anchor);
-    // the species' glyph by its name wherever a label tells one
-    const kinds = [d.akind, d.kind, d.fine?.kind, d.warm].filter((k) => k != null && k >= 0);
-    for (const L of [P.label, P.extra?.label]) {
-      if (!L) continue;
-      if (L.kind == null) for (const k of kinds) if (L.main === nm(k)) { L.kind = k; break; }
-      if (L.data && !L.dataKinds) L.dataKinds = L.data.map((line) => { for (const k of kinds) if (line.includes(nm(k))) return k; return null; });
-    }
     return P.anchor || P.panel ? P : null;
   }
 

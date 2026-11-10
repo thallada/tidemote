@@ -38,9 +38,14 @@ export const cellRadius = (p, g, ppu) => 0.085 * (g ? g.size : 1) * (1 - 0.12 * 
 // taken to be 10 µm, about the size of a protist.
 export const UM_PER_UNIT = 10 / 0.17;
 // a world length (or speed, with unit '/s') in µm, or mm from a millimeter up
-export const fmtLen = (u, unit = '') => {
+/** A length's number as fmtLen prints it and its unit's key ('mm' or 'um'), for a readout that sets them apart. */
+export const lenParts = (u) => {
   const um = Math.abs(u) * UM_PER_UNIT;
-  const v = um >= 1000 ? tr('fmt.len.mm', '{n} mm', { n: (um / 1000).toFixed(um >= 10000 ? 1 : 2) }) : tr('fmt.len.um', '{n} µm', { n: um >= 10 ? Math.round(um) : um.toFixed(1) });
+  return um >= 1000 ? { n: (um / 1000).toFixed(um >= 10000 ? 1 : 2), unit: 'mm' } : { n: um >= 10 ? Math.round(um) : um.toFixed(1), unit: 'um' };
+};
+export const fmtLen = (u, unit = '') => {
+  const { n, unit: mm } = lenParts(u);
+  const v = mm === 'mm' ? tr('fmt.len.mm', '{n} mm', { n }) : tr('fmt.len.um', '{n} µm', { n });
   // i18n: a speed: {len} is a length (12 µm), per second
   return unit === '/s' ? tr('fmt.len.per-s', '{len}/s', { len: v }) : v + unit;
 };

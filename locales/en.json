@@ -2052,7 +2052,7 @@
   "notes.scavenging.why": "THEY LIVE ON THE DEAD: NOTHING IS WASTED",
   "notes.key.husk-eaten": "A HUSK EATEN, LAST 10 S",
   "notes.sprint.eye": "FASTEST IN VIEW",
-  "notes.sprint.main": "{unit}/s · {name}",
+  "notes.sprint.main": "{unit, select, mm {mm} other {µm}}/s · {name}",
   "notes.sprint.data": "{n}× AS FAST AS MOST HERE",
   "notes.heading": "HEADING {heading}",
   "notes.beat.eye": "BEATING",
