@@ -1,22 +1,22 @@
 // Matched-start forks (src/headless.js runForks): one world grown in 1/60 s steps, then the same moment run
 // forward under several step lengths and tunables, pair by pair. See docs/fast-forward.md.
 //   tools/gpu-node.sh tools/fork.mjs --n 32768 --warm 600 --horizon 30 --reps 16 --k '{"diag":1}' --variants '[{"name":"m1","step":1},{"name":"m4","step":4}]'
-// A variant may also be { kept: true }: the moment saved to a file and opened again before it runs.
+// A variant may also be { kept: true }: the moment saved to a file and opened again before it runs. --cpu runs on a
+// software adapter (lavapipe), which sim.mjs and these tools otherwise refuse (tools/adapter.mjs).
 import fs from 'node:fs';
 import { parseArgs } from 'node:util';
+import { dawnAdapter } from './adapter.mjs';
 import { runForks } from '../src/headless.js';
 
 const { values: v } = parseArgs({ options: {
   n: { type: 'string', default: '32768' }, warm: { type: 'string', default: '600' }, horizon: { type: 'string', default: '30' },
   reps: { type: 'string', default: '16' }, seed: { type: 'string', default: '1' }, k: { type: 'string', default: '{}' },
   variants: { type: 'string', default: '[{"name":"m1","step":1},{"name":"m4","step":4}]' }, eras: { type: 'boolean' },
-  out: { type: 'string' }, temp: { type: 'string' },
+  out: { type: 'string' }, temp: { type: 'string' }, cpu: { type: 'boolean' },
 } });
 const config = { n: +v.n, warm: +v.warm, horizon: +v.horizon, reps: +v.reps, seed: +v.seed, k: JSON.parse(v.k), variants: JSON.parse(v.variants), eras: !!v.eras, ...(v.temp != null ? { temp: +v.temp } : {}) };
-const { create, globals } = await import('webgpu');
-Object.assign(globalThis, globals);
-const gpu = create([]);
-const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
+// (gpu, the instance, kept: collected, it takes the device with it)
+const { gpu, adapter } = await dawnAdapter({ cpu: v.cpu });
 const device = await adapter.requestDevice({ requiredLimits: { maxStorageBuffersPerShaderStage: 10 } });
 const res = await runForks(device, config, { print: (s) => console.error(s) });
 if (v.out) fs.writeFileSync(v.out, JSON.stringify(res, null, 2) + '\n');

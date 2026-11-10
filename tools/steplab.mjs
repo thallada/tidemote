@@ -6,19 +6,18 @@
 // velocity and of the coarse step's error from them, and the body's travel along x either way.
 //   tools/gpu-node.sh tools/steplab.mjs --body filament:5 --genome '{"beat":[0.5,1.5,0.8,1]}' --step 6
 //   a tailed mat: --body mat:12:5:1 --genome '{"grow":[0,0.3,0,0.5,0,0],"tail":[1,0.3],"beat":[0.5,1.5,0.8,1]}'
+//   --cpu runs on a software adapter (lavapipe).
 import { parseArgs } from 'node:util';
+import { dawnAdapter } from './adapter.mjs';
 
 const { values: v } = parseArgs({ options: {
   body: { type: 'string', default: 'filament:5' }, genome: { type: 'string', default: '{}' }, k: { type: 'string', default: '{}' },
   step: { type: 'string', default: '6' }, moments: { type: 'string', default: '16' }, span: { type: 'string', default: '1.33' },
-  warm: { type: 'string', default: '3' }, n: { type: 'string', default: '4096' },
+  warm: { type: 'string', default: '3' }, n: { type: 'string', default: '4096' }, cpu: { type: 'boolean' },
 } });
 
-const { create, globals } = await import('webgpu');
-Object.assign(globalThis, globals);
-// (the instance kept: collected, it takes the device with it)
-const gpu = create([]);
-const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
+// (gpu, the instance, kept: collected, it takes the device with it)
+const { gpu, adapter } = await dawnAdapter({ cpu: v.cpu });
 const device = await adapter.requestDevice({ requiredLimits: { maxStorageBuffersPerShaderStage: 10 } });
 const E = await import('../src/engine.js');
 const { testGenome, aloneInWater } = await import('./swimlab-bodies.mjs');

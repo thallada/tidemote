@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { runHeadless } from '../src/headless.js';
 import { vkOn, vkLaunch } from './vk.mjs';
+import { refuseSoftware } from './adapter.mjs';
 import { P_BYTES, FIRST_LIFE, FRAMBOID } from '../src/shaders.js';
 
 const { values: v } = parseArgs({ options: {
@@ -96,13 +97,7 @@ async function runDawn() {
   const gpu = create([]); // The instance must outlive the device.
   const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
   if (!adapter) { console.error('No WebGPU adapter available'); process.exit(2); }
-  const info = adapter.info;
-  config.adapter = [info.vendor, info.architecture, info.device, info.description].filter(Boolean).join(' / ');
-  if (!v.cpu && info.architecture === 'software') {
-    console.error(`Dawn found only a software adapter (${config.adapter}). Pass --cpu to use it anyway;` +
-      ' under WSL run through tools/gpu-node.sh to reach the GPU via Windows D3D12 (see docs/headless-gpu.md).');
-    process.exit(2);
-  }
+  config.adapter = refuseSoftware(adapter, v.cpu);
   const hasTS = (v['render-bench'] || v.profile) && adapter.features.has('timestamp-query');
   if ((v['render-bench'] || v.profile) && !hasTS) throw new Error('GPU timestamps unavailable');
   const device = await adapter.requestDevice({ requiredFeatures: hasTS ? ['timestamp-query'] : [], requiredLimits: { maxStorageBuffersPerShaderStage: 10 } });

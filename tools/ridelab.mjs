@@ -1,27 +1,26 @@
 // Ride lab (docs/hand.md, Riding): one body alone in still water (tools/swimlab-bodies.mjs), ridden by a script of
 // held ways, measured on the GPU: its bonds and how many of its cells stay one body, how fast it goes as a way is held
 // (the throttle's ramp), how far a tap carries it, and (--stone) whether a wall of stone stops it.
-//   node tools/ridelab.mjs --body mat:19:4:2 --rider last --plan '[[3,1,0],[3,0,-1],[3,-1,0],[3,0,1],[2,0,0]]'
+//   tools/gpu-node.sh tools/ridelab.mjs --body mat:19:4:2 --rider last --plan '[[3,1,0],[3,0,-1],[3,-1,0],[3,0,1],[2,0,0]]'
 //   --stone 1: a wall of stone 1.5 units ahead of it across its way (ride it right); --genome '{...}' overrides;
 //   --old DIR: the page's ride as it was at the source tree DIR (a git worktree of an earlier commit): the will a
 //   target 4 units ahead at full strength the moment a key is down, the rider and its bonded neighbors only.
-//   --step N coarse steps; --json prints each frame's trace too.
+//   --step N coarse steps; --json prints each frame's trace too; --cpu runs on a software adapter (lavapipe).
 import { parseArgs } from 'node:util';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { dawnAdapter } from './adapter.mjs';
 
 const { values: v } = parseArgs({ options: {
   body: { type: 'string', default: 'mat:19:4:2' }, genome: { type: 'string', default: '{}' }, k: { type: 'string', default: '{}' },
   rider: { type: 'string', default: 'last' }, plan: { type: 'string', default: '[[3,1,0],[3,0,-1],[3,-1,0],[3,0,1],[2,0,0]]' },
   stone: { type: 'string', default: '0' }, old: { type: 'string' }, step: { type: 'string', default: '1' }, n: { type: 'string', default: '4096' },
-  warm: { type: 'string', default: '1' }, json: { type: 'boolean' },
+  warm: { type: 'string', default: '1' }, json: { type: 'boolean' }, cpu: { type: 'boolean' },
 } });
 
 const src = v.old ? pathToFileURL(path.resolve(v.old, 'src') + '/').href : new URL('../src/', import.meta.url).href;
-const { create, globals } = await import('webgpu');
-Object.assign(globalThis, globals);
-const gpu = create([]);
-const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
+// (gpu, the instance, kept: collected, it takes the device with it)
+const { gpu, adapter } = await dawnAdapter({ cpu: v.cpu });
 const device = await adapter.requestDevice({ requiredLimits: { maxStorageBuffersPerShaderStage: 10 } });
 const E = await import(src + 'engine.js');
 const { P_BYTES, FIRST_LIFE, NONE = 0xffffffff } = await import(src + 'shaders.js');

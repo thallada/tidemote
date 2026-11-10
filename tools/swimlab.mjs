@@ -8,20 +8,19 @@
 // than that loses its thrust somewhere other than the water.
 //   tools/gpu-node.sh tools/swimlab.mjs --body filament:12 --genome '{"beat":[0.4,1.5,0.6,1]}' --k '{}' --seconds 20
 //   --sweep '[{...genome overrides...}, ...]' runs several in turn; --step 4 takes coarse steps; --dump FILE
-//   writes every sample's cell positions (runs/stride/mat/draw.py draws them).
+//   writes every sample's cell positions (runs/stride/mat/draw.py draws them); --cpu runs on a software adapter (lavapipe).
 import fs from 'node:fs';
 import { parseArgs } from 'node:util';
+import { dawnAdapter } from './adapter.mjs';
 
 const { values: v } = parseArgs({ options: {
   body: { type: 'string', default: 'filament:12' }, genome: { type: 'string', default: '{}' }, k: { type: 'string', default: '{}' },
   seconds: { type: 'string', default: '20' }, warm: { type: 'string', default: '4' }, step: { type: 'string', default: '1' },
-  sweep: { type: 'string' }, out: { type: 'string' }, n: { type: 'string', default: '4096' }, trace: { type: 'boolean' }, grow: { type: 'boolean' }, every: { type: 'string', default: '2' }, dump: { type: 'string' },
+  sweep: { type: 'string' }, out: { type: 'string' }, n: { type: 'string', default: '4096' }, trace: { type: 'boolean' }, grow: { type: 'boolean' }, every: { type: 'string', default: '2' }, dump: { type: 'string' }, cpu: { type: 'boolean' },
 } });
 
-const { create, globals } = await import('webgpu');
-Object.assign(globalThis, globals);
-const gpu = create([]);
-const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
+// (gpu, the instance, kept: collected, it takes the device with it)
+const { gpu, adapter } = await dawnAdapter({ cpu: v.cpu });
 const device = await adapter.requestDevice({ requiredLimits: { maxStorageBuffersPerShaderStage: 10 } });
 const E = await import('../src/engine.js');
 const { testGenome, aloneInWater } = await import('./swimlab-bodies.mjs');
