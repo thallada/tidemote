@@ -164,7 +164,6 @@ export const DEFAULT_K = {
   eatR: 0.3,
   linkR: 0.42,
   bondBreak: 1.25,  // persistent bonds break beyond 1.25 × their formation range (linkR)
-  gain: 1.5,
   sated: 1.0,       // cells stop feeding above this × the energy needed to divide
   killEvery: 4,     // handling time: kills only on every Nth meal opportunity
   biteEvery: 1,     // ...and bites of plant cells on every Nth
@@ -1903,9 +1902,8 @@ fn depositHeat(p: vec2f, e: f32) {
 fn spec(d: f32) -> f32 { let c = min(max(d, 0.0), 1.0); return pow(c, ${f(K.specPow)}); }
 // What an eater keeps of a meal holding raw energy: skill (diet specialization) times eatEff × warmth (fit).
 // Food that was alive passes on at most K.assimCap of what it held, the share growing with skill at K.assimilate, so no loop makes energy.
-fn take(raw: f32, skill: f32, outside: bool, fit: f32) -> f32 {
-  if (!outside) { return raw * min(${f(K.assimCap)}, skill * fit * ${f(K.assimilate)}); }
-  return raw * skill * fit * ${f(K.gain)};
+fn take(raw: f32, skill: f32, fit: f32) -> f32 {
+  return raw * min(${f(K.assimCap)}, skill * fit * ${f(K.assimilate)});
 }
 
 // Ledger guild order: producer, grazer, predator, scavenger (a fifth slot, once omnivores, is unused).
@@ -3404,9 +3402,9 @@ ${cellWGSL(K, false, genomePtr)}
         if (fp.kind == HUSK) {
           gain = fp.energy * min(1.0, spec(g.dHusk) * eatEff * th.perf * ${f(K.assimilate)}); atomicAdd(&ledger[10], 1u);
         } else if (genomes[fp.kind].photo > 0.4) {
-          gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf); gut = min(gut + max(0.0, min(max(fp.energy, 0.0), ${f(K.bite)}) - gain), ${f(K.dungE)}); act = 3u; atomicAdd(&ledger[11], 1u);
+          gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), eatEff * th.perf); gut = min(gut + max(0.0, min(max(fp.energy, 0.0), ${f(K.bite)}) - gain), ${f(K.dungE)}); act = 3u; atomicAdd(&ledger[11], 1u);
         } else {
-          gain = (${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)}) * min(1.0, spec(g.dFlesh) * eatEff * th.perf * ${f(K.assimilate)}) + take(max(fp.energy, 0.0), spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u); gut = min(gut + max(0.0, (${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)} + max(fp.energy, 0.0)) - gain), ${f(K.dungE)});
+          gain = (${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)}) * min(1.0, spec(g.dFlesh) * eatEff * th.perf * ${f(K.assimilate)}) + take(max(fp.energy, 0.0), spec(g.dFlesh), eatEff * th.perf); atomicAdd(&ledger[7], 1u); gut = min(gut + max(0.0, (${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)} + max(fp.energy, 0.0)) - gain), ${f(K.dungE)});
         }
         if (fk >= FIRST_LIFE) { info = (info & 0xffff003fu) | (fk << 6u); }
         E += gain;
@@ -3485,9 +3483,9 @@ ${cellWGSL(K, false, genomePtr)}
           if (fp.kind == HUSK) {
             gain = fp.energy * min(1.0, spec(g.dHusk) * eatEff * th.perf * ${f(K.assimilate)}); atomicAdd(&ledger[10], 1u); slot = 3u;
           } else if (plant) {
-            gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), false, eatEff * th.perf); gut = min(gut + max(0.0, min(max(fp.energy, 0.0), ${f(K.bite)}) - gain), ${f(K.dungE)}); atomicAdd(&ledger[11], 1u); slot = 2u;
+            gain = take(min(max(fp.energy, 0.0), ${f(K.bite)}), spec(${f(K.grazePref)} * g.dGlint + ${f(K.plantPref)} * g.dFlesh), eatEff * th.perf); gut = min(gut + max(0.0, min(max(fp.energy, 0.0), ${f(K.bite)}) - gain), ${f(K.dungE)}); atomicAdd(&ledger[11], 1u); slot = 2u;
           } else {
-            gain = (${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)}) * min(1.0, spec(g.dFlesh) * eatEff * th.perf * ${f(K.assimilate)}) + take(max(fp.energy, 0.0), spec(g.dFlesh), false, eatEff * th.perf); atomicAdd(&ledger[7], 1u); gut = min(gut + max(0.0, (${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)} + max(fp.energy, 0.0)) - gain), ${f(K.dungE)});
+            gain = (${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)}) * min(1.0, spec(g.dFlesh) * eatEff * th.perf * ${f(K.assimilate)}) + take(max(fp.energy, 0.0), spec(g.dFlesh), eatEff * th.perf); atomicAdd(&ledger[7], 1u); gut = min(gut + max(0.0, (${bodyOf(K, 'genomes[fp.kind]')} * ${f(1 - K.carcassKeep)} + max(fp.energy, 0.0)) - gain), ${f(K.dungE)});
           }
           if (fp.kind >= FIRST_LIFE) {
             atomicAdd(&ledger[META_DEATH + 32u + 5u * ledgerGuild(${G}) + ledgerGuild(genomes[fp.kind])], 1u);
