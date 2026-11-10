@@ -23,7 +23,8 @@ const src = v.old ? pathToFileURL(path.resolve(v.old, 'src') + '/').href : new U
 const { gpu, adapter } = await dawnAdapter({ cpu: v.cpu });
 const device = await adapter.requestDevice({ requiredLimits: { maxStorageBuffersPerShaderStage: 10 } });
 const E = await import(src + 'engine.js');
-const { P_BYTES, FIRST_LIFE, NONE = 0xffffffff } = await import(src + 'shaders.js');
+// (an older tree's own STONE where it exports one)
+const { P_BYTES, FIRST_LIFE, NONE = 0xffffffff, STONE = 3 } = await import(src + 'shaders.js');
 const { testGenome, aloneInWater } = await import('./swimlab-bodies.mjs');
 const R = await import('../src/ride.js');
 
@@ -31,7 +32,7 @@ const K = { metab: 0, ...JSON.parse(v.k) };
 const eng = await E.createEngine(device, 'rgba8unorm', { K });
 await eng.allocate(+v.n);
 eng.resize(640, 360);
-const PW = P_BYTES / 4, STONE = 3, BASE = 1000000;
+const PW = P_BYTES / 4, BASE = 1000000;
 const plan = JSON.parse(v.plan), step = +v.step, dt = step / 60;
 const wrapD = (d, W) => d - W * Math.round(d / W);
 
