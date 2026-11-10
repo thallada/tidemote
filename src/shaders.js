@@ -3494,8 +3494,9 @@ ${cellWGSL(K, false, genomePtr)}
     splCause(p.kind, 6u);
     noteSelf(EV_CYST, p.kind, p.id, pos);
   }
-  // stranded on dry ground a cell dries out, unless it rests as a cyst (or a spore) first
-  if (stranded && E > 0.0) {
+  // stranded on dry ground a cell dries out, unless it rests as a cyst (or a spore) first (one that went dormant
+  // just above is a cyst already: it neither encysts twice nor dries)
+  if (stranded && E > 0.0 && (info & 15u) != CYST) {
     if (act == 0u && rnd(&s) < ${f(K.dryCyst)} * smoothstep(0.5, 1.0, -shore / ${f(K.filmR)}) * sim.dt) { info = (info & 0xffff003fu & 0xfffffff0u) | CYST; age = 0.0; act = 0u; splCause(p.kind, 6u); noteSelf(EV_CYST, p.kind, p.id, pos); }
     else { E -= ${f(K.dryCost)} * sim.dt; }
   }
