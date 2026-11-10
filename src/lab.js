@@ -788,6 +788,7 @@ export function createLab(api) {
   // built from the old world goes (the census, built from the page and kept current, stays).
   function reset() {
     for (const k of Object.keys(panes)) if (k !== 'census') { panes[k].el.remove(); delete panes[k]; }
+    st.linRoot = null; // (the lineage explored was the old world's)
     if (st.open) show();
   }
   return {
