@@ -21,8 +21,11 @@ import { tr } from './i18n.js';
  *   major: a change older versions cannot read, or this one can no longer read older saves by (a
  *     buffer's layout, what readState keeps, how a column is coded, what the page's record means).
  *     A save opens only in a version of its own major.
- *   minor: something added that a version of the same major can do without (a head field, a buffer it
- *     does not know, both ignored); a save opens in any version of its major, older or newer.
+ *   minor: something added to the head (a field, a part of the page's record) that a version of the same
+ *     major can do without, and a newer one gives a default when absent; such a save opens in any version
+ *     of its major, older or newer. Buffers are not minor: main.js openWorld wants every buffer it knows at
+ *     exactly its size (Engine.stateSizes), so one added, removed or resized is major (an older version
+ *     would ignore an extra one, but a newer one refuses a save without it).
  *   patch: a fix that changes nothing a reader sees.
  * Bump it with every change to the format (docs/desktop.md).
  */
