@@ -13,7 +13,8 @@ import fs from 'node:fs'; import path from 'node:path'; import http from 'node:h
 import { chromium } from 'playwright-core';
 import { launchOptions, windowFlags } from './lib/browser.mjs';
 import { viewPrefs } from './lib/prefs.mjs';
-const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith('--') ? [...a, [x.slice(2), all[i + 1] && !all[i + 1].startsWith('--') ? all[i + 1] : '1']] : a), []));
+import { cliArgs } from './lib/args.mjs';
+const args = cliArgs();
 const v = { out: 'runs/notes/a', warm: 60, secs: 60, every: 5, speed: 1, n: 131072, w: 1440, h: 900, html: 'dist/tidemote.html', ...args };
 fs.mkdirSync(v.out, { recursive: true });
 const html = path.resolve(v.html);

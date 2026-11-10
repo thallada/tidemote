@@ -26,3 +26,15 @@ test('a world packed as a .bin unpacks to the same state', async () => {
   for (const k of Object.keys(st.gpu)) assert.deepEqual(new Uint8Array(back.gpu[k]), new Uint8Array(st.gpu[k]));
   assert.deepEqual(unpackWorld(bin.buffer.slice(bin.byteOffset, bin.byteOffset + bin.length)).cpu, back.cpu);
 });
+
+test('the loose command-line readers', async () => {
+  const { cliArgs, arg } = await import('../tools/lib/args.mjs');
+  const keep = process.argv;
+  try {
+    process.argv = ['node', 'tool.mjs', '--out', 'runs/x', '--phone', '--n', '4096', 'stray', '--k', '{"a":1}', '--last'];
+    assert.deepEqual(cliArgs(), { out: 'runs/x', phone: '1', n: '4096', k: '{"a":1}', last: '1' });
+    assert.equal(arg('n', '8'), '4096');
+    assert.equal(arg('seed', '5'), '5');
+    assert.equal(arg('last', 'x'), undefined);
+  } finally { process.argv = keep; }
+});

@@ -10,8 +10,9 @@ import { chromium } from 'playwright-core';
 import { vkOn as vk, retryAdapter } from './vk.mjs';
 import { launchOptions, UNTHROTTLED } from './lib/browser.mjs';
 import { viewPrefs } from './lib/prefs.mjs';
+import { cliArgs } from './lib/args.mjs';
 
-const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith('--') ? [...a, [x.slice(2), all[i + 1] && !all[i + 1].startsWith('--') ? all[i + 1] : '1']] : a), []));
+const args = cliArgs();
 const out = path.resolve(args.out || 'runs/ui/audit');
 fs.mkdirSync(out, { recursive: true });
 const settle = +(args.settle || 25);

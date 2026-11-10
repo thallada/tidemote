@@ -12,7 +12,7 @@ import { songSVG, sigilSVG } from '../src/song.js';
 import { DEFAULT_K } from '../src/shaders.js';
 import { portraits } from './species-portraits.mjs';
 
-const arg = (k, d) => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
+import { arg } from './lib/args.mjs';
 const OUT = arg('out', 'sigils'), SEED = Number(arg('seed', 5));
 fs.mkdirSync(OUT, { recursive: true });
 let s = SEED >>> 0;

@@ -11,7 +11,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const arg = (name, def) => { const i = process.argv.indexOf(`--${name}`); return i < 0 ? def : process.argv[i + 1]; };
+import { arg } from './lib/args.mjs';
 const opts = { N: +arg('n', 16384), SEC: +arg('seconds', 60), VIEW: +arg('view', 14), SEED: +arg('seed', 7), W: 1200, H: 630 };
 const out = path.resolve(root, arg('out', 'site/og.jpg'));
 

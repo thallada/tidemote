@@ -6,7 +6,7 @@ import { chromium } from 'playwright-core';
 import { vkOn as vk, retryAdapter } from './vk.mjs';
 import { launchOptions } from './lib/browser.mjs';
 
-export const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d; };
+export { arg } from './lib/args.mjs';
 // --size: the window
 export const SIZES = { phone: { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true },
   laptop: { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 }, '4k': { viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 2 } };

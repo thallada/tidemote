@@ -14,8 +14,9 @@ import { chromium } from 'playwright-core';
 import { launchOptions, windowFlags } from '../lib/browser.mjs';
 import { viewPrefs } from '../lib/prefs.mjs';
 import { loadBinWorld, saveBinWorld } from '../lib/world.mjs';
+import { cliArgs } from '../lib/args.mjs';
 
-const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith('--') ? [...a, [x.slice(2), all[i + 1] && !all[i + 1].startsWith('--') ? all[i + 1] : '1']] : a), []));
+const args = cliArgs();
 const v = { world: 'w1', n: 262144, mature: 90, out: 'runs/anim/out/x', zoom: 450, secs: 6, speed: 1, spots: 3, target: 'events', k: '{}', pre: 2, w: 1200, h: 800, html: 'dist/tidemote.html', ...args };
 const root = path.resolve('.');
 const worldDir = path.join(root, 'runs/anim/worlds');

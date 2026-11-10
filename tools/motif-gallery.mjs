@@ -16,7 +16,7 @@ import { Engine } from '../src/audio/voices.js';
 import { Conductor } from '../src/audio/conductor.js';
 import { BS } from '../src/audio/ugens.js';
 
-const arg = (k, d) => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
+import { arg } from './lib/args.mjs';
 const flag = (k) => process.argv.includes('--' + k);
 const OUT = arg('out', 'gallery'), SEED = Number(arg('seed', 5)), PER = Number(arg('per', 4));
 const CHAINS = Number(arg('chains', 6)), DEPTH = Number(arg('depth', 6));

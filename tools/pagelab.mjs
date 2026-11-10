@@ -7,8 +7,7 @@ import { vkOn, retryAdapter } from './vk.mjs';
 import { launchOptions, windowFlags } from './lib/browser.mjs';
 import { viewPrefs } from './lib/prefs.mjs';
 
-/** --name value pairs (a bare --name is '1'). */
-export const cliArgs = () => Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith('--') ? [...a, [x.slice(2), all[i + 1] && !all[i + 1].startsWith('--') ? all[i + 1] : '1']] : a), []));
+export { cliArgs } from './lib/args.mjs';
 
 export async function openPage({ html = 'dist/tidemote.html', k = '{}', n = 262144, w = 1280, h = 800, mature = 120, tmp = 'page-', prefs = {} }) {
   const file = path.resolve(html);

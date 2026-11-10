@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const arg = (k, d) => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
+import { arg } from './lib/args.mjs';
 const out = arg('out', 'capture.json'), N = Number(arg('n', 4096)), WARM = Number(arg('warm', 40)), EACH = Number(arg('each', 25)), SEED = Number(arg('seed', 7));
 const root = fileURLToPath(new URL('..', import.meta.url));
 const entry = `

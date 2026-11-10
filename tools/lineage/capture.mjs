@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { root, start, open } from './browser.mjs';
 
-const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d; };
+import { arg } from '../lib/args.mjs';
 const out = path.resolve(root, arg('out', 'runs/lineage/w'));
 const minutes = +arg('minutes', 30), every = +arg('every', 5), n = arg('n') ? +arg('n') : null, k = arg('k', '');
 fs.mkdirSync(out, { recursive: true });

@@ -12,7 +12,7 @@ import { retryAdapter } from './vk.mjs';
 import { launchOptions } from './lib/browser.mjs';
 import { viewPrefs } from './lib/prefs.mjs';
 
-const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d; };
+import { arg } from './lib/args.mjs';
 const html = path.resolve(arg('html', fileURLToPath(new URL('../dist/tidemote.html', import.meta.url))));
 const n = +arg('n', 131072), minutes = +arg('minutes', 60);
 const speed = arg('speed', '16') === 'Infinity' ? Infinity : +arg('speed', '16');

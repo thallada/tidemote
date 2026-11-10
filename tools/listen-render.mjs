@@ -15,7 +15,7 @@ import { V_SCALE } from '../src/audio/listen.js';
 import { voiceOf } from '../src/audio/mapping.js';
 
 const [inPath, outPath] = process.argv.slice(2);
-const arg = (k, d) => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
+import { arg } from './lib/args.mjs';
 const only = arg('phase', null), seed = Number(arg('seed', 3));
 const speed = Number(arg('speed', 1)); // play the capture as if the simulation ran this fast
 const cap = JSON.parse(fs.readFileSync(inPath, 'utf8'));
