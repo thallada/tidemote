@@ -35,7 +35,7 @@ const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 
 const T = LISTEN.index;
 // base amplitude of one sound heard from the reference distance
-const AMP = { alive: 0.13, birth: 0.19, mutation: 0.09, spark: 0.045, starved: 0.13, old: 0.11, killed: 0.2, eaten: 0.075, charged: 0.04, rustle: 0.035 };
+const AMP = { alive: 0.13, birth: 0.19, mutation: 0.09, spark: 0.045, starved: 0.13, old: 0.11, killed: 0.2, eaten: 0.075, rustle: 0.035 };
 // playing grid (in steps) and how many notes of a type may share one grid point (calm water and
 // far views adjust these, see snap)
 const GRID = { starved: 2, old: 4, killed: 1, eaten: 0.5 };
@@ -48,7 +48,7 @@ const BG_GAIN = 0.05; // the world outside the view, relative to a sound at the 
 const P_REF = 0.05, RATIO = 2.5, GAIN_RANGE = [0.3, 2];
 // When the audio thread is crowded, the least important sounds are skipped first.
 const CROWDED = 70, FULL = 92;
-const MINOR = new Set(['charged', 'eaten', 'rustle']);
+const MINOR = new Set(['eaten', 'rustle']);
 // The swarm: grains per second a band plays at most (beyond that a grain stands for several, so
 // the activity stays audible as grains), and the level of one grain relative to a note.
 const SWARM_MAX = 150, GRAIN = 1.75;
@@ -77,7 +77,7 @@ export class Field {
     this.c = cond; this.rnd = cond.rnd;
     this.slots = new Map(); // species slot -> { serial, v, pop, k }
     this.taken = new Map(); // grid point key -> notes placed there
-    this.z = 0; this.gd = 1; this.act = 0.3; this.speed = 1;
+    this.z = 0; this.gd = 1; this.act = 0.3;
     this.gain = {}; // per-type gain overrides (tuning)
     this.budget = {}; // sounds held to a few a second (spend)
     this.agc = 1; this.power = P_REF; this.plan = null;
@@ -159,7 +159,7 @@ export class Field {
 
   collect(m) {
     const c = this.c, now = c.time;
-    this.speed = m.speed; this.z = m.z; this.gd = m.gd;
+    this.z = m.z; this.gd = m.gd;
     this.act += (m.act - this.act) * 0.25;
     // the pulse quickens a little in warm water and slows in cold
     c.setTempo(tempoFor(m.speed) * (1 + 0.06 * c.warm));
@@ -231,6 +231,7 @@ export class Field {
       const o = i * S, ti = ev[o];
       if (ti === 8) continue;
       const type = LISTEN.types[ti], slot = ev[o + 1];
+      if (AMP[type] == null) continue; // (a type the scan no longer finds: 'charged')
       let t = now + LATENCY - ev[o + 4] / Math.max(m.speed, 1e-6);
       if (t < now + 0.01) t = now + 0.01 + 0.03 * this.rnd();
       // from afar, every event joins the grains of its species; only life sparking from silt
@@ -406,8 +407,6 @@ export class Field {
           atk: this.rr(0.06, 0.15), dec: this.rr(0.2, 0.45) / Math.sqrt(c.tempo), amp: g, pan: o.pan, rev: Math.min(0.9, 0.35 + 0.5 * (1 - this.z)), dly: 0.04 });
         return;
       }
-      case 'charged': // (no longer sent: the tide once charged silt into glint) a faint shimmer
-        c.at(t, 'glint', { freq: midicps(d2m(o.idb % 14, root, scale)) * (o.idb & 32 ? 8 : 4), amp: g * (0.5 + 0.5 * o.td), dec: this.rr(0.04, 0.2), pan: o.pan, rev: o.wet(0.55), dly: 0.25 });
     }
   }
 
@@ -479,8 +478,8 @@ export class Field {
   background(m, wall, light, td) {
     const c = this.c;
     const o = (slot) => ({ slot, pan: this.rr(-0.6, 0.6), hue: this.rnd(), idb: (this.rnd() * 256) | 0, spd: 0, light, td, dim: 0.3, wet: () => 0.9 });
-    // only the chorus, new cells and the tide's shimmer carry that far; no percussion
-    for (const [type, cap] of [['alive', 1], ['birth', 1], ['charged', 1]]) {
+    // only the chorus and new cells carry that far; no percussion
+    for (const [type, cap] of [['alive', 1], ['birth', 1]]) {
       const ti = T[type];
       const N = type === 'alive' ? m.outView[ti] * 0.25 * wall : m.outView[ti]; // expected sounds this window
       if (!(N > 0)) continue;

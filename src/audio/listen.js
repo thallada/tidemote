@@ -5,6 +5,7 @@ export const LISTEN_REC = 6;
 
 export const LISTEN = {
   stride: 9, // floats per decoded event (decodeRecords)
+  // ('charged' keeps its place in the layout but is never found now: the tide no longer charges silt into glint)
   types: ['birth', 'mutation', 'spark', 'starved', 'old', 'killed', 'eaten', 'charged', 'alive'],
   index: { birth: 0, mutation: 1, spark: 2, starved: 3, old: 4, killed: 5, eaten: 6, charged: 7, alive: 8 },
   // how many of each type per second the scan reports at most (it samples down to this); 'alive'
