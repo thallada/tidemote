@@ -2837,7 +2837,7 @@ class Engine {
     }
 
     const pd = this.postData;
-    pd[0] = W; pd[1] = H; pd[2] = this._bloom(); pd[3] = 1.0;
+    pd[0] = W; pd[1] = H; pd[2] = this._bloom(); // (pd[3] padding)
     pd[4] = time; pd[5] = this.season; pd[6] = this.settings.tide; pd[7] = cam.ppu;
     pd[8] = cam.x; pd[9] = cam.y; pd[10] = this.grid[0]; pd[11] = this.grid[1];
     const clk = this._clock();
@@ -2851,8 +2851,9 @@ class Engine {
     const tbg = this.tbg;
     pd[52] = tbg; pd[53] = tbg - 2; pd[54] = tbg + 10;
     pd[55] = this.settings.bands;
-    pd[56] = this.K.pond ? this.level : 1; pd[57] = this.rain; pd[58] = this.sky; pd[59] = this.evap;
-    pd[60] = this.turb; pd[61] = this.K.pond ? this.frost : 0; pd[62] = this.freezing; pd[63] = this.K.pond ? this.mudRain : 0;
+    // (pd[57], pd[59] and pd[61] unused: no pass draws from the rain, the drying or the frost's share themselves)
+    pd[56] = this.K.pond ? this.level : 1; pd[58] = this.sky;
+    pd[60] = this.turb; pd[62] = this.freezing; pd[63] = this.K.pond ? this.mudRain : 0;
     pd.set(this.duck, 64);
     pd.set(clk.drops, 72);
     pd[88] = this.K.pond ? this.parch : 0;

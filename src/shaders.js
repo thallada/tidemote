@@ -5179,14 +5179,14 @@ fn packRoom(pack: f32, size: f32) -> f32 {
 // far a newborn has grown and its offset toward its mother, how far it has curled up into a cyst, its
 // fullness (eased, so giving birth or being bitten dims it smoothly), a bite out of its side (its size
 // and world angle) and the swell of a meal.
-struct Anim { grow: f32, shift: vec2f, sleep: f32, fed: f32, mark: f32, markAt: f32, gulp: f32, ate: f32, novel: f32, born: bool, seen: bool };
+struct Anim { grow: f32, sleep: f32, fed: f32, mark: f32, markAt: f32, gulp: f32, ate: f32, novel: f32, born: bool, seen: bool };
 fn animOf(p: Particle, g: Genome) -> Anim {
-  var a = Anim(1.0, vec2f(0.0), select(0.0, 1.0, (p.info & 15u) == CYST), p.energy / max(g.reproE, 0.01), 0.0, 0.0, 0.0, 99.0, 0.0, false, false);
+  var a = Anim(1.0, select(0.0, 1.0, (p.info & 15u) == CYST), p.energy / max(g.reproE, 0.01), 0.0, 0.0, 0.0, 99.0, 0.0, false, false);
   let st = swayOf(p);
   if (st.id != p.id) { return a; }
   a.seen = true;
   a.born = (st.look & LOOK_BORN) != 0u && p.age < BIRTH_T;
-  if (a.born) { a.grow = budGrowth(p.age); a.shift = unpack2x16float(st.shift); }
+  if (a.born) { a.grow = budGrowth(p.age); }
   let sl = unpack2x16float(st.sleep);
   a.sleep = sl.x;
   a.fed = unpack2x16float(st.fed).x;
@@ -5283,7 +5283,7 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
   var shape = 0u;
   var swim = 0.0;
   var kind = k;
-  var a = Anim(1.0, vec2f(0.0), 0.0, 0.0, 0.0, 0.0, 0.0, 99.0, 0.0, false, false);
+  var a = Anim(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 99.0, 0.0, false, false);
   let gh = ghostOf(p);
   let cause = p.info & 15u;
   if (k >= FIRST_LIFE || gh.kind != 0u) {
@@ -7033,7 +7033,6 @@ fn mineralSurf(i: SO) -> StoneOut {
   }
   // silt and clay stuck to it: dark and pale specks
   alb *= 1.0 - 0.3 * grainDots(u * 55.0 + H * 17.0, 0.35, 0.16) * det2 + 0.25 * grainDots(u * 85.0 + H * 23.0, 0.3, 0.1) * det2;
-  if (stoneClip(sd, aa)) { discard; }
   // what clings to a grain on the bed: a film of slime and fine mud, thickest low on it toward its outline and in
   // patches, much on some grains and hardly any on others, olive-brown, greener on reef stone (where it grows on
   // what calcifiers built) and thinner on glass skeletons; a fleck of detritus here and there, and a dusting of
@@ -7082,7 +7081,8 @@ fn mineralSurf(i: SO) -> StoneOut {
 // The uniforms POST_WGSL and MICRO_WGSL share (engine _render fills them).
 const POST_STRUCT = /* wgsl */ `
 struct Post {
-  res: vec2f, bloom: f32, exposure: f32,
+  // (p0: padding)
+  res: vec2f, bloom: f32, p0: f32,
   time: f32, season: f32, tideVis: f32, ppu: f32,
   cam: vec2f, world: vec2f,
   simTime: f32, ambient: f32, optics: f32,
@@ -7093,7 +7093,8 @@ struct Post {
   waves: array<vec4f, 4>,
   // the background water temperature, then the heat map's span; w: the tide map (0 off, 1 on)
   heat: vec4f,
-  // the pool (docs/catastrophes.md): water level, rain, sky, drying; currents' strength; floating duckweed; raindrops
+  // the pool (docs/catastrophes.md): pond x the water level, z the sky (y, w unused); weather x the currents'
+  // strength, z the frost's freezing, w the drought's rain on the mud (y unused); floating duckweed; raindrops
   pond: vec4f,
   weather: vec4f,
   duck: vec4f,
@@ -9485,7 +9486,7 @@ struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location
   // in the scene's light, which the sea focuses onto what lies beneath it, and in which the bloom spreads further
   var lit = sceneLit(wp, surf.light);
   hdr = lookScene(hdr, uv, bl, post.ppu, post.res, sunLook(lit));
-  hdr = (hdr + bl * post.bloom * (1.0 + SUN_BLOOM * sunLook(lit))) * post.exposure * seaFocus(surf.light, lit) * lit.k;
+  hdr = (hdr + bl * post.bloom * (1.0 + SUN_BLOOM * sunLook(lit))) * seaFocus(surf.light, lit) * lit.k;
   // the living's share of the pixel's light (cells drawn small leave no coverage, only their light), and their shadows
   let cells = clamp(lookL(live.rgb / max(1.0, live.a)) / max(lookL(all.rgb / max(1.0, all.a)), 1e-4), 0.0, 1.0);
   lit.shadow = sunShadow(uv, lit);
@@ -9579,7 +9580,7 @@ fn loupeScene(r: vec2f) -> vec3f {
   }
   let lit = sceneLit(wp, surf.light);
   hdr = lookScene(hdr, r * 0.5 + 0.5, vec3f(0.0), microView.ppu, microView.res, sunLook(lit));
-  hdr *= post.exposure * seaFocus(surf.light, lit) * lit.k;
+  hdr *= seaFocus(surf.light, lit) * lit.k;
   var m = 0.0;
   var ml = vec3f(0.0);
   if (k > 0.0) {
@@ -9624,7 +9625,7 @@ fn loupeScene(r: vec2f) -> vec3f {
 // maps over it, so the grade is never held back).
 @fragment fn fsPlain(i: VO) -> @location(0) vec4f {
   let wp = microView.cam + (i.uv - 0.5) * microView.res / microView.ppu;
-  let hdr = lookScene(scene(i.uv), i.uv, vec3f(0.0), microView.ppu, microView.res, 0.0) * post.exposure;
+  let hdr = lookScene(scene(i.uv), i.uv, vec3f(0.0), microView.ppu, microView.res, 0.0);
   var c = lookTone(hdr) + vec3f(0.006, 0.005, 0.012);
   c = pondMicro(c, hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu, 0.0, 1.0);
   return vec4f(lookGrade(pow(max(c, vec3f(0.0)), vec3f(1.0 / 2.2)), i.pos.xy), 1.0);
