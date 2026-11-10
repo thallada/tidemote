@@ -37,8 +37,10 @@ class TidemoteSound extends AudioWorkletProcessor {
       while (o < n) {
         if (this.have === 0) { this.cond.render(this.L, this.R); this.have = BS; }
         const take = Math.min(this.have, n - o), from = BS - this.have;
-        l.set(this.L.subarray(from, from + take), o);
-        if (r !== l) r.set(this.R.subarray(from, from + take), o);
+        // (copied sample by sample: a subarray view would be an allocation every call)
+        const L = this.L, R = this.R;
+        for (let i = 0; i < take; i++) l[o + i] = L[from + i];
+        if (r !== l) for (let i = 0; i < take; i++) r[o + i] = R[from + i];
         this.have -= take; o += take;
       }
     } catch (err) { this.report(err); l.fill(0); r.fill(0); }
