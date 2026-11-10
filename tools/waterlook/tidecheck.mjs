@@ -1,6 +1,6 @@
-// Film the tide's light bands themselves (Light map: Full, no sea, the whole world) a few simulated tens of seconds
-// apart, to measure which way they drift against Engine.tideWind (tools/waterlook/windreport.py --tide).
-//   tools/gpu-node.sh tools/waterlook/tidecheck.mjs --out runs/look/tide
+// Film the tide's light bands themselves (the Light map on, no sea, the whole world) a few simulated tens of seconds
+// apart, to measure which way they drift against Engine.tideWind.
+//   tools/gpu-node.sh tools/waterlook/tidecheck.mjs --out runs/look/tide   then python3 tools/waterlook/windreport.py runs/look/tide
 import fs from 'node:fs'; import path from 'node:path';
 import { cliArgs, openPage } from '../pagelab.mjs';
 
