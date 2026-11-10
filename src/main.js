@@ -222,10 +222,11 @@ const PARTICLE_SIZES = [8192, 16384, 32768, 65536, 131072, 262144, 524288, 10485
 // the pool's events as a fresh page has them (Settings → Climate): all on
 const EVENTS_ON = () => ({ on: true, ...Object.fromEntries(EVENT_TYPES.map((x) => [x, true])) });
 
-// view preferences that outlive the page
+// view preferences that outlive the page; those another version saved are dropped for the defaults
 const PREFS_KEY = 'tidemote.view';
+const PREFS_V = 5;
 const CELL_MARK = 'rgba(241,227,160,0.95)'; // the watched cell, inside its organism's (orange) brackets
-const loadPrefs = () => { try { return JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'); } catch { return {}; } };
+const loadPrefs = () => { try { const p = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'); return p && p.v === PREFS_V ? p : {}; } catch { return {}; } };
 const savePrefs = (p) => { try { localStorage.setItem(PREFS_KEY, JSON.stringify(p)); } catch { /* storage unavailable */ } };
 
 function run(eng, device, ctx, specCtx, hasTS) {
@@ -246,7 +247,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     ui: isCoarse || (prefs.ui ?? true), // the interface shown (U hides everything but the world and the loupe)
     loupeMag: 3.5, loupeR: prefs.loupeR ?? null, currents: prefs.currents ?? false, specCells: 3,
     // the Field Lab's column, open or folded to its header ("world": its name when it was the census)
-    labOpen: prefs.labOpen ?? prefs.world ?? (innerWidth > 1100 && innerHeight > 600),
+    labOpen: prefs.labOpen ?? (innerWidth > 1100 && innerHeight > 600),
     closeup: prefs.closeup ?? true,
     // the pool's events (docs/catastrophes.md): all on, or off, or some of them
     events: { ...EVENTS_ON(), ...prefs.events },
@@ -257,12 +258,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     look: prefs.look ?? 2, // the microscope's look (applyLook): 0 off, 1 subtle, 2 normal, 3 strong
     grain: prefs.grain ?? 1, // its film grain: 0 off, 1 fine, 2 heavy
     // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
-    // pixels per CSS pixel ('auto' by default, and for prefs saved before v3, which stored the old
-    // default 1.5 without anyone choosing it), the frame rate aimed for ('auto' by default, and for
-    // prefs saved before v4 with the old default 60 or before v2; 0: the display's), and a fixed
-    // particle count
-    perf: { scale: prefs.scale ?? 'auto', floor: prefs.floor ?? 0.5, density: !(prefs.v >= 3) && prefs.density === 1.5 ? 'auto' : prefs.density ?? 'auto',
-      fps: prefs.v >= 4 || (prefs.v >= 2 && prefs.fps !== 60) ? prefs.fps ?? 'auto' : 'auto', particles: prefs.particles ?? null, scan: prefs.scan ?? null,
+    // pixels per CSS pixel, the frame rate aimed for (0: the display's), and a fixed particle count
+    perf: { scale: prefs.scale ?? 'auto', floor: prefs.floor ?? 0.5, density: prefs.density ?? 'auto',
+      fps: prefs.fps ?? 'auto', particles: prefs.particles ?? null, scan: prefs.scan ?? null,
       // the tuner's knobs (src/tuner.js): each 'auto' or a level of its own (an index into its ladder)
       tune: Object.fromEntries(Object.entries(KNOBS).filter(([id]) => id in TUNE_TITLES).map(([id, k]) => [id, Number.isInteger(prefs.tune?.[id]) && prefs.tune[id] >= 0 && prefs.tune[id] < k.levels.length ? prefs.tune[id] : 'auto'])) },
   };
@@ -305,13 +303,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const defaults = { ...eng.settings }; // the engine's own, for Settings' reset
   eng.settings.trails = trailLevels[trailIdx];
   for (const k of ['links', 'nodes', 'bloom', 'optics', 'specks', 'lod', 'tide', 'heat', 'bands']) if (prefs[k] !== undefined) eng.settings[k] = prefs[k];
-  // (before 5 the light map was off, faint or full: the faint tint is gone, the scene itself lit by the light)
-  if (!(prefs.v >= 5) && prefs.tide !== undefined) eng.settings.tide = prefs.tide === 2 ? 1 : 0;
   eng.maxScan = state.perf.scan ?? K.maxScan;
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ v: 5, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+    savePrefs({ v: PREFS_V, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   // the look (src/look.js, docs/look.md): Darkfield as the Display settings ask, how strong as a whole and how much

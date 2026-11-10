@@ -10,9 +10,10 @@ import { PREFS_V, viewPrefs } from '../tools/lib/prefs.mjs';
 
 test('tools write view preferences at the version the page saves', () => {
   const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
-  const saved = [...main.matchAll(/savePrefs\(\{ v: (\d+),/g)].map((m) => +m[1]);
-  assert.ok(saved.length > 0, 'src/main.js saves its view preferences with a version');
-  for (const v of saved) assert.equal(PREFS_V, v, 'tools/lib/prefs.mjs PREFS_V follows the page (persist in src/main.js)');
+  const page = main.match(/^const PREFS_V = (\d+);$/m);
+  assert.ok(page, 'src/main.js names the version of its view preferences');
+  assert.ok(/savePrefs\(\{ v: PREFS_V,/.test(main), 'src/main.js saves its view preferences with that version');
+  assert.equal(PREFS_V, +page[1], 'tools/lib/prefs.mjs PREFS_V follows the page (PREFS_V in src/main.js)');
   assert.deepEqual(viewPrefs({ particles: 8192, auto: false }), { v: PREFS_V, particles: 8192, auto: false });
 });
 
