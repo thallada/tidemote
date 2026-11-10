@@ -30,8 +30,8 @@ Two readbacks, both the annotations' own (they never wait on, or cancel, a click
   | needle | `resolveCount` | none |
 
   Every record is the world's own act, by id: nothing is inferred from what disappeared between looks. The code
-  each kind of death leaves in a husk's `info` stays as it was (starved, stranded and frozen share 1; a woken cyst
-  shares 9 with a birth); the ring tells them apart.
+  each kind of death leaves in a husk's `info` stays as it was (starved, stranded and frozen share 1); the ring
+  tells them apart. A woken cyst has a cause of its own (`WOKE`, 15), not a birth's.
 
 - **The view** (`NOTE_WGSL`, `noteMain`), read every six frames: every living cell and husk in the stretch annotated,
   as drawn now (after the in-between of coarse steps), with its velocity, kind, cause, role, search image, fullness,

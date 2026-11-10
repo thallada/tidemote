@@ -11,7 +11,7 @@ import { spawnSync } from 'node:child_process';
 import { Engine } from '../src/audio/voices.js';
 import { Conductor } from '../src/audio/conductor.js';
 import { BS } from '../src/audio/ugens.js';
-import { V_SCALE } from '../src/audio/listen.js';
+import { V_SCALE, LISTEN } from '../src/audio/listen.js';
 import { voiceOf } from '../src/audio/mapping.js';
 
 const [inPath, outPath] = process.argv.slice(2);
@@ -46,7 +46,7 @@ for (let b = 0; b < nb; b++) {
       m.ev = Float32Array.from(m.ev); m.speed = speed;
       if (e.stats) m.act = Math.min(1.5, e.stats.speed / V_SCALE);
       const P = (perPhase[e.phase] ||= { t0: tAudio, t1: tAudio, events: 0, inView: new Array(8).fill(0), scans: 0, living: 0, act: 0 });
-      P.t1 = tAudio; P.scans++; P.agc = (P.agc || 0) + cond.field.agc; P.pow = (P.pow || 0) + Math.log10(cond.field.power + 1e-9); P.events += m.ev.length / 8; P.living += m.living; P.act += m.act; m.inView.forEach((v, i) => (P.inView[i] += v));
+      P.t1 = tAudio; P.scans++; P.agc = (P.agc || 0) + cond.field.agc; P.pow = (P.pow || 0) + Math.log10(cond.field.power + 1e-9); P.events += m.ev.length / LISTEN.stride; P.living += m.living; P.act += m.act; m.inView.forEach((v, i) => (P.inView[i] += v));
     }
     if (m.type === 'slots') m.slots = m.slots.map((x) => (x.genome ? { ...x, voice: voiceOf(x.genome) } : x));
     if (m.type === 'world' && season) { const sn = 0.55 + 0.45 * Math.sin((tAudio / season) * Math.PI * 2); m.world = { ...m.world, tide: 0.9 * sn, light: Math.min(1.2, 0.3 + 0.85 * 0.9 * sn) }; }
