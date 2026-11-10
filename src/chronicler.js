@@ -382,6 +382,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     S.tokens -= 1;
     S.lastStory = t; S.lastReal = now;
     S.told.set(best.kind, t);
+    S.voice[best.kind] = (S.voice[best.kind] || 0) + 1;
     if (best.key) S.told.set(best.key, t);
     for (const s of best.subjects || []) { S.told.set(`sp:${s}`, t); S.told.set(`last:${s}`, best.kind); }
     const text = best.html.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
@@ -392,8 +393,9 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
 
   // ------------------------------------------------------------------ helpers for the stories
   // the narrator's turns of phrase for a kind of story, one after another, so the same words do not come every
-  // time: which of its n turns (0..n-1) a story of this kind takes now
-  const vary = (kind, n) => { const k = S.voice[kind] = (S.voice[kind] || 0) + 1; return (k - 1) % n; };
+  // time: which of its n turns (0..n-1) a story of this kind takes now (the next once one is told: choose; a story
+  // weighed and not told, or weighed again until it is, takes none)
+  const vary = (kind, n) => (S.voice[kind] || 0) % n;
   // i18n: in place of a species' name, when its record is gone
   const L = (reg, serial) => { const sp = reg.get(serial); return sp ? link(serial, sp.name) : tr('chron.word.unrecorded', 'an unrecorded species'); };
   // i18n: the same, beginning a sentence

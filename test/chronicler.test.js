@@ -235,6 +235,18 @@ test('an event’s aftermath names who slept through it and who was lost', () =>
   assert.match(after.text, new RegExp(`${victim.name} did not live to see it end`));
 });
 
+test('the narrator\'s turns of phrase take turns as stories are told, not as they are weighed', () => {
+  const ch = createChronicler({ link: (s, n) => n, tune: { warm: 0, gapReal: 0, gapSim: 0, kindGap: 0, subjectGap: 0, storyEvery: 1 } });
+  const w = world(21);
+  w.add('grazer', { pop: 1500 });
+  const sps = [0, 1, 2].map(() => w.add('plankton', { pop: 60 }));
+  // each booms in its turn, half an hour apart, and stays boomed (weighed again and again, told once)
+  const told = run(ch, w, 6 * 180, 10, (w2) => { sps.forEach((sp, i) => { if (w2.t >= (20 + 30 * i) * 60 && sp.pop < 900) w2.set(sp, 900); }); });
+  const booms = told.filter((s) => s.kind === 'boom').map((s) => s.text);
+  assert.equal(booms.length, 3, booms.join(' / '));
+  ['Fortune smiles upon', 'The tide has turned for', 'These are good days for'].forEach((p, i) => assert.ok(booms[i].startsWith(p), booms[i]));
+});
+
 test('the budget keeps a turbulent world from flooding the log', () => {
   const ch = createChronicler();
   const w = world(11);
