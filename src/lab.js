@@ -208,7 +208,7 @@ export function createLab(api) {
       const tot = all.reduce((a, s) => a + s.pop, 0);
       // i18n: the species the filters show, their living cells and their share of all life ({share}: a percentage, 12.5)
       setText($('sp-sum'), tr('lab.sp.sum', '{species, plural, other {# species}} · {cells, plural, other {# cells}} · {share}% of life', { species: all.length, cells: tot, share: ((tot / living) * 100).toFixed(1) }));
-      const nf = ['status', 'diet', 'mobility', 'body'].filter((k) => st[k] !== (k === 'status' ? 'thriving' : 'all')).length;
+      const nf = ['status', 'diet', 'mobility', 'body', 'temp'].filter((k) => st[k] !== (k === 'status' ? 'thriving' : 'all')).length;
       // i18n: the Filters button, with how many filters are set
       setText($('sp-filt'), nf ? tr('lab.filter.button-n', 'Filters · {n}', { n: nf }) : tr('lab.filter.button', 'Filters'));
       $('sp-reset').hidden = !nf;
