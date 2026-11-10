@@ -14,9 +14,9 @@ if (v.help || !positionals.length) {
   console.log('Usage: node tools/story.mjs runs/NAME [more runs or .json files] [--every 120] [--quiet] [--json out.json]');
   process.exit(0);
 }
-const GUILDS = ['producer', 'grazer', 'predator', 'scavenger', 'omnivore'];
-const CORE = ['producer', 'grazer', 'predator', 'scavenger'];
-const ABBR = { producer: 'P', grazer: 'G', predator: 'H', scavenger: 'S', omnivore: 'O' };
+const GUILDS = ['producer', 'grazer', 'predator', 'scavenger'];
+const CORE = GUILDS;
+const ABBR = { producer: 'P', grazer: 'G', predator: 'H', scavenger: 'S' };
 const LIVE = 0.01, ONCE = 0.03;
 const pct = (x) => String(Math.round(100 * x)).padStart(3);
 const num = (x) => (x == null ? '-' : x >= 10000 ? (x / 1000).toFixed(0) + 'k' : x >= 1000 ? (x / 1000).toFixed(1) + 'k' : String(Math.round(x)));
@@ -27,10 +27,10 @@ function load(p) {
   return fs.readdirSync(p).filter((f) => /^seed\d+\.json$/.test(f)).sort((a, b) => parseInt(a.slice(4)) - parseInt(b.slice(4)))
     .map((f) => ({ file: path.join(p, f), run: JSON.parse(fs.readFileSync(path.join(p, f), 'utf8')) }));
 }
-// energy coming in (light, and glint unless it is food from within) against energy spent, per sample
-function books(s, cycle) {
+// energy coming in (light) against energy spent, per sample
+function books(s) {
   let inc = 0, out = 0;
-  for (const e of Object.values(s.energy || {})) { inc += (e.light || 0) + (cycle ? 0 : e.glint || 0); out += (e.upkeep || 0) + (e.heat || 0); }
+  for (const e of Object.values(s.energy || {})) { inc += e.light || 0; out += (e.upkeep || 0) + (e.heat || 0); }
   return { inc, out };
 }
 
@@ -38,7 +38,7 @@ function books(s, cycle) {
 const act = (s, g) => Math.max(0, s.diet[g] - (s.dormant?.[g] ?? 0) / Math.max(s.living, 1));
 
 function story(run) {
-  const S = run.samples, cycle = !!run.config?.k?.cycle, cyst = !!run.config?.k?.cyst;
+  const S = run.samples;
   const pop = (s, g) => act(s, g) * s.living;
   const lines = [];
   const lost = [];
@@ -52,10 +52,9 @@ function story(run) {
     const at = S[k], before = S[Math.max(0, k - 6)];
     const food = {
       producer: `silt ${num(before.silt)} light ${(before.ambient ?? 0).toFixed?.(2) ?? '-'} grazers ${num(pop(before, 'grazer'))}`,
-      grazer: `glint ${num(before.glint)} litter ${num(before.cycle?.litter)} producers ${num(pop(before, 'producer'))} predators ${num(pop(before, 'predator'))}`,
-      predator: `grazers ${num(pop(before, 'grazer'))} scavengers ${num(pop(before, 'scavenger'))} omnivores ${num(pop(before, 'omnivore'))}`,
+      grazer: `litter ${num(before.cycle?.litter)} producers ${num(pop(before, 'producer'))} predators ${num(pop(before, 'predator'))}`,
+      predator: `grazers ${num(pop(before, 'grazer'))} scavengers ${num(pop(before, 'scavenger'))}`,
       scavenger: `husks ${num(before.husk)} carcasses made ${num(before.cycle?.carcassMade)}/min predators ${num(pop(before, 'predator'))}`,
-      omnivore: `glint ${num(before.glint)} grazers ${num(pop(before, 'grazer'))}`,
     }[g];
     const d = before.demography?.[g] || {};
     lost.push({ guild: g, t: Math.round(at.t), peak: Math.max(...S.map((s) => act(s, g))), food,
@@ -63,12 +62,12 @@ function story(run) {
   }
   const every = +v.every;
   for (const s of S.filter((s, i) => i === 0 || i === S.length - 1 || Math.floor(s.t / every) !== Math.floor(S[i - 1].t / every))) {
-    const b = books(s, cycle);
+    const b = books(s);
     const c = s.cycle || {};
     lines.push(`  ${String(Math.round(s.t / 60)).padStart(3)}m living ${num(s.living).padStart(5)} ${GUILDS.map((g) => ABBR[g] + pct(act(s, g))).join(' ')}`
-      + (cyst ? ` cysts ${GUILDS.map((g) => ABBR[g] + num(s.dormant?.[g] ?? 0)).join(' ')}` : '')
-      + ` | silt ${num(s.silt).padStart(5)} glint ${num(s.glint).padStart(4)} husk ${num(s.husk).padStart(4)}`
-      + (cycle ? ` litter ${num(c.litter).padStart(4)} | exuded ${num(c.exuded).padStart(4)} litter ${num(c.litterMade)}→${num(c.litterEaten)} carcass ${num(c.carcassMade)}→${num(c.carcassEaten)} /min` : '')
+      + ` cysts ${GUILDS.map((g) => ABBR[g] + num(s.dormant?.[g] ?? 0)).join(' ')}`
+      + ` | silt ${num(s.silt).padStart(5)} husk ${num(s.husk).padStart(4)}`
+      + ` litter ${num(c.litter).padStart(4)} | litter ${num(c.litterMade)}→${num(c.litterEaten)} carcass ${num(c.carcassMade)}→${num(c.carcassEaten)} /min`
       + ` | spent/in ${b.inc ? (b.out / b.inc).toFixed(2) : '-'}`);
   }
   const end = S.at(-1);
