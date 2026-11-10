@@ -4011,7 +4011,68 @@ export const LISTEN_TYPES = ['birth', 'mutation', 'spark', 'starved', 'old', 'ki
 export const LISTEN_CAP = 512;
 export const LISTEN_HEAD = 32; // u32 words before the records
 export const LISTEN_REC = 6; // u32 words per record
-export const LISTEN_WGSL = COMMON + /* wgsl */ `
+
+// How cells are drawn through the moments that change them (observational: contactGather keeps each
+// cell's record, vsPoint and pointColor read it). Durations are in sim seconds: paused they hold, at
+// fast speeds they hurry along with the world.
+const ANIM_WGSL = /* wgsl */ `
+// a newborn buds out of its mother and grows to full size; the neck between them pinches off
+const BIRTH_T = 0.9;
+// a cell curling up into a cyst, or waking from one
+const SLEEP_T = 1.2;
+// a bite's wound in a producer heals in this long (and bites again and again keep it open); an eater
+// swells with a meal
+const BITE_T = 1.4;
+// a meal's food vacuole drifts in from the front and is digested
+const DIGEST_T = 1.6;
+const GULP_T = 0.4;
+// a cell that starved, aged or scalded withers into its husk; one killed bursts
+const WITHER_T = 1.6;
+const BURST_T = 0.9;
+// a husk eaten (or rotted) away shrinks into the silt it leaves
+const EATEN_T = 0.6;
+// sim time is kept modulo this (f32 holds it to a millisecond), and real time (View.time) too
+const SIM_WRAP = 4096.0;
+// a new species sparkles for a while: a mutant newborn, or life sparked from silt
+const NOVEL_T = 2.5;
+// look: the living kind (bits 0-9), its role (10-11), whether it was seen born (12), a bite's world angle
+// (13-20), whether it was seen born a new species (21)
+const LOOK_BORN = 0x1000u;
+const LOOK_NOVEL = 0x200000u;
+// Each living cell in view bends along the curve of its path, through a soft spring so it lags and
+// sways back as it straightens, and a knock (a sudden change of velocity) squashes it along the
+// knock through a quicker spring, so it jiggles and settles. Kept by ID (unique serials), so it needs
+// nothing from the sort; another ID in the slot starts afresh. Half-float pairs: velocity smoothed
+// over about 0.08 s, so jitter neither turns nor knocks it; bend
+// and its rate; the squash (a nematic: amount times (cos, sin) of twice its axis) and its rate; and
+// how closely packed it is (lifeMain's intent.y, sampled afresh each tick: in a crowd its estimate
+// jumps tick to tick), smoothed over about 0.3 s, so a cell in a mat keeps a steady size (packFit).
+// Then what it was and what has just happened to it: look; the sim time it was last seen (simT, modulo
+// SIM_WRAP); its fullness (energy / reproE) eased, and its energy when last seen; a newborn's offset
+// toward its mother (world units); sim seconds since it was bitten and since it ate; how far it has
+// curled up into a cyst (0..1) and how deep its wound is (0..1).
+struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32, face: u32, pack: f32,
+  look: u32, simT: f32, fed: u32, shift: u32, ev: u32, sleep: u32 };
+// a newborn and its mother: one species, or a mutant daughter and the species she came from
+fn budKin(a: Genome, b: Genome) -> bool { return a.serial == b.serial || a.parent == b.serial || b.parent == a.serial; }
+// a newborn's growth, 0 at birth to 1 (overshooting a little, then settling)
+fn budGrowth(age: f32) -> f32 { let t = clamp(age / BIRTH_T, 0.0, 1.0) - 1.0; return 1.0 + 2.0 * t * t * t + t * t; }
+`;
+
+// A cell just woken from a cyst (its cause, 9, a birth's) that the drawn view saw asleep, which it does not take for a
+// newborn: contactGather keeps each living cell in view a record (sway), a newborn's marked seen born (LOOK_BORN), a
+// cyst's never, and a cell it has a record of wakes unmarked. So the soundtrack and the auto camera hear and see a
+// birth where the view would draw one (a wake no view saw passes for a birth, there as here).
+const WOKE_WGSL = SWAY_SLOTS + /* wgsl */ `
+fn wokeSeen(p: Particle) -> bool {
+  let n = arrayLength(&sway);
+  var st = sway[p.id % n];
+  if (st.id != p.id) { st = sway[swaySlot2(p.id, n)]; }
+  return st.id == p.id && (st.look & LOOK_BORN) == 0u;
+}
+`;
+
+export const LISTEN_WGSL = COMMON + ANIM_WGSL + /* wgsl */ `
 struct ListenU {
   center: vec2f, half: vec2f, world: vec2f, count: u32, seed: u32,
   now: f32, window: f32, vscale: f32, selKind: u32,
@@ -4025,7 +4086,8 @@ struct ListenU {
 @group(0) @binding(4) var<storage, read> heatField: array<f32>;
 // (the bonds each cell keeps, which keep a heat-maker warm)
 @group(0) @binding(5) var<storage, read> intent: array<vec4u>;
-${shownWater('lu.world')}// layout: [0,8) in-view events per type, [8,16) out of view, 16 living in view, 17 their summed
+@group(0) @binding(6) var<storage, read> sway: array<Sway>;
+${WOKE_WGSL}${shownWater('lu.world')}// layout: [0,8) in-view events per type, [8,16) out of view, 16 living in view, 17 their summed
 // speed (x1000), 18 living everywhere, 19 their summed speed (x1000), 20 particles in view,
 // 21 records written, then records of ${LISTEN_REC} words from word 32.
 var<workgroup> wc: array<atomic<u32>, 21>;
@@ -4066,7 +4128,7 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
     if (p.age < lu.window) {
       let code = p.info & 15u;
       if (life) {
-        if (code == 9u) {
+        if (code == 9u && !wokeSeen(p)) {
           t = 0u;
           let g = genomes[p.kind];
           if (g.depth > 0u && abs(clockDiff(g.born, lu.now - p.age)) < 0.05) { t = 1u; }
@@ -4202,14 +4264,15 @@ fn noteMain(@builtin(global_invocation_id) gid: vec3u) {
 export const SURVEY_WORDS = 10;
 export const SURVEY = { living: 0, bonded: 1, births: 2, mutations: 3, sparks: 4, deaths: 5, kills: 6, species: 7, speed: 8, glint: 9 }; // glint: no longer counted (always 0)
 export const SURVEY_MAX_TILES = 4096;
-export const SURVEY_WGSL = COMMON + /* wgsl */ `
+export const SURVEY_WGSL = COMMON + ANIM_WGSL + /* wgsl */ `
 struct SurveyU { grid: vec2u, tiles: vec2u, tile: u32, now: f32, window: f32, adhMin: f32 };
 @group(0) @binding(0) var<uniform> su: SurveyU;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
 @group(0) @binding(2) var<storage, read> genomes: array<Genome>;
 @group(0) @binding(3) var<storage, read> cellStart: array<u32>;
 @group(0) @binding(4) var<storage, read_write> sout: array<atomic<u32>>;
-
+@group(0) @binding(5) var<storage, read> sway: array<Sway>;
+${WOKE_WGSL}
 @compute @workgroup_size(64)
 fn surveyMain(@builtin(global_invocation_id) gid: vec3u) {
   let c = gid.x;
@@ -4226,7 +4289,7 @@ fn surveyMain(@builtin(global_invocation_id) gid: vec3u) {
       if (g.adhesion > su.adhMin) { n[1] += 1u; }
       n[8] += u32(min(length(p.vel), 50.0) * 100.0);
       mask |= 1u << (p.kind & 31u);
-      if (recent && code == 9u) {
+      if (recent && code == 9u && !wokeSeen(p)) {
         n[2] += 1u;
         if (g.depth > 0u && abs(clockDiff(g.born, su.now - p.age)) < 0.05) { n[3] += 1u; }
       } else if (recent && code == 8u) { n[4] += 1u; }
@@ -4304,53 +4367,6 @@ fn cullRows(@builtin(local_invocation_index) l: u32) {
 
 // Rendering only: each living cell's incoming bonds, so a body's cells fuse with every partner,
 // not only the (up to two) they keep themselves. Bonds are one-sided in the sim.
-// How cells are drawn through the moments that change them (observational: contactGather keeps each
-// cell's record, vsPoint and pointColor read it). Durations are in sim seconds: paused they hold, at
-// fast speeds they hurry along with the world.
-const ANIM_WGSL = /* wgsl */ `
-// a newborn buds out of its mother and grows to full size; the neck between them pinches off
-const BIRTH_T = 0.9;
-// a cell curling up into a cyst, or waking from one
-const SLEEP_T = 1.2;
-// a bite's wound in a producer heals in this long (and bites again and again keep it open); an eater
-// swells with a meal
-const BITE_T = 1.4;
-// a meal's food vacuole drifts in from the front and is digested
-const DIGEST_T = 1.6;
-const GULP_T = 0.4;
-// a cell that starved, aged or scalded withers into its husk; one killed bursts
-const WITHER_T = 1.6;
-const BURST_T = 0.9;
-// a husk eaten (or rotted) away shrinks into the silt it leaves
-const EATEN_T = 0.6;
-// sim time is kept modulo this (f32 holds it to a millisecond), and real time (View.time) too
-const SIM_WRAP = 4096.0;
-// a new species sparkles for a while: a mutant newborn, or life sparked from silt
-const NOVEL_T = 2.5;
-// look: the living kind (bits 0-9), its role (10-11), whether it was seen born (12), a bite's world angle
-// (13-20), whether it was seen born a new species (21)
-const LOOK_BORN = 0x1000u;
-const LOOK_NOVEL = 0x200000u;
-// Each living cell in view bends along the curve of its path, through a soft spring so it lags and
-// sways back as it straightens, and a knock (a sudden change of velocity) squashes it along the
-// knock through a quicker spring, so it jiggles and settles. Kept by ID (unique serials), so it needs
-// nothing from the sort; another ID in the slot starts afresh. Half-float pairs: velocity smoothed
-// over about 0.08 s, so jitter neither turns nor knocks it; bend
-// and its rate; the squash (a nematic: amount times (cos, sin) of twice its axis) and its rate; and
-// how closely packed it is (lifeMain's intent.y, sampled afresh each tick: in a crowd its estimate
-// jumps tick to tick), smoothed over about 0.3 s, so a cell in a mat keeps a steady size (packFit).
-// Then what it was and what has just happened to it: look; the sim time it was last seen (simT, modulo
-// SIM_WRAP); its fullness (energy / reproE) eased, and its energy when last seen; a newborn's offset
-// toward its mother (world units); sim seconds since it was bitten and since it ate; how far it has
-// curled up into a cyst (0..1) and how deep its wound is (0..1).
-struct Sway { id: u32, vel: u32, bend: u32, time: f32, squash: u32, rate: u32, face: u32, pack: f32,
-  look: u32, simT: f32, fed: u32, shift: u32, ev: u32, sleep: u32 };
-// a newborn and its mother: one species, or a mutant daughter and the species she came from
-fn budKin(a: Genome, b: Genome) -> bool { return a.serial == b.serial || a.parent == b.serial || b.parent == a.serial; }
-// a newborn's growth, 0 at birth to 1 (overshooting a little, then settling)
-fn budGrowth(age: f32) -> f32 { let t = clamp(age / BIRTH_T, 0.0, 1.0) - 1.0; return 1.0 + 2.0 * t * t * t + t * t; }
-`;
-
 export const INBOND_WGSL = COMMON + ANIM_WGSL + /* wgsl */ `
 @group(0) @binding(1) var<storage, read> intent: array<vec4u>;
 @group(0) @binding(2) var<storage, read> parts: array<Particle>;
