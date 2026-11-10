@@ -3666,7 +3666,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const m = sustainable();
     if (!Number.isFinite(m)) return;
     if (!(m > speedCap * 0.87 && m < speedCap * 1.15)) speedCap = m;
-    if (state.speed > 1 && state.speed !== Infinity && state.speed > speedCap) { state.speed = Infinity; flash(tr('flash.speed', 'Speed {speed}', { speed: tr('speed.max', 'Max') })); }
+    if (state.speed > 1 && state.speed !== Infinity && state.speed > speedCap) { applySpeed(Infinity); flash(tr('flash.speed', 'Speed {speed}', { speed: tr('speed.max', 'Max') })); }
     renderTime();
   }
   function togglePause() {
