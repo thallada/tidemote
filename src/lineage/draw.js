@@ -5,7 +5,7 @@
 import { fit, plotBox, grid, clock, linearTicks, shortNum, timeTicks, namePlate } from '../charts.js';
 import { memberAt, packBlocks } from './model.js';
 import { strandName, strandLead } from './nav.js';
-import { fmt, fmtClock } from '../fmt.js';
+import { esc, fmt, fmtClock } from '../fmt.js';
 import { tr } from '../i18n.js';
 
 const OTHER = [0.42, 0.5, 0.52];
@@ -90,13 +90,13 @@ export function drawMuller(cv, c, eras, opts = {}) {
   const { ts } = c, n = ts.length;
   const roots = c.other ? [c.other, ...c.roots] : c.roots;
   const C = new Map();
-  const clade = (u) => { const a = u.vals.slice(); for (const k of u.kids) { const b = clade(k); for (let i = 0; i < n; i++) a[i] += b[i]; } C.set(u, a); return a; };
+  const cladeVals = (u) => { const a = u.vals.slice(); for (const k of u.kids) { const b = cladeVals(k); for (let i = 0; i < n; i++) a[i] += b[i]; } C.set(u, a); return a; };
   const tot = new Float32Array(n);
-  for (const r of roots) { const a = clade(r); for (let i = 0; i < n; i++) tot[i] += a[i]; }
+  for (const r of roots) { const a = cladeVals(r); for (let i = 0; i < n; i++) tot[i] += a[i]; }
   let max = 1;
   for (const v of tot) if (v > max) max = v;
   const ax = linearTicks(max, 2);
-  const labels = ax.ticks.map(shortNum);
+  const labels = ax.ticks.map((v) => shortNum(v));
   const box = plotBox(g, w, h, labels);
   box.l = Math.max(box.l, opts.minLeft || 0);
   const H = box.b - box.t;
@@ -345,7 +345,7 @@ export function drawTree(cv, c, lay, eras, opts = {}) {
       // the row's lineage, and the species leading it where the pointer is when that is another
       const ld = hit.lead, nd = hit.node, q = clade(u);
       // i18n: a lineage's row or band pointed at, under its leading species' name: how many species it holds, when it arose ({born}: a clock), whether it is gone; {then}: the species leading it where the pointer is ({name} at {t}, a clock); and whether a click explores it
-      const then = nd && nd !== ld ? tr('lineage.row.then', ' · {name} at {t}', { name: nd.name, t: fmtClock(hit.t) }) : '';
+      const then = nd && nd !== ld ? tr('lineage.row.then', ' · {name} at {t}', { name: esc(nd.name), t: fmtClock(hit.t) }) : '';
       return namePlate(ld.s.genome.col, ld.name, tr('lineage.row.sub', '{n, plural, =0 {} =1 {} other {lineage of # species · }}arose {born}{alive, select, yes {} other { · extinct}}{then}{explore, select, yes { · click to explore it} other {}}',
         { n: q.count, born: fmtClock(u.born), alive: q.alive ? 'yes' : 'no', then, explore: hit.explore ? 'yes' : 'no' }));
     },

@@ -56,7 +56,7 @@ export function lineageModel(life, T) {
   // each species' life and its clade's; the heir is the daughter whose clade held the most
   for (let j = nodes.length - 1; j >= 0; j--) {
     const n = nodes[j];
-    if (n.alive || !settled.has(n.s)) {
+    if (n.alive || !settled.has(n.s) || settled.get(n.s).end !== n.s.extinct) { // (not yet settled, or gone again since)
       n.w = integrate(n, -Infinity, Infinity);
       if (!n.alive && n.s.extinct != null) settled.set(n.s, { t: n.t, v: n.v, rgb: n.rgb, w: n.w, end: n.end });
     }
