@@ -3277,7 +3277,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const st = { tool: hand.tool, level: Math.round(hand.level * 100) / 100, move: Math.round(v * 10) / 10, held, ride: ride.on, will,
       water: heard.water, freezing: heard.freezing, ice: heard.ice };
     const key = JSON.stringify(st);
-    if (key !== heard.sent || v) { heard.sent = key; hear('state', st); }
+    // (recorded only once sent: a state that changed while sound was off is sent when it comes back on)
+    if ((key !== heard.sent || v) && hear('state', st)) heard.sent = key;
   }
   // The water under the stage or the probe, read a few times a second at its center and eight points about it: the
   // center's temperature, how fast the water near freezing in its reach freezes (0..1, 8° a second and more), and how

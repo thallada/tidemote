@@ -202,8 +202,8 @@ export function createSound({ onChange = () => {}, onError = () => {}, onSang = 
     toggle: () => setOn(!st.on), setOn, setVolume, setMix,
     get mix() { return { ...st.mix }; },
     census, listen, era: (name) => { st.era = name; post({ type: 'era', name }); },
-    // the hand's acts and state (audio/handsound.js)
-    hand: (m) => { if (st.on) post({ type: 'hand', ...m }); },
+    // the hand's acts and state (audio/handsound.js); whether it was sent (not while off or still starting)
+    hand: (m) => { if (!st.on || !st.node) return false; post({ type: 'hand', ...m }); return true; },
     // play a species' motif alone (its genome; tag names its notes in onSang). Turns sound on.
     // species: its slot while it lives (its cells keep quiet while the song plays)
     async audition(genome, tag, species = -1) {
