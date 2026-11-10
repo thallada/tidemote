@@ -33,7 +33,8 @@ const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 // A struck bar's loudness falls with pitch (its strike excites less of a higher bar): even it out.
 const vibeAmp = (f) => Math.pow(f / 440, 0.8);
 
-export const LAYERS = ['loops', 'circles', 'piano', 'dub', 'pad', 'sonar', 'arp', 'pulse', 'hymn'];
+// the score's layers (an era's ensemble plays two of them: palette)
+export const ENSEMBLE = ['loops', 'circles', 'piano', 'dub', 'pad', 'sonar', 'arp', 'pulse', 'hymn'];
 // A world's first ensemble: one layer that moves and one that holds the space, gentle enough to open on.
 const OPENINGS = [['loops', 'sonar'], ['hymn', 'arp'], ['circles', 'pad'], ['loops', 'arp'], ['piano', 'hymn'], ['sonar', 'circles'],
   ['pad', 'arp'], ['hymn', 'pulse'], ['dub', 'loops'], ['piano', 'sonar'], ['circles', 'hymn'], ['arp', 'sonar']];
@@ -62,7 +63,7 @@ const RHYTHMS = [[4, 2, 2, 8], [3, 3, 2, 8], [2, 2, 4, 8], [6, 2, 4, 4], [2, 4, 
 // new. A world opens on one of OPENINGS.
 export function palette(name, prev = [], ws = 0) {
   if (!name || name === 'The First Tides') return OPENINGS[worldHash('ensemble', ws) % OPENINGS.length].slice();
-  const free = LAYERS.filter((l) => !prev.includes(l)), h = worldHash(name, ws), a = h % free.length;
+  const free = ENSEMBLE.filter((l) => !prev.includes(l)), h = worldHash(name, ws), a = h % free.length;
   let b = (h >>> 8) % (free.length - 1); if (b >= a) b++;
   return [free[a], free[b]];
 }

@@ -16,7 +16,7 @@ import {
   Ringz, BPF, BLowPass, BLowShelf, BHiShelf, MoogFF, Lag, LagUD, Decay2, LeakDC, Compander, Limiter,
   DelayN, DelayC, AllpassC, Pan2, Balance2, Dust, Formlet, Pluck, sinTable,
 } from './ugens.js';
-import { LAYERS } from './mix.js';
+import { LAYERS } from './layers.js';
 
 const midicps = (m) => 440 * Math.pow(2, (m - 69) / 12);
 const clip = (x, lo, hi) => (x < lo ? lo : x > hi ? hi : x);

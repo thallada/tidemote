@@ -4,12 +4,12 @@
 // (FDN.p) and the master's tone (Master.p). Pure (test/mix.test.js); the defaults leave the soundtrack exactly as it
 // was before there was a mix.
 import { tr } from '../i18n.js';
+import { LAYERS } from './layers.js';
 
-export const LAYERS = ['music', 'cells', 'water', 'tools'];
+export { LAYERS };
 
 // each setting: its label, its choices (a label and what it sets) and the default's index (its hint: src/guide.js,
-// audio + its key). (Made in a call marked pure, so a bundle that takes only LAYERS, as the audio thread's does through
-// voices.js, leaves it and the page's words out.)
+// audio + its key). (The audio thread takes LAYERS from layers.js, so its bundle has none of this or the page's words.)
 export const MIX = /* @__PURE__ */ (() => {
   // i18n: how loud a layer of the soundtrack plays (Settings → Audio → Mix)
   const LEVELS = [[tr('mix.level.off', 'Off'), 0], [tr('mix.level.quiet', 'Quiet'), 0.5], [tr('mix.level.normal', 'Normal'), 1], [tr('mix.level.loud', 'Loud'), 1.6]];

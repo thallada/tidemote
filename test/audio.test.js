@@ -8,7 +8,7 @@ import { LISTEN, LISTEN_REC as REC, decodeRecords, recordCells, keepFor, hearing
 import { LISTEN_TYPES, LISTEN_REC } from '../src/shaders.js';
 import { d2m } from '../src/audio/conductor.js';
 import { tempoFor } from '../src/audio/field.js';
-import { palette, LAYERS, OVERTURES, THEMES } from '../src/audio/score.js';
+import { palette, ENSEMBLE, OVERTURES, THEMES } from '../src/audio/score.js';
 import { eraMusic, worldHash, STEP } from '../src/audio/conductor.js';
 
 const rng = (s) => () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
@@ -129,10 +129,10 @@ test('a change of era fades a new sea in and bridges to the new key without glid
 test('each era has its own ensemble, and every layer plays', () => {
   for (const name of ['The Dim Gyre', 'The Bright Calm', 'The Silver Tides', 'The Bitter Bloom']) {
     const p = palette(name);
-    assert.equal(p.length, 2); assert.notEqual(p[0], p[1]); assert.ok(p.every((l) => LAYERS.includes(l)));
+    assert.equal(p.length, 2); assert.notEqual(p[0], p[1]); assert.ok(p.every((l) => ENSEMBLE.includes(l)));
     assert.deepEqual(p, palette(name));
   }
-  for (const layer of LAYERS) {
+  for (const layer of ENSEMBLE) {
     const eng = new Engine(48000, { seed: 4 }), cond = new Conductor(eng, { seed: 4 });
     cond.score.layers = [layer];
     let n = 0; const spawn0 = eng.spawn.bind(eng);
@@ -308,7 +308,7 @@ test('sparks shower in many shapes, a few times a minute, never one figure on re
 });
 
 test('sped up, the score quickens but stays a score', () => {
-  for (const layer of LAYERS) {
+  for (const layer of ENSEMBLE) {
     const eng = new Engine(48000, { seed: 4 }), cond = new Conductor(eng, { seed: 4 });
     cond.score.layers = [layer];
     let n = 0; const spawn0 = eng.spawn.bind(eng);
