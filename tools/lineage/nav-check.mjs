@@ -5,7 +5,7 @@
 // its own chip, cleared alone, and keeps the lineage; Esc and Backspace go back the way the view came, then Esc
 // takes the Lab back to its census; nothing above the plot moves as the view goes. Screenshots of each step go
 // to --out.
-//   npm run build && TIDEMOTE_VK=1 ~/.local/bin/capped node tools/lineage/nav-check.mjs --out runs/lineage/nav runs/lineage/wA/t00072m.json
+//   npm run build && TIDEMOTE_VK=1 tools/capped.sh node tools/lineage/nav-check.mjs --out runs/lineage/nav runs/lineage/wA/t00072m.json
 import fs from 'node:fs';
 import path from 'node:path';
 import { root, start, open, loadRecords } from './browser.mjs';

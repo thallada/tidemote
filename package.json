@@ -18,7 +18,7 @@
     "gate": "tools/gpu-node.sh tools/ensemble.mjs --runs 32 --minutes 30 --n 32768 --jobs 4 --baseline balance/baseline-32k-30m.json",
     "text": "node tools/i18n/textlab.mjs",
     "text:extract": "node tools/i18n/extract.mjs",
-    "text:review": "~/.local/bin/capped -m 600M node tools/i18n/review.mjs",
+    "text:review": "tools/capped.sh -m 600M node tools/i18n/review.mjs",
     "text:promote": "node tools/i18n/promote.mjs",
     "gate:farm": "node tools/farm.mjs --runs 32 --minutes 30 --n 32768 --baseline balance/baseline-32k-30m.json"
   },

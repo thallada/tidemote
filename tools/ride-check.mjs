@@ -2,7 +2,7 @@
 // the camera's dive (gradual, to a mid-to-close zoom) and its breathing with the speed, WASD steering with a ramp
 // (and not toggling currents, the auto camera, sound or the tide map), a scroll leaving the zoom to the viewer, a
 // quick click on another cell getting off, a ride that loses its cell offering Ride a relative, and Esc.
-//   npm run build && TIDEMOTE_VK=1 ~/.local/bin/capped node tools/ride-check.mjs
+//   npm run build && TIDEMOTE_VK=1 tools/capped.sh node tools/ride-check.mjs
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http';
 import { chromium } from 'playwright-core';
 import { vkOn as vk, retryAdapter } from './vk.mjs';

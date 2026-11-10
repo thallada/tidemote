@@ -135,7 +135,7 @@ and on a phone the rail overflowed (430 px in 390) onto the clock (`runs/film/ui
 
 ## Checking it
 
-`TIDEMOTE_VK=1 ~/.local/bin/capped -m 900M node tools/film-check.mjs --size laptop|phone|4k --minutes N --out runs/film/NAME`
+`TIDEMOTE_VK=1 tools/capped.sh -m 900M node tools/film-check.mjs --size laptop|phone|4k --minutes N --out runs/film/NAME`
 films the built page headless (`--opts '{"mime":...,"bps":...}'` another format or rate) and prints, every ten seconds, the bytes written, the size the strip
 shows, the browser's memory (PSS of its processes) and what it put on disk; then probes the film with
 ffprobe (duration, frames a second) and times a seek to 90% (and how many bytes ffmpeg read for it).

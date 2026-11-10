@@ -114,12 +114,13 @@ function capture() {
     p.stderr.on('data', (d) => log.push(...d.toString().split('\n').filter(Boolean)));
     p.on('close', (c) => (c ? rej(new Error(`${cmd} exited ${c}`)) : res()));
   });
-  const capped = path.join(process.env.HOME, '.local/bin/capped');
   const wsl = (() => { try { return /microsoft/i.test(fs.readFileSync('/proc/version', 'utf8')); } catch { return false; } })();
   const tour = ['tools/i18n/tour.mjs', '--page', 'dist/tidemote.textlab.capture.html', '--out', 'runs/i18n/shots', '--shots'];
   run('node', ['build.mjs', '--mark', '--out', 'dist/tidemote.textlab.capture.html'])
     // (under WSL the tour runs in Windows Chrome on the GPU through Windows' node, tools/gpu-node.sh)
-    .then(() => (wsl ? run('tools/gpu-node.sh', tour) : fs.existsSync(capped) ? run(capped, ['-m', '900M', 'node', ...tour], { TIDEMOTE_VK: '1' }) : run('node', tour)))
+    // (on other Linux on the GPU through Vulkan, its memory capped by tools/capped.sh; on a Mac in its Chrome)
+    .then(() => (wsl ? run('tools/gpu-node.sh', tour)
+      : process.platform === 'linux' ? run('tools/capped.sh', ['-m', '900M', 'node', ...tour], { TIDEMOTE_VK: '1' }) : run('node', tour)))
     .then(() => { shots.load(); log.push('done'); })
     .catch((e) => log.push(`failed: ${e.message}`))
     .finally(() => { shots.job.done = Date.now(); setTimeout(() => { shots.job = null; }, 60000); });

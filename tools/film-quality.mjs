@@ -4,7 +4,7 @@
 // 30th frame as a lossless PNG; the film is decoded, those frames found by their barcode, and each
 // compared with its original (SSIM and PSNR of luma, the barcode's strip left out). Also: frames kept a
 // second, MB a minute, and the page's fps while filming.
-//   npm run build && TIDEMOTE_VK=1 ~/.local/bin/capped -m 900M node tools/film-quality.mjs --size 4k --seconds 30 --rounds 3 \
+//   npm run build && TIDEMOTE_VK=1 tools/capped.sh -m 900M node tools/film-quality.mjs --size 4k --seconds 30 --rounds 3 \
 //     --variants '[{"name":"default"},{"name":"vp9","mime":"video/webm;codecs=vp9,opus","bps":7.5e6}]' --out runs/film/q
 // A variant: { name, mime, bps, kfi (keyframe interval, ms), look: false (the microscope's look, its grain,
 // off) }; the page's own for what it leaves out. --size phone|laptop|4k, --page FILE an older build.

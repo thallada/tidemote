@@ -11,7 +11,7 @@
 //   node tools/i18n/review.mjs --list [done|flagged|checked]   print messages for a reader's review, with context
 //   node tools/i18n/review.mjs --approve ID [ID...]     approve (after a reader's review)
 //   node tools/i18n/review.mjs --note ID "what" [--suggest "text"] [--level warn|error] [--kind logic]
-// Runs as ~/.local/bin/capped -m 600M node tools/i18n/review.mjs (Harper's dictionary takes about 300 MB).
+// Runs as tools/capped.sh -m 600M node tools/i18n/review.mjs (Harper's dictionary takes about 300 MB).
 import { parseArgs } from 'node:util';
 import { parse, TYPE } from '@formatjs/icu-messageformat-parser';
 import { extract } from './extract.mjs';

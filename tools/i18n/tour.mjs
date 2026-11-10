@@ -5,7 +5,7 @@
 // it shows: text nodes, translatable attributes, and what is drawn on canvases (fillText, caught as drawn).
 // With a marked build (node build.mjs --mark) each string carries its message id, and --shots also takes a
 // screenshot of each state with every message's box, which the text editor shows as where a message sits.
-//   npm run build && TIDEMOTE_VK=1 ~/.local/bin/capped -m 900M node tools/i18n/tour.mjs --out runs/i18n/base
+//   npm run build && TIDEMOTE_VK=1 tools/capped.sh -m 900M node tools/i18n/tour.mjs --out runs/i18n/base
 //   [--page dist/tidemote.en-XA.html] [--shots] [--sizes laptop,phone] [--n 32768]
 // Writes <out>/texts.json ({ states: { name: [{ s, el, attr?, box?, ids? }] } }) and with --shots <out>/<state>.png.
 // tools/i18n/textdiff.mjs compares two tours; tools/i18n/coverage.mjs reads a pseudo-locale's.

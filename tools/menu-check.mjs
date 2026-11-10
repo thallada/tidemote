@@ -4,7 +4,7 @@
 // measured opens and begins; a click outside an open panel and Escape close it without beginning; Tab and Shift
 // do not begin, another key does; and at phone and laptop sizes the open panels fit the screen.
 //   npm run build && tools/gpu-node.sh tools/menu-check.mjs [--out DIR for screenshots]
-//   (on Linux without a display: TIDEMOTE_VK=1 ~/.local/bin/capped node tools/menu-check.mjs)
+//   (on Linux without a display: TIDEMOTE_VK=1 tools/capped.sh node tools/menu-check.mjs)
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http';
 import { chromium } from 'playwright-core';
 import { vkOn as vk, retryAdapter } from './vk.mjs';

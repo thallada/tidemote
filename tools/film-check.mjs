@@ -1,7 +1,7 @@
 // Films the built page headless and measures what filming costs: the bytes the encoder hands over (MB a
 // minute), the memory of the browser's processes as the film grows, what it put on disk (its blob store,
 // its private files), and the film it saves, probed with ffmpeg (duration, frames, a seek's bytes). docs/film.md.
-//   npm run build && TIDEMOTE_VK=1 ~/.local/bin/capped -m 900M node tools/film-check.mjs --size laptop --minutes 5 --out runs/film/NAME
+//   npm run build && TIDEMOTE_VK=1 tools/capped.sh -m 900M node tools/film-check.mjs --size laptop --minutes 5 --out runs/film/NAME
 // --size phone|laptop|4k (tools/film-page.mjs), --page FILE an older build, --n particles (16384), --memory
 // without the private files (the memory sink), --cap BYTES a lower limit (to see it stop itself), --opts JSON
 // the recorder's format and bitrate ({ mime, bps, kfi }). Writes NAME/SIZE.json and the film beside it.
