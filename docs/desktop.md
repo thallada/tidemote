@@ -228,8 +228,8 @@ still open on our side. Valve's own pages are the authority for their rules and 
      keyboard for naming), text legible at 1280×800, the frame rate the page picks there. Steam Deck
      Verified review follows from that.
    - Known performance issues, not blockers: one load in three of the 4M world steps slower
-     (Status); `life.genera` grows without bound in long runs (about 5,000 genera an hour, 67,000 at
-     12 hours: the save and the heap grow with it).
+     (Status). (`life.genera` no longer grows with a long run: `pruneRecords` in `src/main.js` drops
+     the genera and orphan lines no kept species belongs to.)
    - macOS last: signing and notarization.
 6. **Store page.** Description, short description, tags, the content survey (age ratings), system
    requirements (a WebGPU-capable GPU: D3D12 on Windows, Vulkan on Linux), price (decided: free or
