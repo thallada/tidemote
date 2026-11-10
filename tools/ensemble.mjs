@@ -129,7 +129,9 @@ function printSummary(r) {
 }
 
 function compare(base, cand) {
-  const same = ['n', 'minutes', 'eras'].filter((k) => base.config[k] !== cand.config[k]);
+  // (a report from before step was kept ran 1-tick steps; temp, held or not, as a number)
+  const norm = { step: (x) => x ?? 1, temp: (x) => (x == null ? null : +x) }, as = (k, x) => (norm[k] ? norm[k](x) : x);
+  const same = ['n', 'minutes', 'eras', 'step', 'temp'].filter((k) => as(k, base.config[k]) !== as(k, cand.config[k]));
   if (same.length) console.log(`\nWARNING: baseline differs in ${same.join(', ')}; the comparison is not like for like.`);
   const rows = compareEnsembles(base.runs, cand.runs, { alpha: +v.alpha });
   console.log(`\nAgainst baseline "${base.name}" (${base.runs.length} runs); diff is oriented so negative is worse:`);
