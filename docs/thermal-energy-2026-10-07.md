@@ -1,5 +1,19 @@
 # Heat: thermal energy in the biosphere, proposals and a plan, 2026-10-07
 
+**Status (checked against the code 2026-11-09).** A proposal followed by its build log. Sections 1-12 are
+the plan as written that day, not the code; sections 13-17 record what was built. In the code now (`heatMain`
+in `src/shaders.js`, the thermal tunables in `DEFAULT_K`, `thermalPerf` in `src/genome.js`): the field
+(deposits from upkeep, rotting husks, the sun and framboids, stone's heat capacity, carried by the currents,
+diffusion and relaxation to the background), the climate's temperature walk with seasons, heat waves and cold
+snaps (`src/climate.js`), the genes `topt`, `tol` and `thermo`, performance with a flat top, thermotaxis,
+torpor, scalding, stress upkeep, heat-makers, husks rotting faster in warm water (`rotQ10`) and sparks
+favoring hot water (`abioHeat`), at the values in section 13's table and `DEFAULT_K`, not section 6.7's.
+Gone since: vents (pyrite framboids replaced them, section 14), and with glint (removed 2026-10-15) glint's
+Q10, hot springs and `hotCharge`. Never built: surface flow stayed a knob at 0 (`marangoni`), and the phase 3
+screens (absolute upkeep `q10`, `viscK`, `heatMut`, `bondMelt`), thermosynthesis at fronts, the `scalded`
+listening event, `simmer`, the heat-makers' hum, `requestHeat`, `--png-every`, director shots and survey
+words were not. Ice, the water's phase with latent heat (`iceLatent`), came later: docs/catastrophes.md.
+
 Tidemote has two energy inputs today: light (the tide's pattern times the season, over the era's ambient
 floor) and glint (silt that the tide charges). Energy leaves through upkeep, through glint leaking back to
 silt, and through husks decaying. Nothing records where spent energy goes. The water has no temperature,
