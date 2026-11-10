@@ -18,7 +18,7 @@
 // semitone (2.9 is the third degree flattened), used for chromatic approach notes.
 
 import { roleShares } from '../genome.js';
-import { tr } from '../i18n.js';
+import { tr, LOCALE } from '../i18n.js';
 
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -330,6 +330,9 @@ const RHYTHM = (m) => {
   return 'uneven';
 };
 
+// a list of a song's clauses (describe), in the page's language: "a, b, c" in English
+const CLAUSES = new Intl.ListFormat(LOCALE, { type: 'unit', style: 'long' });
+
 /** Seconds per note at the soundtrack's resting pulse. */
 export const noteSeconds = (m, step = 0.18) => (m.cycle / m.notes.length) * step;
 
@@ -349,20 +352,20 @@ export function describe(v) {
   // three in practice), its shape and its rhythm
   const out = [tr('song.line.phrase', '{n, plural, =0 {No notes} =1 {One note} =2 {Two notes} =3 {Three notes} =4 {Four notes} =5 {Five notes} =6 {Six notes} =7 {Seven notes} =8 {Eight notes} =9 {Nine notes} =10 {Ten notes} =11 {Eleven notes} =12 {Twelve notes} =13 {Thirteen notes} =14 {Fourteen notes} other {# notes}}, {contour, select, rising {rising} falling {falling} arching {rising then falling} dipping {falling then rising} zigzag {zigzagging up and down} leaping {leaping widely} hovering {staying around one pitch} wavering {wavering} level {mostly level} other {one pitch}}, {rhythm, select, burst {a held note, then a quick burst} triplets {in triplets} rests {broken up by rests} offbeat {off the beat} long {each note held long} even_quick {in even quick notes} even {in even notes} long_short {long-short, long-short} long_short_short {long-short-short} short_short_long {short-short-long} slowing {slowing into a long last note} other {in uneven notes}}.',
     { n: first.length, contour: contourWord(first.map((nt) => nt.deg)), rhythm: RHYTHM(m) })];
-  // what else is heard, in one sentence: each clause written as it reads first in it, or after another (pos)
+  // what else is heard, in one sentence: a list of clauses, each written as it reads first in it, or after another (pos)
   const bits = [];
   const pos = () => (bits.length ? 'next' : 'first');
   // i18n: (the answer comes first in its sentence when there is one)
   if (m.dev.answer) bits.push(tr('song.line.answer', '{answer, select, sequence {Then played again a step higher or lower} mirror {Then played again upside down} echo {Its end repeats an octave higher} other {Then played again with the last note held}}', { answer: m.dev.answer }));
-  // i18n: a clause in a song's description: first in its sentence, or after another
-  if (m.swing > 0.05) bits.push(tr('song.line.swung', '{pos, select, first {Swung (every second note a little late)} other {, swung (every second note a little late)}}', { pos: pos() }));
-  if (m.notes.some((nt) => nt.grace != null)) bits.push(tr('song.line.grace', '{pos, select, first {One quick grace note} other {, one quick grace note}}', { pos: pos() }));
-  if (m.notes.some((nt) => Math.round(nt.deg) !== nt.deg)) bits.push(tr('song.line.outside', '{pos, select, first {One note outside the key} other {, one note outside the key}}', { pos: pos() }));
+  // i18n: a clause in a song's description: first in its sentence, or after another (the list puts the comma between)
+  if (m.swing > 0.05) bits.push(tr('song.line.swung', '{pos, select, first {Swung (every second note a little late)} other {swung (every second note a little late)}}', { pos: pos() }));
+  if (m.notes.some((nt) => nt.grace != null)) bits.push(tr('song.line.grace', '{pos, select, first {One quick grace note} other {one quick grace note}}', { pos: pos() }));
+  if (m.notes.some((nt) => Math.round(nt.deg) !== nt.deg)) bits.push(tr('song.line.outside', '{pos, select, first {One note outside the key} other {one note outside the key}}', { pos: pos() }));
   const lastDeg = m.notes[m.notes.length - 1].deg;
-  if ([0, 7, -7].includes(lastDeg)) bits.push(tr('song.line.home', '{pos, select, first {Ends on the home note} other {, ends on the home note}}', { pos: pos() }));
-  else if (![4, -3].includes(lastDeg) && m.char.prey > 0.5) bits.push(tr('song.line.unresolved', '{pos, select, first {Ends unresolved} other {, ends unresolved}}', { pos: pos() }));
-  // i18n: the sentence the clauses above make
-  if (bits.length) out.push(tr('song.line.clauses', '{clauses}.', { clauses: bits.join('') }));
+  if ([0, 7, -7].includes(lastDeg)) bits.push(tr('song.line.home', '{pos, select, first {Ends on the home note} other {ends on the home note}}', { pos: pos() }));
+  else if (![4, -3].includes(lastDeg) && m.char.prey > 0.5) bits.push(tr('song.line.unresolved', '{pos, select, first {Ends unresolved} other {ends unresolved}}', { pos: pos() }));
+  // i18n: the sentence the clauses above make: {clauses}, the list of them (in English, joined by commas)
+  if (bits.length) out.push(tr('song.line.clauses', '{clauses}.', { clauses: CLAUSES.format(bits) }));
   out.push(tr('song.line.sync', '{sync, select, school {Its cells school, so they sing it in step.} alone {Its cells don’t school, so each starts the phrase on its own beat and the copies overlap.} other {Its cells school loosely: some sing it in step, others on their own beat.}}',
     { sync: m.sync > 0.65 ? 'school' : m.sync < 0.3 ? 'alone' : 'loose' }));
   if (m.voice2) out.push(tr('song.line.voice2', 'Its β cells add a lower second voice.'));

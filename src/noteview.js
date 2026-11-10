@@ -838,6 +838,9 @@ export function createNoteView(g) {
   const comfortOf = (lo, hi) => tr('notes.comfort', 'COMFORT {lo}–{hi}°C', { lo: Math.round(lo), hi: Math.round(hi) });
   // i18n: Live annotations: how each died, in capitals, before how many (notes.cause-count)
   const causeUp = (c) => tr('notes.cause', '{c, select, kill {KILLED} grazed {GRAZED} starved {STARVED} old {OLD AGE} scalded {SCALDED} froze {FROZE} other {DRIED}}', { c });
+  // i18n: Live annotations: the commonest causes of death, most first: {count} of them (one to three), each ({a}, {b},
+  // {c}) a cause and how many died of it (notes.cause-count)
+  const causeList = (items) => (items.length ? tr('notes.cause-list', '{count, plural, =1 {{a}} =2 {{a} · {b}} other {{a} · {b} · {c}}}', { count: items.length, a: items[0], b: items[1] ?? '', c: items[2] ?? '' }) : '');
   // i18n: Live annotations: the community's reasons for holding together, under this heading
   const whyHead = () => tr('notes.clump.why-head', 'WHY IT HOLDS TOGETHER');
   // i18n: Live annotations: the water's temperature under the dial: the pool's mean, {t} degrees
@@ -960,7 +963,8 @@ export function createNoteView(g) {
       spGlyph(k, b2.l + 10, b2.t + 13, 4.5);
       text('micro', fit('micro', words[0] || '', NODE_W - 26), b2.l + 20, b2.t + 12, rgba(INK2, 1));
       text('data', fit('data', words.slice(1).join(' ') || words[0] || '', NODE_W - 26), b2.l + 20, b2.t + 24, rgba(INK, 0.98));
-      const nd = b2.nd, flow = [nd.ate ? tr('notes.web.ate', 'ATE {n}', { n: Math.round(nd.ate) }) : '', nd.eaten ? tr('notes.web.eaten', 'EATEN {n}', { n: Math.round(nd.eaten) }) : ''].filter(Boolean).join(' · ');
+      // i18n: Live annotations: in the food web, how many of others a species ate ({ate}) and how many of it were eaten ({eaten}), each when there were any
+      const nd = b2.nd, flow = tr('notes.web.flow', '{has, select, both {ATE {ate} · EATEN {eaten}} ate {ATE {ate}} eaten {EATEN {eaten}} other {}}', { has: nd.ate && nd.eaten ? 'both' : nd.ate ? 'ate' : nd.eaten ? 'eaten' : 'none', ate: Math.round(nd.ate || 0), eaten: Math.round(nd.eaten || 0) });
       text('data', fit('data', flow, NODE_W - 12), b2.l + 6, b2.t + 41, rgba(INK3, 1));
     }
     // the key: which way the arrows run
@@ -1081,10 +1085,12 @@ export function createNoteView(g) {
       P.pts = m ? [c, m] : [c];
       const g2 = sp(d.kind);
       const comfort = g2 ? comfortOf(g2.topt - g2.tol, g2.topt + g2.tol) : '';
+      // i18n: Live annotations: a new species' diet ({guild}, notes.guild) and how it bears the water ({comfort}, notes.comfort; when known)
+      const kindLine = tr('notes.newsp.kind', '{guild}{has, select, yes { · {comfort}} other {}}', { guild: guildUp(g2?.guild), has: comfort ? 'yes' : 'no', comfort });
       // i18n: Live annotations: life sparked from silt (a new lineage: its diet), or a new species, a mutant of another ({name})
       P.label = d.type === 'spark'
         ? { tone: HOT, tag: tr('notes.spark.tag', 'LIFE FROM SILT'), main: nm(d.kind), data: [tr('notes.spark.data', 'A NEW LINEAGE · {guild}', { guild: guildUp(g2?.guild) }), comfort].filter(Boolean) }
-        : { tone: HOT, tag: tr('notes.newsp.tag', 'NEW SPECIES'), main: nm(d.kind), data: [tr('notes.newsp.data', 'A MUTANT OF {name}', { name: nm(d.akind) }), `${guildUp(g2?.guild)}${comfort ? ' · ' + comfort : ''}`] };
+        : { tone: HOT, tag: tr('notes.newsp.tag', 'NEW SPECIES'), main: nm(d.kind), data: [tr('notes.newsp.data', 'A MUTANT OF {name}', { name: nm(d.akind) }), kindLine] };
     } else if (d.type === 'bloom' || d.type === 'waking' || d.type === 'dormant') {
       const pts = group('c', M.rows(d.kind, d.type === 'dormant' ? 'cyst' : 'all'));
       const an = hang(0, pts, d.kind);
@@ -1252,7 +1258,7 @@ export function createNoteView(g) {
       const deaths = Object.entries(d.died).filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1]).map(([c, k]) => [causeUp(c), k, CAUSE[c]]);
       // i18n: Live annotations: a species' births against its deaths: thriving, declining or turning over; its deaths by cause ({cause} notes.cause, {n} of them)
       P.label = { tone: net >= 0 ? CYAN : HOT, tag: net > d.dead * 0.2 ? tr('notes.balance.thriving', 'THRIVING') : -net > d.born * 0.2 ? tr('notes.balance.declining', 'DECLINING') : tr('notes.balance.turnover', 'TURNOVER'), num: `${net > 0 ? '+' : ''}${net}`, main: nm(d.kind),
-        data: [tr('notes.balance.data', 'BORN {born} · DIED {dead} · LAST 30 S', { born: d.born, dead: d.dead }), deaths.slice(0, 3).map(([c, k]) => tr('notes.cause-count', '{cause} {n}', { cause: c, n: k })).join(' · ') || tr('notes.balance.none-died', 'NONE DIED')], split: { born: d.born, deaths } };
+        data: [tr('notes.balance.data', 'BORN {born} · DIED {dead} · LAST 30 S', { born: d.born, dead: d.dead }), causeList(deaths.slice(0, 3).map(([c, k]) => tr('notes.cause-count', '{cause} {n}', { cause: c, n: k }))) || tr('notes.balance.none-died', 'NONE DIED')], split: { born: d.born, deaths } };
       P.keys.push({ glyph: 'plus', text: cellOf(nm(d.kind)), tone: INK });
       if (died.length) P.keys.push({ glyph: 'cross', text: tr('notes.key.died', 'DIED, LAST 10 S'), tone: HOT });
     } else if (d.type === 'genus') {
@@ -1408,10 +1414,12 @@ export function createNoteView(g) {
       if (!S.at) S.at = top.reduce((b, p) => (p[1] < b[1] ? p : b), top[0]);
       P.anchor = F.toScreen(S.at);
       const pct = pctUp;
+      // i18n: Live annotations: the two most numerous species where they meet, each name short ({a}, {b}: G. EPITHET)
+      const meet = d.type === 'range' ? '' : tr('notes.front.main', '{a} · {b}', { a: short(sp(d.a.kind)?.name), b: short(sp(d.b.kind)?.name) });
       // i18n: Live annotations: the species that holds the view ({n} cells), or the two most numerous and where they meet
       P.label = d.type === 'range'
         ? { tone: INK, eye: tr('notes.range.eye', 'DOMINANT'), num: pct(d.share), main: nm(d.kind), kind: d.kind, data: [tr('notes.range.data', 'OF THE LIVING IN VIEW · {n} CELLS', { n: d.cells }), tr('notes.range.how', 'ITS RANGE OUTLINED WHERE IT IS THICKEST')] }
-        : { tone: INK, eye: tr('notes.front.eye', 'WHERE TWO MEET'), main: `${short(sp(d.a.kind)?.name)} · ${short(sp(d.b.kind)?.name)}`,
+        : { tone: INK, eye: tr('notes.front.eye', 'WHERE TWO MEET'), main: meet,
           table: [d.a, d.b].map((x) => ({ kind: x.kind, name: up(sp(x.kind)?.name), value: pct(x.share), share: x.share })),
           data: [tr('notes.front.data', 'THE TWO MOST NUMEROUS HERE, EACH HOLDING ITS OWN GROUND')] };
       for (const x of parts) P.keys.push({ glyph: 'ring', text: tr('notes.key.range', 'RANGE OF {name}', { name: nm(x.kind) }), tone: INK });
@@ -1440,7 +1448,7 @@ export function createNoteView(g) {
       P.draws.push((t) => blob(loops, HOT, t, F, { hatch: true, ppu0: S.ppu0, hatchA: 0.4, dash: [3, 3] }));
       if (!S.at) { const L = loops.reduce((b, l) => (l.length > b.length ? l : b), loops[0]); S.at = L.reduce((b, p) => (p[1] < b[1] ? p : b), L[0]); }
       P.anchor = F.toScreen(S.at);
-      const top = Object.entries(d.causes).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c, k]) => tr('notes.cause-count', '{cause} {n}', { cause: causeUp(c), n: k })).join(' · ');
+      const top = causeList(Object.entries(d.causes).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c, k]) => tr('notes.cause-count', '{cause} {n}', { cause: causeUp(c), n: k })));
       // i18n: Live annotations: where most died lately, of what, and {pct} of all the deaths in view
       P.label = { tone: HOT, tag: tr('notes.deaths.tag', 'KILLING GROUND'), num: String(d.died), main: tr('notes.deaths.main', 'DIED HERE IN 30 S'), data: [top, tr('notes.deaths.share', '{pct} OF ALL THE DEATHS IN VIEW', { pct: pctUp(d.died / d.all) })] };
       P.keys.push({ glyph: 'square', text: tr('notes.key.most-died', 'WHERE MOST DIED'), tone: HOT });

@@ -344,10 +344,10 @@ export function drawTree(cv, c, lay, eras, opts = {}) {
       if (!hit.node) return namePlate(0xff8c8070, otherName(), tr('lineage.other.sub', '{n, plural, other {# species}} whose ancestors are not shown', { n: u.count }));
       // the row's lineage, and the species leading it where the pointer is when that is another
       const ld = hit.lead, nd = hit.node, q = clade(u);
-      // i18n: a lineage's row or band pointed at, under its leading species' name: how many species it holds, when it arose ({born}: a clock), whether it is gone; {then}: the species leading it where the pointer is ({name} at {t}, a clock); and whether a click explores it
-      const then = nd && nd !== ld ? tr('lineage.row.then', ' · {name} at {t}', { name: esc(nd.name), t: fmtClock(hit.t) }) : '';
-      return namePlate(ld.s.genome.col, ld.name, tr('lineage.row.sub', '{n, plural, =0 {} =1 {} other {lineage of # species · }}arose {born}{alive, select, yes {} other { · extinct}}{then}{explore, select, yes { · click to explore it} other {}}',
-        { n: q.count, born: fmtClock(u.born), alive: q.alive ? 'yes' : 'no', then, explore: hit.explore ? 'yes' : 'no' }));
+      // i18n: a lineage's row or band pointed at, under its leading species' name: how many species it holds, when it arose ({born}: a clock), whether it is gone; {then}: yes when another species leads it where the pointer is ({name} at {t}, a clock); and whether a click explores it
+      const then = nd && nd !== ld;
+      return namePlate(ld.s.genome.col, ld.name, tr('lineage.row.sub', '{n, plural, =0 {} =1 {} other {lineage of # species · }}arose {born}{alive, select, yes {} other { · extinct}}{then, select, yes { · {name} at {t}} other {}}{explore, select, yes { · click to explore it} other {}}',
+        { n: q.count, born: fmtClock(u.born), alive: q.alive ? 'yes' : 'no', then: then ? 'yes' : 'no', name: then ? esc(nd.name) : '', t: then ? fmtClock(hit.t) : '', explore: hit.explore ? 'yes' : 'no' }));
     },
   };
 }

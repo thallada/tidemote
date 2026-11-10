@@ -457,8 +457,9 @@ export function createSpecimen(api) {
   // narrow specialist's peak higher, against the background water now (rounded, so it rarely redraws).
   function nicheWords(g) {
     const t = thermalGuild(g);
-    // i18n: a species' thermal niche: {words} its preference, breadth and whether it makes heat (warm, narrow); {opt} its best temperature, {tol} its tolerance either side
-    return tr('spec.niche', '{words}, {opt}° ± {tol}°', { words: [t.pref, t.breadth, t.maker ? tr('spec.niche.maker', 'heat-maker') : ''].filter(Boolean).join(', '), opt: Math.round(g.topt), tol: Math.round(g.tol) });
+    // i18n: a species' thermal niche: its preference ({pref}), breadth ({breadth}: narrow, wide or neither) and whether it makes heat ({maker}); {opt} its best temperature, {tol} its tolerance either side
+    return tr('spec.niche', '{pref, select, cold {cold-loving} warm {warmth-loving} hot {thermophile} other {temperate}}{breadth, select, specialist {, specialist} generalist {, generalist} other {}}{maker, select, yes {, heat-maker} other {}}, {opt}° ± {tol}°',
+      { pref: { 'cold-loving': 'cold', 'warmth-loving': 'warm', thermophile: 'hot' }[t.pref] ?? 'temperate', breadth: t.breadth || 'none', maker: t.maker ? 'yes' : 'no', opt: Math.round(g.topt), tol: Math.round(g.tol) });
   }
   function thermalBlock(g) {
     let h = trait(tr('spec.temp.optimum', 'Optimum'), g.topt, 0, 45, `${g.topt.toFixed(1)}°`, 'optimum');
