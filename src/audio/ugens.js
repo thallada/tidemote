@@ -223,7 +223,7 @@ export class EnvGen {
     if (this.shape === 8) this.level = this.endLevel; // shape_Hold: start from the previous end level
     const endLevel = this.levels[s + 1] * this.ls;
     const dur = this.times[s] * this.ts;
-    const [shape, curve] = this.shapes[s];
+    const sh = this.shapes[s], shape = sh[0], curve = sh[1];
     this.shape = shape; this.endLevel = endLevel;
     const counter = Math.max(1, Math.trunc(dur * this.rate));
     this.counter = counter;
@@ -281,15 +281,17 @@ export class KtoA {
 }
 
 // ── SC biquads with per-block coefficient ramps ─────────────────────────────
+// (new coefficients are written here and read at once: nothing is allocated while a cutoff moves)
+const CO = new Float64Array(4);
 
 export class LPF {
   constructor(sr) { this.rps = TWOPI / sr; this.y1 = 0; this.y2 = 0; this.freq = NaN; this.a0 = 0; this.b1 = 0; this.b2 = 0; }
-  coefs(freq) { const C = 1 / Math.tan(freq * this.rps * 0.5), C2 = C * C, s = C * Math.SQRT2; const a0 = 1 / (1 + s + C2); return [a0, -2 * (1 - C2) * a0, -(1 - s + C2) * a0]; }
+  coefs(freq) { const C = 1 / Math.tan(freq * this.rps * 0.5), C2 = C * C, s = C * Math.SQRT2; const a0 = 1 / (1 + s + C2); CO[0] = a0; CO[1] = -2 * (1 - C2) * a0; CO[2] = -(1 - s + C2) * a0; return CO; }
   ar(inp, freq, out) {
     let { y1, y2, a0, b1, b2 } = this;
     let da0 = 0, db1 = 0, db2 = 0;
     if (freq !== this.freq) {
-      const [na0, nb1, nb2] = this.coefs(freq);
+      const n = this.coefs(freq), na0 = n[0], nb1 = n[1], nb2 = n[2];
       if (Number.isNaN(this.freq)) { a0 = na0; b1 = nb1; b2 = nb2; }
       else { da0 = (na0 - a0) * FSLOPE; db1 = (nb1 - b1) * FSLOPE; db2 = (nb2 - b2) * FSLOPE; }
       this.freq = freq; this.a0 = na0; this.b1 = nb1; this.b2 = nb2;
@@ -307,12 +309,12 @@ export class LPF {
 }
 
 export class HPF extends LPF {
-  coefs(freq) { const C = Math.tan(freq * this.rps * 0.5), C2 = C * C, s = C * Math.SQRT2; const a0 = 1 / (1 + s + C2); return [a0, 2 * (1 - C2) * a0, -(1 - s + C2) * a0]; }
+  coefs(freq) { const C = Math.tan(freq * this.rps * 0.5), C2 = C * C, s = C * Math.SQRT2; const a0 = 1 / (1 + s + C2); CO[0] = a0; CO[1] = 2 * (1 - C2) * a0; CO[2] = -(1 - s + C2) * a0; return CO; }
   ar(inp, freq, out) {
     let { y1, y2, a0, b1, b2 } = this;
     let da0 = 0, db1 = 0, db2 = 0;
     if (freq !== this.freq) {
-      const [na0, nb1, nb2] = this.coefs(freq);
+      const n = this.coefs(freq), na0 = n[0], nb1 = n[1], nb2 = n[2];
       if (Number.isNaN(this.freq)) { a0 = na0; b1 = nb1; b2 = nb2; }
       else { da0 = (na0 - a0) * FSLOPE; db1 = (nb1 - b1) * FSLOPE; db2 = (nb2 - b2) * FSLOPE; }
       this.freq = freq; this.a0 = na0; this.b1 = nb1; this.b2 = nb2;
@@ -412,13 +414,15 @@ export class Ringz {
 // time), out = 0.25 * ((y00 - y02) - (y10 - y12)); adds amp * output into acc
 export class Formlet {
   constructor(sr) { this.sr = sr; this.rps = TWOPI / sr; this.y01 = 0; this.y02 = 0; this.y11 = 0; this.y12 = 0; this.b01 = 0; this.b02 = 0; this.b11 = 0; this.b12 = 0; this.key = null; }
-  coefs(ff, t) { const R = t === 0 ? 0 : Math.exp(LOG001 / (t * this.sr)), twoR = 2 * R, R2 = R * R, cost = (twoR * Math.cos(ff)) / (1 + R2); return [twoR * cost, -R2]; }
+  coefs(ff, t, o) { const R = t === 0 ? 0 : Math.exp(LOG001 / (t * this.sr)), twoR = 2 * R, R2 = R * R, cost = (twoR * Math.cos(ff)) / (1 + R2); CO[o] = twoR * cost; CO[o + 1] = -R2; }
   arAdd(inp, freq, attackTime, decayTime, amp, acc) {
     let { y01, y02, y11, y12, b01, b02, b11, b12 } = this;
     let s01 = 0, s02 = 0, s11 = 0, s12 = 0;
     const key = freq * 1e6 + decayTime * 1e3 + attackTime;
     if (key !== this.key) {
-      const ff = freq * this.rps, [n01, n02] = this.coefs(ff, decayTime), [n11, n12] = this.coefs(ff, attackTime);
+      const ff = freq * this.rps;
+      this.coefs(ff, decayTime, 0); this.coefs(ff, attackTime, 2);
+      const n01 = CO[0], n02 = CO[1], n11 = CO[2], n12 = CO[3];
       if (this.key === null) { b01 = n01; b02 = n02; b11 = n11; b12 = n12; } // the constructor's first sample sets them
       else { s01 = (n01 - b01) * FSLOPE; s02 = (n02 - b02) * FSLOPE; s11 = (n11 - b11) * FSLOPE; s12 = (n12 - b12) * FSLOPE; }
       this.key = key; this.b01 = n01; this.b02 = n02; this.b11 = n11; this.b12 = n12;
@@ -464,18 +468,19 @@ export class BPF {
   }
 }
 
-// BEQSuite: BLowPass, BLowShelf, BHiShelf (y0 = x + b1 y1 + b2 y2; out = a0 y0 + a1 y1 + a2 y2)
+// BEQSuite: BLowPass, BLowShelf, BHiShelf (y0 = x + b1 y1 + b2 y2; out = a0 y0 + a1 y1 + a2 y2). A filter whose
+// parameters changed puts its new coefficients in n and runs with changed set; nothing is allocated per block.
 class BEQ {
-  constructor(sr) { this.sd = 1 / sr; this.y1 = 0; this.y2 = 0; this.key = null; this.c = null; }
-  run(inp, key, coefFn, out) {
+  constructor(sr) { this.sd = 1 / sr; this.y1 = 0; this.y2 = 0; this.fresh = true; this.c = new Float64Array(5); this.n = new Float64Array(5); this.s = new Float64Array(5); }
+  run(inp, changed, out) {
     let { y1, y2 } = this;
-    let [a0, a1, a2, b1, b2] = this.c || [0, 0, 0, 0, 0];
-    let s = null;
-    if (key !== this.key) {
-      const n = coefFn();
-      if (this.key === null) [a0, a1, a2, b1, b2] = n;
-      else s = n.map((v, i) => (v - [a0, a1, a2, b1, b2][i]) * FSLOPE);
-      this.key = key; this.c = n;
+    const c = this.c, s = this.s;
+    let a0 = c[0], a1 = c[1], a2 = c[2], b1 = c[3], b2 = c[4], ramp = false;
+    if (changed) {
+      const n = this.n;
+      if (this.fresh) { a0 = n[0]; a1 = n[1]; a2 = n[2]; b1 = n[3]; b2 = n[4]; this.fresh = false; }
+      else { for (let i = 0; i < 5; i++) s[i] = (n[i] - c[i]) * FSLOPE; ramp = true; }
+      c.set(n);
     }
     let j = 0;
     for (let l = 0; l < LOOPS; l++) {
@@ -483,39 +488,52 @@ class BEQ {
       const y0 = i0 + b1 * y1 + b2 * y2; out[j++] = a0 * y0 + a1 * y1 + a2 * y2;
       y2 = i1 + b1 * y0 + b2 * y1; out[j++] = a0 * y2 + a1 * y0 + a2 * y1;
       y1 = i2 + b1 * y2 + b2 * y0; out[j++] = a0 * y1 + a1 * y2 + a2 * y0;
-      if (s) { a0 += s[0]; a1 += s[1]; a2 += s[2]; b1 += s[3]; b2 += s[4]; }
+      if (ramp) { a0 += s[0]; a1 += s[1]; a2 += s[2]; b1 += s[3]; b2 += s[4]; }
     }
     for (let r = 0; r < REMAIN; r++) { const y0 = inp[j] + b1 * y1 + b2 * y2; out[j++] = a0 * y0 + a1 * y1 + a2 * y2; y2 = y1; y1 = y0; }
     this.y1 = zap(y1); this.y2 = zap(y2);
   }
+  // (the shelves' parameters, as they were last run: a change in any of them is a change)
+  shelfChanged(freq, rs, db) {
+    if (!this.fresh && freq === this.freq && rs === this.rs && db === this.db) return false;
+    this.freq = freq; this.rs = rs; this.db = db;
+    return true;
+  }
 }
 export class BLowPass extends BEQ {
   ar(inp, freq, rq, out) {
-    this.run(inp, freq * 1e6 + rq, () => {
+    const key = freq * 1e6 + rq, changed = this.fresh || key !== this.key;
+    if (changed) {
       const w0 = TWOPI * freq * this.sd, c = Math.cos(w0), i = 1 - c, alpha = Math.sin(w0) * 0.5 * rq, b0rz = 1 / (1 + alpha);
-      const a0 = i * 0.5 * b0rz;
-      return [a0, i * b0rz, a0, c * 2 * b0rz, (1 - alpha) * -b0rz];
-    }, out);
+      const a0 = i * 0.5 * b0rz, n = this.n;
+      n[0] = a0; n[1] = i * b0rz; n[2] = a0; n[3] = c * 2 * b0rz; n[4] = (1 - alpha) * -b0rz;
+      this.key = key;
+    }
+    this.run(inp, changed, out);
   }
 }
 export class BLowShelf extends BEQ {
   ar(inp, freq, rs, db, out) {
-    this.run(inp, `${freq}:${rs}:${db}`, () => {
+    const changed = this.shelfChanged(freq, rs, db);
+    if (changed) {
       const a = Math.pow(10, db * 0.025), w0 = TWOPI * freq * this.sd, s = Math.sin(w0), c = Math.cos(w0);
       const alpha = s * 0.5 * Math.sqrt((a + 1 / a) * (rs - 1) + 2), i = (a + 1) * c, j = (a - 1) * c, k = 2 * Math.sqrt(a) * alpha;
-      const b0rz = 1 / ((a + 1) + j + k);
-      return [a * ((a + 1) - j + k) * b0rz, 2 * a * ((a - 1) - i) * b0rz, a * ((a + 1) - j - k) * b0rz, 2 * ((a - 1) + i) * b0rz, ((a + 1) + j - k) * -b0rz];
-    }, out);
+      const b0rz = 1 / ((a + 1) + j + k), n = this.n;
+      n[0] = a * ((a + 1) - j + k) * b0rz; n[1] = 2 * a * ((a - 1) - i) * b0rz; n[2] = a * ((a + 1) - j - k) * b0rz; n[3] = 2 * ((a - 1) + i) * b0rz; n[4] = ((a + 1) + j - k) * -b0rz;
+    }
+    this.run(inp, changed, out);
   }
 }
 export class BHiShelf extends BEQ {
   ar(inp, freq, rs, db, out) {
-    this.run(inp, `${freq}:${rs}:${db}`, () => {
+    const changed = this.shelfChanged(freq, rs, db);
+    if (changed) {
       const a = Math.pow(10, db * 0.025), w0 = TWOPI * freq * this.sd, s = Math.sin(w0), c = Math.cos(w0);
       const alpha = s * 0.5 * Math.sqrt((a + 1 / a) * (rs - 1) + 2), i = (a + 1) * c, j = (a - 1) * c, k = 2 * Math.sqrt(a) * alpha;
-      const b0rz = 1 / ((a + 1) - j + k);
-      return [a * ((a + 1) + j + k) * b0rz, -2 * a * ((a - 1) + i) * b0rz, a * ((a + 1) + j - k) * b0rz, -2 * ((a - 1) - i) * b0rz, ((a + 1) - j - k) * -b0rz];
-    }, out);
+      const b0rz = 1 / ((a + 1) - j + k), n = this.n;
+      n[0] = a * ((a + 1) + j + k) * b0rz; n[1] = -2 * a * ((a - 1) + i) * b0rz; n[2] = a * ((a + 1) + j - k) * b0rz; n[3] = -2 * ((a - 1) - i) * b0rz; n[4] = ((a + 1) - j - k) * -b0rz;
+    }
+    this.run(inp, changed, out);
   }
 }
 
@@ -633,7 +651,7 @@ export class Limiter {
     let remain = BS, o = 0;
     while (remain > 0) {
       const ns = Math.min(remain, this.size - pos);
-      const [xin, , xout] = this.bufs;
+      const xin = this.bufs[0], xout = this.bufs[2];
       if (this.flips >= 2) {
         for (let i = 0; i < ns; i++) { const v = inp[o + i]; xin[pos + i] = v; out[o + i] = level * xout[pos + i]; level += slope; const a = Math.abs(v); if (a > curmax) curmax = a; }
       } else {
@@ -646,7 +664,7 @@ export class Limiter {
         this.prevmax = curmax; curmax = 0;
         const nl = m2 > amp ? amp / m2 : 1;
         slope = this.slope = (nl - level) * this.sf;
-        const [i0, m0, o0] = this.bufs; this.bufs = [o0, i0, m0]; // in <- out, mid <- in, out <- mid
+        const b = this.bufs, i0 = b[0], m0 = b[1], o0 = b[2]; b[0] = o0; b[1] = i0; b[2] = m0; // in <- out, mid <- in, out <- mid
         this.flips++;
       }
     }
@@ -731,17 +749,18 @@ export class AllpassC extends DelayLine {
 // zeroed, where scsynth's Pluck_next_kk_z reads the unwritten part as zeros: the same output.
 export class Pluck extends DelayLine {
   constructor(sr, maxDelay) { super(sr, maxDelay, 2); this.last = 0; this.prevtrig = 0; this.inputs = 0; this.fb = NaN; this.coef = NaN; this.dec = NaN; }
+  // (the delay in samples, and the feedback for a decay time: methods, so no closure is made per block)
+  samples(d) { const f = Math.fround; return Math.min(Math.max(f(f(d) * f(this.sr)), this.min), this.len); }
+  static feedback(d, dec) { return d === 0 || dec === 0 ? 0 : Math.sign(dec) * Math.fround(Math.exp((LOG001 * d) / Math.abs(dec))); }
   kk(inp, trig, dt, decay, coef, out) {
-    const f = Math.fround, b = this.buf, m = this.mask, sr = this.sr;
-    const calc = (d) => Math.min(Math.max(f(f(d) * f(sr)), this.min), this.len);
-    const feedback = (d, dec) => (d === 0 || dec === 0 ? 0 : Math.sign(dec) * f(Math.exp((LOG001 * d) / Math.abs(dec))));
-    if (Number.isNaN(this.fb)) { this.dsamp = calc(dt); this.dt = dt; this.dec = decay; this.fb = feedback(dt, decay); this.coef = coef; }
+    const f = Math.fround, b = this.buf, m = this.mask, sr = this.sr, feedback = Pluck.feedback;
+    if (Number.isNaN(this.fb)) { this.dsamp = this.samples(dt); this.dt = dt; this.dec = decay; this.fb = feedback(dt, decay); this.coef = coef; }
     if (this.prevtrig <= 0 && trig > 0) this.inputs = Math.trunc(dt * sr + 0.5);
     this.prevtrig = trig;
     let w = this.w, last = this.last, inputs = this.inputs, ds = this.dsamp, fb = this.fb, c = this.coef;
     let dsl = 0, fbl = 0, cl = 0;
     if (dt !== this.dt || decay !== this.dec || coef !== this.coef) {
-      dsl = (calc(dt) - ds) * SLOPE; fbl = (feedback(dt, decay) - fb) * SLOPE; cl = (coef - c) * SLOPE;
+      dsl = (this.samples(dt) - ds) * SLOPE; fbl = (feedback(dt, decay) - fb) * SLOPE; cl = (coef - c) * SLOPE;
     }
     for (let i = 0; i < BS; i++) {
       if (dsl) ds = f(ds + dsl);
@@ -761,16 +780,19 @@ export class Pluck extends DelayLine {
 }
 
 // ── panning (equal-power from the 8192-point sine table, 2049 positions) ─────
+// (into PAN, read at once: a pan that moves every block allocates nothing)
+const PAN = new Float64Array(2);
 const panAmps = (pos, level) => {
   const ip = Math.min(2048, Math.max(0, Math.trunc(1024 * pos + 1024 + 0.5)));
-  return [level * SINE[2048 - ip], level * SINE[ip]];
+  PAN[0] = level * SINE[2048 - ip]; PAN[1] = level * SINE[ip];
+  return PAN;
 };
 export class Pan2 {
-  constructor(pos0, level0 = 1) { this.pos = pos0; this.level = level0; [this.la, this.ra] = panAmps(pos0, level0); }
+  constructor(pos0, level0 = 1) { this.pos = pos0; this.level = level0; const a = panAmps(pos0, level0); this.la = a[0]; this.ra = a[1]; }
   addK(inp, pos, level, L, R) { // adds into L/R
     let la = this.la, ra = this.ra, ls = 0, rs = 0;
     if (pos !== this.pos || level !== this.level) {
-      const [nl, nr] = panAmps(pos, level); ls = (nl - la) * SLOPE; rs = (nr - ra) * SLOPE;
+      const a = panAmps(pos, level), nl = a[0], nr = a[1]; ls = (nl - la) * SLOPE; rs = (nr - ra) * SLOPE;
       this.pos = pos; this.level = level; this.la = nl; this.ra = nr;
     }
     for (let i = 0; i < BS; i++) { const z = inp[i]; L[i] += z * la; R[i] += z * ra; la += ls; ra += rs; }
@@ -780,7 +802,7 @@ export class Balance2 extends Pan2 {
   addK2(inL, inR, pos, level, L, R) {
     let la = this.la, ra = this.ra, ls = 0, rs = 0;
     if (pos !== this.pos || level !== this.level) {
-      const [nl, nr] = panAmps(pos, level); ls = (nl - la) * SLOPE; rs = (nr - ra) * SLOPE;
+      const a = panAmps(pos, level), nl = a[0], nr = a[1]; ls = (nl - la) * SLOPE; rs = (nr - ra) * SLOPE;
       this.pos = pos; this.level = level; this.la = nl; this.ra = nr;
     }
     for (let i = 0; i < BS; i++) { L[i] += inL[i] * la; R[i] += inR[i] * ra; la += ls; ra += rs; }
