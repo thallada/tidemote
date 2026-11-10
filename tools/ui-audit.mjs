@@ -196,7 +196,7 @@ for (const s of SIZES) {
   await snap('lineage');
   if (!s.touch) rec.axeLineage = await axeRun(page);
   if (s.touch) await page.evaluate(() => globalThis.__tidemote.lab.close()); else await page.evaluate(() => globalThis.__tidemote.lab.narrow());
-  await open('#set-btn, [aria-controls="settings"]');
+  await open('[aria-controls="settings"]');
   await snap('settings');
   // the Audio tab (an older build, --page, has none)
   if (await page.$('#set-tabs [data-tab="audio"]')) { await open('#set-tabs [data-tab="audio"]'); await snap('audio'); }
