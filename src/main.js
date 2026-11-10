@@ -508,7 +508,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       calibWait = { need, res };
       cut.then(() => { if (calibWait?.res === res) { calibWait = null; res(1000); } });
       setTimeout(() => {
-        if (!calibWait) return;
+        if (calibWait?.res !== res) return; // (a later measure's wait is not this one's to end)
         const w = calibWait;
         calibWait = null;
         w.res(perf.samples.length ? median(perf.samples) : 1000);
