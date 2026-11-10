@@ -63,6 +63,9 @@ can tell before reading the world). A save opens only in a version of its own ma
   `stateSizes` gives, so a buffer added, removed or resized is a major change.
   7.1.0: the page's record keeps the hand's acts and the pipette's contents (`life.hand`, `life.pipette`; empty
   when absent) and a save's meta whether its world was touched.
+  8.1.0: the engine's record keeps a floor shift under way (`cpu.floor`, as `snapshot` keeps it: the era and drift
+  of one still being worked out, or the floor it eases from and to; none when absent), so a world saved during a
+  shift goes on shifting.
 - patch: fixes that change nothing a reader sees.
 
 Settings → Worlds lists a save of another major as "Needs a newer Tidemote" or "From an older

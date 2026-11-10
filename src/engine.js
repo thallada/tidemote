@@ -1702,11 +1702,12 @@ class Engine {
       ambient: this.ambient, seedValue: this.seedValue, temp: this.temp, excursion: this.excursion,
       tide: this.tide.slice(), tidePh: this.tidePh.slice(), waves: this.waves.slice(), rock: this.rock.slice(),
       level: this.level, rain: this.rain, sky: this.sky, evap: this.evap, turb: this.turb, frost: this.frost, freezing: this.freezing, frostNight: this.frostNight, duck: this.duck.slice(), drops: this.drops.slice() };
-    // the floor as it lies (eras move it) and a shift under way, which restore() puts back with it (not in cpu:
-    // readState's thermal holds the floor, and a shift not yet worked out is kept as what to work out again)
+    // a floor shift under way, which restore() takes up again (a save keeps it with the rest of cpu): one not yet
+    // worked out as what to work out again, one easing as the floors it eases from and to
     const f = this.floor;
+    keep.cpu.floor = f && (f.work ? { k: f.k, drift: f.drift, secs: f.secs } : { ...f, from: f.from.slice(), to: f.to.slice() });
+    // and the floor as it lies (eras move it), not in cpu: readState's thermal holds it
     keep.relief = this.relief?.slice();
-    keep.floor = f && (f.work ? { k: f.k, drift: f.drift, secs: f.secs } : { ...f, from: f.from.slice(), to: f.to.slice() });
     return keep;
   }
 
@@ -1724,9 +1725,10 @@ class Engine {
     this.tide.set(c.tide); this.tidePh.set(c.tidePh); this.waves.set(c.waves); this.rock.set(c.rock);
     // the floor as it lay then (a copy: stepFloor eases it in place), from the seed when nothing kept it
     this.relief = keep.relief ? keep.relief.slice() : this._seedRelief().slice();
-    const f = keep.floor;
+    // (a copy, and typed: a tool's world file brings the floors back as plain arrays)
+    const f = c.floor;
     this.floor = null;
-    if (f?.to) this.floor = { ...f, from: f.from.slice(), to: f.to.slice() };
+    if (f?.to) this.floor = { ...f, from: Float32Array.from(f.from), to: Float32Array.from(f.to) };
     else if (f) this.shiftFloor(f.k, f.drift, f.secs);
     if (c.duck) this.duck.set(c.duck);
     if (c.drops) this.drops.set(c.drops);
@@ -1774,7 +1776,7 @@ class Engine {
     this.device.queue.submit([enc.finish()]);
     this.count = cpu.count; this.grid = [...cpu.grid];
     if (cpu.founders != null) this.founders = cpu.founders;
-    // the floor as the world left it (eras move it; a save keeps no shift under way)
+    // the floor as the world left it (eras move it), and a shift under way (cpu.floor) taken up again
     const [gw, gh] = this.grid;
     this.restore({ gpu: {}, cpu, relief: gpu.thermal && new Float32Array(gpu.thermal, MAX_CELLS * 4, gw * gh) });
     if (gpu.thermal) {

@@ -63,5 +63,47 @@ test('what the engine reads back of a world', { timeout: 120_000 }, async (t) =>
     assert.deepEqual(eng.relief, relief);
   });
 
+  // a world saved in the middle of a floor shift goes on shifting when opened, as one put back by restore() does
+  await t.test('a floor shift under way goes through a save file and on', async () => {
+    const through = async () => {
+      const st = await eng.readState();
+      return decodeWorld(await encodeWorld({ meta: {}, cpu: st.cpu, ...compactState(st), page: {} }));
+    };
+    const workOut = () => { for (let k = 0; k < 10000 && eng.floor?.work; k++) eng.stepFloor(); };
+    const run = (n) => { for (let f = 0; f < n; f++) eng.frame({ target: null, simDt: 1 / 60, time: f / 60 }); };
+    // (under a full pool the floor takes its new shape at once: eased, the shore creeps)
+    eng.level = 0.95;
+    // saved while the new floor is still being worked out: opened, it is worked out again, the same
+    eng.shiftFloor(3, 0.5, 120);
+    assert.ok(eng.floor?.work);
+    const early = await through(), reliefThen = eng.relief.slice();
+    workOut();
+    const to = eng.floor.to.slice();
+    run(5);
+    eng.writeState({ cpu: early.cpu, gpu: early.gpu });
+    assert.deepEqual(eng.relief, reliefThen);
+    assert.ok(eng.floor?.work);
+    workOut();
+    assert.deepEqual(eng.floor.to, to);
+    assert.deepEqual(eng.floor.from, reliefThen);
+    // saved part way through easing there: opened, it eases on from where it was, toward the same floor
+    run(30); eng.stepFloor();
+    const f = eng.floor, u = (eng.simTime - f.t0) / f.secs;
+    assert.ok(u > 0 && u < 1, `part way (${u})`);
+    assert.ok(eng.relief.some((x, i) => x !== f.from[i]), 'the floor has moved');
+    const mid = await through(), want = { ...f, from: f.from.slice(), to: f.to.slice() }, reliefMid = eng.relief.slice(), t0 = eng.simTime;
+    eng.floor = null; eng.relief = null; run(5);
+    eng.writeState({ cpu: mid.cpu, gpu: mid.gpu });
+    assert.equal(eng.simTime, t0);
+    assert.deepEqual(eng.relief, reliefMid);
+    assert.deepEqual(eng.floor, want);
+    // and arrives: the floor it eased toward, the shift over
+    eng.simTime = want.t0 + want.secs;
+    eng.stepFloor();
+    assert.equal(eng.floor, null);
+    assert.deepEqual(eng.relief, want.to);
+    eng.level = 1;
+  });
+
   assert.deepEqual(errors, []);
 });

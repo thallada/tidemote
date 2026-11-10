@@ -315,7 +315,7 @@ export async function runForks(device, config, { print } = {}) {
     const keep = async (e) => {
       const st = await e.readState();
       const w = await decodeWorld(await encodeWorld({ meta: {}, cpu: st.cpu, ...E.compactState(st), page: {} }));
-      e.writeState({ cpu: st.cpu, gpu: w.gpu });
+      e.writeState({ cpu: w.cpu, gpu: w.gpu });
     };
     const forks = [];
     for (let r = 0; r < config.reps; r++) {

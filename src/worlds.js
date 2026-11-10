@@ -29,7 +29,7 @@ import { tr } from './i18n.js';
  *   patch: a fix that changes nothing a reader sees.
  * Bump it with every change to the format (docs/desktop.md).
  */
-export const SAVE_VERSION = '8.0.0';
+export const SAVE_VERSION = '8.1.0';
 const MAGIC = [0x54, 0x4d, 0x57, 0x53]; // TMWS, for every version
 const major = (v) => (typeof v === 'string' && /^\d+\.\d+\.\d+$/.test(v) ? +v.split('.')[0] : null);
 

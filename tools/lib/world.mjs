@@ -4,9 +4,9 @@
 
 // (both self-contained: the page runs them too, from their source)
 const pack = (s) => {
-  const cpu = Object.fromEntries(Object.entries(s.cpu).map(([k, x]) => [k, ArrayBuffer.isView(x) ? Array.from(x) : x]));
   const sizes = Object.entries(s.gpu).map(([k, b]) => [k, b.byteLength]);
-  const head = new TextEncoder().encode(JSON.stringify({ cpu, sizes }));
+  // (typed arrays as arrays, wherever they lie: a floor shift's from and to are inside cpu.floor)
+  const head = new TextEncoder().encode(JSON.stringify({ cpu: s.cpu, sizes }, (k, x) => (ArrayBuffer.isView(x) ? Array.from(x) : x)));
   return [new Uint32Array([head.length]), head, ...Object.values(s.gpu)];
 };
 const unpack = (buf) => {
