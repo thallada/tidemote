@@ -126,7 +126,6 @@ body.cursor-off, body.cursor-off * { cursor: none !important; }
 h1, h2, h3 { margin: 0; font-weight: 400; }
 .sec-h h2 span, .lab-head h2 span { color: var(--ink-3); }
 b { font-weight: 500; }
-.num { font-variant-numeric: tabular-nums; }
 .term { text-decoration: underline dotted rgba(163, 189, 190, 0.55); text-underline-offset: 3px; cursor: help; }
 .term:focus-visible { outline: 1px solid var(--cyan); outline-offset: 2px; }
 a.sp, .about button.link { color: var(--ink); text-decoration: underline solid rgba(127, 214, 223, 0.45); text-underline-offset: 3px; cursor: pointer; font-weight: 500; }
@@ -151,7 +150,6 @@ button.chip {
 }
 button.chip[aria-pressed="true"] { color: var(--ink); background: var(--cyan-deep); border-color: var(--line-2); }
 button.chip i { width: 7px; height: 7px; display: inline-block; }
-button.wide { width: 100%; height: 36px; color: var(--ink); }
 .btn { height: 34px; padding: 0 12px; display: inline-flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; font-weight: 500; font-stretch: 110%; color: var(--ink); }
 .btn[aria-pressed="true"] { color: var(--bg); background: var(--hot); border-color: var(--hot); }
 input[type="search"], input[type="text"] {
@@ -214,7 +212,6 @@ input[type="range"] { accent-color: var(--cyan); cursor: pointer; }
 .sharebar { display: flex; gap: 1px; width: 92px; height: 6px; }
 .sharebar i { flex: 0 1 0; min-width: 0; }
 .nil { color: var(--ink-3); }
-.rule { height: 1px; background: var(--line); position: relative; margin: 10px 0; }
 
 /* segmented meters */
 .meter { position: relative; height: 8px; background: repeating-linear-gradient(90deg, rgba(130, 205, 214, 0.16) 0 3px, transparent 3px 5px); }
@@ -1433,7 +1430,6 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .splist .spark { display: none; }
   .barrow { grid-template-columns: 7.5em minmax(24px, 1fr) 7ch 5.4ch; font-size: 12px; }
   .settings { left: 0; right: 0; width: auto; bottom: var(--bot); max-height: calc(100% - var(--top) - var(--bot)); }
-  .settings .sec-h .key { display: none; }
   .settings .tabs button { padding: 0 6px; letter-spacing: .06em; }
   .readout b { font-size: 15px; }
   /* (four across, as on a laptop: the settings below them in the first screen) */
@@ -2037,7 +2033,7 @@ fn swaySlot2(id: u32, n: u32) -> u32 {
     searchImage: 0.7,
     // chance a hunter or grazer misses living prey unlike its last catch
     specPow: 2,
-    // >0: a diet's share d earns d^specPow of a specialist's take (0: d(0.4 + 0.6d)); steep: mixing pays little
+    // >0: a diet's share d earns d^specPow of a specialist's take; steep: mixing pays little
     photoPow: 3,
     // light earned grows as photo^photoPow: steep, and an animal with a little photosynthesis gets nearly none
     mutScale: 3,
@@ -2250,7 +2246,7 @@ fn swaySlot2(id: u32, n: u32) -> u32 {
     thermoCost: 0.03,
     // energy per second a full heat-maker burns to warm itself and its water
     selfWarm: 4,
-    // degrees a full heat-maker runs above its water (×1.5 with two bonds)
+    // degrees a full heat-maker runs above its water (×1.5 with one bond, ×2 with two)
     rotQ10: 2.5,
     // husks rot this much faster per 10° above tRef
     abioHeat: 3,
@@ -2822,7 +2818,6 @@ ${w ? "" : "    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }"}
   // least keep open, strung-out bodies (a tree's cells touch)
   let tight = select(clamp((g.adhesion - ${f(K.tightFrom)}) / ${f(K.tightSpan)}, 0.0, 1.0), 1.0, tree);
 
-  let bondRest = 0.0;
   // warmth: the water here, plus a heat-maker's own (a body insulates its cells)
   let thermo = thermoOf(${G});
   let heat = heatSample(p.pos);
@@ -3418,7 +3413,7 @@ const LIVE_AT = MAX_CELLS + 1u;
 const LIVE_BIT = 0x80000000u;
 // Intent: x bits 0..1 action (0 none, 1 eat, 2 birth, 3 bite),
 // 2..11 child kind (birth) or observed target kind (eat/bite),
-// 12..13 child role, 14..30 child generation; y child energy, z/w bond neighbors.
+// 12..13 child role, 14..25 child generation, 26..29 its bud; y child energy, z/w bond neighbors.
 @group(0) @binding(9) var<storage, read_write> intent: array<vec4u>;
 @group(0) @binding(10) var<storage, read_write> genomes: array<Genome>;
 @group(0) @binding(11) var<storage, read_write> ledger: array<atomic<u32>>;
@@ -5945,7 +5940,7 @@ struct ListenU {
 @group(0) @binding(4) var<storage, read> heatField: array<f32>;
 ${shownWater("lu.world")}// layout: [0,8) in-view events per type, [8,16) out of view, 16 living in view, 17 their summed
 // speed (x1000), 18 living everywhere, 19 their summed speed (x1000), 20 particles in view,
-// 21 records written, then records of 4 words from word 32.
+// 21 records written, then records of ${LISTEN_REC} words from word 32.
 var<workgroup> wc: array<atomic<u32>, 21>;
 
 fn lhash(v: u32) -> u32 {
@@ -6590,7 +6585,7 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
         if (dE < -${f(0.6 * DEFAULT_K.bite)} && g.photo > 0.4 && young == NONE) {
           let was = f32(biteAt) / 256.0 * TAU;
           var toward = select(renderHash(p.id) * TAU, was, markSize > 0.0);
-          if (stranger != NONE) { let d = parts[stranger].pos - p.pos; toward = atan2z(d.y, d.x); }
+          if (stranger != NONE) { var d = parts[stranger].pos - p.pos; d -= world * round(d / world); toward = atan2z(d.y, d.x); }
           let bitten = clamp(-dE / ${f(DEFAULT_K.bite)}, 0.5, 1.0);
           let v = vec2f(cos(was), sin(was)) * markSize + vec2f(cos(toward), sin(toward)) * 0.6 * bitten;
           toward = atan2z(v.y, v.x);
@@ -6607,7 +6602,8 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
         }
         // a mother whose daughter has just budded off is drawn out toward her
         if (dE < -0.2 * g.reproE && young != NONE && !born) {
-          let d = parts[young].pos - p.pos;
+          var d = parts[young].pos - p.pos;
+          d -= world * round(d / world);
           let a = atan2z(d.y, d.x);
           rate -= 4.0 * vec2f(cos(2.0 * a), sin(2.0 * a));
         }
@@ -7093,7 +7089,6 @@ fn animOf(p: Particle, g: Genome) -> Anim {
   a.sleep = sl.x;
   a.fed = unpack2x16float(st.fed).x;
   let ev = unpack2x16float(st.ev);
-  // a bite is taken at once and heals
   // a wound: deepened at once by each bite, healing steadily (contactGather)
   a.mark = sl.y;
   a.markAt = f32((st.look >> 13u) & 255u) / 256.0 * TAU;
@@ -10556,7 +10551,8 @@ fn dryGround(wp: vec2f, away: f32, rel: vec3f, ppu: f32, parch: f32) -> vec3f {
   let px = 1.0 / max(ppu, 1e-3);
   // a drought bakes it: it pales, then cracks; what a low-water era bares stays damp (bake 0)
   let bake = smoothstep(0.0, 0.6, parch);
-  let dryness = smoothstep(0.3, 7.0, away + 4.0 * (fbm3T(wp, 0.18, vec2f(0.0)) - 0.45)) * bake;
+  let lay = fbm3T(wp, 0.18, vec2f(0.0));
+  let dryness = smoothstep(0.3, 7.0, away + 4.0 * (lay - 0.45)) * bake;
   // patches richer in clay, in organic matter, in silt
   let mott = fbm3T(wp, 0.07, vec2f(3.0));
   let fine = vnoiseT(wp, 0.9, vec2f(0.0));
@@ -10603,7 +10599,7 @@ fn dryGround(wp: vec2f, away: f32, rel: vec3f, ppu: f32, parch: f32) -> vec3f {
   let e1 = v1.x;
   let v2 = vborderT(q, 2.8, vec2f(31.7 / 2.8));
   let e2 = v2.x;
-  let open = smoothstep(1.5, 5.0, away + 3.0 * (fbm3T(wp, 0.18, z) - 0.45)) * smoothstep(0.35, 1.0, parch);
+  let open = smoothstep(1.5, 5.0, away + 3.0 * (lay - 0.45)) * smoothstep(0.35, 1.0, parch);
   let w1 = open * (0.1 + 0.08 * vnoiseT(q, 0.3, z));
   let sub = smoothstep(0.4, 0.7, hash12(vec2f(v1.y, 4.0)) + 0.35 * dryness) * smoothstep(4.0, 9.0, away);
   let w2 = sub * (0.035 + 0.035 * vnoiseT(q, 0.6, vec2f(4.0)));
@@ -10843,7 +10839,6 @@ fn duckRoot(p: vec2f, o: vec2f, dir: vec2f, len: f32, wr: f32, seed: f32, ppu: f
   let light = (walls * (0.6 + 0.4 * vnoise(vec2f(along * len * 0.7, seed))) + inner * 0.18 * bands + sheath) * mix(0.06, 1.0, pow(max(focus, 0.0), 1.5));
   return vec2f(light, inner * mix(0.1, 1.0, focus));
 }
-// How much open water lies over wp: none on the dry floor or under ice, fading over the thin film at their edges.
 // How far wp lies into open water (units): to the nearer of the pool's edge and the ice's, by each field's slope; 0 or
 // less on the dry floor or under ice, and 1e4 with neither. The ice is as drawn (iceSeen, its dendrites' reach ahead
 // of its edge, so a patch just starting is ice too).
@@ -10860,7 +10855,6 @@ fn waterRoom(wpIn: vec2f) -> f32 {
   }
   return room;
 }
-fn openWater(wpIn: vec2f) -> f32 { return smoothstep(0.0, 0.4, waterRoom(wpIn)); }
 // A shift of the view (d) kept within room of where it starts (how far that is from the image's edge): beyond the edge
 // the image repeats its last row of pixels, which a shift there would smear into streaks. Eased, not cut: a shift
 // shrinks smoothly to nothing at the edge.
@@ -16136,7 +16130,7 @@ struct SV {
     const first = m.dev.answer ? m.notes.slice(0, m.notes.length - (m.dev.answer === "echo" ? Math.max(2, Math.ceil(CELL_F[m.cell].n / 2)) : m.dev.answer === "tail" ? Math.max(2, CELL_F[m.cell].n - 1) : CELL_F[m.cell].n)) : m.notes;
     const out = [tr(
       "song.line.phrase",
-      "{n, plural, =0 {No notes} =1 {One notes} =2 {Two notes} =3 {Three notes} =4 {Four notes} =5 {Five notes} =6 {Six notes} =7 {Seven notes} =8 {Eight notes} =9 {Nine notes} =10 {Ten notes} =11 {Eleven notes} =12 {Twelve notes} =13 {Thirteen notes} =14 {Fourteen notes} other {# notes}}, {contour, select, rising {rising} falling {falling} arching {rising then falling} dipping {falling then rising} zigzag {zigzagging up and down} leaping {leaping widely} hovering {staying around one pitch} wavering {wavering} level {mostly level} other {one pitch}}, {rhythm, select, burst {a held note, then a quick burst} triplets {in triplets} rests {broken up by rests} offbeat {off the beat} long {each note held long} even_quick {in even quick notes} even {in even notes} long_short {long-short, long-short} long_short_short {long-short-short} short_short_long {short-short-long} slowing {slowing into a long last note} other {in uneven notes}}.",
+      "{n, plural, =0 {No notes} =1 {One note} =2 {Two notes} =3 {Three notes} =4 {Four notes} =5 {Five notes} =6 {Six notes} =7 {Seven notes} =8 {Eight notes} =9 {Nine notes} =10 {Ten notes} =11 {Eleven notes} =12 {Twelve notes} =13 {Thirteen notes} =14 {Fourteen notes} other {# notes}}, {contour, select, rising {rising} falling {falling} arching {rising then falling} dipping {falling then rising} zigzag {zigzagging up and down} leaping {leaping widely} hovering {staying around one pitch} wavering {wavering} level {mostly level} other {one pitch}}, {rhythm, select, burst {a held note, then a quick burst} triplets {in triplets} rests {broken up by rests} offbeat {off the beat} long {each note held long} even_quick {in even quick notes} even {in even notes} long_short {long-short, long-short} long_short_short {long-short-short} short_short_long {short-short-long} slowing {slowing into a long last note} other {in uneven notes}}.",
       { n: first.length, contour: contourWord(first.map((nt) => nt.deg)), rhythm: RHYTHM(m) }
     )];
     const bits = [];
@@ -19416,7 +19410,7 @@ var Field = class {
     const { root, scale } = c, piv = c.pivot;
     for (let b = 0; b < 8; b++) {
       const B = this.bands[b], h = B && this.heard.get(B.s), r = h ? h[0] / B.of : 0, e = B && this.slots.get(B.s);
-      if (!e || !(r > 0)) {
+      if (!e || !e.v || !(r > 0)) {
         p["d" + (b + 1)] = 0;
         continue;
       }
@@ -23607,7 +23601,7 @@ var Field = class {
     const { root, scale } = c, piv = c.pivot;
     for (let b = 0; b < 8; b++) {
       const B = this.bands[b], h = B && this.heard.get(B.s), r = h ? h[0] / B.of : 0, e = B && this.slots.get(B.s);
-      if (!e || !(r > 0)) {
+      if (!e || !e.v || !(r > 0)) {
         p["d" + (b + 1)] = 0;
         continue;
       }
@@ -24832,6 +24826,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       node.connect(gain).connect(ctx.destination);
       Object.assign(st, { node, gain });
       node.port.postMessage(mixMessage(st.mix));
+      if (st.seed != null) node.port.postMessage({ type: "reset", seed: st.seed, era: st.era ?? null });
     }
     function stream() {
       if (!st.ctx || !st.gain) return null;
@@ -24868,6 +24863,12 @@ registerProcessor("tidemote-sound", TidemoteSound);
           }, 450);
         }
       } catch (err) {
+        if (!st.node) {
+          st.starting = null;
+          st.ctx?.close?.().catch(() => {
+          });
+          st.ctx = null;
+        }
         st.on = false;
         notify();
         onError(String(err.message || err));
@@ -24906,12 +24907,14 @@ registerProcessor("tidemote-sound", TidemoteSound);
     }
     function census({ species, pop, world }) {
       if (!st.node || !st.on) return;
-      const all = [];
+      const all = [], live = /* @__PURE__ */ new Set();
       for (const [s, g] of species) {
         const voice = st.sent.get(s) !== g.serial ? voiceOf(g) : null;
         st.sent.set(s, g.serial);
+        live.add(s);
         all.push({ slot: s, serial: g.serial, voice, pop: pop[s] });
       }
+      for (const s of st.sent.keys()) if (!live.has(s)) st.sent.delete(s);
       post({ type: "slots", all: true, slots: all });
       post({ type: "world", world });
     }
@@ -24975,7 +24978,10 @@ registerProcessor("tidemote-sound", TidemoteSound);
       },
       census,
       listen,
-      era: (name) => post({ type: "era", name }),
+      era: (name) => {
+        st.era = name;
+        post({ type: "era", name });
+      },
       // the hand's acts and state (audio/handsound.js)
       hand: (m) => {
         if (st.on) post({ type: "hand", ...m });
@@ -24992,6 +24998,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       reset: (seed, era = null) => {
         st.sent.clear();
         st.seed = seed;
+        st.era = era;
         post({ type: "reset", seed, era });
       },
       // a new world begins: its overture plays as soon as the soundtrack is heard
@@ -25889,7 +25896,7 @@ ${e.message}` : String(e?.message || e));
     async allocate(n) {
       const d = this.device;
       const b = this.b;
-      const names = ["parts", "sortedFull", "sortedLite", "aux", "intent", "bondsNow", "bondsIn", "touch", "sway", "stoneList", "ledger", "livingList", "quads"];
+      const names = ["parts", "sortedFull", "sortedLite", "aux", "intent", "bondsNow", "bondsIn", "touch", "sway", "stoneList", "ledger", "livingList", "quads", "small", "smallArgs", "lerpEnd", "subL"];
       for (const k of names) {
         b[k]?.destroy();
         b[k] = null;
@@ -27024,7 +27031,7 @@ ${e.message}` : String(e?.message || e));
       const enc = d.createCommandEncoder();
       const keep = { gpu: {} };
       for (const k of ["parts", "genomes", "intent", "ledger", "thermal"]) {
-        const size = k === "ledger" ? this._splAt() : b[k].size;
+        const size = k === "ledger" ? this._splAt() : k === "thermal" ? THERMAL_WORDS * 4 : b[k].size;
         keep.gpu[k] = d.createBuffer({ size, usage: U2.COPY_SRC | U2.COPY_DST });
         enc.copyBufferToBuffer(b[k], 0, keep.gpu[k], 0, size);
       }
@@ -29685,7 +29692,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
   function timeTicks(t0, t1, px, minGap = 58) {
     const span2 = t1 - t0;
     if (!(span2 > 0)) return [];
-    const step = CLOCK.find((s) => s / span2 * px >= minGap) || Math.ceil(span2 / 86400) * 86400;
+    const step = CLOCK.find((s) => s / span2 * px >= minGap) || Math.ceil(span2 * minGap / px / 86400) * 86400;
     const out = [];
     for (let t2 = Math.ceil(t0 / step) * step; t2 <= t1; t2 += step) out.push(t2);
     return out;
@@ -30061,8 +30068,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       /** Close the plate once its chart has left the screen. */
       check() {
         if (hot && (!hot.isConnected || !hot.offsetParent || !hot._hot)) leave();
-      },
-      hot: () => hot
+      }
     };
   }
 
@@ -30124,7 +30130,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     }
     for (let j = nodes.length - 1; j >= 0; j--) {
       const n = nodes[j];
-      if (n.alive || !settled.has(n.s)) {
+      if (n.alive || !settled.has(n.s) || settled.get(n.s).end !== n.s.extinct) {
         n.w = integrate(n, -Infinity, Infinity);
         if (!n.alive && n.s.extinct != null) settled.set(n.s, { t: n.t, v: n.v, rgb: n.rgb, w: n.w, end: n.end });
       }
@@ -30425,10 +30431,10 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     const { ts } = c, n = ts.length;
     const roots = c.other ? [c.other, ...c.roots] : c.roots;
     const C3 = /* @__PURE__ */ new Map();
-    const clade2 = (u) => {
+    const cladeVals = (u) => {
       const a = u.vals.slice();
       for (const k of u.kids) {
-        const b = clade2(k);
+        const b = cladeVals(k);
         for (let i = 0; i < n; i++) a[i] += b[i];
       }
       C3.set(u, a);
@@ -30436,13 +30442,13 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     };
     const tot = new Float32Array(n);
     for (const r of roots) {
-      const a = clade2(r);
+      const a = cladeVals(r);
       for (let i = 0; i < n; i++) tot[i] += a[i];
     }
     let max = 1;
     for (const v of tot) if (v > max) max = v;
     const ax = linearTicks(max, 2);
-    const labels = ax.ticks.map(shortNum);
+    const labels = ax.ticks.map((v) => shortNum(v));
     const box = plotBox(g, w, h, labels);
     box.l = Math.max(box.l, opts.minLeft || 0);
     const H2 = box.b - box.t;
@@ -30551,7 +30557,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         return { key: unitKey(c, u), u, node: u.other ? null : memberAt(u, ts[i]), t: ts[i], pop: u.vals[i], explore: explorable(u, opts.root) };
       },
       plate(hit) {
-        const k = hit.u.other ? 0 : clade2(hit.u).count;
+        const k = hit.u.other ? 0 : clade(hit.u).count;
         return namePlate(
           hit.node ? hit.node.s.genome.col : 4287398e3,
           hit.node ? hit.node.name : otherName(),
@@ -30778,7 +30784,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         }
         if (!hit.node) return namePlate(4287398e3, otherName(), tr("lineage.other.sub", "{n, plural, other {# species}} whose ancestors are not shown", { n: u.count }));
         const ld = hit.lead, nd = hit.node, q = clade(u);
-        const then = nd && nd !== ld ? tr("lineage.row.then", " · {name} at {t}", { name: nd.name, t: fmtClock(hit.t) }) : "";
+        const then = nd && nd !== ld ? tr("lineage.row.then", " · {name} at {t}", { name: esc(nd.name), t: fmtClock(hit.t) }) : "";
         return namePlate(ld.s.genome.col, ld.name, tr(
           "lineage.row.sub",
           "{n, plural, =0 {} =1 {} other {lineage of # species · }}arose {born}{alive, select, yes {} other { · extinct}}{then}{explore, select, yes { · click to explore it} other {}}",
@@ -31524,7 +31530,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     const nm = `<span class="mc-name" translate="no"><b>${esc(genus)}</b><span>${esc(rest)}</span></span>`;
     const label3 = tr(
       "minicard.aria",
-      "{name}, {diet, select, photosynth {photosynth} grazer {grazer} scavenger {scavenger} predator {predator} other {{diet}}}, {mobility, select, anchored {anchored} crawler {crawler} swimmer {swimmer} drifter {drifter} other {{mobility}}}{from, select, yes {, from {home}} other {}}{n, plural, =0 {} other {, {n} cells}}{tip, select, yes {, at the tip} other {}}",
+      "{name}, {diet, select, photosynth {photosynth} grazer {grazer} scavenger {scavenger} predator {predator} other {{diet}}}, {mobility, select, anchored {anchored} crawler {crawler} swimmer {swimmer} drifter {drifter} other {{mobility}}}{from, select, yes {, from {home}} other {}}{n, plural, =0 {} one {, {n} cell} other {, {n} cells}}{tip, select, yes {, at the tip} other {}}",
       { name, diet: f2.diet, mobility: f2.mobility, from: home ? "yes" : "no", home, n, tip: tip ? "yes" : "no" }
     );
     const tipMark = `<span class="mc-tip">${tr("minicard.tip", "Tip")}</span>`;
@@ -31839,7 +31845,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         const shown = all.slice(0, 150);
         const tot = all.reduce((a, s) => a + s.pop, 0);
         setText($3("sp-sum"), tr("lab.sp.sum", "{species, plural, other {# species}} · {cells, plural, other {# cells}} · {share}% of life", { species: all.length, cells: tot, share: (tot / living * 100).toFixed(1) }));
-        const nf2 = ["status", "diet", "mobility", "body"].filter((k) => st[k] !== (k === "status" ? "thriving" : "all")).length;
+        const nf2 = ["status", "diet", "mobility", "body", "temp"].filter((k) => st[k] !== (k === "status" ? "thriving" : "all")).length;
         setText($3("sp-filt"), nf2 ? tr("lab.filter.button-n", "Filters · {n}", { n: nf2 }) : tr("lab.filter.button", "Filters"));
         $3("sp-reset").hidden = !nf2;
         const now = performance.now();
@@ -32460,6 +32466,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         panes[k].el.remove();
         delete panes[k];
       }
+      st.linRoot = null;
       if (st.open) show();
     }
     return {
@@ -33767,6 +33774,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     function show(el2, how) {
       const t2 = textFor(el2);
       if (!t2) return;
+      if (owner && owner !== el2) owner.removeAttribute("aria-describedby");
       owner = el2;
       via = how;
       tip.textContent = t2.text;
@@ -35143,6 +35151,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     }
     reset() {
       this.view = null;
+      this.looking = null;
       this.ringLast = null;
       this.events = [];
       this.notes = [];
@@ -35295,7 +35304,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     /**
      * Each frame. ctx: { now (real seconds), speed (sim seconds a real second), ppu (CSS px a world unit), phone,
      * visible(x, y) whether a world point shows clear of the panels, inner(x, y) whether it lies well inside them,
-     * still (seconds the camera has held still), leaving (the camera is setting off elsewhere), flow(x, y) the water's
+     * leaving (the camera is setting off elsewhere), flow(x, y) the water's
      * current there (world units a second) }. Returns the notes to draw.
      */
     update(ctx) {
@@ -35325,6 +35334,8 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
           const keys = new Set(this.cands.map((c) => c.key));
           for (const k of keys) if (!this.firstSeen.has(k)) this.firstSeen.set(k, ctx.now);
           for (const k of this.firstSeen.keys()) if (!keys.has(k)) this.firstSeen.delete(k);
+          const cold = ctx.now - Math.max(this.T.keyCool, this.T.subjectCool);
+          for (const [k, at] of this.keyAt) if (at < cold) this.keyAt.delete(k);
         }
       }
       this.schedule(ctx);
@@ -35466,7 +35477,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       for (const s of S.by.values()) {
         const scalds = c30(EV.scalded, s.kind);
         if (!(scalds >= 3 && s.hot >= 0.2 * s.n || s.hot >= 8 && s.hot >= 0.4 * s.n) || !name(s.kind)) continue;
-        const hot = this._hotCells(this.sp(s.kind));
+        const hot = this._hotCells(this.sp(s.kind), v);
         let fine = null;
         if (band !== "wide") for (const o of S.by.values()) {
           if (o.kind === s.kind || o.n < 4 || o.hot > 0 || !name(o.kind)) continue;
@@ -36057,8 +36068,8 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
             anchor = rows[k];
           }
         }
-        const tr2 = (sxx + syy) / n, det = (sxx * syy - sxy * sxy) / (n * n), disc2 = Math.sqrt(Math.max(0, tr2 * tr2 / 4 - det));
-        const l1 = tr2 / 2 + disc2, l2 = Math.max(tr2 / 2 - disc2, 1e-9), elong = Math.sqrt(l1 / l2);
+        const trace = (sxx + syy) / n, det = (sxx * syy - sxy * sxy) / (n * n), disc2 = Math.sqrt(Math.max(0, trace * trace / 4 - det));
+        const l1 = trace / 2 + disc2, l2 = Math.max(trace / 2 - disc2, 1e-9), elong = Math.sqrt(l1 / l2);
         const size2 = 2 * Math.sqrt(far), speed = Math.hypot(vx, vy);
         const ids = rows.map((i) => v.id[i]);
         const votes = /* @__PURE__ */ new Map();
@@ -36290,8 +36301,8 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       return best;
     }
     // the squares of the view whose water lies past 0.8 of species g's tolerance above its optimum
-    _hotCells(g) {
-      const out = /* @__PURE__ */ new Set(), v = this.view;
+    _hotCells(g, v) {
+      const out = /* @__PURE__ */ new Set();
       if (!g) return out;
       for (let k = 0; k < v.temps.length; k++) if (v.sqIn[k] && (v.temps[k] - g.topt) / Math.max(g.tol, 0.5) > 0.8) out.add(k);
       return out;
@@ -39328,6 +39339,11 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         if (!sp || !sp.alive && t2 - (sp.extinct ?? t2) > 30 * MIN) S.sp.delete(serial);
       }
       for (const [k, p2] of S.pairs) if (!p2.bins.length) S.pairs.delete(k);
+      for (const serial of S.latest.keys()) if (!reg.has(serial)) {
+        S.latest.delete(serial);
+        S.told.delete(`sp:${serial}`);
+        S.told.delete(`last:${serial}`);
+      }
       return choose(cands, obs);
     }
     const toldAt = (key) => S.told.get(key) ?? -1e9;
@@ -40372,7 +40388,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       if (rise && reg.get(rise[0])) bits.push(tr("chron.era.rose", "{name} rose to {n, plural, other {# cells}}", { name: L(reg, rise[0]), n: to.pops.get(rise[0]) }));
       if (fall && reg.get(fall[0])) bits.push(tr("chron.era.fell", "{name} {lost, select, yes {was lost} other {fell from {from, number} to {to, number}}}", { name: L(reg, fall[0]), lost: fall[3] ? "no" : "yes", from: fall[1], to: fall[3] }));
       if (lostGenera.length) {
-        bits.push(lostGenera.length <= 2 ? tr("chron.era.genera-lost", "{n, plural, one {the genus {genera} died out} other {the genuses {genera} died out}}", { n: lostGenera.length, genera: andList(lostGenera.map((g) => `<b>${esc(g)}</b>`)) }) : tr("chron.era.genera-many", "{count} genera of note died out", { count: numWord(lostGenera.length), n: lostGenera.length }));
+        bits.push(lostGenera.length <= 2 ? tr("chron.era.genera-lost", "{n, plural, one {the genus {genera} died out} other {the genera {genera} died out}}", { n: lostGenera.length, genera: andList(lostGenera.map((g) => `<b>${esc(g)}</b>`)) }) : tr("chron.era.genera-many", "{count} genera of note died out", { count: numWord(lostGenera.length), n: lostGenera.length }));
       }
       const score = 0.2 + (rise ? 0.12 : 0) + (fall ? 0.15 : 0) + (lostGenera.length ? 0.08 : 0) + (bd >= 0.1 ? 0.2 : character2 ? 0.05 : 0);
       if (!bits.length) return null;
@@ -41688,9 +41704,11 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     } catch {
     }
   }
+  var sweep = 0;
   async function opfsSink(name) {
     if (!opfsOk()) throw new Error("no private files");
     const file = OPFS_PREFIX + name;
+    clearTimeout(sweep);
     await clearFilms();
     const dir = await navigator.storage.getDirectory();
     const h = await dir.getFileHandle(file, { create: true });
@@ -41705,7 +41723,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       finish: async () => {
         await w.close();
         const blob = await h.getFile();
-        setTimeout(() => clearFilms(), 10 * 60 * 1e3);
+        sweep = setTimeout(() => clearFilms(), 10 * 60 * 1e3);
         return { blob };
       },
       abort: async () => {
@@ -42387,6 +42405,10 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     const rung = () => el2.querySelector(".rung")?.offsetHeight || 28;
     function press(e, onChip) {
       if (e.button > 0) return;
+      if (drag) {
+        clearTimeout(drag.timer);
+        stopCreep();
+      }
       drag = { id: e.pointerId, y: e.clientY, from: current(), v: current(), on: !onChip, moved: false, onChip, el: e.currentTarget };
       if (onChip) drag.timer = setTimeout(() => {
         if (drag && !drag.on) {
@@ -43207,9 +43229,9 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "f5c9d90c7284151a") return;
+      if (localStorage.getItem(key) === "3c1caec98937ab94") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "f5c9d90c7284151a");
+      if (res) localStorage.setItem(key, "3c1caec98937ab94");
     } catch {
     }
   }
@@ -43647,7 +43669,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
           }
         });
         setTimeout(() => {
-          if (!calibWait) return;
+          if (calibWait?.res !== res) return;
           const w = calibWait;
           calibWait = null;
           w.res(perf.samples.length ? median(perf.samples) : 1e3);
@@ -44120,7 +44142,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         s.bands = 1;
       }, close: (s) => {
         s.bands = 0;
-      }, ramp: () => ["light", tr("maps.tide.lo", "dim"), tr("maps.tide.hi", "bright")] }
+      }, ramp: () => ["tide", tr("maps.tide.lo", "dim"), tr("maps.tide.hi", "bright")] }
     ];
     const rampHtml = (m) => {
       const [cls, lo, hi] = m.ramp();
@@ -45777,13 +45799,13 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       let saves = null, used = 0, wName = "", ask2 = null, wBusy = "", wPoll = 0;
       const defaultName = () => tr("worlds.default-name", "{era} · {age}", { era: eraName(climate.name), age: fmtDur(eng.simTime) });
       const mb = (n) => tr("worlds.mb", "{n} MB", { n: (n / 1048576).toFixed(n < 10485760 ? 1 : 0) });
-      const mini = (o, v, text2, cls = "") => `<button type="button" class="btn mini${cls}" data-o="${o}" data-v="${v}"${wBusy ? " disabled" : ""}>${text2}</button>`;
-      const ghost = (o, v, icon2, label3, hint) => `<button type="button" class="ghost" data-o="${o}" data-v="${v}" aria-label="${label3}" data-hint="${hint}"${wBusy ? " disabled" : ""}><svg><use href="#i-${icon2}"/></svg></button>`;
+      const mini = (o, v, text2, cls = "") => `<button type="button" class="btn mini${cls}" data-o="${o}" data-v="${esc(v)}"${wBusy ? " disabled" : ""}>${text2}</button>`;
+      const ghost = (o, v, icon2, label3, hint) => `<button type="button" class="ghost" data-o="${o}" data-v="${esc(v)}" aria-label="${label3}" data-hint="${hint}"${wBusy ? " disabled" : ""}><svg><use href="#i-${icon2}"/></svg></button>`;
       function saveRow(m) {
-        const sw = [0, 1, 2, 3].map((i) => `<i${m.cols[i] != null ? ` style="background:${cssCol(m.cols[i])}"` : ""}></i>`).join("");
+        const sw = [0, 1, 2, 3].map((i) => `<i${m.cols?.[i] != null ? ` style="background:${cssCol(m.cols[i])}"` : ""}></i>`).join("");
         const a = ask2 && ask2.id === m.id ? ask2.kind : null, ws = m.from === "workshop";
         const can = m.downloading != null ? "ok" : openable(m.version);
-        const line2 = a === "load" ? `<em>${tr("worlds.ask-load", "Discard this world?")}</em>` : can !== "ok" ? tr("worlds.cannot-open", "<em>{why, select, newer {Needs a newer Tidemote} other {From an older Tidemote}}</em> · {when}", { why: can, when: when(m.savedAt) }) : a === "del" ? `<em>${ws ? tr("worlds.ask-unsubscribe", "Unsubscribe from it?") : tr("worlds.ask-delete", "Delete this save?")}</em>` : a === "share" ? `<em>${m.workshop ? tr("worlds.ask-update", "Update it on the Steam Workshop?") : tr("worlds.ask-share", "Share it on the Steam Workshop for anyone to see?")}</em>` : m.downloading != null ? tr("worlds.downloading", "Downloading · {pct}%", { pct: Math.round(m.downloading * 100) }) : tr("worlds.row", "{age} · {count} · {species, plural, other {{species} species}} · {when}", { age: fmtDur(m.simTime), count: kfmt(m.count), species: m.thriving, when: when(m.savedAt) });
+        const line2 = a === "load" ? `<em>${tr("worlds.ask-load", "Discard this world?")}</em>` : can !== "ok" ? tr("worlds.cannot-open", "<em>{why, select, newer {Needs a newer Tidemote} other {From an older Tidemote}}</em> · {when}", { why: can, when: when(m.savedAt) }) : a === "del" ? `<em>${ws ? tr("worlds.ask-unsubscribe", "Unsubscribe from it?") : tr("worlds.ask-delete", "Delete this save?")}</em>` : a === "share" ? `<em>${m.workshop ? tr("worlds.ask-update", "Update it on the Steam Workshop?") : tr("worlds.ask-share", "Share it on the Steam Workshop for anyone to see?")}</em>` : m.downloading != null ? tr("worlds.downloading", "Downloading · {pct}%", { pct: Math.round(m.downloading * 100) }) : tr("worlds.row", "{age} · {count} · {species, plural, other {{species} species}} · {when}", { age: fmtDur(m.simTime), count: kfmt(m.count), species: +m.thriving || 0, when: when(m.savedAt) });
         const CANCEL = tr("worlds.cancel", "Cancel"), LOAD = tr("worlds.load", "Load"), UNSUB = tr("worlds.unsubscribe", "Unsubscribe"), DEL = tr("worlds.delete", "Delete");
         const acts = a === "load" ? mini("w-no", m.id, CANCEL) + mini("w-first", m.id, tr("worlds.save-first", "Save first")) + mini("w-yes", m.id, wBusy === "load" ? tr("worlds.loading", "Loading") : LOAD, " hot-btn") : a === "del" ? mini("w-no", m.id, CANCEL) + mini("w-yes", m.id, ws ? UNSUB : DEL, " hot-btn") : a === "share" ? mini("w-no", m.id, CANCEL) + mini("w-yes", m.id, wBusy === "share" ? tr("worlds.sharing", "Sharing") : m.workshop ? tr("worlds.update", "Update") : tr("worlds.share", "Share"), " hot-btn") : ws ? (m.downloading != null || can !== "ok" ? "" : mini("w-load", m.id, LOAD)) + ghost("w-page", m.id, "share", tr("worlds.on-steam", "On Steam"), tr("worlds.on-steam.hint", "Its page on the Steam Workshop")) + ghost("w-del", m.id, "close", UNSUB, UNSUB) : (can !== "ok" ? "" : mini("w-load", m.id, LOAD) + (steamOn.on ? ghost("w-share", m.id, "share", tr("worlds.share", "Share"), m.workshop ? tr("worlds.share.hint-update", "Update it on the Steam Workshop") : tr("worlds.share.hint", "Share on the Steam Workshop")) : "")) + ghost("w-dl", m.id, "down", tr("worlds.download", "Download"), desk ? tr("worlds.download.hint-desktop", "Save a copy as a file") : tr("worlds.download.hint", "Download a file to open on another device")) + ghost("w-del", m.id, "close", DEL, DEL);
         return `<div class="w-row"><span class="w-sw" aria-hidden="true">${sw}</span><div class="w-txt"><b>${esc(m.name)}</b><span>${line2}</span></div><div class="w-act">${acts}</div></div>`;
@@ -45810,7 +45832,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
           if (!el2.hidden && tab === "worlds") refreshSaves();
         }, 2e3);
       }
-      const wsDescription = (m) => tr("worlds.ws-description", "A Tidemote world after {age}: {count} particles, {species, plural, other {{species} species}} thriving.", { age: durWords(m.simTime), count: kfmt(m.count), species: m.thriving });
+      const wsDescription = (m) => tr("worlds.ws-description", "A Tidemote world after {age}: {count} particles, {species, plural, other {{species} species}} thriving.", { age: durWords(m.simTime), count: kfmt(m.count), species: +m.thriving || 0 });
       const download = (m, bytes) => saveFile(new Blob([bytes], { type: "application/gzip" }), `${m.name.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-") || tr("worlds.file-name", "world")}.tidemote`);
       async function worldAct(id, v) {
         const busy = async (what, fn) => {
@@ -47216,7 +47238,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       function row(m) {
         const sw = [0, 1, 2, 3].map((i) => `<i${m.cols?.[i] != null ? ` style="background:${cssCol(m.cols[i])}"` : ""}></i>`).join("");
         const can = openable(m.version);
-        const line2 = can !== "ok" ? tr("worlds.cannot-open", "<em>{why, select, newer {Needs a newer Tidemote} other {From an older Tidemote}}</em> · {when}", { why: can, when: when(m.savedAt) }) : tr("worlds.row", "{age} · {count} · {species, plural, other {{species} species}} · {when}", { age: fmtDur(m.simTime), count: kfmt(m.count), species: m.thriving, when: when(m.savedAt) });
+        const line2 = can !== "ok" ? tr("worlds.cannot-open", "<em>{why, select, newer {Needs a newer Tidemote} other {From an older Tidemote}}</em> · {when}", { why: can, when: when(m.savedAt) }) : tr("worlds.row", "{age} · {count} · {species, plural, other {{species} species}} · {when}", { age: fmtDur(m.simTime), count: kfmt(m.count), species: +m.thriving || 0, when: when(m.savedAt) });
         return `<button type="button" class="w-row" data-w="${esc(m.id)}"${can !== "ok" || busy ? " disabled" : ""}${can !== "ok" ? ` aria-description="${esc(WHY_NOT[can])}"` : ""}><span class="w-sw" aria-hidden="true">${sw}</span><span class="w-txt"><b>${esc(m.name)}</b><span>${line2}</span></span><span class="w-go">${busy === `w:${m.id}` ? tr("menu.opening", "Opening") : can === "ok" ? tr("menu.open", "Open") : ""}</span></button>`;
       }
       function wPanel() {
@@ -48513,7 +48535,15 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       return out;
     };
     let noteCap = null;
-    const NOTE_MODE = { follow: "FOLLOW", linger: "LINGER", scene: "SURVEY", wide: "WIDE", event: "EVENT" };
+    const NOTE_MODE = {
+      follow: tr("notes.mode.follow", "FOLLOW"),
+      linger: tr("notes.mode.linger", "LINGER"),
+      scene: tr("notes.mode.scene", "SURVEY"),
+      wide: tr("notes.mode.wide", "WIDE"),
+      event: tr("notes.mode.event", "EVENT"),
+      auto: tr("notes.mode.auto", "AUTO"),
+      observe: tr("notes.mode.observe", "OBSERVE")
+    };
     let noteLens = null;
     function drawNotes(dtMs, L) {
       noteLens = L ? { x: L.sx, y: L.sy, r: L.R, c: toShown(L.cx, L.cy), k: L.cssPPU / cssPPU() } : null;
@@ -48536,7 +48566,6 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         speed,
         ppu: cssPPU(),
         phone: phone(),
-        pool: eng.tbg,
         visible: noteVisible,
         inner: noteInner,
         camVel: C3.vel,
@@ -48558,7 +48587,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       if (noteCap && (cr?.width || director.active && now - noteCap.at < 30)) avoid.push(noteCap);
       if (plateRect) avoid.push(plateRect);
       const sh = director.active ? director.shot : null;
-      const mode = director.active ? NOTE_MODE[sh && sh.why && sh.why.kind] || "AUTO" : "OBSERVE";
+      const mode = director.active ? NOTE_MODE[sh && sh.why && sh.why.kind] || NOTE_MODE.auto : NOTE_MODE.observe;
       noteView.draw({
         now,
         dt: dtMs / 1e3,
