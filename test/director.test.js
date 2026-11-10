@@ -151,6 +151,22 @@ test('asked to, the director moves on to a new shot at once, from where the came
   }
 });
 
+test('with nothing anywhere to draw the eye, a hotspot falls anywhere, not always on the first tile', () => {
+  const d = new Director({ now: () => 0, world: () => [50, 30] }, rng(6));
+  const s = fakeSurvey(10, 6, 5, 0);
+  s.data.fill(0);
+  d.interest.ingest(s, 1);
+  const spots = Array.from({ length: 40 }, () => d.hotspot());
+  assert.ok(spots.every((h) => h.x >= 0 && h.x <= 50 && h.y >= 0 && h.y <= 30 && h.reasons.length === 0));
+  assert.ok(spots.filter((h) => h.x > 5 || h.y > 5).length > 30, 'spread over the world');
+  // (where only one tile draws the eye, it or a tile next to it is picked: scores are blurred over neighbours)
+  const one = fakeSurvey(10, 6, 5, 0);
+  one.data.fill(0);
+  for (const k of ['living', 'births']) one.data[37 * SURVEY_WORDS + SURVEY[k]] = 40;
+  d.interest.ingest(one, 1);
+  for (let i = 0; i < 20; i++) { const h = d.hotspot(); assert.ok(Math.abs(h.x - 37.5) < 7 && Math.abs(h.y - 17.5) < 7, `${h.x},${h.y}`); }
+});
+
 test('a hotspot says why: new variants first, then what dominates', () => {
   const I = new Interest();
   const hot = 3 * 10 + 6;

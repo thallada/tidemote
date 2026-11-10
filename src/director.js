@@ -480,8 +480,10 @@ export class Director {
       wts[i] = sc[i] ** 4 * pen * (0.7 + 0.6 * this.rng());
       total += wts[i];
     }
-    let u = this.rng() * total, pick = 0;
-    for (let i = 0; i < wts.length; i++) { u -= wts[i]; if (u <= 0) { pick = i; break; } }
+    // (nothing anywhere draws the eye, as in an empty world: anywhere, as with no survey, never always the corner tile)
+    if (!(total > 0)) return { x: this.rng() * W, y: this.rng() * H, tile: I.tile, reasons: [], div: 0 };
+    let u = this.rng() * total, pick = -1;
+    for (let i = 0; i < wts.length; i++) { if (!(wts[i] > 0)) continue; pick = i; u -= wts[i]; if (u <= 0) break; }
     const [x, y] = I.center(pick);
     return { x: x + (this.rng() - 0.5) * I.tile * 0.6, y: y + (this.rng() - 0.5) * I.tile * 0.6, tile: I.tile, ...I.reasons(pick, parts) };
   }
