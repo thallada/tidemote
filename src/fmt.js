@@ -50,13 +50,13 @@ export const NICE_UM = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10
 // i18n: the kinds of matter: a name, and a line on what it is (the census, the specimen panel)
 export const MATTER = [
   { name: tr('matter.silt', 'Silt'), css: '#5d6a82', blurb: tr('matter.silt.blurb', 'Inert mineral grit carried on the currents. Cells build their offspring out of it, and now and then life sparks from it in the light.') },
-  { name: tr('matter.glint', 'Glint'), css: '#b9e6ff', blurb: tr('matter.glint.blurb', 'No longer made: once silt charged by the Tide.') },
+  null, // (kind 1, once glint: no longer made; kept so the kinds index this)
   { name: tr('matter.husk', 'Husk'), css: '#9a6c4c', blurb: tr('matter.husk.blurb', 'The remains of a dead cell. Scavengers feed on what energy is left; the rest crumbles back into silt.') },
   { name: tr('matter.stone', 'Stone'), css: '#c2b8a8', blurb: tr('matter.stone.blurb', 'Bedrock, or the skeleton a calcifying cell left where it settled. Stone never drifts and the living cannot pass through it. Prey shelters in its crevices, and it slowly wears back into silt.') },
   { name: tr('matter.framboid', 'Framboid'), css: '#ccb373', blurb: tr('matter.framboid.blurb', 'A pyrite framboid: a sphere of tiny iron sulfide crystals, grown from the sulfide a pile of rotting husks releases in cool mud. As it oxidizes it warms the water around it, faster the warmer that water is, until it is spent and crumbles to silt. Solid, like stone.') },
 ];
 // i18n: how a particle came to be what it is, or how a cell died: "It {cause}." (a cell's Origin, a husk's Cause of death)
-export const CAUSE = { 0: '', 1: tr('cause.starved', 'starved'), 2: tr('cause.old-age', 'died of old age'), 3: tr('cause.consumed', 'was consumed'), 4: tr('cause.husk-crumbled', 'crumbled from a husk'), 5: tr('cause.tide-charged', 'charged by the Tide'),
+export const CAUSE = { 0: '', 1: tr('cause.starved', 'starved'), 2: tr('cause.old-age', 'died of old age'), 3: tr('cause.consumed', 'was consumed'), 4: tr('cause.husk-crumbled', 'crumbled from a husk'),
   6: tr('cause.faded', 'faded back to silt'), 7: tr('cause.stone-wore', 'wore away from stone'), 8: tr('cause.sparked', 'sparked into life from silt'), 9: tr('cause.built', 'built from silt by its parent'), 10: tr('cause.scalded', 'scalded'),
   12: tr('cause.crystallized', 'crystallized in a rotting pile'), 13: tr('cause.framboid-crumbled', 'crumbled from a spent framboid') };
 export const LIVING_CSS = '#ff9a6a';

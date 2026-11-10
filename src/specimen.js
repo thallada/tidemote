@@ -438,7 +438,7 @@ export function createSpecimen(api) {
     // i18n: {role} is a cell type's Greek letter (α, β, γ)
     for (const r of types) rows.push({ name: tr('spec.pulls.own', 'own {role}-cells', { role: `<span class="greek">${ROLE[r]}</span>` }), css: cssRgb(roleColor(g, r)), v: (t) => affinity(g, t, g, r, K) });
     for (const s2 of others.slice(0, 4)) rows.push({ name: spLink(s2.serial, s2.name), css: cssCol(s2.genome.col), v: (t) => affinity(g, t, s2.genome, 0, K) });
-    for (let k = 0; k < 4; k++) if (life.matter[k]) rows.push({ name: esc(MATTER[k].name), css: MATTER[k].css, v: (t) => affinity(g, t, life.matter[k], 0, K) * K.matterPull });
+    for (let k = 0; k < 4; k++) if (life.matter[k] && MATTER[k]) rows.push({ name: esc(MATTER[k].name), css: MATTER[k].css, v: (t) => affinity(g, t, life.matter[k], 0, K) * K.matterPull });
     const heat = (v) => {
       const a = Math.min(1, Math.abs(v));
       const sign = Math.abs(v) < 0.005 ? '' : v > 0 ? '+' : '−';

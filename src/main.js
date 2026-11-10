@@ -1623,7 +1623,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         { how: keepStory ? 'watch' : 'pick', role: ROLE[p.role], known: sp ? 'yes' : 'no', name: sp ? spLink(sp.serial, sp.name) : '', age: fmtDur(p.age) }));
     } else {
       // i18n: the specimen's story, a grain of matter picked
-      story(tr('story.picked-matter', '{kind, select, 0 {Picked a grain of silt.} 1 {Picked a grain of glint.} 2 {Picked a grain of husk.} 3 {Picked a grain of stone.} other {Picked a framboid.}}', { kind: p.kind }));
+      story(tr('story.picked-matter', '{kind, select, 0 {Picked a grain of silt.} 2 {Picked a grain of husk.} 3 {Picked a grain of stone.} other {Picked a framboid.}}', { kind: p.kind }));
     }
     gatherTick(true);
     renderSpecimen(true);
@@ -1664,7 +1664,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (a.kind === 4 && b.kind === 0) return tr('story.framboid-spent', 'The framboid was spent and crumbled into silt.');
     if (a.kind === 2 && b.kind === 4) return tr('story.husk-framboid', 'The husk rotted in a pile, and its sulfide crystallized as a framboid.');
     if (a.kind === 2 && b.kind === 0) return b.cause === 3 ? tr('story.husk-eaten', 'The husk was eaten by a scavenger.') : tr('story.husk-crumbled', 'The husk crumbled into silt.');
-    return tr('story.became', 'Became {kind, select, 0 {silt} 1 {glint} 2 {husk} 3 {stone} 4 {framboid} other {a living cell}}.', { kind: b.kind < FIRST_LIFE ? b.kind : 'life' });
+    return tr('story.became', 'Became {kind, select, 0 {silt} 2 {husk} 3 {stone} 4 {framboid} other {a living cell}}.', { kind: b.kind < FIRST_LIFE ? b.kind : 'life' });
   }
   // the watched cell of a body died (a to b) and the watch moves on to another of its cells
   function rehomeText(a, b) {
