@@ -161,11 +161,6 @@ const server = http.createServer(async (req, res) => {
       const { id, text, status } = await body(req);
       return json(res, save(id, text, status));
     }
-    if (p === '/api/check' && req.method === 'POST') {
-      const { id, text } = await body(req);
-      const source = src.messages.get(id);
-      return json(res, source === undefined ? [] : checkMessage(text, source, { box: shots.boxOf(id), sink: src.context[id]?.refs[0]?.sink }));
-    }
     if (p === '/api/finding' && req.method === 'PUT') {
       // the viewer answers a finding: resolved (fixed or dismissed), with a word on why
       const { id, index, resolved, reply } = await body(req);
