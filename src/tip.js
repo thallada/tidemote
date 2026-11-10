@@ -20,6 +20,7 @@ export function createTips(tip) {
   function show(el, how) {
     const t = textFor(el);
     if (!t) return;
+    if (owner && owner !== el) owner.removeAttribute('aria-describedby');
     owner = el;
     via = how;
     tip.textContent = t.text;
