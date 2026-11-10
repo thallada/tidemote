@@ -7482,9 +7482,14 @@ fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
   let mat = (flags >> 3u) & 7u;
   let glass = mat == 0u || mat == 5u || mat == 7u;
   let bio = mat >= 4u;
-  // a little surface relief up close, least on glass and on skeletons, which carry their own
-  let relief = fine * select(select(1.0, 0.3, bio), 0.0, glass || mat == 2u) * (0.35 * vec2f(stoneNoise(wp * 40.0) - 0.5, stoneNoise(wp * 40.0 + 7.3) - 0.5)
-    + 0.25 * vec2f(stoneNoise(wp * 140.0) - 0.5, stoneNoise(wp * 140.0 + 3.1) - 0.5));
+  // a little surface relief up close, least on glass and on skeletons, which carry their own (its noise only where
+  // it shows: from afar it was worked out to be multiplied by 0)
+  let reliefK = fine * select(select(1.0, 0.3, bio), 0.0, glass || mat == 2u);
+  var relief = vec2f(0.0);
+  if (reliefK > 0.0) {
+    relief = reliefK * (0.35 * vec2f(stoneNoise(wp * 40.0) - 0.5, stoneNoise(wp * 40.0 + 7.3) - 0.5)
+      + 0.25 * vec2f(stoneNoise(wp * 140.0) - 0.5, stoneNoise(wp * 140.0 + 3.1) - 0.5));
+  }
   let n = normalize(vec3f(-s.xy + relief, 1.0));
   // a low, raking light, so each grain's form shows
   let light = normalize(vec3f(-0.55, -0.65, 0.5));
@@ -7496,10 +7501,15 @@ fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
   let tuck = shade.y * mix(1.0, mix(0.3, 1.0, smoothstep(0.35, 0.8, order)), 1.0 - smoothstep(1.5, 4.0, 0.09 * ppu));
   let edge = (sw - f32(flags)) / 0.45;
   let gloss = smoothstep(4.0, 20.0, 0.2 * ppu); // a grain's radius in pixels (STONE_R)
-  // mineral grains are mottled and veined well before their fine relief resolves
+  // mineral grains are mottled and veined well before their fine relief resolves (their finer noise only once it
+  // does: mid is 0 below 25 px a unit, and fine with it)
   let mid = smoothstep(25.0, 90.0, ppu) * select(1.0, 0.4, glass || bio);
-  var col = c.rgb * (1.0 + 0.12 * (stoneNoise(wp * 6.0) - 0.5) * select(1.0, 0.4, glass || bio) + (0.12 * mid + 0.18 * fine * select(1.0, 0.4, glass || bio)) * (stoneNoise(wp * 18.0) - 0.5)
-    + 0.16 * mid * (stoneNoise(wp * 47.0 + 3.7) - 0.5));
+  var tone = 1.0 + 0.12 * (stoneNoise(wp * 6.0) - 0.5) * select(1.0, 0.4, glass || bio);
+  if (mid > 0.0) {
+    tone += (0.12 * mid + 0.18 * fine * select(1.0, 0.4, glass || bio)) * (stoneNoise(wp * 18.0) - 0.5);
+    tone += 0.16 * mid * (stoneNoise(wp * 47.0 + 3.7) - 0.5);
+  }
+  var col = c.rgb * tone;
   if (fine > 0.0 && mat == 3u) {
     if ((flags & 1u) != 0u) {
       // reef chalk: pits of varied size gathered in patches, shadowed on the lit side, a lit rim opposite
@@ -7989,10 +7999,11 @@ fn pondSpecks(c: vec3f, hdr: vec3f, pos: vec2f, cells: f32, lit: f32) -> vec3f {
 // with the water instead of sliding over it. Two channels, -0.5..0.5, at about scale per world unit.
 fn flowNoise(wp: vec2f, scale: f32) -> vec2f {
   var n = vec2f(0.0);
+  let flow = postFlowAt(wp, post.simTime);
   for (var phase = 0u; phase < 2u; phase++) {
     let clock = post.simTime / 2.5 + f32(phase) * 0.5;
     let age = fract(clock);
-    let back = postFlowAt(wp, post.simTime) * (age * 2.5);
+    let back = flow * (age * 2.5);
     let q = (wp - back) * scale + vec2f(fract(floor(clock) * 0.618034 + f32(phase) * 0.37) * 61.0, 3.7);
     n += (vec2f(vnoise(q), vnoise(q + 9.7)) - 0.5) * (1.0 - abs(2.0 * age - 1.0));
   }
