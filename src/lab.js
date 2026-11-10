@@ -788,9 +788,10 @@ export function createLab(api) {
     panes[st.tab].update(!!force);
   }
   // A new world: its species reuse the old one's serials (and so their names), so every record
-  // built from the old world goes (the census, built from the page and kept current, stays).
+  // built from the old world goes (the census, built from the page and kept current, stays; so does the cabinet, every
+  // world's, redrawn for the new one as it next shows: built again, its cards' drag left three listeners on the window)
   function reset() {
-    for (const k of Object.keys(panes)) if (k !== 'census') { panes[k].el.remove(); delete panes[k]; }
+    for (const k of Object.keys(panes)) if (k !== 'census' && k !== 'cabinet') { panes[k].el.remove(); delete panes[k]; }
     st.linRoot = null; // (the lineage explored was the old world's)
     if (st.open) show();
   }
