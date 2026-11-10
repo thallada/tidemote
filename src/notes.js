@@ -859,8 +859,8 @@ export class Notes {
         if (d < near) { near = d; anchor = rows[k]; }
       }
       // its long and short axes (the spread's eigenvalues): a filament is long and thin
-      const tr = (sxx + syy) / n, det = (sxx * syy - sxy * sxy) / (n * n), disc = Math.sqrt(Math.max(0, tr * tr / 4 - det));
-      const l1 = tr / 2 + disc, l2 = Math.max(tr / 2 - disc, 1e-9), elong = Math.sqrt(l1 / l2);
+      const trace = (sxx + syy) / n, det = (sxx * syy - sxy * sxy) / (n * n), disc = Math.sqrt(Math.max(0, trace * trace / 4 - det));
+      const l1 = trace / 2 + disc, l2 = Math.max(trace / 2 - disc, 1e-9), elong = Math.sqrt(l1 / l2);
       const size = 2 * Math.sqrt(far), speed = Math.hypot(vx, vy);
       const ids = rows.map((i) => v.id[i]);
       // its key: the one it had while it held any of these cells (the one it shared most with), else its first cell's

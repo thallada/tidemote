@@ -4,7 +4,6 @@
 import { TOOLS, keyOf, toolOf, works, reachStep } from './hand.js';
 import { wireCardDrag, countText } from './minicard.js';
 import { fadeEdges } from './ui.js';
-import { fmt } from './fmt.js';
 import { tr } from './i18n.js';
 
 const $ = (id) => document.getElementById(id);

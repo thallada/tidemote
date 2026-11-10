@@ -17,7 +17,7 @@ const entry = `
 import { createEngine, MAXK, FIRST_LIFE } from './src/engine.js';
 import { readGenome, genomeSerial } from './src/genome.js';
 import { voiceOf } from './src/audio/mapping.js';
-import { digest, hearing, D_REF } from './src/audio/listen.js';
+import { digest, D_REF } from './src/audio/listen.js';
 import { createClimate, abioRate } from './src/climate.js';
 window.capture = async ({ N, WARM, EACH, SEED }) => {
   let s = SEED >>> 0; const rng = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);

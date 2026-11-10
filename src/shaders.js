@@ -851,7 +851,6 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
   // least keep open, strung-out bodies (a tree's cells touch)
   let tight = select(clamp((g.adhesion - ${f(K.tightFrom)}) / ${f(K.tightSpan)}, 0.0, 1.0), 1.0, tree);
 
-  let bondRest = 0.0;
   // warmth: the water here, plus a heat-maker's own (a body insulates its cells)
   let thermo = thermoOf(${G});
   let heat = heatSample(p.pos);
@@ -3987,7 +3986,7 @@ struct ListenU {
 @group(0) @binding(4) var<storage, read> heatField: array<f32>;
 ${shownWater('lu.world')}// layout: [0,8) in-view events per type, [8,16) out of view, 16 living in view, 17 their summed
 // speed (x1000), 18 living everywhere, 19 their summed speed (x1000), 20 particles in view,
-// 21 records written, then records of 4 words from word 32.
+// 21 records written, then records of ${LISTEN_REC} words from word 32.
 var<workgroup> wc: array<atomic<u32>, 21>;
 
 fn lhash(v: u32) -> u32 {
@@ -8618,7 +8617,8 @@ fn dryGround(wp: vec2f, away: f32, rel: vec3f, ppu: f32, parch: f32) -> vec3f {
   let px = 1.0 / max(ppu, 1e-3);
   // a drought bakes it: it pales, then cracks; what a low-water era bares stays damp (bake 0)
   let bake = smoothstep(0.0, 0.6, parch);
-  let dryness = smoothstep(0.3, 7.0, away + 4.0 * (fbm3T(wp, 0.18, vec2f(0.0)) - 0.45)) * bake;
+  let lay = fbm3T(wp, 0.18, vec2f(0.0));
+  let dryness = smoothstep(0.3, 7.0, away + 4.0 * (lay - 0.45)) * bake;
   // patches richer in clay, in organic matter, in silt
   let mott = fbm3T(wp, 0.07, vec2f(3.0));
   let fine = vnoiseT(wp, 0.9, vec2f(0.0));
@@ -8665,7 +8665,7 @@ fn dryGround(wp: vec2f, away: f32, rel: vec3f, ppu: f32, parch: f32) -> vec3f {
   let e1 = v1.x;
   let v2 = vborderT(q, 2.8, vec2f(31.7 / 2.8));
   let e2 = v2.x;
-  let open = smoothstep(1.5, 5.0, away + 3.0 * (fbm3T(wp, 0.18, z) - 0.45)) * smoothstep(0.35, 1.0, parch);
+  let open = smoothstep(1.5, 5.0, away + 3.0 * (lay - 0.45)) * smoothstep(0.35, 1.0, parch);
   let w1 = open * (0.1 + 0.08 * vnoiseT(q, 0.3, z));
   let sub = smoothstep(0.4, 0.7, hash12(vec2f(v1.y, 4.0)) + 0.35 * dryness) * smoothstep(4.0, 9.0, away);
   let w2 = sub * (0.035 + 0.035 * vnoiseT(q, 0.6, vec2f(4.0)));
@@ -8922,7 +8922,6 @@ fn waterRoom(wpIn: vec2f) -> f32 {
   }
   return room;
 }
-fn openWater(wpIn: vec2f) -> f32 { return smoothstep(0.0, 0.4, waterRoom(wpIn)); }
 // A shift of the view (d) kept within room of where it starts (how far that is from the image's edge): beyond the edge
 // the image repeats its last row of pixels, which a shift there would smear into streaks. Eased, not cut: a shift
 // shrinks smoothly to nothing at the edge.

@@ -1,7 +1,6 @@
 import { DEFAULT_K, G_WORDS } from './shaders.js';
 import { tr } from './i18n.js';
 
-export const KIND = { SILT: 0, GLINT: 1, HUSK: 2, STONE: 3, FRAMBOID: 4 };
 
 // Cosmetic names and selection mirror DRAW_WGSL; never consume ecological randomness.
 // i18n: the shapes a cell is drawn in (the specimen panel's Shape)

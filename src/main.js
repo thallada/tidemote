@@ -4997,7 +4997,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     C.vel = [C.vel[0] + (wrapD(cam.x - C.x, W) / dts - C.vel[0]) * f, C.vel[1] + (wrapD(cam.y - C.y, H) / dts - C.vel[1]) * f];
     C.zoomIn += (Math.log(cam.zoom / C.zoom) / dts - C.zoomIn) * f;
     C.x = cam.x; C.y = cam.y; C.zoom = cam.zoom;
-    const list = notes.update({ now, speed, ppu: cssPPU(), phone: phone(), pool: eng.tbg, visible: noteVisible, inner: noteInner,
+    const list = notes.update({ now, speed, ppu: cssPPU(), phone: phone(), visible: noteVisible, inner: noteInner,
       camVel: C.vel, zoomIn: C.zoomIn, central: noteCentral, leaving: flying, flow: noteFlow, light: noteLight, shade: noteShade, drops: noteDrops, dropsIn30: () => noteDropsSeen.size,
       ahead: shot ? shot.dur - shot.t : Infinity,
       // (where the auto camera is flying to: the world it will show)

@@ -427,6 +427,5 @@ export function chartPointer(plate, onPick) {
   return {
     /** Close the plate once its chart has left the screen. */
     check() { if (hot && (!hot.isConnected || !hot.offsetParent || !hot._hot)) leave(); },
-    hot: () => hot,
   };
 }

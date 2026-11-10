@@ -25,10 +25,9 @@ const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' }
 const device = await adapter.requestDevice({ requiredLimits: { maxStorageBuffersPerShaderStage: 10 } });
 const E = await import('../src/engine.js');
 const { testGenome, aloneInWater } = await import('./swimlab-bodies.mjs');
-const { P_BYTES, DEFAULT_K } = await import('../src/shaders.js');
+const { P_BYTES } = await import('../src/shaders.js');
 
 const K = { metab: 0, ...JSON.parse(v.k) };
-const KK = () => eng.K;
 const eng = await E.createEngine(device, 'rgba8unorm', { K });
 await eng.allocate(+v.n);
 eng.resize(640, 360);

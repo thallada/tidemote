@@ -70,7 +70,6 @@ body.cursor-off, body.cursor-off * { cursor: none !important; }
 h1, h2, h3 { margin: 0; font-weight: 400; }
 .sec-h h2 span, .lab-head h2 span { color: var(--ink-3); }
 b { font-weight: 500; }
-.num { font-variant-numeric: tabular-nums; }
 .term { text-decoration: underline dotted rgba(163, 189, 190, 0.55); text-underline-offset: 3px; cursor: help; }
 .term:focus-visible { outline: 1px solid var(--cyan); outline-offset: 2px; }
 a.sp, .about button.link { color: var(--ink); text-decoration: underline solid rgba(127, 214, 223, 0.45); text-underline-offset: 3px; cursor: pointer; font-weight: 500; }
@@ -95,7 +94,6 @@ button.chip {
 }
 button.chip[aria-pressed="true"] { color: var(--ink); background: var(--cyan-deep); border-color: var(--line-2); }
 button.chip i { width: 7px; height: 7px; display: inline-block; }
-button.wide { width: 100%; height: 36px; color: var(--ink); }
 .btn { height: 34px; padding: 0 12px; display: inline-flex; align-items: center; gap: 8px; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; font-weight: 500; font-stretch: 110%; color: var(--ink); }
 .btn[aria-pressed="true"] { color: var(--bg); background: var(--hot); border-color: var(--hot); }
 input[type="search"], input[type="text"] {
@@ -158,7 +156,6 @@ input[type="range"] { accent-color: var(--cyan); cursor: pointer; }
 .sharebar { display: flex; gap: 1px; width: 92px; height: 6px; }
 .sharebar i { flex: 0 1 0; min-width: 0; }
 .nil { color: var(--ink-3); }
-.rule { height: 1px; background: var(--line); position: relative; margin: 10px 0; }
 
 /* segmented meters */
 .meter { position: relative; height: 8px; background: repeating-linear-gradient(90deg, rgba(130, 205, 214, 0.16) 0 3px, transparent 3px 5px); }
@@ -1377,7 +1374,6 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .splist .spark { display: none; }
   .barrow { grid-template-columns: 7.5em minmax(24px, 1fr) 7ch 5.4ch; font-size: 12px; }
   .settings { left: 0; right: 0; width: auto; bottom: var(--bot); max-height: calc(100% - var(--top) - var(--bot)); }
-  .settings .sec-h .key { display: none; }
   .settings .tabs button { padding: 0 6px; letter-spacing: .06em; }
   .readout b { font-size: 15px; }
   /* (four across, as on a laptop: the settings below them in the first screen) */

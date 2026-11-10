@@ -199,12 +199,6 @@ export class PinkNoise {
   }
 }
 
-// ── LFSaw (control rate) ─────────────────────────────────────────────────────
-export class LFSawK {
-  constructor(krate, iphase = 0) { this.mul = 2 / krate; this.phase = iphase; }
-  kr(freq) { const f = freq * this.mul; const out = this.phase; let p = this.phase + f; if (f >= 0) { if (p >= 1) p -= 2; } else if (p <= -1) p += 2; this.phase = p; return out; }
-}
-
 // ── EnvGen (SuperCollider 3.13.0 semantics) ─────────────────────────────────
 // env: { levels: [l0, l1, ...], times: [...], curves: number|array }; numbers are
 // shape_Curve (5), 'lin' 1, 'exp' 2, 'sin' 3. `rate` is steps per second (sr for .ar,
@@ -279,7 +273,6 @@ export class EnvGen {
     return this.k1[0];
   }
 }
-export const envDur = (env, ts = 1) => env.times.reduce((a, b) => a + b, 0) * ts;
 
 // ── control-rate value interpolated into an audio block (BinaryOp *_ak) ──────
 export class KtoA {
@@ -288,11 +281,6 @@ export class KtoA {
 }
 
 // ── SC biquads with per-block coefficient ramps ─────────────────────────────
-// Generic driver: form 'a0x' (y0 = a0*x + b1*y1 + b2*y2; out = y0 + 2y1 + y2), etc.
-class SCBiquad {
-  constructor() { this.y1 = 0; this.y2 = 0; this.init = false; }
-  // run with coefficient vectors cur -> next; form is a function (x, y0, y1, y2, c) -> out
-}
 
 export class LPF {
   constructor(sr) { this.rps = TWOPI / sr; this.y1 = 0; this.y2 = 0; this.freq = NaN; this.a0 = 0; this.b1 = 0; this.b2 = 0; }

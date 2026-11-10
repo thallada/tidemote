@@ -10,7 +10,7 @@ const PW = 10; // Particle words
 /** Body census of one world: { living, guilds: {g: {cells, kinds: {type: cells}}}, bodies: {type: {n, cells, sizes}} }. */
 export function bodyCensus(cpu, gpu) {
   const count = cpu.count;
-  const pu = new Uint32Array(gpu.parts), pf = new Float32Array(gpu.parts), it = new Uint32Array(gpu.intent);
+  const pu = new Uint32Array(gpu.parts), it = new Uint32Array(gpu.intent);
   const gu = new Uint32Array(gpu.genomes), gf = new Float32Array(gpu.genomes);
   const genomes = new Map();
   const genomeOf = (k) => { if (!genomes.has(k)) genomes.set(k, readGenome(gu, gf, k)); return genomes.get(k); };

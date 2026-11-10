@@ -15,7 +15,7 @@
 // Pure: no DOM, no GPU. The page calls observe() on every census and note() on the climate's news,
 // and pushes what they return into the log. Tested in test/chronicler.test.js.
 
-import { dietGuild, mobilityGuild, thermalGuild, growPlan, roleShares, affinity } from './genome.js';
+import { dietGuild, mobilityGuild, growPlan, roleShares, affinity } from './genome.js';
 import { fmtClock, esc, UM_PER_UNIT } from './fmt.js';
 import { tr } from './i18n.js';
 import { MAXK, FIRST_LIFE, SPL_WATCH, SPL_CAUSE, SPL_CAUSES, SPL_PAIR, SPL_RANGE, DEFAULT_K } from './shaders.js';
@@ -23,7 +23,6 @@ import { MAXK, FIRST_LIFE, SPL_WATCH, SPL_CAUSE, SPL_CAUSES, SPL_PAIR, SPL_RANGE
 const NC = SPL_CAUSES.length;
 const C = Object.fromEntries(SPL_CAUSES.map((k, i) => [k, i])); // born, starved, old, eaten, scalded, stranded, cyst, woke
 const MIN = 60;
-const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 // drop the entries of a time series ([t, ...] in order) from before t0, in one splice
 const trim = (arr, t0) => { let k = 0; while (k < arr.length && arr[k][0] < t0) k++; if (k) arr.splice(0, k); };
 const wrap01 = (d) => d - Math.round(d);
@@ -340,9 +339,9 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       const sp = reg.get(serial);
       if (!sp || (!sp.alive && t - (sp.extinct ?? t) > 30 * MIN)) S.sp.delete(serial);
     }
+    for (const [k, p] of S.pairs) if (!p.bins.length) S.pairs.delete(k);
     // (and what was told of species the registry no longer holds)
     for (const serial of S.latest.keys()) if (!reg.has(serial)) { S.latest.delete(serial); S.told.delete(`sp:${serial}`); S.told.delete(`last:${serial}`); }
-    for (const [k, p] of S.pairs) if (!p.bins.length) S.pairs.delete(k);
     return choose(cands, obs);
   }
 

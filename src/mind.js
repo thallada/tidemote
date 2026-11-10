@@ -6,7 +6,6 @@ import { MIND_HEAD, MIND_NBR, MIND_NBR_WORDS } from './shaders.js';
 import { divEnergy } from './genome.js';
 import { tr } from './i18n.js';
 
-const NONE = 0xffffffff;
 const HUSK = 2;
 
 /** Decode a mind buffer (u32/f32 views of one readback; layout in mindMain). Null if the cell was not found. */

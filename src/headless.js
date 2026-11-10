@@ -29,10 +29,9 @@ export async function runHeadless(device, config, { print, width = 640, height =
     const rng = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
     Math.random = rng; // Archetype initialization also uses Math.random.
     const E = await import('./engine.js');
-    const { genomeSerial, readGenome } = await import('./genome.js');
+    const { genomeSerial, readGenome, dietGuild: guildOfG } = await import('./genome.js');
     const { communitySample, summarizeRun, packing, spatial } = await import('./ecostats.js');
     const { bodyCensus, morphMix } = await import('./bodies.js');
-    const { dietGuild: guildOfG } = await import('./genome.js');
     let spatialPrev = null, spatialT = 0, latestSpatial = null;
     const { ENERGY_SLOTS, THERMAL_LEDGER, HEAT_BINS, HEAT_BIN } = await import('./shaders.js');
     const eng = await E.createEngine(device, 'rgba8unorm', { K: config.k, hasTimestamps: device.features.has('timestamp-query') });
