@@ -2227,7 +2227,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
       atomicAdd(&ledger[META_DEATH + 4u * ledgerGuild(genomes[p.kind]) + 3u], 1u);
       splCause(p.kind, 3u);
       noteSelf(EV_NEEDLE, p.kind, p.id, p.pos);
-      p.kind = HUSK; p.energy = ${bodyOf(K, 'genomes[p.kind]')} * ${f(K.carcassKeep)}; p.age = 0.0; p.vel *= 0.2;
+      p.energy = ${bodyOf(K, 'genomes[p.kind]')} * ${f(K.carcassKeep)}; p.kind = HUSK; p.age = 0.0; p.vel *= 0.2;
       p.info = (p.info & 0xffff7ff0u) | 3u;
       atomicAdd(&ledger[META_ENERGY + 61u], 1u);
       parts[i] = p;
@@ -2274,11 +2274,11 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
       }
       if (act == 1u && p.kind == ck) {
         if (p.kind >= FIRST_LIFE) {
-          // a kill leaves a carcass for the scavengers
+          // a kill leaves a carcass for the scavengers (its body from the prey's genome, read before its kind becomes HUSK)
           atomicAdd(&ledger[META_DEATH + 4u * ledgerGuild(genomes[p.kind]) + 3u], 1u);
           splCause(p.kind, 3u);
           noteBy(EV_KILL, p, by);
-          p.kind = HUSK; p.energy = ${bodyOf(K, 'genomes[p.kind]')} * ${f(K.carcassKeep)}; p.age = 0.0; p.vel *= 0.2;
+          p.energy = ${bodyOf(K, 'genomes[p.kind]')} * ${f(K.carcassKeep)}; p.kind = HUSK; p.age = 0.0; p.vel *= 0.2;
           p.info = (p.info & 0xffff7ff0u) | 3u;
           atomicAdd(&ledger[META_ENERGY + 61u], 1u);
         } else {
@@ -2297,7 +2297,7 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
           if (p.energy <= 0.0) {
             atomicAdd(&ledger[META_DEATH + 4u * ledgerGuild(genomes[p.kind]) + 3u], 1u);
             splCause(p.kind, 3u);
-            p.kind = HUSK; p.energy = ${bodyOf(K, 'genomes[p.kind]')}; p.age = 0.0;
+            p.energy = ${bodyOf(K, 'genomes[p.kind]')}; p.kind = HUSK; p.age = 0.0;
             p.info = (p.info & 0xffff7ff0u) | 3u | LITTER;
             atomicAdd(&ledger[META_ENERGY + 60u], 1u);
           }
