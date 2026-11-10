@@ -17,7 +17,7 @@ import { vkOn, vkLaunch, retryAdapter } from '../tools/vk.mjs';
 // under the card; with no GPU an alert and why; the card's QR code reading back its link, its PNG its genome; Save and
 // Open; a broken link passed over. On the GPU with TIDEMOTE_VK=1 (tools/vk.mjs), else SwiftShader (slow to compile).
 test('the card page shows a card at once, then its portrait, and says why when it cannot', { timeout: 300_000 }, async (t) => {
-  if (!existsSync(chromium.executablePath())) { t.skip('No Playwright Chromium'); return; }
+  if (!existsSync(chromium.executablePath())) { t.skip(`Playwright's Chromium is not installed (${chromium.executablePath()}): npx playwright install chromium`); return; }
   const html = await buildPage();
   const server = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end(html); });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));

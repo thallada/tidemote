@@ -25,13 +25,16 @@ test('headless ecology produces living cells and samples', { timeout: 120_000 },
     child.on('error', (e) => { clearTimeout(timer); reject(e); });
     child.on('close', (code) => { clearTimeout(timer); resolve({ code, output }); });
   });
-  let result = await runSim(backend);
+  // (said in the test's output, as a skip would be: which backend ran, and why not Chromium)
+  if (backend === '--cpu') t.diagnostic(`Playwright's Chromium is not installed (${executable}): sim.mjs --cpu on Dawn's lavapipe instead`);
+  let result = await runSim(backend), ran = backend;
   // An installed browser may still be unable to launch in a restricted environment.
   if (backend === '--chrome' && result.code !== 0 && /browserType\.launch:/.test(result.output)) {
-    result = await runSim('--cpu');
+    t.diagnostic(`Chromium would not launch (${/browserType\.launch:[^\n]*/.exec(result.output)[0].slice(0, 160)}): sim.mjs --cpu on Dawn's lavapipe instead`);
+    result = await runSim(ran = '--cpu');
   }
   if (result.code === 2 && /No WebGPU adapter available/.test(result.output)) {
-    t.skip('No WebGPU adapter available'); return;
+    t.skip(`No WebGPU adapter available to sim.mjs ${ran}${ran === '--cpu' ? ' (Mesa lavapipe: /usr/share/vulkan/icd.d/lvp_icd.json)' : ''}`); return;
   }
   if (result.code !== 0) console.error(result.output);
   assert.equal(result.code, 0, result.output);

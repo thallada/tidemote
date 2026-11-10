@@ -128,7 +128,7 @@ test('not WebM: passed through untouched', () => {
 
 // a film Chrome recorded (tools/film-check.mjs), where one is at hand
 const real = 'runs/film/smoke/laptop.webm';
-test('a film Chrome recorded: Cues at its keyframes, a duration near its length', { skip: !fs.existsSync(real) }, () => {
+test('a film Chrome recorded: Cues at its keyframes, a duration near its length', { skip: !fs.existsSync(real) && `no ${real}: record one with tools/film-check.mjs --size laptop --minutes 1 --out runs/film/smoke` }, () => {
   const src = new Uint8Array(fs.readFileSync(real));
   const { out, e } = mend(src, 1 << 20);
   assert.ok(e.cues >= 5, `${e.cues} cues`);
