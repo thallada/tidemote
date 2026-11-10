@@ -1316,9 +1316,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const sp = [];
       for (const s of life.reg.values()) if (s.alive && s.established) sp.push([s.serial, s.pop]);
       life.history.push({
-        t, silt: pop[0], husk: pop[2], living, sp,
+        t, husk: pop[2], living, sp,
         alive, thriving, diversity: Math.exp(H),
-        births: rate(2), starve: rate(5), old: rate(6), eaten: rate(7), scav: rate(10), prey: rate(7), bite: rate(11),
+        // (eaten: the kills, globals[7]: deaths in one chart, meals in another)
+        births: rate(2), starve: rate(5), old: rate(6), eaten: rate(7), scav: rate(10), bite: rate(11),
         mut: rate(3), ext: rate(8), ambient: eng.ambient, season: eng.season,
         temp: eng.tbg, scald: [20, 21, 22, 23, 24].reduce((a, i) => a + (life.prevD ? (c.demography[i] - life.prevD[i]) >>> 0 : 0), 0) / Math.max(1e-6, t - life.prevT) * 60,
         torpid: torpidShare(c),
