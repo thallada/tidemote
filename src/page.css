@@ -528,7 +528,7 @@ body.dragging-card #bench-open, body.dragging-card .bench-pip, body.dragging-car
     rgba(4, 7, 8, 0.8);
 }
 .caption.on { opacity: 1; transform: translate(-50%, 0); }
-.caption .cap-eye { color: var(--hot); font-size: 11px; letter-spacing: .24em; text-transform: uppercase; font-weight: 500; font-stretch: 115%; }
+.caption .cap-eye { color: var(--hot); font-size: 11px; letter-spacing: .24em; font-weight: 500; font-stretch: 115%; }
 .caption .cap-rule { height: 5px; margin: 6px auto 7px; width: 180px; background: radial-gradient(circle, var(--line-2) 1px, transparent 1.4px) center / 6px 5px repeat-x; }
 .caption .cap-main { font-size: 17px; font-weight: 300; letter-spacing: .04em; color: var(--ink); text-wrap: balance; }
 .caption .cap-sub { color: var(--ink-2); font-size: 12.5px; margin-top: 4px; }

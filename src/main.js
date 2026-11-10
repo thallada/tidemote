@@ -4861,11 +4861,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // i18n: the caption's main line following an organism: "A 12-cell {name}" ({nvowel}: yes when the count is said
     // with a vowel), or "A {name} cell" ({vowel}: yes when the name begins with one)
     const named = () => tr('caption.organism', '{body, select, many {{nvowel, select, yes {An} other {A}} {n}-cell {name}} other {{vowel, select, yes {An} other {A}} {name} cell}}', organism(w));
+    // (the eyebrow over the caption is written in capitals, as the HUD's type is)
     let eyebrow, main, sub = '';
     if (w.kind === 'wide') {
-      if (going) { eyebrow = tr('caption.wide.going', 'Rising'); main = tr('caption.wide.going-main', 'For a view of the whole world'); }
+      if (going) { eyebrow = tr('caption.wide.going', 'RISING'); main = tr('caption.wide.going-main', 'For a view of the whole world'); }
       else {
-        eyebrow = tr('caption.wide', 'The whole world');
+        eyebrow = tr('caption.wide', 'THE WHOLE WORLD');
         // i18n: {n} living cells, {species} living species
         main = tr('caption.wide.main', '{n, plural, other {# living cells}} in {species, plural, other {# species}}', { n: life.counts[3], species: life.alive });
         // i18n: {era} the era's name, {pct} the light (%)
@@ -4874,15 +4875,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
     } else if (w.kind === 'scene') {
       if (going && w.lost) {
         const [fate] = fateOf(w.lost.fate);
-        eyebrow = tr('caption.lost', 'Heading on');
+        eyebrow = tr('caption.lost', 'HEADING ON');
         // i18n: the camera heads to where the cell it was going to show died: {name} its species (a link); with a body of
         // {n} cells ({nvowel}: yes when the count is said with a vowel) or alone ({vowel}: yes when the name begins with one); {fate} what became of it
         main = tr('caption.lost.main', 'To where {body, select, many {a cell of {nvowel, select, yes {an} other {a}} {n}-cell {name}} other {{vowel, select, yes {an} other {a}} {name} cell}} {fate, select, vanished {vanished} eaten {was eaten} old {died of old age} killed {was killed} other {starved}}', { ...organism(w.lost), fate });
         sub = tr('caption.lost.sub', 'It was gone before the camera arrived');
       } else if (going) {
-        eyebrow = tr('caption.heading', 'Heading to'); main = r[0] ? r[0][0] : tr('caption.quieter', 'Somewhere quieter'); sub = r[1] ? note(r[1]) : '';
+        eyebrow = tr('caption.heading', 'HEADING TO'); main = r[0] ? r[0][0] : tr('caption.quieter', 'Somewhere quieter'); sub = r[1] ? note(r[1]) : '';
       } else {
-        eyebrow = tr('caption.in-view', 'In view');
+        eyebrow = tr('caption.in-view', 'IN VIEW');
         const sp = (w.species || []).filter((x) => life.reg.has(x.serial)).map((x) => spName(x.serial));
         // i18n: species in view (links): {rest} all but the last, with commas, and {last}
         main = sp.length ? (sp.length > 1 ? tr('caption.species-list', '{rest} and {last}', { rest: sp.slice(0, -1).join(', '), last: sp[sp.length - 1] }) : sp[0]) : r[0] ? r[0][0] : tr('caption.quiet', 'A quiet stretch of water');
@@ -4890,13 +4891,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
       }
     } else if (w.kind === 'follow') {
       // named only once it is in view (w.seen): on the way, where the camera is going
-      if (!w.seen && w.signal) { eyebrow = tr('caption.searching', 'Searching'); main = tr('caption.searching-signal', 'For the source of a signal'); }
-      else if (!w.seen && w.story) { eyebrow = tr('caption.searching', 'Searching'); main = tr('caption.searching-story', 'For a species in the chronicle'); }
-      else if (!w.seen) { eyebrow = w.spotlight ? tr('caption.searching', 'Searching') : tr('caption.exploring', 'Exploring'); main = w.spotlight ? tr('caption.searching-new', 'For a new species') : tr('caption.exploring-main', 'Moving to a new area'); sub = w.spotlight ? '' : tr('caption.exploring-sub', 'To discover the life there'); }
-      else if (w.signal) { eyebrow = tr('caption.signal', 'Answering a signal'); main = named(); sub = spDesc(w.serial); }
-      else if (w.story) { eyebrow = tr('caption.story', 'From the chronicle'); main = named(); sub = esc(storyLine(w.story)); }
-      else if (w.spotlight) { eyebrow = tr('caption.new-species', 'Following a new species'); main = named(); sub = spDesc(w.serial); }
-      else { eyebrow = tr('caption.following', 'Following'); main = named(); sub = spDesc(w.serial); }
+      if (!w.seen && w.signal) { eyebrow = tr('caption.searching', 'SEARCHING'); main = tr('caption.searching-signal', 'For the source of a signal'); }
+      else if (!w.seen && w.story) { eyebrow = tr('caption.searching', 'SEARCHING'); main = tr('caption.searching-story', 'For a species in the chronicle'); }
+      else if (!w.seen) { eyebrow = w.spotlight ? tr('caption.searching', 'SEARCHING') : tr('caption.exploring', 'EXPLORING'); main = w.spotlight ? tr('caption.searching-new', 'For a new species') : tr('caption.exploring-main', 'Moving to a new area'); sub = w.spotlight ? '' : tr('caption.exploring-sub', 'To discover the life there'); }
+      else if (w.signal) { eyebrow = tr('caption.signal', 'ANSWERING A SIGNAL'); main = named(); sub = spDesc(w.serial); }
+      else if (w.story) { eyebrow = tr('caption.story', 'FROM THE CHRONICLE'); main = named(); sub = esc(storyLine(w.story)); }
+      else if (w.spotlight) { eyebrow = tr('caption.new-species', 'FOLLOWING A NEW SPECIES'); main = named(); sub = spDesc(w.serial); }
+      else { eyebrow = tr('caption.following', 'FOLLOWING'); main = named(); sub = spDesc(w.serial); }
     } else if (w.kind === 'event') {
       // i18n: the auto camera at the pool's event: a title, and a line on what happens
       const EV = { drought: { drying: [tr('caption.drought.drying', 'The pool is drying'), tr('caption.drought.drying-sub', 'Cells crowd the shrinking water; the edge drags stragglers with it')],
@@ -4906,10 +4907,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
         frost: { cooling: [tr('caption.frost.cooling', 'Nightfall'), tr('caption.frost.cooling-sub', 'The water chills toward freezing')], freezing: [tr('caption.frost.freezing', 'Ice'), tr('caption.frost.freezing-sub', 'Its fronts push cells into the veins of water between the grains')],
           frozen: [tr('caption.frost.frozen', 'Frozen'), tr('caption.frost.frozen-sub', 'Life waits in the veins of water between the ice grains')], thaw: [tr('caption.frost.thaw', 'Thaw'), tr('caption.frost.thaw-sub', 'The ice gives the pool back')] } };
       const [m, sb] = (EV[w.type] || {})[w.phase] || [tr('caption.pool', 'The pool'), ''];
-      eyebrow = going ? tr('caption.heading', 'Heading to') : tr('caption.watching', 'Watching'); main = m; sub = going ? '' : sb;
+      eyebrow = going ? tr('caption.heading', 'HEADING TO') : tr('caption.watching', 'WATCHING'); main = m; sub = going ? '' : sb;
     } else if (w.kind === 'linger') {
       const [fate, after] = fateOf(w.fate);
-      eyebrow = tr('caption.linger', 'Lingering');
+      eyebrow = tr('caption.linger', 'LINGERING');
       // i18n: the camera stays where the cell it followed died: {name} its species (a link), {n} the cells of its body;
       // {fate} what became of it
       main = tr('caption.linger.main', '{body, select, many {A cell of the {n}-cell {name}} other {The {name} cell}} {fate, select, vanished {vanished} eaten {was eaten} old {died of old age} killed {was killed} other {starved}}', { body: w.cells > 1 ? 'many' : 'one', n: fmt(w.cells), name: spName(w.serial), fate });
