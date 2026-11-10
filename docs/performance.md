@@ -44,7 +44,7 @@ neighbor loop is what pays. On 2026-10-09 the neighbor loop was about 93% of it;
 budget `maxScan`: 192 since 2026-10-09 (288 before), which took about 25% off `lifeMain` (1M world
 2.30 → 1.67 ms, 4M 9.9 → 7.8 ms). It passed the 32-seed gate against 288 and against heat-framboids,
 and 128 seeds at 4-tick steps matched 288 or bettered it (effective species 79.5 ± 4.4 against
-72.0 ± 3.9; reports in `balance/maxscan/`). It is a uniform (`sim.maxScan`), so Settings → Perf →
+72.0 ± 3.9; its reports were in `balance/maxscan/`, in the history up to 619e639). It is a uniform (`sim.maxScan`), so Settings → Perf →
 Neighbors changes it live (no measurable cost against a compiled constant); since 2026-10-25 it offers about
 ¾, 1, 1½ and 2 times the default `maxScan` (now 112: 88, 112, 168, 224), the default marked.
 
