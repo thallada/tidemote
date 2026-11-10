@@ -29,7 +29,7 @@ window.capture = async ({ N, WARM, EACH, SEED }) => {
   const [GW, GH] = eng.grid;
   const log = []; let phase = 'warm', voices = new Map(), keep = null, lastCensus = null;
   eng.onCensus = (c) => {
-    lastCensus = c; eng.abio = abioRate(c.pop[1]);
+    lastCensus = c; eng.abio = abioRate(c.pop[0]);
     if (phase === 'warm') return;
     const slots = [];
     for (let k = FIRST_LIFE; k < MAXK; k++) if (c.pop[k]) {
