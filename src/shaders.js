@@ -486,7 +486,9 @@ export const SIM_CLOCK = 32768;
 // the water's edge's wavering (edgeSway): its three waves' angular frequencies (radians a second), whose phases the
 // engine folds the wrapped time into as it does the tide's (Sim.edgePh, Post.edgePh)
 export const EDGE_SWAY_W = [0.7, 0.45, 1.3];
-const COMMON = /* wgsl */ `
+// What every module shares, with the tunables K (tailCell's adhMin): the simulation's with its run's (simWGSL), the
+// passes that only show or hear the world (COMMON) with the defaults, as they read the heat (shownThermal).
+const commonWGSL = (K) => /* wgsl */ `
 // x squared: pow(x, 2.0) is undefined for negative x (NaN, drawn black, on Metal and Vulkan), so never use it to square
 fn sqr(x: f32) -> f32 { return x * x; }
 // an angle: atan2(0, 0) is NaN on Metal (0 on Windows), and a NaN mixed in at weight 0 is still NaN, so the drawing's
@@ -577,7 +579,7 @@ fn growOf(g: Genome) -> Grow {
 // A packed body's tail: a cell of a species that is no tree, bonded, of branch order 2 (tailCell) grows as
 // a straight filament from its base (a cell of the body), from its tip, and beats with the species' beat.
 fn tailCell(g: Genome, info: u32) -> bool {
-  return g.dev.x < 0x80000000u && g.adhesion > ${f(DEFAULT_K.adhMin)} && g.tail.x > 0.0 && orderOf(info) == 2u;
+  return g.dev.x < 0x80000000u && g.adhesion > ${f(K.adhMin)} && g.tail.x > 0.0 && orderOf(info) == 2u;
 }
 // A cell's growth plan: its species', or a tail's (straight, never branching)
 fn growAt(g: Genome, info: u32) -> Grow {
@@ -700,6 +702,7 @@ fn thermalState(g: Genome, t: f32, specBonus: f32, torporAt: f32, flat: f32, war
   return Thermal(select(peak * exp(-y * y), 0.0, torpid), smoothstep(0.3, 0.9, abs(x)), x, torpid);
 }
 `;
+const COMMON = commonWGSL(DEFAULT_K);
 // The water's temperature where a cell is, for passes that only show it (rendering, listening):
 // bilinear between grid-cell centers, so a cell jostling across a grid line doesn't flick between
 // its cells' temperatures (and its heat color with them).
@@ -1378,7 +1381,7 @@ export function simWGSL(K, { dp4a = false, lifeWG = 128, genomePtr = false } = {
   // reef stone's neighborhood: a disc of the square's area (side 2 regionR + 1), in cells, and its reach
   const REGION_DISC = (2 * (K.regionR | 0) + 1) / Math.sqrt(Math.PI);
   const REGION_REACH = Math.ceil(REGION_DISC + 0.5);
-  return COMMON + /* wgsl */ `
+  return commonWGSL(K) + /* wgsl */ `
 // Coarse steps (sim.ticks > 1) run lifeMain and mindMain as pipelines of their own (lifeMainCoarse):
 // a 1/60 s step's leaves out everything only a coarse step needs, which saves it registers.
 override COARSE = false;
