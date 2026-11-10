@@ -767,6 +767,10 @@ fn iceShownAt(p: vec2f) -> f32 { return blockAt(${ICE_SHOWN}u, p); }
 `;
 // The same, with the default tunables, for passes that only show it (rendering, listening).
 const shownThermal = (g, t) => `thermalState(${g}, ${t}, ${f(DEFAULT_K.specBonus)}, ${f(DEFAULT_K.torporAt)}, ${f(DEFAULT_K.thermalFlat)}, ${f(DEFAULT_K.thermalWarm)})`;
+// A living cell's own warmth as lifeMain reckons it, with the default tunables, for the same passes: the water (water,
+// a WGSL expression) and a heat-maker's own heat, insulated by each bond the cell keeps (it: a variable holding its
+// intent, whose z and w are the bonds its last step kept, as lifeMain's keep1 and keep2).
+const shownWarmth = (water, g, it) => `(${water} + ${f(DEFAULT_K.selfWarm)} * thermoOf(${g}) * (1.0 + 0.5 * (select(0.0, 1.0, ${it}.z != NONE) + select(0.0, 1.0, ${it}.w != NONE && ${it}.w != ${it}.z))))`;
 
 // One living cell's senses, forces and energy budget for this frame, shared by lifeMain and mindMain.
 // w (mindMain only) adds statements that record each term; without it the text is lifeMain's alone.
@@ -4019,6 +4023,8 @@ struct ListenU {
 @group(0) @binding(3) var<storage, read_write> lout: array<atomic<u32>>;
 // the water's temperature per grid cell (heatMain): torpid cells are still and silent
 @group(0) @binding(4) var<storage, read> heatField: array<f32>;
+// (the bonds each cell keeps, which keep a heat-maker warm)
+@group(0) @binding(5) var<storage, read> intent: array<vec4u>;
 ${shownWater('lu.world')}// layout: [0,8) in-view events per type, [8,16) out of view, 16 living in view, 17 their summed
 // speed (x1000), 18 living everywhere, 19 their summed speed (x1000), 20 particles in view,
 // 21 records written, then records of ${LISTEN_REC} words from word 32.
@@ -4053,7 +4059,8 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
     var t = NONE;
     if (life && inView) {
       let g = genomes[p.kind];
-      let warmth = waterTempAt(p.pos) + ${f(DEFAULT_K.selfWarm)} * thermoOf(g);
+      let it = intent[i];
+      let warmth = ${shownWarmth('waterTempAt(p.pos)', 'g', 'it')};
       if (!${shownThermal('g', 'warmth')}.torpid) { t = 8u; }
     }
     if (p.age < lu.window) {
@@ -4164,7 +4171,8 @@ fn noteMain(@builtin(global_invocation_id) gid: vec3u) {
   var partners = vec2u(NONE);
   if (life) {
     let g = genomes[p.kind];
-    let th = ${shownThermal('g', `waterTempAt(p.pos) + ${f(DEFAULT_K.selfWarm)} * thermoOf(g)`)};
+    let it = intent[i];
+    let th = ${shownThermal('g', shownWarmth('waterTempAt(p.pos)', 'g', 'it'))};
     fed = fed / max(g.reproE, 0.01);
     x = th.x;
     torpid = th.torpid;
@@ -4904,7 +4912,10 @@ fn isMember(id: u32) -> bool {
   }
   return false;
 }
-fn focusPass(p: Particle) -> bool {
+// matter (stone, silt, husks) passes the focus by its kind alone
+fn focusMatter(p: Particle) -> bool { return view.focusOn == 0u || kindOn(p.kind); }
+// (index: the particle's, for the bonds it keeps)
+fn focusPass(p: Particle, index: u32) -> bool {
   if (view.focusOn == 0u) { return true; }
   let k = p.kind;
   if (!kindOn(k)) { return false; }
@@ -4916,8 +4927,9 @@ fn focusPass(p: Particle) -> bool {
   if (view.stateMode == 1u) { return e < 0.35; }
   if (view.stateMode == 2u) { return e > 0.85; }
   if (view.stateMode >= 4u) {
-    // heat-stressed (4) or torpid (5), at the water's warmth where the cell is
-    let warmth = waterTempAt(p.pos) + ${f(DEFAULT_K.selfWarm)} * thermoOf(g);
+    // heat-stressed (4) or torpid (5), at its own warmth (the water's where the cell is, and a heat-maker's own)
+    let it = intent[index];
+    let warmth = ${shownWarmth('waterTempAt(p.pos)', 'g', 'it')};
     let th = ${shownThermal('g', 'warmth')};
     return select(th.x > 0.3, th.torpid, view.stateMode == 5u);
   }
@@ -5242,7 +5254,7 @@ fn cellRadius(p: Particle, g: Genome, index: u32) -> f32 {
   size *= packFit(p, index, size) * animScale(animOf(p, g));
   size *= 1.0 - 0.22 * dryShown(p);
   let grow = 1.0 - detailLOD(view.pointSize * size);
-  if (!focusPass(p)) { size *= 0.7; }
+  if (!focusPass(p, index)) { size *= 0.7; }
   else if (view.focusOn == 1u) { size *= 1.0 + 0.12 * grow; }
   if (view.memberN > 0u && p.kind == view.memberKind && isMember(p.id)) { size *= 1.0 + 0.15 * grow; }
   if (p.id == view.selId) { size = mix(size, max(size, 1.2) * 1.5, grow); }
@@ -5315,7 +5327,9 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     let e = clamp(a.fed, 0.0, 1.4);
     var b = mix(0.35 + 0.65 * e, 0.62, sleep);
     let thermo = thermoOf(g);
-    let warmth = waterTempAt(p.pos) + ${f(DEFAULT_K.selfWarm)} * thermo;
+    // (a ghost's husk keeps no bonds)
+    let it = select(intent[ii], vec4u(NONE), dead);
+    let warmth = ${shownWarmth('waterTempAt(p.pos)', 'g', 'it')};
     let th = ${shownThermal('g', 'warmth')};
     // a torpid cell's pulse stops and it dims, cold blue
     if (!th.torpid) { b *= 1.0 + (1.0 - sleep) * (1.0 - select(0.0, gh.t, dead)) * g.pulse * 0.6 * sin(view.time * (0.8 + g.pulse * 4.0) + f32(p.id % 1024u) * 0.37); }
@@ -5387,7 +5401,7 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
   // highlights enlarge only sprites too small to show detail; resolved cells keep their true size,
   // so resolving anatomy preserves the organism's world size
   let grow = 1.0 - detailLOD(view.pointSize * size);
-  if (!focusPass(p)) {
+  if (!focusPass(p, ii)) {
     let l = dot(col, vec3f(0.3, 0.5, 0.2));
     col = mix(vec3f(l), col, 0.1) * view.mute;
     live = mix(vec3f(dot(live, vec3f(0.3, 0.5, 0.2))), live, 0.1) * view.mute;
@@ -6444,7 +6458,7 @@ struct LO { @builtin(position) pos: vec4f, @location(0) col: vec3f };
   let t = clamp(1.0 - length(dq) / view.linkR, 0.0, 1.0);
   let isEnd = (vi & 1u) == 1u;
   o.pos = toClip((base + select(vec2f(0.0), dq, isEnd)) * view.ppu);
-  let fade = select(view.mute, 1.0, focusPass(p));
+  let fade = select(view.mute, 1.0, focusPass(p, i));
   o.col = unpack4x8unorm(select(p.col, q.col, isEnd)).rgb * ((0.35 + 0.65 * t) * view.lineGain * fade);
   if (view.pointSize > 6.0) { o.col *= 1.0 - bondLOD(view.pointSize); }
   // tissue shows no bond once its cells take shape (vsBridge): its line goes as they resolve
@@ -6529,7 +6543,7 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
   let halfWidth = mix(0.5, max(0.5, neck * taper * tension), neckness);
   o.pos = toClip((base + center) * view.ppu + normal * side * halfWidth);
   let strength = clamp(1.0 - len / view.linkR, 0.0, 1.0);
-  let fade = select(view.mute, 1.0, focusPass(p));
+  let fade = select(view.mute, 1.0, focusPass(p, index));
   // Thin bridges carry the old line's light (soft-edge integral 0.8); resolved ones are shaded as
   // membrane, a little dimmer than cytoplasm, so a wide neck between bonded cells stays visible.
   let line = (0.35 + 0.65 * strength) * view.lineGain / (halfWidth * 1.6);
@@ -6610,7 +6624,7 @@ ${STONE_COL_WGSL}
   var col = base * view.matterGain * 1.1;
   if (!framboid) { col = max(mix(vec3f(dot(col, vec3f(0.3, 0.5, 0.2))), col, 1.5), vec3f(0.0)); }
   col *= select(0.75 + 0.5 * o.seed.x, 0.85 + 0.3 * o.seed.x, !framboid);
-  if (!focusPass(p)) { col = vec3f(dot(col, vec3f(0.3, 0.5, 0.2))) * view.mute; }
+  if (!focusMatter(p)) { col = vec3f(dot(col, vec3f(0.3, 0.5, 0.2))) * view.mute; }
   o.flags = select(0u, 1u, reef) | select(0u, 2u, p.id == view.selId) | select(0u, 4u, framboid) | (ty << 3u);
   o.fuel = select(0.0, clamp(p.energy / ${f(DEFAULT_K.framboidLife)}, 0.0, 1.0), framboid);
   // the quad: about the grain as it lies, turned with it (mineralSurf, framboidSurf), a little past its edge

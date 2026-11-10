@@ -772,7 +772,8 @@ class Engine {
       { binding: 0, resource: { buffer: b.watchU } }, { binding: 2, resource: { buffer: b.watchOut } }, { binding: 4, resource: { buffer: b.watchArgs } }] });
     this.cpListen.bg = d.createBindGroup({ layout: this.cpListen.pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.listenU } }, { binding: 1, resource: { buffer: b.parts } },
-      { binding: 2, resource: { buffer: b.genomes } }, { binding: 3, resource: { buffer: b.listen } }, { binding: 4, resource: { buffer: b.thermal } }] });
+      { binding: 2, resource: { buffer: b.genomes } }, { binding: 3, resource: { buffer: b.listen } }, { binding: 4, resource: { buffer: b.thermal } },
+      { binding: 5, resource: { buffer: b.intent } }] });
     this.cpSurvey.bg = d.createBindGroup({ layout: this.cpSurvey.pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.surveyU } }, { binding: 1, resource: { buffer: b.parts } },
       { binding: 2, resource: { buffer: b.genomes } }, { binding: 3, resource: { buffer: b.cellStart } },
@@ -790,7 +791,7 @@ class Engine {
       { binding: 16, resource: { buffer: b.quads } }] });
     this.organsBG = d.createBindGroup({ layout: this.cpOrgans.getBindGroupLayout(0), entries: [
       { binding: 7, resource: { buffer: b.genomes } }, { binding: 9, resource: { buffer: b.organDir } }] });
-    const stoneEntries = (view, band) => [[0, view], [1, b.parts], [2, b.genomes], [5, b.focus], [7, b.stoneList], [11, b.thermal], [17, band]]
+    const stoneEntries = (view, band) => [[0, view], [1, b.parts], [5, b.focus], [7, b.stoneList], [17, band]]
       .map(([binding, buffer]) => ({ binding, resource: { buffer } }));
     const stoneBG = (view) => [
       b.stoneBands.slice(0, 4).map((band) => d.createBindGroup({ layout: this.pStone.getBindGroupLayout(0), entries: stoneEntries(view, band) })),
