@@ -307,6 +307,37 @@ test('sparks shower in many shapes, a few times a minute, never one figure on re
   assert.ok(figures.length >= 5 && new Set(figures).size >= figures.length * 0.7, `${new Set(figures).size} of ${figures.length} showers differ`);
 });
 
+test('a cell waking from a cyst stirs, softly and a few times a second however many wake', () => {
+  const r = rng(11), g = finalizeGenome(archetypeGenome('grazer', r));
+  // a close view: two births and `woke` wakes a scan (in view; the scan recorded at most 40 of them), 6 s of scans
+  const run = (woke) => {
+    const eng = new Engine(48000, { seed: 8 }), cond = new Conductor(eng, { seed: 8 });
+    cond.score.layers = [];
+    cond.message({ type: 'slots', all: true, slots: [{ slot: 7, serial: 70, voice: voiceOf(g), pop: 500 }] });
+    const n = 2 + Math.min(woke, 40), u = new Uint32Array(REC * n), f = new Float32Array(u.buffer);
+    for (let i = 0; i < n; i++) { u[i * REC] = (i < 2 ? 0 : 7) | (7 << 4) | (i << 16); u[i * REC + 1] = (i * 1000) | (30000 << 16); f[i * REC + 2] = 0.01 * (i % 10); u[i * REC + 3] = 0xff3080ff; }
+    const data = { records: u, f32: f, window: 0.1, view: { hx: 0.6, hy: 0.6 }, inView: [2, 0, 0, 0, 0, 0, 0, woke], outView: [0, 0, 0, 0, 0, 0, 0, 0], living: 30, speed: 0.1 };
+    const stirs = [], births = [], at0 = cond.at.bind(cond);
+    cond.at = (t, d, p, id) => {
+      if (d === 'breath' && p.glide < -0.05) stirs.push(p);
+      else if (d === 'glint') births.push(p);
+      return at0(t, d, p, id);
+    };
+    let agc = 0;
+    for (let k = 0; k < 60; k++) { cond.message(digest(data, { speed: 1 }).msg); renderBars(cond, 0.1 / (16 * cond.step)); if (k >= 20) agc += cond.field.agc / 40; }
+    return { stirs, births, agc };
+  };
+  const few = run(1), rain = run(400), none = run(0);
+  assert.equal(none.stirs.length, 0);
+  // one wake a scan (10 a second) and four hundred: a few stirs a second either way
+  for (const x of [few, rain]) assert.ok(x.stirs.length >= 6 && x.stirs.length <= 1.7 * 6 + 2, `${x.stirs.length} stirs in 6 s`);
+  // each rises onto its note from below, with a soft attack, quieter than a birth's ring
+  const ring = Math.max(...few.births.map((p) => p.amp));
+  for (const p of rain.stirs) assert.ok(p.glide < 0 && p.atk > 0.2 && p.amp < ring, JSON.stringify(p));
+  // the wakes left unheard do not duck the field
+  assert.ok(rain.agc > 0.9 * none.agc, `level riding ${rain.agc.toFixed(2)} with the rain, ${none.agc.toFixed(2)} without`);
+});
+
 test('sped up, the score quickens but stays a score', () => {
   for (const layer of ENSEMBLE) {
     const eng = new Engine(48000, { seed: 4 }), cond = new Conductor(eng, { seed: 4 });

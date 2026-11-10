@@ -36,7 +36,7 @@ export function makeSong(d2m) {
     bed(bar) {
       const s = secOf(bar).name;
       const f = { intro: 1.0, build: 1.1, drop: 0.85, rush: 1.0, peak: 0.8, break: 1.7, drop2: 0.85, outro: 1.4 }[s];
-      const g = { alive: f, birth: f * 1.2, killed: f * 1.3, starved: f, old: f, eaten: f, mutation: f, spark: f * 0.7, charged: f, rustle: f };
+      const g = { alive: f, birth: f * 1.2, killed: f * 1.3, starved: f, old: f, eaten: f, mutation: f, spark: f * 0.7, woke: f, rustle: f };
       return { sea: { intro: 0.7, break: 0.8, outro: 0.9 }[s] ?? 0.4, drone: { intro: 0.7, break: 0.8, outro: 0.9 }[s] ?? 0.45, tide: 0.6, light: 0.8, field: g };
     },
     parts(c) {

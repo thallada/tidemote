@@ -4013,8 +4013,9 @@ fn watchArgs() {
 // in-view events are kept with a per-type probability (set from the previous scan's counts) so
 // the sample is unbiased when there are more than the audio can play. Nothing here is written
 // back to the simulation.
-// 'alive' is not an event: a fair sample of the living cells in view, so each one can sing.
-export const LISTEN_TYPES = ['birth', 'mutation', 'spark', 'starved', 'old', 'killed', 'eaten', 'charged', 'alive'];
+// 'alive' is not an event: a fair sample of the living cells in view, so each one can sing. 'woke' is a cell
+// woken from a cyst (cystStep: cause WOKE, its age restarted).
+export const LISTEN_TYPES = ['birth', 'mutation', 'spark', 'starved', 'old', 'killed', 'eaten', 'woke', 'alive'];
 export const LISTEN_CAP = 512;
 export const LISTEN_HEAD = 32; // u32 words before the records
 export const LISTEN_REC = 6; // u32 words per record
@@ -4116,12 +4117,12 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
     if (p.age < lu.window) {
       let code = p.info & 15u;
       if (life) {
-        // (a cell woken from a cyst is no birth: WOKE)
+        // (a cell woken from a cyst is no birth: it wakes as itself, WOKE)
         if (code == 9u) {
           t = 0u;
           let g = genomes[p.kind];
           if (g.depth > 0u && abs(clockDiff(g.born, lu.now - p.age)) < 0.05) { t = 1u; }
-        } else if (code == 8u) { t = 2u; }
+        } else if (code == 8u) { t = 2u; } else if (code == WOKE) { t = 7u; }
       } else if (p.kind == HUSK) {
         // a scalded cell (10) dies as a starved one sounds
         if (code == 1u || code == 10u) { t = 3u; } else if (code == 2u) { t = 4u; } else if (code == 3u) { t = 5u; }

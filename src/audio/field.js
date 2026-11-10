@@ -10,8 +10,9 @@
 // schooling species keeps one clock and sings in unison; the others each keep their own and
 // the phrase goes round in canon. Where only a few cells are heard each sings a longer stretch,
 // so a handful of cells still carries the whole song. A colony's β cells sing its second voice.
-// Events are accents on top: a birth rings, a kill bites, grazing drips, a dying cell falls,
-// the tide's charge shimmers.
+// Events are accents on top: a birth rings, a kill bites, grazing drips, a dying cell falls, and a
+// cell waking from a cyst stirs: a soft breath that rises onto its species' note, the dying fall
+// turned upward, never struck, a few a second at most however many the rain wakes.
 //
 // Loudness follows distance. The camera is a listener at a height proportional to the view's size:
 // each sound is as loud as dRef / d, and a view d times wider holds d² times as many cells, so the
@@ -35,11 +36,11 @@ const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 
 const T = LISTEN.index;
 // base amplitude of one sound heard from the reference distance
-const AMP = { alive: 0.13, birth: 0.19, mutation: 0.09, spark: 0.045, starved: 0.13, old: 0.11, killed: 0.2, eaten: 0.075, rustle: 0.035 };
+const AMP = { alive: 0.13, birth: 0.19, mutation: 0.09, spark: 0.045, starved: 0.13, old: 0.11, killed: 0.2, eaten: 0.075, woke: 0.05, rustle: 0.035 };
 // playing grid (in steps) and how many notes of a type may share one grid point (calm water and
 // far views adjust these, see snap)
-const GRID = { starved: 2, old: 4, killed: 1, eaten: 0.5 };
-const PER_SLOT = { starved: 1, old: 1, killed: 1, eaten: 2 };
+const GRID = { starved: 2, old: 4, killed: 1, eaten: 0.5, woke: 1 };
+const PER_SLOT = { starved: 1, old: 1, killed: 1, eaten: 2, woke: 1 };
 const LATENCY = 0.22; // seconds: one scan interval plus scheduling headroom
 const BG_GAIN = 0.05; // the world outside the view, relative to a sound at the reference distance
 // Level riding: the field knows each scan's notes before it plays them, so it compresses their
@@ -55,6 +56,11 @@ const SWARM_MAX = 150, GRAIN = 1.75;
 // per second at most: sparks' whole showers and single grains, and births' bright rings; and the
 // shapes a shower takes (chord-tone steps for note i of n: rising, falling, arching, zigzagging)
 const SHOWERS = 0.4, GRAINS = 2.5, RINGS = 1.5;
+// Wakes: stirs heard per second at most (rain wakes the resting bank by the hundred: beyond this they go
+// unheard rather than crowd the field, and are left out of its level riding), how many wakes one stir may
+// stand for (its loudness, as sqrt of that), and their share of the swarm's grains from afar (a stir is
+// fainter than a birth)
+const STIRS = 1.6, STIR_FOR = 2, STIR_SWARM = 0.3;
 const SHAPES = [(i) => i, (i, n) => n - 1 - i, (i, n) => Math.min(i, n - 1 - i) * 2, (i) => [0, 2, 1, 3, 2, 4][i]];
 // level of the single voices fully zoomed in, relative to afar
 const CLOSE = 0.9;
@@ -143,7 +149,7 @@ export class Field {
     for (const n of plan) {
       if (!(n[2] > 0)) continue;
       // while a species' song plays whole, its cells don't sing over it in canon
-      if (solo && n[3].slot === this.soloSlot && (n[0] === 'alive' || n[0] === 'birth')) continue;
+      if (solo && n[3].slot === this.soloSlot && (n[0] === 'alive' || n[0] === 'birth' || n[0] === 'woke')) continue;
       this.play(n[0], n[1], n[2] * this.agc * close * duck, n[3]);
     }
     this.swarm();
@@ -231,14 +237,17 @@ export class Field {
       const o = i * S, ti = ev[o];
       if (ti === 8) continue;
       const type = LISTEN.types[ti], slot = ev[o + 1];
-      if (AMP[type] == null) continue; // (a type the scan no longer finds: 'charged')
+      if (AMP[type] == null) continue;
       let t = now + LATENCY - ev[o + 4] / Math.max(m.speed, 1e-6);
       if (t < now + 0.01) t = now + 0.01 + 0.03 * this.rnd();
       // from afar, every event joins the grains of its species; only life sparking from silt
       // still rings out
-      const rare = type === 'spark';
-      if (!rare && slot >= 0) crowd(slot, comp[ti] ** 2 * toSwarm);
-      const g = AMP[type] * this.gd * comp[ti] * focusGain(slot) * Math.sqrt(rare ? 0.3 + 0.7 * solo : solo);
+      const rare = type === 'spark', woke = type === 'woke';
+      if (!rare && slot >= 0) crowd(slot, comp[ti] ** 2 * toSwarm * (woke ? STIR_SWARM : 1));
+      // a few stirs a second, each standing for a few wakes at most: decided here, so the wakes
+      // left unheard do not duck the rest of the field (see listen's level riding)
+      if (woke && !(solo > 0.05 && this.spend('stir', STIRS))) continue;
+      const g = AMP[type] * this.gd * (woke ? Math.min(comp[ti], Math.sqrt(STIR_FOR)) : comp[ti]) * focusGain(slot) * Math.sqrt(rare ? 0.3 + 0.7 * solo : solo);
       this.play(type, t, g, { slot, ...space(slot, ev[o + 2]), hue: ev[o + 6], idb: ev[o + 7], spd: ev[o + 5], role: ev[o + 8], rec: [m.seq, i] });
     }
     this.background(m, wall, light, td);
@@ -388,6 +397,7 @@ export class Field {
         return;
       }
       case 'spark': this.spark(t, g, o); return;
+      case 'woke': this.stir(t, g, o); return;
       case 'starved': // a quiet fall
         c.at(t, 'wood', { freq: midicps(d2m(-(o.idb % 4) + piv, root, scale) - 12), amp: g, dec: 0.5, bright: 0.45 * o.dim, pan: o.pan, rev: o.wet(0.3) });
         return;
@@ -428,6 +438,22 @@ export class Field {
     } else if (this.spend('grain', GRAINS)) {
       c.at(t, 'glint', { freq: midicps(d2m(Math.floor(this.rnd() * 7) * 2 + piv, root, scale)) * (this.rnd() < 0.5 ? 4 : 2), amp: g * 0.5, dec: this.rr(0.15, 0.35), pan: pan(this.rr(-0.2, 0.2)), rev: o.wet(0.6), dly: 0.3 });
     }
+  }
+
+  // A cell waking from a cyst: a breath drawn in, rising from a little under its species' note (the
+  // note of its motif it wakes on, in its own register) onto it as it swells, with no struck attack,
+  // then let go. The mirror of a dying cell's fall, and nothing like a birth's bright ring. Quicker
+  // when the world is sped up, as the rustle is.
+  stir(t, g, o) {
+    const c = this.c, { root, scale } = c, piv = c.pivot, v = this.slots.get(o.slot)?.v;
+    let midi;
+    if (v) {
+      const line = o.role === 1 && v.motif.voice2 ? v.motif.voice2 : v.motif.notes;
+      midi = d2m(line[this.onset(v.motif, line, t, o.idb).j].deg + piv, root, scale) + 12 * v.oct;
+    } else midi = d2m(Math.floor(o.hue * 7) + piv, root, scale) + 12; // (a species the census has not described yet)
+    const atk = this.rr(0.28, 0.45) / Math.sqrt(c.tempo);
+    c.at(t, 'breath', { freq: midicps(Math.min(midi, 88)), amp: g, atk, sus: atk * 0.35, rel: atk * 2.4, glide: -this.rr(0.08, 0.12),
+      bright: 0.3 * o.dim, pan: o.pan, rev: o.wet(0.45), dly: 0.1 });
   }
 
   // A few of a kind of sound per second at most: one is spent if the budget, refilled at `rate` a
