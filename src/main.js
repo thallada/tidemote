@@ -2010,10 +2010,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const bytes = encodeCard({ words, name: sp.name, home, touched, body });
     return { words, home, touched, body, bytes, link: cardLink(bytes) };
   }
-  // the card as a PNG that carries its genome
+  // the card as a PNG that carries its genome (null if its species has left the records meanwhile: an open card's
+  // species can die unestablished or be pruned, and carry() needs its genome)
   async function cardPng(cv, serial) {
     const png = await encodeBytes(cv, 'image/png').catch(() => null);
-    return png && new Blob([cardIntoPng(png, carry(serial).bytes)], { type: 'image/png' });
+    return png && life.reg.has(serial) ? new Blob([cardIntoPng(png, carry(serial).bytes)], { type: 'image/png' }) : null;
   }
   // (quiet: one of many, the cabinet drawn once they are all in)
   async function keepCard(card, quiet = false) {
@@ -2043,7 +2044,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     return w;
   }
   // this world's species' (its card's kept one, if it has a card): the picture, for its card
-  const speciesPortrait = (serial) => portrait(`s${serial}`, carry(serial).words, serial, true, savedCard(serial)?.portrait);
+  const speciesPortrait = (serial) => (life.reg.has(serial) ? portrait(`s${serial}`, carry(serial).words, serial, true, savedCard(serial)?.portrait) : Promise.resolve(null));
   // and the key of its mini-card's
   function speciesThumb(serial, words) {
     const key = `s${serial}`;
@@ -2156,7 +2157,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // (a frame between drawing it and reading it, so the two are not one long task)
     await new Promise(requestAnimationFrame);
     const blob = cv && await cardPng(cv, serial);
-    if (!blob) { flash(tr('flash.card-failed', 'Could not draw its card')); return; }
+    if (!blob || !life.reg.has(serial)) { flash(tr('flash.card-failed', 'Could not draw its card')); return; }
     const c = carry(serial);
     await keepCard({ id: newKey('c'), serial, name: sp.name, words: c.words, home: c.home, body: c.body, world: worldId(),
       savedAt: Date.now(), touched: c.touched, png: new Uint8Array(await blob.arrayBuffer()), thumb: p?.thumb ?? null, portrait: p?.full ?? null }, quiet);
@@ -2201,6 +2202,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function loadCard(x, at = null) {
     const card = typeof x === 'object' ? x : savedCard(x);
     const sp = typeof x === 'object' ? null : life.reg.get(x);
+    if (!card && !sp) return; // (an open card's species gone from the records, with no card in the cabinet)
     const words = card ? card.words : carry(x).words, name = card ? card.name : sp.name;
     const ours = card ? card.world === worldId() && life.reg.has(card.serial) : true;
     const serial = card ? card.serial : x, n = clamp(Math.round((K.foundLife * eng.count) / K.foundColonies), 12, 96);
