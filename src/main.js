@@ -3441,6 +3441,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if ((tag === 'BUTTON' || tag === 'A' || t.getAttribute?.('role') === 'tab' || t.tabIndex >= 0 && t !== document.body) && (e.key === ' ' || e.key === 'Enter')) return;
     if (tag === 'INPUT' && /^Arrow/.test(e.key)) return;
     const k = e.key;
+    // the species card open (a modal dialog): Esc closes it before anything else, and no other shortcut acts behind it
+    if (cards.isOpen()) { if (k === 'Escape') { e.preventDefault(); cards.close(); } return; }
     let handled = true;
     // riding, WASD and the arrows steer (whatever they do otherwise); a living cell selected, they start a ride
     if (isRideKey(e.code) && (ride.on || (sel && !sel.lost && sel.particle.kind >= FIRST_LIFE && state.phase === 'running'))) {
@@ -3489,7 +3491,6 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (ladder.isOpen()) ladder.toggle(false);
       else if (inHand()) pickTool('none');
       else if (ride.on) toggleRide(false);
-      else if (cards.isOpen()) cards.close();
       else if (!$('help').hidden) toggleHelp(false);
       else if (view.isOpen()) view.toggle(false);
       else if (bench.isOpen()) bench.toggle(false);
