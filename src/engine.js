@@ -1247,11 +1247,17 @@ class Engine {
     if (!this.relief || !(drift > 0)) return;
     const [gw, gh] = this.grid, seed = this.seedValue, eng = this;
     const work = function* () {
-      if (!eng.reliefBase || eng.reliefBase.length !== gw * gh || eng.reliefSeed !== seed) { eng.reliefBase = yield* reliefSteps(gw, gh, seed); eng.reliefSeed = seed; }
+      if (!eng._hasSeedRelief()) { eng.reliefBase = yield* reliefSteps(gw, gh, seed); eng.reliefSeed = seed; }
       const a = eng.reliefBase, b = yield* reliefSteps(gw, gh, (seed ^ Math.imul(k + 1, 0x9e3779b1)) >>> 0);
       return yield* rankSteps(a.map((x, i) => x * (1 - drift) + b[i] * drift));
     };
-    this.floor = { work: work(), secs, at: -Infinity };
+    this.floor = { work: work(), secs, at: -Infinity, k, drift };
+  }
+  // the floor the seed draws (an era's shift starts from it, the ice order is built on it), kept once worked out
+  _hasSeedRelief() { return this.reliefBase?.length === this.grid[0] * this.grid[1] && this.reliefSeed === this.seedValue; }
+  _seedRelief() {
+    if (!this._hasSeedRelief()) { this.reliefBase = makeRelief(this.grid[0], this.grid[1], this.seedValue); this.reliefSeed = this.seedValue; }
+    return this.reliefBase;
   }
   stepFloor() {
     const f = this.floor;
@@ -1679,6 +1685,11 @@ class Engine {
       ambient: this.ambient, seedValue: this.seedValue, temp: this.temp, excursion: this.excursion,
       tide: this.tide.slice(), tidePh: this.tidePh.slice(), waves: this.waves.slice(), rock: this.rock.slice(),
       level: this.level, rain: this.rain, sky: this.sky, evap: this.evap, turb: this.turb, frost: this.frost, freezing: this.freezing, frostNight: this.frostNight, duck: this.duck.slice(), drops: this.drops.slice() };
+    // the floor as it lies (eras move it) and a shift under way, which restore() puts back with it (not in cpu:
+    // readState's thermal holds the floor, and a shift not yet worked out is kept as what to work out again)
+    const f = this.floor;
+    keep.relief = this.relief?.slice();
+    keep.floor = f && (f.work ? { k: f.k, drift: f.drift, secs: f.secs } : { ...f, from: f.from.slice(), to: f.to.slice() });
     return keep;
   }
 
@@ -1694,7 +1705,12 @@ class Engine {
       ambient: c.ambient, seedValue: c.seedValue, temp: c.temp, excursion: c.excursion,
       level: c.level ?? 1, rain: c.rain ?? 0, sky: c.sky ?? 1, evap: c.evap ?? 0, turb: c.turb ?? 1, frost: c.frost ?? 0, freezing: c.freezing ?? 0, frostNight: c.frostNight ?? 0 });
     this.tide.set(c.tide); this.tidePh.set(c.tidePh); this.waves.set(c.waves); this.rock.set(c.rock);
-    this.relief = makeRelief(this.grid[0], this.grid[1], this.seedValue);
+    // the floor as it lay then (a copy: stepFloor eases it in place), from the seed when nothing kept it
+    this.relief = keep.relief ? keep.relief.slice() : this._seedRelief().slice();
+    const f = keep.floor;
+    this.floor = null;
+    if (f?.to) this.floor = { ...f, from: f.from.slice(), to: f.to.slice() };
+    else if (f) this.shiftFloor(f.k, f.drift, f.secs);
     if (c.duck) this.duck.set(c.duck);
     if (c.drops) this.drops.set(c.drops);
   }
@@ -1739,16 +1755,15 @@ class Engine {
     const enc = this.device.createCommandEncoder();
     this._clear(enc, this.b.ledger, this._splAt(), SPL_WORDS * 4);
     this.device.queue.submit([enc.finish()]);
-    this.restore({ gpu: {}, cpu });
     this.count = cpu.count; this.grid = [...cpu.grid];
     if (cpu.founders != null) this.founders = cpu.founders;
+    // the floor as the world left it (eras move it; a save keeps no shift under way)
+    const [gw, gh] = this.grid;
+    this.restore({ gpu: {}, cpu, relief: gpu.thermal && new Float32Array(gpu.thermal, MAX_CELLS * 4, gw * gh) });
     if (gpu.thermal) {
-      // the floor as the world left it (eras move it), and the order it freezes in, which a save does
-      // not keep (compactState): built again from the seed, as seed() builds it
-      const [gw, gh] = this.grid, t = new Float32Array(gpu.thermal);
-      this.relief = t.slice(MAX_CELLS, MAX_CELLS + gw * gh);
-      this.floor = null;
-      this.iceOrder = makeIceOrder(gw, gh, this.seedValue, makeRelief(gw, gh, this.seedValue));
+      // and the order it freezes in, which a save does not keep (compactState): built again on the seed's
+      // floor, as seed() builds it
+      this.iceOrder = makeIceOrder(gw, gh, this.seedValue, this._seedRelief());
       this.device.queue.writeBuffer(this.b.thermal, 2 * MAX_CELLS * 4, this.iceOrder);
     }
     this.sorted = false;
