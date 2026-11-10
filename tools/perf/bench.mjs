@@ -7,7 +7,10 @@
 // n particles is grown once at Max for `mature` real seconds, saved to runs/perf/worlds/NAME.bin and
 // loaded again for every scenario on it (and on later runs: delete the file to grow a new one), so
 // every scenario starts from the same moment of the same world. A world's `file` may instead name a
-// .tidemote file (saved from Settings → Worlds) in runs/perf/worlds/. A scenario sets:
+// .tidemote file (saved from Settings → Worlds) in runs/perf/worlds/. A world with no `mature` is only loaded: grow it
+// first with a plan that has one (audio, loop, max and step load the w1m and w4m that baseline.json grows), and the
+// .tidemote that heaps, follow and lab open (slow.tidemote) is a world saved from the page, not in the repo; a plan
+// missing either stops before the browser opens, naming the world and what makes it. A scenario sets:
 //   zoom   css px per world unit (cells resolve from about 35, interiors 150, fine detail 400), 'fit',
 //          or 'saved' (the camera a world opened from a .tidemote file was saved with)
 //   at     [x, y] world units the view centers on (default: the commonest species' densest patch)
@@ -50,6 +53,24 @@ const root = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const plan = JSON.parse(fs.readFileSync(v.plan, 'utf8'));
 const worldDir = path.join(root, 'runs/perf/worlds');
 fs.mkdirSync(worldDir, { recursive: true });
+// every world the plan's scenarios need is here or grown by it: else stop now, naming it and what makes it
+{
+  const only = v.only ? new RegExp(v.only) : null, plans = path.join(root, 'tools/perf/plans');
+  const growers = (name) => fs.readdirSync(plans).filter((f) => f.endsWith('.json')).filter((f) => {
+    try { return JSON.parse(fs.readFileSync(path.join(plans, f), 'utf8')).worlds?.some((x) => (x.file || x.name) === name && x.mature > 0); } catch { return false; }
+  });
+  const missing = [];
+  for (const w of plan.worlds) {
+    if (w.fresh || !plan.scenarios.some((s) => s.world === w.name && (!only || only.test(s.name)))) continue;
+    if (w.file?.endsWith('.tidemote')) {
+      if (!fs.existsSync(path.join(worldDir, w.file))) missing.push(`world ${w.name}: runs/perf/worlds/${w.file} is missing. It is a world saved from the page, not in the repo: save one of about ${w.n} particles (Settings → Worlds) and put its .tidemote file there under that name.`);
+    } else if (!(w.mature > 0) && !fs.existsSync(path.join(worldDir, `${w.file || w.name}.bin`))) {
+      const g = growers(w.file || w.name);
+      missing.push(`world ${w.name}: runs/perf/worlds/${w.file || w.name}.bin is missing and this plan only loads it (no mature). ${g.length ? `Grow it first with ${g.map((f) => `--plan tools/perf/plans/${f}`).join(' or ')}.` : 'Give it a mature (seconds grown at Max) to grow it.'}`);
+    }
+  }
+  if (missing.length) { for (const m of missing) console.error(m); process.exit(2); }
+}
 const dist = path.resolve(root, v.dist);
 
 // ---- a static server for the page and the saved worlds (PUT saves one)
