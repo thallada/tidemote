@@ -584,7 +584,7 @@ body.dragging-card #bench-open, body.dragging-card .bench-pip, body.dragging-car
     rgba(4, 7, 8, 0.8);
 }
 .caption.on { opacity: 1; transform: translate(-50%, 0); }
-.caption .cap-eye { color: var(--hot); font-size: 11px; letter-spacing: .24em; text-transform: uppercase; font-weight: 500; font-stretch: 115%; }
+.caption .cap-eye { color: var(--hot); font-size: 11px; letter-spacing: .24em; font-weight: 500; font-stretch: 115%; }
 .caption .cap-rule { height: 5px; margin: 6px auto 7px; width: 180px; background: radial-gradient(circle, var(--line-2) 1px, transparent 1.4px) center / 6px 5px repeat-x; }
 .caption .cap-main { font-size: 17px; font-weight: 300; letter-spacing: .04em; color: var(--ink); text-wrap: balance; }
 .caption .cap-sub { color: var(--ink-2); font-size: 12.5px; margin-top: 4px; }
@@ -1967,6 +1967,7 @@ svg.niche .n-dot { fill: var(--cyan); }
   var FRAMBOID_GROWN = 12;
   var HEAT_FIX = 1048576;
   var CYST = 14;
+  var WOKE = 15;
   var P_BYTES = 40;
   var TUBE_N = 400;
   var TUBE_K = 16;
@@ -2414,14 +2415,14 @@ fn needleW(s: f32) -> f32 { return NEEDLE_W * pow(clamp(s / NEEDLE_TAPER, 0.0, 1
 `
   );
   var STONE_KINDS = [
-    [{ name: "Quartz", col: [0.74, 0.75, 0.73] }, { from: 0.6, name: "Smoky quartz", col: [0.56, 0.48, 0.41] }, { from: 0.9, name: "Rose quartz", col: [0.82, 0.62, 0.64] }],
-    [{ name: "Pink feldspar", col: [0.95, 0.55, 0.42] }, { from: 0.6, name: "Cream feldspar", col: [0.95, 0.85, 0.64] }],
-    [{ name: "Hornblende", col: [0.16, 0.18, 0.17] }, { from: 0.5, name: "Hornblende", col: [0.18, 0.26, 0.15] }, { from: 0.85, name: "Hornblende", col: [0.28, 0.15, 0.12] }],
-    [{ name: "Sand grain", col: [0.92, 0.78, 0.55] }, { from: 0.55, name: "Sand grain", col: [0.76, 0.75, 0.72] }, { from: 0.85, name: "Iron-stained sand grain", col: [0.9, 0.56, 0.32] }],
-    [{ name: "Foraminifer shell", col: [1, 0.95, 0.85] }, { from: 0.7, name: "Foraminifer shell", col: [1, 0.8, 0.74] }],
-    [{ name: "Diatom", col: [0.74, 0.9, 0.84] }, { from: 0.6, name: "Diatom", col: [0.9, 0.85, 0.55] }],
-    [{ name: "Shell fragment", col: [0.98, 0.9, 0.78] }, { from: 0.6, name: "Shell fragment", col: [0.9, 0.7, 0.54] }],
-    [{ name: "Sponge spicule", col: [0.84, 0.87, 0.87] }]
+    [{ key: "quartz", col: [0.74, 0.75, 0.73] }, { from: 0.6, key: "smokyQuartz", col: [0.56, 0.48, 0.41] }, { from: 0.9, key: "roseQuartz", col: [0.82, 0.62, 0.64] }],
+    [{ key: "pinkFeldspar", col: [0.95, 0.55, 0.42] }, { from: 0.6, key: "creamFeldspar", col: [0.95, 0.85, 0.64] }],
+    [{ key: "hornblende", col: [0.16, 0.18, 0.17] }, { from: 0.5, key: "hornblende", col: [0.18, 0.26, 0.15] }, { from: 0.85, key: "hornblende", col: [0.28, 0.15, 0.12] }],
+    [{ key: "sand", col: [0.92, 0.78, 0.55] }, { from: 0.55, key: "sand", col: [0.76, 0.75, 0.72] }, { from: 0.85, key: "ironSand", col: [0.9, 0.56, 0.32] }],
+    [{ key: "foraminifer", col: [1, 0.95, 0.85] }, { from: 0.7, key: "foraminifer", col: [1, 0.8, 0.74] }],
+    [{ key: "diatom", col: [0.74, 0.9, 0.84] }, { from: 0.6, key: "diatom", col: [0.9, 0.85, 0.55] }],
+    [{ key: "shell", col: [0.98, 0.9, 0.78] }, { from: 0.6, key: "shell", col: [0.9, 0.7, 0.54] }],
+    [{ key: "spicule", col: [0.84, 0.87, 0.87] }]
   ];
   var BEDROCK_MIX = [[0, 0.35], [1, 0.55], [2, 0.67], [3, 0.82], [4, 0.88], [5, 0.93], [6, 0.97], [7, 1]];
   var REEF_MIX = [[4, 0.3], [6, 0.55], [3, 0.75], [5, 0.88], [7, 1]];
@@ -2434,7 +2435,7 @@ fn needleW(s: f32) -> f32 { return NEEDLE_W * pow(clamp(s / NEEDLE_TAPER, 0.0, 1
     const h = hashU(id ^ 2654435769), h2 = hashU(id ^ 2246822507);
     const kind = ((info & 15) !== 0 ? REEF_MIX : BEDROCK_MIX).find(([, upTo]) => h < upTo)?.[0] ?? 7;
     const v = STONE_KINDS[kind].filter((x) => !x.from || h2 > x.from).at(-1);
-    return { kind, name: v.name, col: v.col };
+    return { kind, key: v.key, col: v.col };
   }
   var v3 = (c) => `vec3f(${c.map(f).join(", ")})`;
   var mixWGSL = (mix4) => mix4.slice(0, -1).reduceRight((e, [k, upTo]) => `select(${e}, ${k}u, h < ${f(upTo)})`, `${mix4.at(-1)[0]}u`);
@@ -2477,6 +2478,8 @@ const HUSK = 2u;
 const LITTER = 0x8000u;
 // a dormant living cell: its cause code (info & 15)
 const CYST = ${CYST}u;
+// a living cell woken from a cyst: its cause code (info & 15)
+const WOKE = ${WOKE}u;
 // META_DEATH slots counting each guild's cysts, afresh each step (57-59, 61, 62; 60 is the litter)
 fn cystSlot(gi: u32) -> u32 { return META_DEATH + select(57u + gi, 58u + gi, gi >= 3u); }
 const STONE = ${STONE}u;
@@ -5270,7 +5273,7 @@ fn cystStep(i: u32) {
     atomicAdd(&ledger[5], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * ledgerGuild(g) + 1u], 1u);
   } else if (p.age > 0.0 && !dry && rnd(&s) < ${f(K.cystWake)} * (1.0 + ${f(K.rainWake)} * sim.pond.y) * sim.dt) {
-    p.info = (p.info & 0xfffffff0u) | 9u; p.age = 0.0;
+    p.info = (p.info & 0xfffffff0u) | WOKE; p.age = 0.0;
     splCause(p.kind, 7u);
     noteSelf(EV_WOKE, p.kind, p.id, p.pos);
   }
@@ -6003,16 +6006,7 @@ fn budKin(a: Genome, b: Genome) -> bool { return a.serial == b.serial || a.paren
 fn budGrowth(age: f32) -> f32 { let t = clamp(age / BIRTH_T, 0.0, 1.0) - 1.0; return 1.0 + 2.0 * t * t * t + t * t; }
 `
   );
-  var WOKE_WGSL = SWAY_SLOTS + /* wgsl */
-  `
-fn wokeSeen(p: Particle) -> bool {
-  let n = arrayLength(&sway);
-  var st = sway[p.id % n];
-  if (st.id != p.id) { st = sway[swaySlot2(p.id, n)]; }
-  return st.id == p.id && (st.look & LOOK_BORN) == 0u;
-}
-`;
-  var LISTEN_WGSL = COMMON + ANIM_WGSL + /* wgsl */
+  var LISTEN_WGSL = COMMON + /* wgsl */
   `
 struct ListenU {
   center: vec2f, half: vec2f, world: vec2f, count: u32, seed: u32,
@@ -6027,8 +6021,7 @@ struct ListenU {
 @group(0) @binding(4) var<storage, read> heatField: array<f32>;
 // (the bonds each cell keeps, which keep a heat-maker warm)
 @group(0) @binding(5) var<storage, read> intent: array<vec4u>;
-@group(0) @binding(6) var<storage, read> sway: array<Sway>;
-${WOKE_WGSL}${shownWater("lu.world")}// layout: [0,8) in-view events per type, [8,16) out of view, 16 living in view, 17 their summed
+${shownWater("lu.world")}// layout: [0,8) in-view events per type, [8,16) out of view, 16 living in view, 17 their summed
 // speed (x1000), 18 living everywhere, 19 their summed speed (x1000), 20 particles in view,
 // 21 records written, then records of ${LISTEN_REC} words from word 32.
 var<workgroup> wc: array<atomic<u32>, 21>;
@@ -6064,7 +6057,8 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
     if (p.age < lu.window) {
       let code = p.info & 15u;
       if (life) {
-        if (code == 9u && !wokeSeen(p)) {
+        // (a cell woken from a cyst is no birth: WOKE)
+        if (code == 9u) {
           t = 0u;
           let g = genomes[p.kind];
           if (g.depth > 0u && abs(clockDiff(g.born, lu.now - p.age)) < 0.05) { t = 1u; }
@@ -6181,7 +6175,7 @@ fn noteMain(@builtin(global_invocation_id) gid: vec3u) {
   var SURVEY_WORDS = 10;
   var SURVEY = { living: 0, bonded: 1, births: 2, mutations: 3, sparks: 4, deaths: 5, kills: 6, species: 7, speed: 8, glint: 9 };
   var SURVEY_MAX_TILES = 4096;
-  var SURVEY_WGSL = COMMON + ANIM_WGSL + /* wgsl */
+  var SURVEY_WGSL = COMMON + /* wgsl */
   `
 struct SurveyU { grid: vec2u, tiles: vec2u, tile: u32, now: f32, window: f32, adhMin: f32 };
 @group(0) @binding(0) var<uniform> su: SurveyU;
@@ -6189,8 +6183,7 @@ struct SurveyU { grid: vec2u, tiles: vec2u, tile: u32, now: f32, window: f32, ad
 @group(0) @binding(2) var<storage, read> genomes: array<Genome>;
 @group(0) @binding(3) var<storage, read> cellStart: array<u32>;
 @group(0) @binding(4) var<storage, read_write> sout: array<atomic<u32>>;
-@group(0) @binding(5) var<storage, read> sway: array<Sway>;
-${WOKE_WGSL}
+
 @compute @workgroup_size(64)
 fn surveyMain(@builtin(global_invocation_id) gid: vec3u) {
   let c = gid.x;
@@ -6207,7 +6200,7 @@ fn surveyMain(@builtin(global_invocation_id) gid: vec3u) {
       if (g.adhesion > su.adhMin) { n[1] += 1u; }
       n[8] += u32(min(length(p.vel), 50.0) * 100.0);
       mask |= 1u << (p.kind & 31u);
-      if (recent && code == 9u && !wokeSeen(p)) {
+      if (recent && code == 9u) {
         n[2] += 1u;
         if (g.depth > 0u && abs(clockDiff(g.born, su.now - p.age)) < 0.05) { n[3] += 1u; }
       } else if (recent && code == 8u) { n[4] += 1u; }
@@ -6579,7 +6572,7 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
     let recent = same && dt < 0.5;
     let full = p.energy / max(g.reproE, 0.01);
     let cause = p.info & 15u;
-    // a newborn is one seen since its birth (a cell woken from a cyst it was seen in is not)
+    // a newborn is one seen since its birth (a cell woken from a cyst has a cause of its own, WOKE)
     // (life sparked from silt is born too, of a species new to the world)
     var born = (cause == 9u || cause == 8u) && p.age < BIRTH_T;
     var novel = cause == 8u && p.age < NOVEL_T;
@@ -7261,8 +7254,8 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     // a torpid cell's pulse stops and it dims, cold blue
     if (!th.torpid) { b *= 1.0 + (1.0 - sleep) * (1.0 - select(0.0, gh.t, dead)) * g.pulse * 0.6 * sin(view.time * (0.8 + g.pulse * 4.0) + f32(p.id % 1024u) * 0.37); }
     // a birth (or a waking) flashes, seen from afar; up close a newborn is seen budding and growing
-    // instead, with a soft glow, and a cell waking from a cyst it was seen in does not flash
-    if (!dead && cause == 9u) { b *= 1.0 + max(0.0, 1.0 - p.age * 2.5) * mix(2.5, select(0.0, 0.35, a.born), select(0.0, close, a.seen)); }
+    // instead, with a soft glow, and a cell waking from a cyst does not flash
+    if (!dead && (cause == 9u || cause == WOKE)) { b *= 1.0 + max(0.0, 1.0 - p.age * 2.5) * mix(2.5, select(0.0, 0.35, a.born), select(0.0, close, a.seen)); }
     // life sparked from silt glows as it grows
     if (!dead && cause == 8u) { b *= 1.0 + 2.0 * max(0.0, 1.0 - p.age / BIRTH_T); }
     col = unpack4x8unorm(p.col).rgb;
@@ -11655,6 +11648,14 @@ struct IceShow { k: f32, cells: u32, w: u32, h: u32 };
 @group(0) @binding(0) var<storage, read_write> heat: array<atomic<u32>>;
 @group(0) @binding(1) var<uniform> u: IceShow;
 @group(0) @binding(2) var<storage, read_write> tiles: array<atomic<u32>>;
+@group(0) @binding(3) var<storage, read_write> args: array<u32>;
+// iceShowMain's workgroups (b.iceArgs): none when the simulation holds no ice (ICE_N) and none is drawn
+// (ICE_SHOWN_ANY), where it would ease nothing toward nothing; every grid cell's otherwise. Only the GPU knows either.
+@compute @workgroup_size(1) fn iceArgsMain() {
+  let any = atomicLoad(&heat[${4 * MAX_CELLS}u]) | atomicLoad(&heat[${ICE_SHOWN_ANY}u]);
+  atomicStore(&heat[${ICE_SHOWN_ANY}u], 0u);
+  args[0] = select(0u, (u.cells + 63u) / 64u, any != 0u); args[1] = 1u; args[2] = 1u;
+}
 @compute @workgroup_size(64) fn iceShowMain(@builtin(global_invocation_id) gid: vec3u) {
   let c = gid.x;
   if (c >= u.cells) { return; }
@@ -25749,6 +25750,7 @@ registerProcessor("tidemote-sound", TidemoteSound);
       b.subArgs = d.createBuffer({ size: 16, usage: U.STORAGE | U.INDIRECT });
       b.thermal = d.createBuffer({ size: (ICE_SHOWN_ANY + 4) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
       b.iceShowU = d.createBuffer({ size: 16, usage: U.UNIFORM | U.COPY_DST });
+      b.iceArgs = d.createBuffer({ size: 12, usage: U.STORAGE | U.INDIRECT });
       b.heatTiles = d.createBuffer({ size: 2 * TILES * 4, usage: U.STORAGE | U.COPY_DST });
       b.heatNext = d.createBuffer({ size: 2 * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_SRC });
       b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
@@ -25933,7 +25935,9 @@ registerProcessor("tidemote-sound", TidemoteSound);
       this.cpShift = cp(this.postModule, "seaShiftMap");
       this.cpSeaField = cp(this.postModule, "seaFieldMain");
       this.cpOptics = cp(this.postModule, "opticsMain");
-      this.cpIceShow = cp(shader({ code: ICE_SHOW_WGSL, label: "iceShow" }), "iceShowMain");
+      const iceShowModule = shader({ code: ICE_SHOW_WGSL, label: "iceShow" });
+      this.cpIceShow = cp(iceShowModule, "iceShowMain");
+      this.cpIceArgs = cp(iceShowModule, "iceArgsMain");
       b.shiftMap = d.createBuffer({ size: SHIFT_W * SHIFT_H * 8, usage: U.STORAGE | U.COPY_SRC });
       this.shiftRead = [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: SHIFT_W * SHIFT_H * 8, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST }), busy: false }));
       this.seaShifts = [];
@@ -26145,6 +26149,11 @@ ${e.message}` : String(e?.message || e));
         { binding: 1, resource: { buffer: b.iceShowU } },
         { binding: 2, resource: { buffer: b.heatTiles } }
       ] });
+      this.iceArgsBG = d.createBindGroup({ layout: this.cpIceArgs.getBindGroupLayout(0), entries: [
+        { binding: 0, resource: { buffer: b.thermal } },
+        { binding: 1, resource: { buffer: b.iceShowU } },
+        { binding: 3, resource: { buffer: b.iceArgs } }
+      ] });
       this._leanP();
       this._rebindLate();
     }
@@ -26343,16 +26352,14 @@ ${e.message}` : String(e?.message || e));
         { binding: 2, resource: { buffer: b.genomes } },
         { binding: 3, resource: { buffer: b.listen } },
         { binding: 4, resource: { buffer: b.thermal } },
-        { binding: 5, resource: { buffer: b.intent } },
-        { binding: 6, resource: { buffer: b.sway } }
+        { binding: 5, resource: { buffer: b.intent } }
       ] });
       this.cpSurvey.bg = d.createBindGroup({ layout: this.cpSurvey.pipe.getBindGroupLayout(0), entries: [
         { binding: 0, resource: { buffer: b.surveyU } },
         { binding: 1, resource: { buffer: b.parts } },
         { binding: 2, resource: { buffer: b.genomes } },
         { binding: 3, resource: { buffer: b.cellStart } },
-        { binding: 4, resource: { buffer: b.survey } },
-        { binding: 5, resource: { buffer: b.sway } }
+        { binding: 4, resource: { buffer: b.survey } }
       ] });
       this.cpNote.bg = d.createBindGroup({ layout: this.cpNote.pipe.getBindGroupLayout(0), entries: [
         { binding: 0, resource: { buffer: b.noteU } },
@@ -27183,7 +27190,8 @@ ${e.message}` : String(e?.message || e));
       f2.sea = ease4(f2.sea, this.fx.seaEvery > 0 ? 1 : 0, 1.5);
       f2.finish = ease4(f2.finish, this.fx.finish >= 1 ? 1 : 0, 1.5);
     }
-    // the ice as drawn eased toward the simulation's (ICE_SHOW_WGSL), at once in a world just made or loaded
+    // the ice as drawn eased toward the simulation's (ICE_SHOW_WGSL), at once in a world just made or loaded; over no
+    // grid cells where there is no ice to draw or still drawn (iceArgsMain)
     _iceShow(enc, realT) {
       if (!this.K.heat) return;
       const fresh = this._iceGen !== this.worldGeneration, dt = fresh ? Infinity : Math.max(0, realT - this._iceT);
@@ -27195,11 +27203,13 @@ ${e.message}` : String(e?.message || e));
       w[2] = this.grid[0];
       w[3] = this.grid[1];
       this.device.queue.writeBuffer(this.b.iceShowU, 0, u);
-      this._clear(enc, this.b.thermal, ICE_SHOWN_ANY * 4, 4);
       const cp = enc.beginComputePass();
+      cp.setPipeline(this.cpIceArgs);
+      cp.setBindGroup(0, this.iceArgsBG);
+      cp.dispatchWorkgroups(1);
       cp.setPipeline(this.cpIceShow);
       cp.setBindGroup(0, this.iceShowBG);
-      cp.dispatchWorkgroups(Math.ceil(cells / 64));
+      cp.dispatchWorkgroupsIndirect(this.b.iceArgs, 0);
       cp.end();
     }
     _seaPost(pd) {
@@ -27420,8 +27430,8 @@ ${e.message}` : String(e?.message || e));
         drops: this.drops.slice()
       };
       const f2 = this.floor;
+      keep.cpu.floor = f2 && (f2.work ? { k: f2.k, drift: f2.drift, secs: f2.secs } : { ...f2, from: f2.from.slice(), to: f2.to.slice() });
       keep.relief = this.relief?.slice();
-      keep.floor = f2 && (f2.work ? { k: f2.k, drift: f2.drift, secs: f2.secs } : { ...f2, from: f2.from.slice(), to: f2.to.slice() });
       return keep;
     }
     restore(keep) {
@@ -27455,9 +27465,9 @@ ${e.message}` : String(e?.message || e));
       this.waves.set(c.waves);
       this.rock.set(c.rock);
       this.relief = keep.relief ? keep.relief.slice() : this._seedRelief().slice();
-      const f2 = keep.floor;
+      const f2 = c.floor;
       this.floor = null;
-      if (f2?.to) this.floor = { ...f2, from: f2.from.slice(), to: f2.to.slice() };
+      if (f2?.to) this.floor = { ...f2, from: Float32Array.from(f2.from), to: Float32Array.from(f2.to) };
       else if (f2) this.shiftFloor(f2.k, f2.drift, f2.secs);
       if (c.duck) this.duck.set(c.duck);
       if (c.drops) this.drops.set(c.drops);
@@ -29359,19 +29369,33 @@ ${e.message}` : String(e?.message || e));
     { name: tr("matter.stone", "Stone"), css: "#c2b8a8", blurb: tr("matter.stone.blurb", "Bedrock, or the skeleton a calcifying cell left where it settled. Stone never drifts and the living cannot pass through it. Prey shelters in its crevices, and it slowly wears back into silt.") },
     { name: tr("matter.framboid", "Framboid"), css: "#ccb373", blurb: tr("matter.framboid.blurb", "A pyrite framboid: a sphere of tiny iron sulfide crystals, grown from the sulfide a pile of rotting husks releases in cool mud. As it oxidizes it warms the water around it, faster the warmer that water is, until it is spent and crumbles to silt. Solid, like stone.") }
   ];
+  var GRAIN = {
+    quartz: tr("matter.grain.quartz", "Quartz"),
+    smokyQuartz: tr("matter.grain.smoky-quartz", "Smoky quartz"),
+    roseQuartz: tr("matter.grain.rose-quartz", "Rose quartz"),
+    pinkFeldspar: tr("matter.grain.pink-feldspar", "Pink feldspar"),
+    creamFeldspar: tr("matter.grain.cream-feldspar", "Cream feldspar"),
+    hornblende: tr("matter.grain.hornblende", "Hornblende"),
+    sand: tr("matter.grain.sand", "Sand grain"),
+    ironSand: tr("matter.grain.iron-sand", "Iron-stained sand grain"),
+    foraminifer: tr("matter.grain.foraminifer", "Foraminifer shell"),
+    diatom: tr("matter.grain.diatom", "Diatom"),
+    shell: tr("matter.grain.shell", "Shell fragment"),
+    spicule: tr("matter.grain.spicule", "Sponge spicule")
+  };
   var CAUSE = {
     0: "",
     1: tr("cause.starved", "starved"),
     2: tr("cause.old-age", "died of old age"),
     3: tr("cause.consumed", "was consumed"),
     4: tr("cause.husk-crumbled", "crumbled from a husk"),
-    6: tr("cause.faded", "faded back to silt"),
     7: tr("cause.stone-wore", "wore away from stone"),
     8: tr("cause.sparked", "sparked into life from silt"),
     9: tr("cause.built", "built from silt by its parent"),
     10: tr("cause.scalded", "scalded"),
     12: tr("cause.crystallized", "crystallized in a rotting pile"),
-    13: tr("cause.framboid-crumbled", "crumbled from a spent framboid")
+    13: tr("cause.framboid-crumbled", "crumbled from a spent framboid"),
+    15: tr("cause.woke", "woke from a cyst")
   };
   var LIVING_CSS = "#ff9a6a";
 
@@ -29751,7 +29775,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     return [ring([a, b, top[(i + 1) % out.length], top[i]]), 0.9 * (n[0] * LIGHT[0] + n[1] * LIGHT[1]) / l];
   }), [ring(top), 0.25]];
   var QUARTZ = [[-0.72, -0.38], [-0.1, -0.86], [0.66, -0.5], [0.82, 0.2], [0.2, 0.82], [-0.62, 0.6]];
-  var GRAIN = [
+  var GRAIN2 = [
     facets(QUARTZ, QUARTZ.map(([x, y]) => [0.42 * x + 0.04, 0.42 * y - 0.06])),
     // quartz
     [
@@ -29855,7 +29879,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       g.fill(pores);
       g.globalCompositeOperation = "source-over";
     } else {
-      GRAIN[k].forEach(([d, tone], i) => piece(d, tone, i > 0));
+      GRAIN2[k].forEach(([d, tone], i) => piece(d, tone, i > 0));
     }
   }
   var urls = /* @__PURE__ */ new Map();
@@ -31386,7 +31410,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
   }
 
   // src/worlds.js
-  var SAVE_VERSION = "8.0.0";
+  var SAVE_VERSION = "8.1.0";
   var MAGIC = [84, 77, 87, 83];
   var major = (v) => typeof v === "string" && /^\d+\.\d+\.\d+$/.test(v) ? +v.split(".")[0] : null;
   function openable(v) {
@@ -33655,7 +33679,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       if (K.heat && !past && g) {
         h += kv(tr("spec.cell.warmth", "Warmth"), !m ? "—" : m.torpid ? tr("spec.cell.warmth.torpid", "{t}° · torpid, {below}° below its range", { t: Math.round(m.warmth), below: belowRange(g, K, m.warmth) }) : m.x > 0.8 ? tr("spec.cell.warmth.scalding", "{t}° · scalding, best {opt}°", { t: Math.round(m.warmth), opt: Math.round(g.topt) }) : tr("spec.cell.warmth.works", "{t}° · works {perf}%, best {opt}°{own, select, yes { · runs {warm}° warm} other {}}", { t: Math.round(m.warmth), perf: Math.round(m.perf * 100), opt: Math.round(g.topt), own: m.warmth - m.water > 0.4 ? "yes" : "no", warm: Math.round(m.warmth - m.water) }), "thermal");
       }
-      h += kv(tr("spec.cell.origin", "Origin"), CAUSE[p2.cause] || tr("spec.cell.origin.founder", "a founder of this world"), "origin");
+      if (p2.cause !== CYST) h += kv(tr("spec.cell.origin", "Origin"), CAUSE[p2.cause] || tr("spec.cell.origin.founder", "a founder of this world"), "origin");
       h += kv(tr("spec.cell.generation", "Generation"), fmt(p2.gen), "generation");
       h += kv(tr("spec.cell.speed", "Speed"), fmtLen(Math.hypot(p2.vx, p2.vy), "/s"), "speed");
       return blk(past ? tr("spec.cell.title-past", "The cell, last seen") : `<i class="corner cell"></i>${tr("spec.cell.title", "This cell")}`, h);
@@ -33918,7 +33942,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
           const grain = p2.kind === 3 ? stoneGrain(p2.id, p2.info) : null;
           setHead(
             mem ? tr("spec.head.once", "Now {matter} · once", { matter: m.name }) : m.name,
-            mem && mem.sp ? spLink(mem.sp.serial, mem.sp.name) : grain ? grain.name : m.name,
+            mem && mem.sp ? spLink(mem.sp.serial, mem.sp.name) : grain ? GRAIN[grain.key] : m.name,
             // i18n: {dur} a duration (3m 05s)
             sel.lost ? tr("spec.lost", "Lost track of it") : (mem && sel.diedAt != null ? code("died", tr("spec.code.died-ago", "{dur} ago", { dur: fmtDur(eng.simTime - sel.diedAt) })) : "") + code("id", fmt(p2.id))
           );
@@ -33937,8 +33961,10 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
           else v += vital(tr("spec.light-here", "Light here"), lightAt(p2) / 100, "sun", `${lightAt(p2)}%`, "lighthere");
           setTags(mem ? mem.g : null);
           let s = `<p class="note">${m.blurb}</p>`;
-          s += kv(p2.kind === 2 ? tr("spec.matter.dead-for", "Dead for") : framboid ? tr("spec.matter.burning-for", "Burning for") : p2.kind === 3 ? tr("spec.matter.stone-for", "Stone for") : tr("spec.matter.in-state", "In this state"), fmtDur(p2.age));
-          if (p2.kind === 2) s += kv(tr("spec.matter.cause", "Cause of death"), CAUSE[p2.cause] || tr("spec.matter.cause-unknown", "unknown"));
+          const dung = p2.kind === 2 && p2.cause === 11;
+          s += kv(p2.kind === 2 && !dung ? tr("spec.matter.dead-for", "Dead for") : framboid ? tr("spec.matter.burning-for", "Burning for") : p2.kind === 3 ? tr("spec.matter.stone-for", "Stone for") : tr("spec.matter.in-state", "In this state"), fmtDur(p2.age));
+          if (dung) s += kv(tr("spec.cell.origin", "Origin"), tr("spec.matter.dung", "dropped by an eater as dung"));
+          else if (p2.kind === 2) s += kv(tr("spec.matter.cause", "Cause of death"), CAUSE[p2.cause] || tr("spec.matter.cause-unknown", "unknown"));
           s += kv(tr("spec.light-here", "Light here"), `${lightAt(p2)}%`, "lighthere");
           flow.push(["state", m.name, blk("", s) + storyHTML(sel)]);
           if (mem) {
@@ -42342,7 +42368,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       ctx.fillRect(0, y - 90 * s, w, h - y + 90 * s);
       ctx.fillStyle = "#7fd6df";
       ctx.font = `500 ${Math.round(18 * s)}px ${F}`;
-      ctx.fillText(eye.toLocaleUpperCase(LOCALE), w / 2, y - 44 * s);
+      ctx.fillText(eye, w / 2, y - 44 * s);
       ctx.fillStyle = "rgba(150,222,230,0.55)";
       ctx.fillRect(w / 2 - 24 * s, y - 34 * s, 48 * s, Math.max(1, s));
       ctx.fillStyle = "#e2f1f0";
@@ -43700,9 +43726,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "f54f970c12fa575d") return;
+      if (localStorage.getItem(key) === "319bdfaf783e7734") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "f54f970c12fa575d");
+      if (res) localStorage.setItem(key, "319bdfaf783e7734");
     } catch {
     }
   }
@@ -43798,10 +43824,12 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
   var PARTICLE_SIZES = [8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304, 8388608].filter((n) => n >= MIN_PARTICLES);
   var EVENTS_ON = () => ({ on: true, ...Object.fromEntries(EVENT_TYPES.map((x) => [x, true])) });
   var PREFS_KEY = "tidemote.view";
+  var PREFS_V = 5;
   var CELL_MARK = "rgba(241,227,160,0.95)";
   var loadPrefs = () => {
     try {
-      return JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
+      const p2 = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
+      return p2 && p2.v === PREFS_V ? p2 : {};
     } catch {
       return {};
     }
@@ -43848,7 +43876,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       currents: prefs.currents ?? false,
       specCells: 3,
       // the Field Lab's column, open or folded to its header ("world": its name when it was the census)
-      labOpen: prefs.labOpen ?? prefs.world ?? (innerWidth > 1100 && innerHeight > 600),
+      labOpen: prefs.labOpen ?? (innerWidth > 1100 && innerHeight > 600),
       closeup: prefs.closeup ?? true,
       // the pool's events (docs/catastrophes.md): all on, or off, or some of them
       events: { ...EVENTS_ON(), ...prefs.events },
@@ -43865,15 +43893,12 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       grain: prefs.grain ?? 1,
       // its film grain: 0 off, 1 fine, 2 heavy
       // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
-      // pixels per CSS pixel ('auto' by default, and for prefs saved before v3, which stored the old
-      // default 1.5 without anyone choosing it), the frame rate aimed for ('auto' by default, and for
-      // prefs saved before v4 with the old default 60 or before v2; 0: the display's), and a fixed
-      // particle count
+      // pixels per CSS pixel, the frame rate aimed for (0: the display's), and a fixed particle count
       perf: {
         scale: prefs.scale ?? "auto",
         floor: prefs.floor ?? 0.5,
-        density: !(prefs.v >= 3) && prefs.density === 1.5 ? "auto" : prefs.density ?? "auto",
-        fps: prefs.v >= 4 || prefs.v >= 2 && prefs.fps !== 60 ? prefs.fps ?? "auto" : "auto",
+        density: prefs.density ?? "auto",
+        fps: prefs.fps ?? "auto",
         particles: prefs.particles ?? null,
         scan: prefs.scan ?? null,
         // the tuner's knobs (src/tuner.js): each 'auto' or a level of its own (an index into its ladder)
@@ -43911,12 +43936,11 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const defaults = { ...eng.settings };
     eng.settings.trails = trailLevels[trailIdx];
     for (const k of ["links", "nodes", "bloom", "optics", "specks", "lod", "tide", "heat", "bands"]) if (prefs[k] !== void 0) eng.settings[k] = prefs[k];
-    if (!(prefs.v >= 5) && prefs.tide !== void 0) eng.settings.tide = prefs.tide === 2 ? 1 : 0;
     eng.maxScan = state.perf.scan ?? K.maxScan;
     document.body.classList.toggle("no-closeup", !state.closeup);
     const persist = () => {
       const s = eng.settings;
-      savePrefs({ v: 5, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+      savePrefs({ v: PREFS_V, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
       document.body.classList.toggle("no-closeup", !state.closeup);
     };
     const applyLook = (p2 = { ...DARKFIELD, grain: [0, 0.25, 0.5][state.grain] }, strength = [0, 0.6, 1, 1.35][state.look]) => eng.look.set(packLook(p2, strength));
@@ -48652,8 +48676,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const p2 = sel.particle;
       const g = p2.kind >= FIRST_LIFE ? genomeFor(p2.kind) : null;
       const sp = g && life.reg.get(g.serial);
-      const name = sp ? sp.name : sel.film && sel.memory && sel.memory.sp ? sel.memory.sp.name : p2.kind === 3 ? stoneGrain(p2.id, p2.info).name : "";
-      const label3 = name ? name.toLocaleUpperCase(LOCALE) : p2.kind < FIRST_LIFE ? tr("stage.plate.matter", "{kind, select, 0 {SILT} 2 {HUSK} other {FRAMBOID}}", { kind: p2.kind }) : "";
+      const name = sp ? sp.name : sel.film && sel.memory && sel.memory.sp ? sel.memory.sp.name : "";
+      const label3 = name ? name.toLocaleUpperCase(LOCALE) : p2.kind === 3 ? tr("stage.plate.grain", "{grain, select, quartz {QUARTZ} smokyQuartz {SMOKY QUARTZ} roseQuartz {ROSE QUARTZ} pinkFeldspar {PINK FELDSPAR} creamFeldspar {CREAM FELDSPAR} hornblende {HORNBLENDE} sand {SAND GRAIN} ironSand {IRON-STAINED SAND GRAIN} foraminifer {FORAMINIFER SHELL} diatom {DIATOM} shell {SHELL FRAGMENT} other {SPONGE SPICULE}}", { grain: stoneGrain(p2.id, p2.info).key }) : p2.kind < FIRST_LIFE ? tr("stage.plate.matter", "{kind, select, 0 {SILT} 2 {HUSK} other {FRAMBOID}}", { kind: p2.kind }) : "";
       if (!label3) return true;
       octx.font = "500 11px Saira, system-ui, sans-serif";
       octx.letterSpacing = "1.5px";
@@ -48693,13 +48717,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     }
     const AUTO_IDLE = 6e4, AUTO_IDLE_READING = 18e4;
     const CURSOR_REST = 3e3;
-    state.auto = prefs.auto ?? (() => {
-      try {
-        return localStorage.getItem("tidemote.autoCamera") !== "off";
-      } catch {
-        return true;
-      }
-    })();
+    state.auto = prefs.auto ?? true;
     let lastInput = performance.now();
     const lastPtr = { x: -1, y: -1, moved: performance.now() };
     const poke = () => {
@@ -48851,54 +48869,54 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       let eyebrow, main, sub = "";
       if (w.kind === "wide") {
         if (going) {
-          eyebrow = tr("caption.wide.going", "Rising");
+          eyebrow = tr("caption.wide.going", "RISING");
           main = tr("caption.wide.going-main", "For a view of the whole world");
         } else {
-          eyebrow = tr("caption.wide", "The whole world");
+          eyebrow = tr("caption.wide", "THE WHOLE WORLD");
           main = tr("caption.wide.main", "{n, plural, other {# living cells}} in {species, plural, other {# species}}", { n: life.counts[3], species: life.alive });
           sub = tr("caption.wide.sub", "{era} · light {pct}%", { era: esc(eraName(climate.name)), pct: Math.round(eng.ambient * 100) });
         }
       } else if (w.kind === "scene") {
         if (going && w.lost) {
           const [fate] = fateOf(w.lost.fate);
-          eyebrow = tr("caption.lost", "Heading on");
+          eyebrow = tr("caption.lost", "HEADING ON");
           main = tr("caption.lost.main", "To where {body, select, many {a cell of {nvowel, select, yes {an} other {a}} {n}-cell {name}} other {{vowel, select, yes {an} other {a}} {name} cell}} {fate, select, vanished {vanished} eaten {was eaten} old {died of old age} killed {was killed} other {starved}}", { ...organism(w.lost), fate });
           sub = tr("caption.lost.sub", "It was gone before the camera arrived");
         } else if (going) {
-          eyebrow = tr("caption.heading", "Heading to");
+          eyebrow = tr("caption.heading", "HEADING TO");
           main = r[0] ? r[0][0] : tr("caption.quieter", "Somewhere quieter");
           sub = r[1] ? note(r[1]) : "";
         } else {
-          eyebrow = tr("caption.in-view", "In view");
+          eyebrow = tr("caption.in-view", "IN VIEW");
           const sp = (w.species || []).filter((x) => life.reg.has(x.serial)).map((x) => spName(x.serial));
           main = sp.length ? sp.length > 1 ? tr("caption.species-list", "{rest} and {last}", { rest: sp.slice(0, -1).join(", "), last: sp[sp.length - 1] }) : sp[0] : r[0] ? r[0][0] : tr("caption.quiet", "A quiet stretch of water");
           sub = r.slice(0, 2).map(note).join(" · ");
         }
       } else if (w.kind === "follow") {
         if (!w.seen && w.signal) {
-          eyebrow = tr("caption.searching", "Searching");
+          eyebrow = tr("caption.searching", "SEARCHING");
           main = tr("caption.searching-signal", "For the source of a signal");
         } else if (!w.seen && w.story) {
-          eyebrow = tr("caption.searching", "Searching");
+          eyebrow = tr("caption.searching", "SEARCHING");
           main = tr("caption.searching-story", "For a species in the chronicle");
         } else if (!w.seen) {
-          eyebrow = w.spotlight ? tr("caption.searching", "Searching") : tr("caption.exploring", "Exploring");
+          eyebrow = w.spotlight ? tr("caption.searching", "SEARCHING") : tr("caption.exploring", "EXPLORING");
           main = w.spotlight ? tr("caption.searching-new", "For a new species") : tr("caption.exploring-main", "Moving to a new area");
           sub = w.spotlight ? "" : tr("caption.exploring-sub", "To discover the life there");
         } else if (w.signal) {
-          eyebrow = tr("caption.signal", "Answering a signal");
+          eyebrow = tr("caption.signal", "ANSWERING A SIGNAL");
           main = named();
           sub = spDesc(w.serial);
         } else if (w.story) {
-          eyebrow = tr("caption.story", "From the chronicle");
+          eyebrow = tr("caption.story", "FROM THE CHRONICLE");
           main = named();
           sub = esc(storyLine(w.story));
         } else if (w.spotlight) {
-          eyebrow = tr("caption.new-species", "Following a new species");
+          eyebrow = tr("caption.new-species", "FOLLOWING A NEW SPECIES");
           main = named();
           sub = spDesc(w.serial);
         } else {
-          eyebrow = tr("caption.following", "Following");
+          eyebrow = tr("caption.following", "FOLLOWING");
           main = named();
           sub = spDesc(w.serial);
         }
@@ -48919,12 +48937,12 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           }
         };
         const [m, sb] = (EV2[w.type] || {})[w.phase] || [tr("caption.pool", "The pool"), ""];
-        eyebrow = going ? tr("caption.heading", "Heading to") : tr("caption.watching", "Watching");
+        eyebrow = going ? tr("caption.heading", "HEADING TO") : tr("caption.watching", "WATCHING");
         main = m;
         sub = going ? "" : sb;
       } else if (w.kind === "linger") {
         const [fate, after] = fateOf(w.fate);
-        eyebrow = tr("caption.linger", "Lingering");
+        eyebrow = tr("caption.linger", "LINGERING");
         main = tr("caption.linger.main", "{body, select, many {A cell of the {n}-cell {name}} other {The {name} cell}} {fate, select, vanished {vanished} eaten {was eaten} old {died of old age} killed {was killed} other {starved}}", { body: w.cells > 1 ? "many" : "one", n: fmt(w.cells), name: spName(w.serial), fate });
         sub = after;
       } else return "";
