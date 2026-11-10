@@ -21,26 +21,28 @@ merged to main: these rules are now always on, and only their strengths remain t
 
 ## The rules
 
-- `bodyE`: a body holds energy. A child's body costs it (`bodySize`: bodyE × the cell's size, so small
-  cells are cheap to build and big ones rich prey), a death leaves it as the husk, a kill passes on the
+- `bodyE` (1.3): a body holds energy. A child's body costs it (bodyE × the cell's size, so small
+  cells are cheap to build and big ones rich prey; the switch was `bodySize`), a death leaves it as the husk, a kill passes on the
   prey's body and stored energy and no more (`carcassKeep` of the body stays in the carcass).
-- `bodyWhole`: a body is material, not fuel: it passes to its eater whole (the stuff of its next child),
+- A body is material, not fuel (the switch was `bodyWhole`): it passes to its eater whole (the stuff of its next child),
   while stored energy is digested at `assimilate` × the eater's skill, at most `assimCap`.
 - Light is the only income. It is a flux per area (`shadeP`): photosynthesizers share a patch's light, so a
   crowded meadow burns it in its own upkeep and a grazed one regrows. (Glint, silt charged by the tide,
-  was a second income at `gain`; it let grazers live without producers and has been removed.)
-- `dung`: what an eater cannot assimilate fills its gut and is dropped as a husk, so the undigested share
+  was a second income; it let grazers live without producers and has been removed.)
+- Dung (`dungE` 0.6, the gut's size): what an eater cannot assimilate fills its gut and is dropped as a husk, so the undigested share
   feeds scavengers rather than vanishing as heat.
 - `catchSkill` (0.6): catching living prey takes being built for it. At 0.3 any cell with a little flesh
   in its diet caught as surely as a predator; grazers made most of the kills and outcompeted specialists.
-- A cell divides once it holds `reproE` beyond its child's body (`bodyReserve`), and feeds until then.
+- A cell divides once it holds its genome's `reproE` beyond its child's body (the switch was `bodyReserve`), and feeds until then.
 - `bodyShare`: energy flows along a body's bonds toward the poorer cell, the same amount either way. In a
   tight tissue only the edge cells reach prey; without it the interior starved. 1 a second (2 until
   2026-10-30, when bonds that pull both ways made mats fit enough to take over at 2; docs/fast-forward.md).
-- More light (`photo` 0.4 → 0.5): bodies now cost what they hold, so the world needs more income.
-- Founding (initial conditions only): `foundHunt` keeps at most 3 of a world's 24 founding species
-  flesh-eaters (worlds opened with up to 81% predators and crashed), and `leanHunters` builds founding
-  hunters and crawlers for costly bodies (smaller, dividing sooner, loose bodies).
+- More light (`photo` 0.4 → 0.5 then): bodies now cost what they hold, so the world needs more income. (Since
+  light became a flux per area `photo` is on another scale: 5.3 with `shadeP` 1.4; docs/ecosystem.md.)
+- Founding (initial conditions only): `foundHunt` (0.125) keeps at most that share of a world's founding
+  species flesh-eaters (3 of the 24 then, 12 of `foundKinds` 96 now; worlds opened with up to 81% predators
+  and crashed), and founding hunters and crawlers are built for costly bodies (smaller, dividing sooner,
+  loose bodies: `archetypeGenome` in `src/genome.js`; the switch was `leanHunters`).
 
 No loop can make energy: an eater gets back at most what its prey held, and every link loses the
 undigested share and the upkeep spent on the way.
