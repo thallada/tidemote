@@ -11,6 +11,7 @@
 // deaths and kills are better filmed in place. tools/anim/sheet.sh tiles frames into a contact sheet.
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http'; import os from 'node:os';
 import { chromium } from 'playwright-core';
+import { launchOptions, windowFlags } from '../lib/browser.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith('--') ? [...a, [x.slice(2), all[i + 1] && !all[i + 1].startsWith('--') ? all[i + 1] : '1']] : a), []));
 const v = { world: 'w1', n: 262144, mature: 90, out: 'runs/anim/out/x', zoom: 450, secs: 6, speed: 1, spots: 3, target: 'events', k: '{}', pre: 2, w: 1200, h: 800, html: 'dist/tidemote.html', ...args };
@@ -29,8 +30,7 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${server.address().port}`;
 const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(process.env.TEMP || os.tmpdir(), 'anim-')), {
-  executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', headless: false, viewport: null,
-  args: [`--window-size=${v.w},${v.h}`, '--window-position=0,0', '--no-first-run', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows'] });
+  ...launchOptions({ args: windowFlags(v.w, v.h), vk: false }), viewport: null });
 const page = ctx.pages()[0];
 page.setDefaultTimeout(0);
 page.on('pageerror', (e) => console.log(`[page error] ${e.message}`));

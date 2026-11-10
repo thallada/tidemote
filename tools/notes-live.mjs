@@ -11,6 +11,7 @@
 // functions that took the most time themselves, in profile.txt
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http'; import os from 'node:os';
 import { chromium } from 'playwright-core';
+import { launchOptions, windowFlags } from './lib/browser.mjs';
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith('--') ? [...a, [x.slice(2), all[i + 1] && !all[i + 1].startsWith('--') ? all[i + 1] : '1']] : a), []));
 const v = { out: 'runs/notes/a', warm: 60, secs: 60, every: 5, speed: 1, n: 131072, w: 1440, h: 900, html: 'dist/tidemote.html', ...args };
 fs.mkdirSync(v.out, { recursive: true });
@@ -18,10 +19,9 @@ const html = path.resolve(v.html);
 const server = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); fs.createReadStream(html).pipe(res); });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(process.env.TEMP || os.tmpdir(), 'live-')), {
-  executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', headless: false,
+  ...launchOptions({ args: windowFlags(v.w, v.h), vk: false }),
   // --phone: a phone's screen (390 × 844 CSS px, touch), else the window's own
-  ...(v.phone ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true } : { viewport: null }),
-  args: [`--window-size=${v.w},${v.h}`, '--window-position=0,0', '--no-first-run', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows'] });
+  ...(v.phone ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true } : { viewport: null }) });
 const page = ctx.pages()[0];
 page.setDefaultTimeout(0);
 const log = [];

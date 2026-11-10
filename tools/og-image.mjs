@@ -4,6 +4,7 @@
 //   node tools/og-image.mjs [--n 16384] [--seconds 60] [--view 14] [--seed 7] [--out site/og.jpg]
 import { build } from 'esbuild';
 import { chromium } from 'playwright-core';
+import { launchOptions } from './lib/browser.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -57,7 +58,7 @@ window.shoot = async ({ N, SEC, VIEW, SEED, W, H }) => {
 const bundle = await build({ stdin: { contents: entry, resolveDir: root }, bundle: true, write: false, format: 'iife', target: 'es2022' });
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tidemote-og-'));
 fs.writeFileSync(path.join(dir, 'i.html'), '<!doctype html><meta charset="utf-8"><style>html,body{margin:0;background:#06090a}canvas{display:block}</style>');
-const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM || chromium.executablePath(), args: ['--enable-unsafe-webgpu'] });
+const browser = await chromium.launch(launchOptions({ browser: 'chromium', vk: false, args: ['--enable-unsafe-webgpu'] }));
 try {
   const page = await browser.newPage({ viewport: { width: opts.W, height: opts.H } });
   page.setDefaultTimeout(0);

@@ -7,14 +7,14 @@
 //   (on Linux without a display: TIDEMOTE_VK=1 ~/.local/bin/capped node tools/menu-check.mjs)
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http';
 import { chromium } from 'playwright-core';
-import { vkOn as vk, vkLaunch, retryAdapter } from './vk.mjs';
+import { vkOn as vk, retryAdapter } from './vk.mjs';
+import { launchOptions } from './lib/browser.mjs';
 const outAt = process.argv.indexOf('--out'), out = outAt > 0 ? process.argv[outAt + 1] : null;
 if (out) fs.mkdirSync(out, { recursive: true });
 const server = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); fs.createReadStream(path.resolve('dist/tidemote.html')).pipe(res); });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const url = `http://127.0.0.1:${server.address().port}/`;
-const browser = await chromium.launch(vk ? vkLaunch(['--enable-unsafe-webgpu'])
-  : { executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', headless: false, args: ['--enable-unsafe-webgpu'] });
+const browser = await chromium.launch(launchOptions({ args: ['--enable-unsafe-webgpu'] }));
 let bad = 0;
 const check = (name, ok, extra = '') => { if (!ok) bad++; console.log(`${ok ? 'ok  ' : 'FAIL'} ${name} ${extra}`); };
 

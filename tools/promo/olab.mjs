@@ -8,6 +8,7 @@
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http'; import os from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
 import { chromium } from 'playwright-core';
+import { launchOptions } from '../lib/browser.mjs';
 import { LIB } from './paths.mjs';
 export { aim } from '../pagelab.mjs';
 export { cliArgs } from './paths.mjs';
@@ -32,9 +33,10 @@ export async function openOffline({ html = 'dist/tidemote.html', notes = 0, k = 
   const file = path.resolve(html);
   const server = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); fs.createReadStream(file).pipe(res); });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  // (installed Chrome, headless: Playwright's Chromium lacks H.264)
   const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(process.env.TEMP || os.tmpdir(), 'off-')), {
-    executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', headless: true,
-    viewport: { width: +vw, height: +vh }, deviceScaleFactor: +scale, args: ['--no-first-run', '--autoplay-policy=no-user-gesture-required'] });
+    ...launchOptions({ args: ['--no-first-run', '--autoplay-policy=no-user-gesture-required'], vk: false, headless: true }),
+    viewport: { width: +vw, height: +vh }, deviceScaleFactor: +scale });
   const page = ctx.pages()[0];
   page.setDefaultTimeout(0);
   page.on('pageerror', (e) => console.log(`[page error] ${e.message}`));

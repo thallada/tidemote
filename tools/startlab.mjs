@@ -12,7 +12,7 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { vkOn, vkLaunch } from './vk.mjs';
+import { launchOptions } from './lib/browser.mjs';
 
 const { values: v } = parseArgs({ options: {
   n: { type: 'string', default: '524288' }, minutes: { type: 'string', default: '30' }, seed: { type: 'string', default: '1' },
@@ -55,8 +55,7 @@ async function runChrome() {
   const { chromium } = await import('playwright-core');
   const bundle = await build({ entryPoints: [fileURLToPath(new URL('./startlab-core.js', import.meta.url))], bundle: true, format: 'iife', globalName: 'Lab', write: false });
   const dir = fs.mkdtempSync(path.join(tmpdir(), 'tidemote-lab-'));
-  const executablePath = process.env.PLAYWRIGHT_CHROMIUM || chromium.executablePath();
-  const browser = await chromium.launch(vkOn ? { ...vkLaunch(['--enable-unsafe-webgpu']), executablePath } : { headless: true, executablePath, args: ['--enable-unsafe-webgpu'] });
+  const browser = await chromium.launch(launchOptions({ browser: 'chromium', args: ['--enable-unsafe-webgpu'] }));
   try {
     const page = await browser.newPage();
     page.setDefaultTimeout(0);

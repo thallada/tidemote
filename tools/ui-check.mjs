@@ -7,12 +7,12 @@
 //   npm run build && tools/gpu-node.sh tools/ui-check.mjs
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http';
 import { chromium } from 'playwright-core';
-import { vkOn as vk, vkLaunch, retryAdapter } from './vk.mjs';
+import { vkOn as vk, retryAdapter } from './vk.mjs';
+import { launchOptions } from './lib/browser.mjs';
 const server = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); fs.createReadStream(path.resolve('dist/tidemote.html')).pipe(res); });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 // on Linux without a display (TIDEMOTE_VK): headless, on the GPU through Vulkan
-const browser = await chromium.launch(vk ? vkLaunch(['--enable-unsafe-webgpu'])
-  : { executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', headless: false, args: ['--enable-unsafe-webgpu'] });
+const browser = await chromium.launch(launchOptions({ args: ['--enable-unsafe-webgpu'] }));
 let bad = 0;
 const check = (name, ok, extra = '') => { if (!ok) bad++; console.log(`${ok ? 'ok  ' : 'FAIL'} ${name} ${extra}`); };
 for (const touch of [false, true]) {

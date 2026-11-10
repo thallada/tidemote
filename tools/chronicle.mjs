@@ -8,7 +8,8 @@
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http'; import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
-import { vkOn, vkLaunch, retryAdapter } from './vk.mjs';
+import { retryAdapter } from './vk.mjs';
+import { launchOptions } from './lib/browser.mjs';
 
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d; };
 const html = path.resolve(arg('html', fileURLToPath(new URL('../dist/tidemote.html', import.meta.url))));
@@ -19,7 +20,7 @@ const server = http.createServer((req, res) => { res.writeHead(200, { 'content-t
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const args = ['--enable-unsafe-webgpu', '--disable-background-timer-throttling', '--disable-renderer-backgrounding'];
 const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(), 'tidemote-chronicle-')),
-  { viewport: { width: W, height: H }, ...(vkOn ? vkLaunch(args) : { headless: true, args }) });
+  { viewport: { width: W, height: H }, ...launchOptions({ browser: 'chromium', args }) });
 const page = ctx.pages()[0] || await ctx.newPage();
 page.setDefaultTimeout(0);
 page.on('pageerror', (e) => console.log(`[page error] ${e.message}`));

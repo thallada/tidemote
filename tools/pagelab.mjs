@@ -3,25 +3,20 @@
 // page's own chrome hidden, then held still. Run them under tools/gpu-node.sh in WSL, with plain node on a Mac.
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http'; import os from 'node:os';
 import { chromium } from 'playwright-core';
-import { vkOn, vkLaunch, retryAdapter } from './vk.mjs';
+import { vkOn, retryAdapter } from './vk.mjs';
+import { launchOptions, windowFlags } from './lib/browser.mjs';
 
 /** --name value pairs (a bare --name is '1'). */
 export const cliArgs = () => Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith('--') ? [...a, [x.slice(2), all[i + 1] && !all[i + 1].startsWith('--') ? all[i + 1] : '1']] : a), []));
-
-const CHROME = process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-  : 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 
 export async function openPage({ html = 'dist/tidemote.html', k = '{}', n = 262144, w = 1280, h = 800, mature = 120, tmp = 'page-', prefs = {} }) {
   const file = path.resolve(html);
   const server = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); fs.createReadStream(file).pipe(res); });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  const flags = [`--window-size=${w},${h}`, '--window-position=0,0', '--no-first-run', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows'];
   // on Linux without a display (TIDEMOTE_VK=1): Playwright's Chromium, headless, on the GPU through Vulkan (tools/vk.mjs)
   // (the browser's profile, removed on close: on Linux the temporary directory is often memory, kept until deleted)
   const profile = fs.mkdtempSync(path.join(process.env.TEMP || os.tmpdir(), tmp));
-  const ctx = await chromium.launchPersistentContext(profile, vkOn
-    ? { ...vkLaunch([...flags, '--enable-unsafe-webgpu']), viewport: { width: +w, height: +h } }
-    : { executablePath: CHROME, headless: false, viewport: null, args: flags });
+  const ctx = await chromium.launchPersistentContext(profile, { ...launchOptions({ args: windowFlags(w, h) }), viewport: vkOn ? { width: +w, height: +h } : null });
   const page = ctx.pages()[0];
   if (vkOn) await page.addInitScript(retryAdapter);
   page.setDefaultTimeout(0);

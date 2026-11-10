@@ -4,7 +4,8 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { vkLaunch, retryAdapter } from '../vk.mjs';
+import { retryAdapter } from '../vk.mjs';
+import { launchOptions } from '../lib/browser.mjs';
 
 export const root = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
 
@@ -17,7 +18,7 @@ export async function start() {
     fs.createReadStream(f).pipe(res);
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  const browser = await chromium.launch({ ...vkLaunch(['--enable-unsafe-webgpu']), executablePath: process.env.PLAYWRIGHT_CHROMIUM || chromium.executablePath() });
+  const browser = await chromium.launch(launchOptions({ args: ['--enable-unsafe-webgpu'], vk: true }));
   return { url: `http://127.0.0.1:${server.address().port}/`, browser, close: async () => { await browser.close(); server.close(); } };
 }
 

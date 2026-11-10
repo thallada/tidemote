@@ -7,13 +7,13 @@
 // Chrome on the GPU (tools/gpu-node.sh); elsewhere pass --chrome PATH or use Playwright's Chromium.
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http';
 import { chromium } from 'playwright-core';
-import { vkOn as vk, vkLaunch, retryAdapter } from './vk.mjs';
+import { vkOn as vk, retryAdapter } from './vk.mjs';
+import { launchOptions, UNTHROTTLED } from './lib/browser.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith('--') ? [...a, [x.slice(2), all[i + 1] && !all[i + 1].startsWith('--') ? all[i + 1] : '1']] : a), []));
 const out = path.resolve(args.out || 'runs/ui/audit');
 fs.mkdirSync(out, { recursive: true });
 const settle = +(args.settle || 25);
-const chrome = args.chrome || (process.platform === 'win32' ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' : undefined);
 
 // CSS viewports: a laptop screen less the browser's own bars (about 110 px), and phones
 const SIZES = [
@@ -42,9 +42,10 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${server.address().port}`;
 const axe = fs.readFileSync(path.resolve('node_modules/axe-core/axe.min.js'), 'utf8');
 
-// on Linux without a display (TIDEMOTE_VK): headless, on the GPU through Vulkan
-const flags = ['--enable-unsafe-webgpu', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--no-first-run'];
-const browser = await chromium.launch({ executablePath: chrome, ...(vk ? vkLaunch(flags) : { headless: false, args: flags }) });
+// on Linux without a display (TIDEMOTE_VK): headless, on the GPU through Vulkan; else shown, --chrome PATH, Windows
+// Chrome on Windows, or Playwright's Chromium
+const flags = ['--enable-unsafe-webgpu', ...UNTHROTTLED, '--no-first-run'];
+const browser = await chromium.launch(launchOptions({ args: flags, browser: (args.chrome || process.platform === 'win32') ? 'chrome' : 'chromium', executablePath: args.chrome, headless: false }));
 
 // measured in the page: everything the reader sees and presses
 function measure({ MIN_TEXT, MIN_TARGET, MIN_TOUCH, touch }) {

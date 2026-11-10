@@ -3,7 +3,8 @@
 // as a visitor's do), a small world, sound off, the intro passed, running.
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http'; import os from 'node:os';
 import { chromium } from 'playwright-core';
-import { vkOn as vk, vkLaunch, retryAdapter } from './vk.mjs';
+import { vkOn as vk, retryAdapter } from './vk.mjs';
+import { launchOptions } from './lib/browser.mjs';
 
 export const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d; };
 // --size: the window
@@ -15,9 +16,7 @@ export async function openPage({ size, html, n = 16384, init = null, initArg = n
   const server = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); fs.createReadStream(html).pipe(res); });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const prof = fs.mkdtempSync(path.join(os.homedir(), '.cache', 'tidemote-film-'));
-  const launch = vk ? vkLaunch(['--enable-unsafe-webgpu'])
-    : { executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', headless: false, args: ['--enable-unsafe-webgpu'] };
-  const ctx = await chromium.launchPersistentContext(prof, { ...launch, ...SIZES[size], acceptDownloads: true });
+  const ctx = await chromium.launchPersistentContext(prof, { ...launchOptions({ args: ['--enable-unsafe-webgpu'] }), ...SIZES[size], acceptDownloads: true });
   await ctx.addInitScript((mc) => {
     window.__MC_MAX = mc;
     if (!sessionStorage.getItem('i')) { sessionStorage.setItem('i', '1'); localStorage.clear(); localStorage.setItem('tidemote.sound', JSON.stringify({ on: false, volume: 0.7 })); }

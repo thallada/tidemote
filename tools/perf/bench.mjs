@@ -37,7 +37,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
-import { vkLaunch } from '../vk.mjs';
+import { retryAdapter } from '../vk.mjs';
+import { launchOptions, UNTHROTTLED } from '../lib/browser.mjs';
 import { androidChrome, serve, phoneState } from '../android.mjs';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -46,7 +47,7 @@ import { chromium, _electron } from 'playwright-core';
 const { values: v } = parseArgs({ options: {
   plan: { type: 'string' }, out: { type: 'string' }, only: { type: 'string' },
   width: { type: 'string', default: '2560' }, height: { type: 'string', default: '1440' },
-  chrome: { type: 'string', default: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' },
+  chrome: { type: 'string' }, // (else Windows Chrome, or macOS's: tools/lib/browser.mjs)
   dist: { type: 'string', default: 'dist' }, electron: { type: 'string' }, keep: { type: 'boolean' }, linux: { type: 'boolean' }, android: { type: 'boolean' }, dpr: { type: 'string', default: '1' },
 } });
 const root = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
@@ -96,8 +97,6 @@ if (v.android) serve(server.address().port);
 
 const W = +v.width, H = +v.height;
 const userDir = fs.mkdtempSync(path.join(process.env.TEMP || process.env.TMPDIR || '/tmp', 'tidemote-perf-'));
-// the flags that keep a page in the background from being throttled, for Chrome and the desktop app alike
-const UNTHROTTLED = ['--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows'];
 const args = [`--window-size=${W},${H}`, '--window-position=0,0', '--enable-webgpu-developer-features', '--autoplay-policy=no-user-gesture-required',
   // (silent: a run's soundtrack still plays through the audio thread, unheard)
   '--mute-audio', ...UNTHROTTLED, '--no-first-run', '--no-default-browser-check'];
@@ -112,9 +111,8 @@ async function launch() {
     return;
   }
   // On Linux without a display (--linux): Playwright's Chromium, headless, on the GPU through Vulkan (tools/vk.mjs)
-  ctx ??= await chromium.launchPersistentContext(userDir, v.linux
-    ? { ...vkLaunch([...args, '--enable-unsafe-webgpu']), viewport: { width: W, height: H }, deviceScaleFactor: +v.dpr }
-    : { executablePath: v.chrome, headless: false, viewport: null, args });
+  ctx ??= await chromium.launchPersistentContext(userDir, { ...launchOptions({ args, vk: !!v.linux, executablePath: v.chrome }),
+    ...(v.linux ? { viewport: { width: W, height: H }, deviceScaleFactor: +v.dpr } : { viewport: null }) });
 }
 const report = { when: new Date().toISOString(), window: [W, H], worlds: {}, scenarios: [] };
 
@@ -124,10 +122,7 @@ async function openPage(n, extra = {}, k = null, init = null, html = null) {
   page.setDefaultTimeout(0);
   if (init) await page.addInitScript(init);
   // the first adapter asked for in a headless page can come back null: ask once more
-  if (v.linux) await page.addInitScript(() => {
-    const req = navigator.gpu.requestAdapter.bind(navigator.gpu);
-    navigator.gpu.requestAdapter = async (o) => (await req(o)) || req(o);
-  });
+  if (v.linux) await page.addInitScript(retryAdapter);
   await page.addInitScript(({ n, extra }) => {
     if (sessionStorage.getItem('tm-init')) return;
     sessionStorage.setItem('tm-init', '1');

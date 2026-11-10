@@ -5,6 +5,7 @@
 //  tools/gpu-node.sh tools/listen-capture.mjs --bundle cap.js --chrome 'C:\Program Files\Google\Chrome\Application\chrome.exe' ...)
 // Render with tools/listen-render.mjs.
 import { chromium } from 'playwright-core';
+import { launchOptions } from './lib/browser.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -115,7 +116,7 @@ const code = arg('bundle', null) ? fs.readFileSync(arg('bundle'), 'utf8')
 if (arg('bundle-out', null)) { fs.writeFileSync(arg('bundle-out'), code); process.exit(0); }
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tidemote-cap-'));
 fs.writeFileSync(path.join(dir, 'i.html'), '<!doctype html><meta charset="utf-8"><title>capture</title>');
-const browser = await chromium.launch({ headless: true, executablePath: arg('chrome', null) || process.env.PLAYWRIGHT_CHROMIUM || chromium.executablePath(), args: ['--enable-unsafe-webgpu'] });
+const browser = await chromium.launch(launchOptions({ browser: 'chromium', vk: false, executablePath: arg('chrome', null), args: ['--enable-unsafe-webgpu'] }));
 try {
   const page = await browser.newPage();
   page.setDefaultTimeout(0);
