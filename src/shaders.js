@@ -5231,10 +5231,16 @@ fn ghostOf(p: Particle) -> Ghost {
 }
 // how far a ghost has given way to its husk
 fn ghostFade(how: u32, t: f32) -> f32 { return select(smoothstep(0.5, 1.0, t), smoothstep(0.25, 0.85, t), how == 1u); }
-// Match vsPoint's living-cell radius, including focus and unresolved highlights.
+// How far a cell stranded on the drying mud has dried out (0..1): it shrivels, browns and darkens (spriteOf)
+fn dryShown(p: Particle) -> f32 {
+  if (view.level >= 1.0) { return 0.0; }
+  return smoothstep(0.0, 0.012, blockAt(${MAX_CELLS}u, p.pos) - view.level);
+}
+// Match vsPoint's living-cell radius, including a stranded cell's shrivelling, focus and unresolved highlights.
 fn cellRadius(p: Particle, g: Genome, index: u32) -> f32 {
   var size = g.size * (1.0 - 0.12 * f32(roleOf(p.info)));
   size *= packFit(p, index, size) * animScale(animOf(p, g));
+  size *= 1.0 - 0.22 * dryShown(p);
   let grow = 1.0 - detailLOD(view.pointSize * size);
   if (!focusPass(p)) { size *= 0.7; }
   else if (view.focusOn == 1u) { size *= 1.0 + 0.12 * grow; }
@@ -5324,8 +5330,7 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     // caught in the ice it is frozen: still, its color drained toward a pale frosted blue-white, a little rimed
     let iced = iceShownAny();
     if (view.level < 1.0 || iced) {
-      var dryN = 0.0;
-      if (view.level < 1.0) { dryN = smoothstep(0.0, 0.012, blockAt(${MAX_CELLS}u, p.pos) - view.level); }
+      let dryN = dryShown(p);
       var iceN = 0.0;
       if (iced) { iceN = smoothstep(0.35, 0.65, iceShownAt(p.pos)); }
       let l = dot(col, vec3f(0.3, 0.5, 0.2));
