@@ -125,6 +125,9 @@ export const FRAMBOID_GROWN = 12;
 export const HEAT_FIX = 1048576;
 // a dormant living cell's cause code (info & 15)
 export const CYST = 14;
+// a cell woken from a cyst: its cause code, until it next encysts or dies (not a birth's, 9, which the soundtrack's
+// scan, the auto camera's survey and the view take for a newborn; nothing in the step tells it from any other cause)
+export const WOKE = 15;
 export const P_BYTES = 40;
 // the pipette's bore drawn as cells (vsTube): at most this many, of at most TUBE_K species
 export const TUBE_N = 400;
@@ -512,6 +515,8 @@ const HUSK = 2u;
 const LITTER = 0x8000u;
 // a dormant living cell: its cause code (info & 15)
 const CYST = ${CYST}u;
+// a living cell woken from a cyst: its cause code (info & 15)
+const WOKE = ${WOKE}u;
 // META_DEATH slots counting each guild's cysts, afresh each step (57-59, 61, 62; 60 is the litter)
 fn cystSlot(gi: u32) -> u32 { return META_DEATH + select(57u + gi, 58u + gi, gi >= 3u); }
 const STONE = ${STONE}u;
@@ -3315,7 +3320,7 @@ fn cystStep(i: u32) {
     atomicAdd(&ledger[5], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * ledgerGuild(g) + 1u], 1u);
   } else if (p.age > 0.0 && !dry && rnd(&s) < ${f(K.cystWake)} * (1.0 + ${f(K.rainWake)} * sim.pond.y) * sim.dt) {
-    p.info = (p.info & 0xfffffff0u) | 9u; p.age = 0.0;
+    p.info = (p.info & 0xfffffff0u) | WOKE; p.age = 0.0;
     splCause(p.kind, 7u);
     noteSelf(EV_WOKE, p.kind, p.id, p.pos);
   }
@@ -4061,20 +4066,7 @@ fn budKin(a: Genome, b: Genome) -> bool { return a.serial == b.serial || a.paren
 fn budGrowth(age: f32) -> f32 { let t = clamp(age / BIRTH_T, 0.0, 1.0) - 1.0; return 1.0 + 2.0 * t * t * t + t * t; }
 `;
 
-// A cell just woken from a cyst (its cause, 9, a birth's) that the drawn view saw asleep, which it does not take for a
-// newborn: contactGather keeps each living cell in view a record (sway), a newborn's marked seen born (LOOK_BORN), a
-// cyst's never, and a cell it has a record of wakes unmarked. So the soundtrack and the auto camera hear and see a
-// birth where the view would draw one (a wake no view saw passes for a birth, there as here).
-const WOKE_WGSL = SWAY_SLOTS + /* wgsl */ `
-fn wokeSeen(p: Particle) -> bool {
-  let n = arrayLength(&sway);
-  var st = sway[p.id % n];
-  if (st.id != p.id) { st = sway[swaySlot2(p.id, n)]; }
-  return st.id == p.id && (st.look & LOOK_BORN) == 0u;
-}
-`;
-
-export const LISTEN_WGSL = COMMON + ANIM_WGSL + /* wgsl */ `
+export const LISTEN_WGSL = COMMON + /* wgsl */ `
 struct ListenU {
   center: vec2f, half: vec2f, world: vec2f, count: u32, seed: u32,
   now: f32, window: f32, vscale: f32, selKind: u32,
@@ -4088,8 +4080,7 @@ struct ListenU {
 @group(0) @binding(4) var<storage, read> heatField: array<f32>;
 // (the bonds each cell keeps, which keep a heat-maker warm)
 @group(0) @binding(5) var<storage, read> intent: array<vec4u>;
-@group(0) @binding(6) var<storage, read> sway: array<Sway>;
-${WOKE_WGSL}${shownWater('lu.world')}// layout: [0,8) in-view events per type, [8,16) out of view, 16 living in view, 17 their summed
+${shownWater('lu.world')}// layout: [0,8) in-view events per type, [8,16) out of view, 16 living in view, 17 their summed
 // speed (x1000), 18 living everywhere, 19 their summed speed (x1000), 20 particles in view,
 // 21 records written, then records of ${LISTEN_REC} words from word 32.
 var<workgroup> wc: array<atomic<u32>, 21>;
@@ -4125,7 +4116,8 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
     if (p.age < lu.window) {
       let code = p.info & 15u;
       if (life) {
-        if (code == 9u && !wokeSeen(p)) {
+        // (a cell woken from a cyst is no birth: WOKE)
+        if (code == 9u) {
           t = 0u;
           let g = genomes[p.kind];
           if (g.depth > 0u && abs(clockDiff(g.born, lu.now - p.age)) < 0.05) { t = 1u; }
@@ -4256,15 +4248,14 @@ fn noteMain(@builtin(global_invocation_id) gid: vec3u) {
 export const SURVEY_WORDS = 10;
 export const SURVEY = { living: 0, bonded: 1, births: 2, mutations: 3, sparks: 4, deaths: 5, kills: 6, species: 7, speed: 8, glint: 9 }; // glint: no longer counted (always 0)
 export const SURVEY_MAX_TILES = 4096;
-export const SURVEY_WGSL = COMMON + ANIM_WGSL + /* wgsl */ `
+export const SURVEY_WGSL = COMMON + /* wgsl */ `
 struct SurveyU { grid: vec2u, tiles: vec2u, tile: u32, now: f32, window: f32, adhMin: f32 };
 @group(0) @binding(0) var<uniform> su: SurveyU;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
 @group(0) @binding(2) var<storage, read> genomes: array<Genome>;
 @group(0) @binding(3) var<storage, read> cellStart: array<u32>;
 @group(0) @binding(4) var<storage, read_write> sout: array<atomic<u32>>;
-@group(0) @binding(5) var<storage, read> sway: array<Sway>;
-${WOKE_WGSL}
+
 @compute @workgroup_size(64)
 fn surveyMain(@builtin(global_invocation_id) gid: vec3u) {
   let c = gid.x;
@@ -4281,7 +4272,7 @@ fn surveyMain(@builtin(global_invocation_id) gid: vec3u) {
       if (g.adhesion > su.adhMin) { n[1] += 1u; }
       n[8] += u32(min(length(p.vel), 50.0) * 100.0);
       mask |= 1u << (p.kind & 31u);
-      if (recent && code == 9u && !wokeSeen(p)) {
+      if (recent && code == 9u) {
         n[2] += 1u;
         if (g.depth > 0u && abs(clockDiff(g.born, su.now - p.age)) < 0.05) { n[3] += 1u; }
       } else if (recent && code == 8u) { n[4] += 1u; }
@@ -4657,7 +4648,7 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
     let recent = same && dt < 0.5;
     let full = p.energy / max(g.reproE, 0.01);
     let cause = p.info & 15u;
-    // a newborn is one seen since its birth (a cell woken from a cyst it was seen in is not)
+    // a newborn is one seen since its birth (a cell woken from a cyst has a cause of its own, WOKE)
     // (life sparked from silt is born too, of a species new to the world)
     var born = (cause == 9u || cause == 8u) && p.age < BIRTH_T;
     var novel = cause == 8u && p.age < NOVEL_T;
@@ -5341,8 +5332,8 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     // a torpid cell's pulse stops and it dims, cold blue
     if (!th.torpid) { b *= 1.0 + (1.0 - sleep) * (1.0 - select(0.0, gh.t, dead)) * g.pulse * 0.6 * sin(view.time * (0.8 + g.pulse * 4.0) + f32(p.id % 1024u) * 0.37); }
     // a birth (or a waking) flashes, seen from afar; up close a newborn is seen budding and growing
-    // instead, with a soft glow, and a cell waking from a cyst it was seen in does not flash
-    if (!dead && cause == 9u) { b *= 1.0 + max(0.0, 1.0 - p.age * 2.5) * mix(2.5, select(0.0, 0.35, a.born), select(0.0, close, a.seen)); }
+    // instead, with a soft glow, and a cell waking from a cyst does not flash
+    if (!dead && (cause == 9u || cause == WOKE)) { b *= 1.0 + max(0.0, 1.0 - p.age * 2.5) * mix(2.5, select(0.0, 0.35, a.born), select(0.0, close, a.seen)); }
     // life sparked from silt glows as it grows
     if (!dead && cause == 8u) { b *= 1.0 + 2.0 * max(0.0, 1.0 - p.age / BIRTH_T); }
     col = unpack4x8unorm(p.col).rgb;

@@ -778,11 +778,11 @@ class Engine {
     this.cpListen.bg = d.createBindGroup({ layout: this.cpListen.pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.listenU } }, { binding: 1, resource: { buffer: b.parts } },
       { binding: 2, resource: { buffer: b.genomes } }, { binding: 3, resource: { buffer: b.listen } }, { binding: 4, resource: { buffer: b.thermal } },
-      { binding: 5, resource: { buffer: b.intent } }, { binding: 6, resource: { buffer: b.sway } }] });
+      { binding: 5, resource: { buffer: b.intent } }] });
     this.cpSurvey.bg = d.createBindGroup({ layout: this.cpSurvey.pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.surveyU } }, { binding: 1, resource: { buffer: b.parts } },
       { binding: 2, resource: { buffer: b.genomes } }, { binding: 3, resource: { buffer: b.cellStart } },
-      { binding: 4, resource: { buffer: b.survey } }, { binding: 5, resource: { buffer: b.sway } }] });
+      { binding: 4, resource: { buffer: b.survey } }] });
     this.cpNote.bg = d.createBindGroup({ layout: this.cpNote.pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.noteU } }, { binding: 1, resource: { buffer: b.parts } },
       { binding: 2, resource: { buffer: b.genomes } }, { binding: 3, resource: { buffer: b.noteOut } },
