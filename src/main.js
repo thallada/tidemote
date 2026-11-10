@@ -771,7 +771,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     persist();
     state.phase = 'calibrating';
     flash(n === 'auto' ? tr('flash.measuring', 'Measuring the GPU') : tr('flash.particles', '{n, plural, other {# particles}}', { n }));
-    try { await calibrate(); } catch (e) { fail(tr('err.start', 'Could not start the simulation'), String(e.message || e)); return; }
+    try { await calibrate(); } catch (e) { fail(tr('err.start', 'Could not start the simulation'), String(e.message || e), [RELOAD]); return; }
     state.phase = 'running';
     renderWorld();
     view.render();
