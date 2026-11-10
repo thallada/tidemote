@@ -67,6 +67,6 @@ export const GRAIN = { quartz: tr('matter.grain.quartz', 'Quartz'), smokyQuartz:
   diatom: tr('matter.grain.diatom', 'Diatom'), shell: tr('matter.grain.shell', 'Shell fragment'), spicule: tr('matter.grain.spicule', 'Sponge spicule') };
 // i18n: how a particle came to be what it is, or how a cell died: "It {cause}." (a cell's Origin, a husk's Cause of death)
 export const CAUSE = { 0: '', 1: tr('cause.starved', 'starved'), 2: tr('cause.old-age', 'died of old age'), 3: tr('cause.consumed', 'was consumed'), 4: tr('cause.husk-crumbled', 'crumbled from a husk'),
-  6: tr('cause.faded', 'faded back to silt'), 7: tr('cause.stone-wore', 'wore away from stone'), 8: tr('cause.sparked', 'sparked into life from silt'), 9: tr('cause.built', 'built from silt by its parent'), 10: tr('cause.scalded', 'scalded'),
+  7: tr('cause.stone-wore', 'wore away from stone'), 8: tr('cause.sparked', 'sparked into life from silt'), 9: tr('cause.built', 'built from silt by its parent'), 10: tr('cause.scalded', 'scalded'),
   12: tr('cause.crystallized', 'crystallized in a rotting pile'), 13: tr('cause.framboid-crumbled', 'crumbled from a spent framboid') };
 export const LIVING_CSS = '#ff9a6a';
