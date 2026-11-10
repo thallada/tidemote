@@ -88,6 +88,8 @@ export function createSound({ onChange = () => {}, onError = () => {}, onSang = 
     node.connect(gain).connect(ctx.destination);
     Object.assign(st, { node, gain });
     node.port.postMessage(mixMessage(st.mix));
+    // (a world set before the soundtrack was up: its music's seed and era, which reset() could not send)
+    if (st.seed != null) node.port.postMessage({ type: 'reset', seed: st.seed, era: st.era ?? null });
   }
   // what is heard, as a stream (a film's soundtrack): the gain's output, so it follows the volume and is silent when off
   function stream() {
@@ -113,7 +115,11 @@ export function createSound({ onChange = () => {}, onError = () => {}, onSang = 
         ramp(0, 0.4);
         setTimeout(() => { if (!st.on && st.ctx) st.ctx.suspend(); }, 450);
       }
-    } catch (err) { st.on = false; notify(); onError(String(err.message || err)); }
+    } catch (err) {
+      // (a boot that failed is tried afresh the next time)
+      if (!st.node) { st.starting = null; st.ctx?.close?.().catch(() => {}); st.ctx = null; }
+      st.on = false; notify(); onError(String(err.message || err));
+    }
   }
   function setVolume(v) {
     st.volume = clamp(v, 0, 1); persist(); notify();
@@ -136,12 +142,15 @@ export function createSound({ onChange = () => {}, onError = () => {}, onSang = 
   // only when a slot's species changed); world: { light, tide }.
   function census({ species, pop, world }) {
     if (!st.node || !st.on) return;
-    const all = [];
+    const all = [], live = new Set();
     for (const [s, g] of species) {
       const voice = st.sent.get(s) !== g.serial ? voiceOf(g) : null;
       st.sent.set(s, g.serial);
+      live.add(s);
       all.push({ slot: s, serial: g.serial, voice, pop: pop[s] });
     }
+    // (the audio thread forgets a slot gone from the census, so its voice is sent again should it return)
+    for (const s of st.sent.keys()) if (!live.has(s)) st.sent.delete(s);
     post({ type: 'slots', all: true, slots: all });
     post({ type: 'world', world });
   }
@@ -192,7 +201,7 @@ export function createSound({ onChange = () => {}, onError = () => {}, onSang = 
     away,
     toggle: () => setOn(!st.on), setOn, setVolume, setMix,
     get mix() { return { ...st.mix }; },
-    census, listen, era: (name) => post({ type: 'era', name }),
+    census, listen, era: (name) => { st.era = name; post({ type: 'era', name }); },
     // the hand's acts and state (audio/handsound.js)
     hand: (m) => { if (st.on) post({ type: 'hand', ...m }); },
     // play a species' motif alone (its genome; tag names its notes in onSang). Turns sound on.
@@ -204,7 +213,7 @@ export function createSound({ onChange = () => {}, onError = () => {}, onSang = 
     },
     // a world begins or is loaded: its music's seed (its key, ensembles and overture) and, for a
     // loaded world, the era it is in
-    reset: (seed, era = null) => { st.sent.clear(); st.seed = seed; post({ type: 'reset', seed, era }); },
+    reset: (seed, era = null) => { st.sent.clear(); st.seed = seed; st.era = era; post({ type: 'reset', seed, era }); },
     // a new world begins: its overture plays as soon as the soundtrack is heard
     async overture() { if (st.starting) await st.starting.catch(() => {}); if (st.on) post({ type: 'open', seed: st.seed }); },
     // the warm-up (a new world's first minutes at Max) begins or ends: the overture lands once it is over

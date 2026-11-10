@@ -465,7 +465,7 @@ export class Field {
     const { root, scale } = c, piv = c.pivot;
     for (let b = 0; b < 8; b++) {
       const B = this.bands[b], h = B && this.heard.get(B.s), r = h ? h[0] / B.of : 0, e = B && this.slots.get(B.s);
-      if (!e || !(r > 0)) { p['d' + (b + 1)] = 0; continue; }
+      if (!e || !e.v || !(r > 0)) { p['d' + (b + 1)] = 0; continue; }
       const seq = e.v.seq, d = Math.min(r, SWARM_MAX);
       const kb = Math.floor(now / (c.step * (3 + (b % 4))) + b * 0.37);
       p['f' + (b + 1)] = Math.min(96, d2m(seq[(kb + B.j) % seq.length] + piv, root, scale) + 12 * e.v.oct);
