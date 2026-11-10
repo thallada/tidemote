@@ -301,7 +301,7 @@ class Engine {
     this.onWatch = null;
     b.mind = d.createBuffer({ size: MIND_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
     this.mindStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: MIND_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
-    b.listenU = d.createBuffer({ size: 96, usage: U.UNIFORM | U.COPY_DST });
+    b.listenU = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
     b.listen = d.createBuffer({ size: LISTEN_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
     this.listenStage = [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: LISTEN_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
     // The soundtrack's ears (see LISTEN_WGSL). Off until the page sets { every, keep[8], vscale }.
@@ -309,7 +309,11 @@ class Engine {
     this.onListen = null;
     this._listenFrames = 0;
     this._listenSim = null;
-    b.surveyU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
+    // The scans' windows tile the simulated time: each counts an event whose age is under the time since the last
+    // scan, give or take half a step (the shortest since the step before the window: _listenDt, _surveyDt), as an
+    // event made before its step's aging is already a step old at the scan and one made after it is not (LISTEN_WGSL)
+    this._listenDt = this._surveyDt = Infinity;
+    b.surveyU = d.createBuffer({ size: 48, usage: U.UNIFORM | U.COPY_DST });
     b.survey = d.createBuffer({ size: SURVEY_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
     this.surveyStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: SURVEY_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
     // The annotations' eyes (docs/annotations.md): the stretch of world they mark (its corner and size, world units; size 0:
@@ -1591,6 +1595,8 @@ class Engine {
     this._lerpOk = true;
     this.dt = simDt;
     this.simTime += simDt;
+    if (simDt < this._listenDt) this._listenDt = simDt;
+    if (simDt < this._surveyDt) this._surveyDt = simDt;
     this.frameNo++;
     this.ticks = Math.max(1, Math.round(simDt * 60));
     if (this.ticks > SUB_TICKS) throw new Error(`a step of ${this.ticks} ticks: at most ${SUB_TICKS}`);
@@ -2542,7 +2548,7 @@ class Engine {
   _surveyCopy(enc) {
     const S = this.survey;
     if (!S) { this._surveySim = null; return null; }
-    if (this._surveySim == null || this._surveySim > this.simTime) this._surveySim = this.simTime - 1 / 60;
+    if (this._surveySim == null || this._surveySim > this.simTime) { this._surveySim = this.simTime - 1 / 60; this._surveyDt = Math.min(this.dt, 1 / 60); }
     if (++this._surveyFrames < (S.every || 60)) return null;
     const st = this.surveyStage.find((s) => !s.busy);
     if (!st) return null;
@@ -2556,9 +2562,10 @@ class Engine {
     const tiles = [Math.ceil(gw / tile), Math.ceil(gh / tile)];
     const window = this.simTime - this._surveySim;
     this._surveySim = this.simTime;
-    const u = new ArrayBuffer(32), f = new Float32Array(u), w = new Uint32Array(u);
+    const u = new ArrayBuffer(48), f = new Float32Array(u), w = new Uint32Array(u);
     w[0] = gw; w[1] = gh; w[2] = tiles[0]; w[3] = tiles[1]; w[4] = tile;
-    f[5] = this._clock().t; f[6] = window; f[7] = this.K.adhMin;
+    f[5] = this._clock().t; f[6] = window; f[7] = this.K.adhMin; f[8] = 0.5 * this._surveyDt;
+    this._surveyDt = this.dt;
     this.device.queue.writeBuffer(b.surveyU, 0, u);
     const bytes = tiles[0] * tiles[1] * SURVEY_WORDS * 4;
     this._clear(enc, b.survey, 0, bytes);
@@ -2586,7 +2593,7 @@ class Engine {
   _listenCopy(enc, cam) {
     const L = this.listen;
     if (!L) { this._listenSim = null; return null; }
-    if (this._listenSim == null || this._listenSim > this.simTime) this._listenSim = this.simTime - 1 / 60;
+    if (this._listenSim == null || this._listenSim > this.simTime) { this._listenSim = this.simTime - 1 / 60; this._listenDt = Math.min(this.dt, 1 / 60); }
     if (++this._listenFrames < (L.every || 6)) return null;
     const st = this.listenStage.find((s) => !s.busy);
     if (!st) return null;
@@ -2597,11 +2604,13 @@ class Engine {
     const view = { x: cam.x, y: cam.y, hx: W > 0 ? W / (2 * ppu) : this.grid[0], hy: H > 0 ? H / (2 * ppu) : this.grid[1] };
     const window = this.simTime - this._listenSim;
     this._listenSim = this.simTime;
-    const u = new ArrayBuffer(96), f = new Float32Array(u), w = new Uint32Array(u);
+    const u = new ArrayBuffer(112), f = new Float32Array(u), w = new Uint32Array(u);
     f[0] = view.x; f[1] = view.y; f[2] = view.hx; f[3] = view.hy; f[4] = this.grid[0]; f[5] = this.grid[1];
     w[6] = this.count; w[7] = (Math.random() * 4294967295) >>> 0;
     f[8] = this._clock().t; f[9] = window; f[10] = L.vscale || 1; w[11] = L.selKind ?? 0xffffffff;
     for (let t = 0; t < 9; t++) f[12 + t] = L.keep ? L.keep[t] : t === 8 ? 0.05 : 1;
+    f[24] = 0.5 * this._listenDt;
+    this._listenDt = this.dt;
     this.device.queue.writeBuffer(b.listenU, 0, u);
     this._clear(enc, b.listen, 0, LISTEN_HEAD * 4);
     const pass = enc.beginComputePass();

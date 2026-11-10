@@ -4009,10 +4009,16 @@ fn watchArgs() {
 
 // The soundtrack's ears: a read-only scan for what happened since the last scan. A particle's
 // age restarts at every change of state and the low bits of info say why, so every event in the
-// window (age < window) is found with its exact time. Counts are exact, in and out of the view;
-// in-view events are kept with a per-type probability (set from the previous scan's counts) so
-// the sample is unbiased when there are more than the audio can play. Nothing here is written
-// back to the simulation.
+// window is found with its exact time. The window is the simulated time since the last scan, and an
+// event's age at the scan is what it should be measured against: one made in resolveCount (a birth, a
+// kill, a grain eaten) is aged by its own step's lifeMain or matterMain, so a scan finds it a step old
+// (ages (0, window]), while one made in or after them (a spark, a death in lifeMain, a wake) is found at
+// age 0 (ages [0, window)). Each is tested half a step (slack) to the safe side of the window's edge
+// (see eventIn): tested against the window itself, a birth in the window's first step was exactly as old
+// as the window, and missed (a sixth of all births at 1x, where a scan takes six steps). Counts are
+// exact, in and out of the view; in-view events are kept with a per-type probability (set from the
+// previous scan's counts) so the sample is unbiased when there are more than the audio can play.
+// Nothing here is written back to the simulation.
 // 'alive' is not an event: a fair sample of the living cells in view, so each one can sing. 'woke' is a cell
 // woken from a cyst (cystStep: cause WOKE, its age restarted).
 export const LISTEN_TYPES = ['birth', 'mutation', 'spark', 'starved', 'old', 'killed', 'eaten', 'woke', 'alive'];
@@ -4067,11 +4073,22 @@ fn budKin(a: Genome, b: Genome) -> bool { return a.serial == b.serial || a.paren
 fn budGrowth(age: f32) -> f32 { let t = clamp(age / BIRTH_T, 0.0, 1.0) - 1.0; return 1.0 + 2.0 * t * t * t + t * t; }
 `;
 
-export const LISTEN_WGSL = COMMON + /* wgsl */ `
+// Whether a particle's last change of state (code: info & 15) falls in a scan's window (LISTEN_WGSL, SURVEY_WGSL).
+const SCAN_WGSL = /* wgsl */ `
+fn eventIn(p: Particle, code: u32, window: f32, slack: f32) -> bool {
+  // made in resolveCount, before its step aged it: a birth (9), a kill's carcass or a grain eaten (3)
+  let early = select(code == 3u && (p.kind == HUSK || p.kind == SILT), code == 9u, p.kind >= FIRST_LIFE);
+  return p.age < window + select(-slack, slack, early);
+}
+`;
+
+export const LISTEN_WGSL = COMMON + SCAN_WGSL + /* wgsl */ `
 struct ListenU {
   center: vec2f, half: vec2f, world: vec2f, count: u32, seed: u32,
   now: f32, window: f32, vscale: f32, selKind: u32,
   keep: array<vec4f, 3>,
+  // half the shortest step since the step before the window
+  slack: f32,
 };
 @group(0) @binding(0) var<uniform> lu: ListenU;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
@@ -4114,8 +4131,8 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
       let warmth = ${shownWarmth('waterTempAt(p.pos)', 'g', 'it')};
       if (!${shownThermal('g', 'warmth')}.torpid) { t = 8u; }
     }
-    if (p.age < lu.window) {
-      let code = p.info & 15u;
+    let code = p.info & 15u;
+    if (eventIn(p, code, lu.window, lu.slack)) {
       if (life) {
         // (a cell woken from a cyst is no birth: it wakes as itself, WOKE)
         if (code == 9u) {
@@ -4249,8 +4266,8 @@ fn noteMain(@builtin(global_invocation_id) gid: vec3u) {
 export const SURVEY_WORDS = 10;
 export const SURVEY = { living: 0, bonded: 1, births: 2, mutations: 3, sparks: 4, deaths: 5, kills: 6, species: 7, speed: 8, glint: 9 }; // glint: no longer counted (always 0)
 export const SURVEY_MAX_TILES = 4096;
-export const SURVEY_WGSL = COMMON + /* wgsl */ `
-struct SurveyU { grid: vec2u, tiles: vec2u, tile: u32, now: f32, window: f32, adhMin: f32 };
+export const SURVEY_WGSL = COMMON + SCAN_WGSL + /* wgsl */ `
+struct SurveyU { grid: vec2u, tiles: vec2u, tile: u32, now: f32, window: f32, adhMin: f32, slack: f32 };
 @group(0) @binding(0) var<uniform> su: SurveyU;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
 @group(0) @binding(2) var<storage, read> genomes: array<Genome>;
@@ -4265,8 +4282,8 @@ fn surveyMain(@builtin(global_invocation_id) gid: vec3u) {
   var mask = 0u;
   for (var i = cellStart[c]; i < cellStart[c + 1u]; i++) {
     let p = parts[i];
-    let recent = p.age < su.window;
     let code = p.info & 15u;
+    let recent = eventIn(p, code, su.window, su.slack);
     if (p.kind >= FIRST_LIFE) {
       let g = genomes[p.kind];
       n[0] += 1u;
