@@ -67,6 +67,17 @@ export function createHand(words, ids, { reach = REACH.def, drops }) {
     // the record: one entry per act (a tool held, or a run of taps and pricks in one place), its times simulated
     acts: [],
     get touched() { return h.acts.length > 0; },
+    /**
+     * Forget what is done with: of the first `seen` acts (those the page has counted, hand news), those told or that
+     * never can be (no count as they began: a loaded world's), but always the last (a world touched says so; it may go
+     * on). The record stays the same array (the world's, life.hand). Returns how many went.
+     */
+    forget(seen) {
+      let k = 0;
+      while (k < seen && k < h.acts.length - 1 && (h.acts[k].told || !h.acts[k].near)) k++;
+      if (k) h.acts.splice(0, k);
+      return k;
+    },
     /** How much of the lamp's, shade's, stage's or probe's full strength the tool in hand has now (0..1). */
     get level() {
       const t = h.tool, v = t === 'lamp' || t === 'shade' ? h.lamp.v / (t === 'lamp' ? LAMP : -SHADE) : t === 'warm' || t === 'cold' ? h.stage.v * (t === 'warm' ? 1 : -1) : 0;

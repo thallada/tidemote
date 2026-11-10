@@ -2988,6 +2988,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (handBusy || state.phase !== 'running' || !acts.length) return;
     handBusy = true;
     try {
+      // (the acts told go from the record, so it never grows as a world runs)
+      handSeen -= hand.forget(handSeen);
       if (handSeen < acts.length) {
         const m = await nearCounts(acts[handSeen]);
         // (a species of one or two cells there could not have bloomed or been driven out: not kept)

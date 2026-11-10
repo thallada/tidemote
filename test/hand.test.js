@@ -169,3 +169,23 @@ test('the pipette draws at its tip while the page says so', () => {
   hand.suck = null; hand.update(1 / 60);
   assert.deepEqual([...words.subarray(24, 28)], [0, 0, 0, 0]);
 });
+
+test('the record forgets the acts told and those that cannot be, but never the last', () => {
+  const { hand } = make();
+  hand.set('touch');
+  for (let i = 0; i < 6; i++) hand.tap(i * 40, 1, i * 10);
+  const acts = hand.acts;
+  assert.equal(acts.length, 6);
+  acts[0].near = []; acts[0].told = true;
+  acts[1].near = [];
+  acts[3].near = []; acts[3].told = true;
+  assert.equal(hand.forget(0), 0, 'nothing counted, nothing forgotten');
+  assert.equal(hand.forget(4), 1, 'the first told goes; the second waits to be told');
+  assert.equal(hand.acts, acts, 'the same record');
+  assert.equal(acts[0].x, 40);
+  acts[0].told = true;
+  assert.equal(hand.forget(5), 4, 'a loaded world\'s acts (never counted) go too, all but the last');
+  assert.equal(acts.length, 1);
+  assert.equal(acts[0].x, 200);
+  assert.equal(hand.touched, true);
+});
