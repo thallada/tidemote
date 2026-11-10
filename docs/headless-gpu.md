@@ -62,7 +62,8 @@ by eater guild and victim guild), from cumulative counters in the ledger. They e
 declines, which the outcome metrics cannot.
 
 Each sample also has an energy budget per diet guild (`energy`: energy per simulated minute taken from
-light, glint, plant bites, husks and kills, and spent on upkeep and on children; light and upkeep are
+light, plant bites, husks and kills, and spent on upkeep, on children and on heat-making (its `glint` slot is
+kept and always 0: glint was removed); light and upkeep are
 sampled once a simulated second per cell). Divide by the guild's population for a per-cell budget: a
 guild that eats less than its upkeep is starving, whatever its birth rate.
 
