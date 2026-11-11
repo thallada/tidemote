@@ -3262,7 +3262,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // the screen)
   function hearHand(R, dt) {
     if (R) heard.pan = panAt(R.sx);
-    const tip = hand.tool === 'touch' && hand.held ? hand.rodAt : hand.tool === 'needle' && hand.held ? hand.last : null, was = heard.tip;
+    const tip = (hand.tool === 'touch' || hand.tool === 'needle') && hand.held ? hand.last : null, was = heard.tip;
     heard.tip = tip ? [...tip] : null;
     const v = tip && was && dt > 0 ? Math.min(4, (Math.hypot(tip[0] - was[0], tip[1] - was[1]) * cssPPU()) / dt / 300) : 0;
     hearWater();

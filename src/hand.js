@@ -57,10 +57,10 @@ export function createHand(words, ids, { reach = REACH.def, drops }) {
   const h = {
     // (at: where the pointer is over the world, or null)
     // (from: where the point was when the world last stepped)
-    // (dip: how far the rod is in the water, 0..1, at rodAt; eddies: its wake, { x, y, vx, vy, t }; wake: where it
-    // was when it last left one)
+    // (dip: how far the rod is down, 0..1, in the water while pressed and drawn lifting out after; eddies: its wake,
+    // { x, y, vx, vy, t }; wake: where it was when it last left one)
     // (stroke: the rod's last move, frame to frame, and when; rung: how many ring waves its strokes have sent out)
-    tool: 'loupe', reach, held: false, rung: 0, last: null, at: null, from: null, dip: 0, rodAt: null, eddies: [], wake: null, stroke: null,
+    tool: 'loupe', reach, held: false, rung: 0, last: null, at: null, from: null, dip: 0, eddies: [], wake: null, stroke: null,
     lamp: { x: 0, y: 0, r: reach, v: 0 }, stage: { x: 0, y: 0, r: reach, v: 0 },
     // the ridden cell and where it is steered: [x, y, strength]; the pipette's draw: [x, y, reach, speed] (the page's)
     rider: NONE, will: null, suck: null,
@@ -142,13 +142,13 @@ export function createHand(words, ids, { reach = REACH.def, drops }) {
       const f = h.held && p ? h.from || p : null, needle = f && tl === 'needle';
       const cut = needle && Math.hypot(p[0] - f[0], p[1] - f[1]) > 1e-4;
       h.dip = settle(ease(h.dip, h.held && tl === 'touch' ? 1 : 0, EASE.dip, dt), h.held && tl === 'touch');
-      // (let go, it lifts out under the pointer, following it; where a finger lifted, where it was)
-      if (p && tl === 'touch') h.rodAt = p;
-      const rod = h.dip > 0 && h.rodAt, rf = rod && (f || h.rodAt);
-      wake(rod && h.rodAt, t);
+      // (the rod pushes and stirs only while pressed: let go, it is out of the world's water at once, however fast
+      // the world runs or wherever the pointer goes; only the rod drawn lifts out, under the pointer, as dip falls)
+      const rod = h.held && tl === 'touch' && h.dip > 0 ? p : null;
+      wake(rod, t);
       const w = h.will || [0, 0, 0];
       words.set([h.lamp.x, h.lamp.y, h.lamp.r, h.lamp.v, h.stage.x, h.stage.y, h.stage.r, h.stage.v,
-        ...(rod ? [...h.rodAt, ...rf] : [0, 0, 0, 0]), ...(cut ? [...f, ...p] : [0, 0, 0, 0]), rod ? h.reach * Math.sqrt(h.dip) : 0, cut ? CUT : 0, w[0], w[1]]);
+        ...(rod ? [...rod, ...f] : [0, 0, 0, 0]), ...(cut ? [...f, ...p] : [0, 0, 0, 0]), rod ? h.reach * Math.sqrt(h.dip) : 0, cut ? CUT : 0, w[0], w[1]]);
       ids[21] = h.rider;
       words[22] = w[2];
       words.set(h.suck || [0, 0, 0, 0], 24);

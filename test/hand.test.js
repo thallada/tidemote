@@ -76,11 +76,15 @@ test('the rod dips in, its disc widening to the reach; it sweeps from where it w
   assert.deepEqual([...words.subarray(8, 12)], [4, 1, 1, 1], 'a frame the world did not step in: still from where it last stepped');
   hand.stepped(); hand.move(5, 1); hand.update(1 / 60);
   assert.deepEqual([...words.subarray(8, 12)], [5, 1, 4, 1]);
-  hand.up(); hand.hover(9, 9); hand.update(1 / 60);
-  assert.ok(words[16] > 0, 'lifting out');
-  assert.deepEqual([...words.subarray(8, 12)], [9, 9, 9, 9], 'let go, it lifts out under the pointer, sweeping nothing on its way there');
+  const eddies = hand.eddies.length;
+  hand.up(); hand.hover(9, 9); hand.update(1 / 60, 0.05);
+  assert.ok(hand.dip > 0, 'drawn lifting out');
+  assert.equal(words[16], 0, 'let go, out of the world at once: it pushes nothing as it lifts out');
+  assert.deepEqual([...words.subarray(8, 12)], [0, 0, 0, 0], 'nor where the pointer goes');
+  for (const x of [10, 11, 12]) { hand.hover(x, 9); hand.update(1 / 60, 0.05 + x / 10); }
+  assert.ok(words[16] === 0 && hand.eddies.length === eddies, 'the pointer moving after leaves no wake');
   run(hand, 1);
-  assert.equal(words[16], 0, 'lifted out');
+  assert.equal(hand.dip, 0, 'lifted out');
 });
 
 test('the rod’s wake: eddies along a stroke, fading; a stroke turned back rings out a wave', () => {
