@@ -114,6 +114,10 @@ wrap puts them and show no seam at the world's edges. Raindrop ripples bend the 
   the water returns over it. Drawn only: the cells on the mud wake as before, when the water reaches them.
 - **The water's edge**: an uneven bright contact line (the meniscus pins and slips on grains), its width and
   brightness varying along it, the curved surface rising to it scattering a narrowing glow on the water's side.
+  Its wavering (`edgeSway`, in the simulation's stranding and the drawn edge alike) is three waves whose wave numbers
+  are rounded to whole waves across the world (`swayK`), so the edge meets itself across the wrap: taken as they
+  were, they jumped there by up to 0.36 units, and wherever a shore crossed the world's edges the drawn edge, its glow
+  and the dry floor were cut off in a straight line and went on offset beyond it.
 - **Rain** (`ripples`): the surface lies above the focal plane, so its waves are never sharp in themselves; they
   show by bending what lies beneath (a slope displaces the view) and, on open water only, by a soft shading of their
   slopes: the flanks tilted toward the lamp throw a little of its light into the objective, the far flanks dim what

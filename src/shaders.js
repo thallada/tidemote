@@ -744,9 +744,16 @@ fn edgeSway(p: vec2f, n: vec2f, flow: vec2f) -> f32 {
   let t = ${t};
   let push = clamp(dot(flow, n) * ${f(K.edgeSway)}, -0.9, 0.9);
   let ph = ${u}.edgePh;
-  let wob = sin(dot(p, vec2f(0.83, 0.56)) * 0.9 + (t * ${f(EDGE_SWAY_W[0])} + ph.x)) * sin(dot(p, vec2f(-0.42, 0.91)) * 0.6 - (t * ${f(EDGE_SWAY_W[1])} + ph.y))
-    + 0.5 * sin(dot(p, vec2f(0.29, -0.96)) * 2.1 + (t * ${f(EDGE_SWAY_W[2])} + ph.z));
+  let wob = sin(dot(p, swayK(vec2f(0.83, 0.56) * 0.9)) + (t * ${f(EDGE_SWAY_W[0])} + ph.x)) * sin(dot(p, swayK(vec2f(-0.42, 0.91) * 0.6)) - (t * ${f(EDGE_SWAY_W[1])} + ph.y))
+    + 0.5 * sin(dot(p, swayK(vec2f(0.29, -0.96) * 2.1)) + (t * ${f(EDGE_SWAY_W[2])} + ph.z));
   return push + ${f(K.edgeWobble)} * wob;
+}
+// A wobble's wave vector rounded to whole waves across the world, so the edge meets itself across the wrap: as they
+// were, the waves jumped at the world's edges (by up to 0.36 units), the drawn shore cut off in straight lines there
+// and the simulation's stranding with it.
+fn swayK(k: vec2f) -> vec2f {
+  let q = 6.2831853 / ${u}.world;
+  return round(k / q) * q;
 }
 `;
 // whether any water is warm enough for bubbles (the heat field's HOT_N), for passes that show it
