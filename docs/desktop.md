@@ -1,5 +1,7 @@
 # Desktop build (Steam)
 
+Releases (CI builds for every OS, Steam branches, itch.io) are in docs/release.md.
+
 `desktop/` wraps the built page in Electron, its own npm package so the sim's dependencies stay as
 they are. `scripts/stage.mjs` runs `build.mjs` and copies `dist/tidemote.html` to
 `desktop/page/index.html`, which `main.js` serves from `app://tidemote/` (an origin of its own, so
