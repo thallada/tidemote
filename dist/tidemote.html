@@ -678,8 +678,6 @@ canvas.chart { cursor: crosshair; }
    grid of even cells over two lines or more. */
 .opt { display: grid; grid-template-columns: 9.6em minmax(0, 1fr); gap: var(--s3); align-items: center; }
 .opt > .lbl { white-space: nowrap; }
-/* (a label too long for its column, Adapt to this device, takes two lines) */
-.opt > .lbl:has(> [data-tip="adapt"]) { white-space: normal; }
 .opt > .segs { flex-wrap: nowrap; min-width: 0; padding-top: 1px; }
 .opt > .segs .chip { flex: 1 1 auto; min-width: 0; padding: 0 6px; margin-top: -1px; justify-content: center; white-space: nowrap; }
 .opt > .segs .chip:has(.auto-now) { gap: 5px; }
@@ -691,10 +689,10 @@ canvas.chart { cursor: crosshair; }
 /* a touch screen has no keys to show */
 @media (pointer: coarse) { .opt kbd { display: none; } }
 .opts .ramp { margin-left: calc(9.6em + var(--s3)); }
-/* a Display row the page is easing right now (Performance → Adapt to this device): a quiet dot, its place always kept */
+/* a Display row the page is easing right now (Performance → Adaptation): a quiet dot, its place always kept */
 .opt .eased { display: inline-block; width: 5px; height: 5px; margin: 0 0 1px var(--s1); border-radius: 50%; background: var(--sun); opacity: .75; vertical-align: middle; visibility: hidden; }
 .opt .eased.on { visibility: visible; }
-/* what the page holds back now (under Adapt to this device): three lines, room for all of it, whatever they say */
+/* what the page holds back now (under Adaptation): three lines, room for all of it, whatever they say */
 .opts .eased-now { margin: 0; height: 48px; font-size: 12px; line-height: 16px; color: var(--ink-2); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 .vol-row { display: flex; align-items: center; gap: var(--s3); height: 32px; }
 .vol-row input { flex: 1; min-width: 0; height: 24px; }
@@ -36124,7 +36122,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
   var touchOnly = !matchMedia("(any-hover: hover)").matches;
   var throttles = navigator.userAgentData?.mobile ?? (/Android|iPhone|iPad|Mobile/.test(navigator.userAgent) || isCoarse && !matchMedia("(any-pointer: fine)").matches);
   var HELD = {
-    // i18n: Settings → Perf, under Adapt to this device: one thing held back for speed (listed joined by " · "): the water's waves worked out not at all ({level} 0), a quarter (1) or half (2) as often
+    // i18n: Settings → Perf, under Adaptation: one thing held back for speed (listed joined by " · "): the water's waves worked out not at all ({level} 0), a quarter (1) or half (2) as often
     sea: (l) => tr("settings.perf.held.sea", "{level, select, 0 {Water surface off} 1 {Water at a quarter rate} other {Water at half rate}}", { level: l }),
     bloom: () => tr("settings.perf.held.bloom", "Glow off"),
     specks: () => tr("settings.perf.held.specks", "Suspension off"),
@@ -38800,7 +38798,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         const dev = Math.min(devicePixelRatio || 1, 2);
         const sizes2 = PARTICLE_SIZES.filter((n) => n <= maxParticles());
         const nowN = pendingN ?? (P.particles || "auto");
-        return group("quality", tr("settings.perf.quality", "Quality"), onoff("adapt", tr("settings.perf.adapt", "Adapt to this device"), "", P.adapt, "adapt") + `<p class="eased-now" id="perf-held">${heldWords()}</p>`) + group("res", tr("settings.perf.resolution", "Resolution"), choice("scale", tr("settings.perf.scale", "Render scale"), "", [["auto", AUTO], [1, pctOf(100)], [0.75, pctOf(75)], [0.5, pctOf(50)], [0.25, pctOf(25)]], P.scale, "renderscale") + (P.scale === "auto" ? choice("floor", tr("settings.perf.floor", "Auto lowest"), "", [[0.75, pctOf(75)], [0.5, pctOf(50)], [0.35, pctOf(35)], [0.25, pctOf(25)]], P.floor, "autofloor") : "") + choice("density", tr("settings.perf.density", "Pixel density"), "", [["auto", AUTO], [1, timesOf(1)], [1.5, timesOf(1.5), dev < 1.5], [2, timesOf(2), dev < 2]], P.density, "density") + choice("fps", tr("settings.perf.fps", "Target fps"), "", [["auto", AUTO], [30, "30"], [60, "60"], [0, tr("settings.perf.fps-display", "Display")]], P.fps, "targetfps")) + group("world", tr("settings.perf.world", "World"), choice("n", tr("settings.perf.particles", "Particles"), "", [["auto", AUTO], ...sizes2.map((n) => [n, kfmt(n)])], nowN, "particles") + choice("scan", tr("settings.perf.neighbors", "Neighbors"), "", [["auto", AUTO], ...scanChoices().map((n) => [n, String(n)])], P.scan ?? "auto", "neighbors") + (pendingN != null && String(pendingN) !== String(P.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">${pendingN === "auto" ? tr("settings.perf.apply-auto", "Start a new world with a measured count") : tr("settings.perf.apply", "Start a new world with {n, number}", { n: pendingN })}</button></div>` : "") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", tr("settings.perf.profile", "Profile"))}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">${tr("settings.perf.copy-profile", "Copy profile")}</button></div></div>` : ""));
+        return group("quality", tr("settings.perf.quality", "Quality"), onoff("adapt", tr("settings.perf.adapt", "Adaptation"), "", P.adapt, "adapt") + `<p class="eased-now" id="perf-held">${heldWords()}</p>`) + group("res", tr("settings.perf.resolution", "Resolution"), choice("scale", tr("settings.perf.scale", "Render scale"), "", [["auto", AUTO], [1, pctOf(100)], [0.75, pctOf(75)], [0.5, pctOf(50)], [0.25, pctOf(25)]], P.scale, "renderscale") + (P.scale === "auto" ? choice("floor", tr("settings.perf.floor", "Auto lowest"), "", [[0.75, pctOf(75)], [0.5, pctOf(50)], [0.35, pctOf(35)], [0.25, pctOf(25)]], P.floor, "autofloor") : "") + choice("density", tr("settings.perf.density", "Pixel density"), "", [["auto", AUTO], [1, timesOf(1)], [1.5, timesOf(1.5), dev < 1.5], [2, timesOf(2), dev < 2]], P.density, "density") + choice("fps", tr("settings.perf.fps", "Target fps"), "", [["auto", AUTO], [30, "30"], [60, "60"], [0, tr("settings.perf.fps-display", "Display")]], P.fps, "targetfps")) + group("world", tr("settings.perf.world", "World"), choice("n", tr("settings.perf.particles", "Particles"), "", [["auto", AUTO], ...sizes2.map((n) => [n, kfmt(n)])], nowN, "particles") + choice("scan", tr("settings.perf.neighbors", "Neighbors"), "", [["auto", AUTO], ...scanChoices().map((n) => [n, String(n)])], P.scan ?? "auto", "neighbors") + (pendingN != null && String(pendingN) !== String(P.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">${pendingN === "auto" ? tr("settings.perf.apply-auto", "Start a new world with a measured count") : tr("settings.perf.apply", "Start a new world with {n, number}", { n: pendingN })}</button></div>` : "") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", tr("settings.perf.profile", "Profile"))}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">${tr("settings.perf.copy-profile", "Copy profile")}</button></div></div>` : ""));
       }
       function climate_() {
         const E = state.events;
