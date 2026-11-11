@@ -678,6 +678,8 @@ canvas.chart { cursor: crosshair; }
    grid of even cells over two lines or more. */
 .opt { display: grid; grid-template-columns: 9.6em minmax(0, 1fr); gap: var(--s3); align-items: center; }
 .opt > .lbl { white-space: nowrap; }
+/* (a label too long for its column, Adapt to this device, takes two lines) */
+.opt > .lbl:has(> [data-tip="adapt"]) { white-space: normal; }
 .opt > .segs { flex-wrap: nowrap; min-width: 0; padding-top: 1px; }
 .opt > .segs .chip { flex: 1 1 auto; min-width: 0; padding: 0 6px; margin-top: -1px; justify-content: center; white-space: nowrap; }
 .opt > .segs .chip:has(.auto-now) { gap: 5px; }
@@ -689,6 +691,11 @@ canvas.chart { cursor: crosshair; }
 /* a touch screen has no keys to show */
 @media (pointer: coarse) { .opt kbd { display: none; } }
 .opts .ramp { margin-left: calc(9.6em + var(--s3)); }
+/* a Display row the page is easing right now (Performance → Adapt to this device): a quiet dot, its place always kept */
+.opt .eased { display: inline-block; width: 5px; height: 5px; margin: 0 0 1px var(--s1); border-radius: 50%; background: var(--sun); opacity: .75; vertical-align: middle; visibility: hidden; }
+.opt .eased.on { visibility: visible; }
+/* what the page holds back now (under Adapt to this device): three lines, room for all of it, whatever they say */
+.opts .eased-now { margin: 0; height: 48px; font-size: 12px; line-height: 16px; color: var(--ink-2); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 .vol-row { display: flex; align-items: center; gap: var(--s3); height: 32px; }
 .vol-row input { flex: 1; min-width: 0; height: 24px; }
 .vol-row b { width: 4ch; text-align: right; font-weight: 400; color: var(--ink-2); }
@@ -1744,8 +1751,8 @@ svg.niche .n-dot { fill: var(--cyan); }
     <dt>V</dt><dd data-i18n="help.k11">Settings</dd>
     <dt>M · − =</dt><dd data-i18n="help.k12">Sound · volume</dd>
     <dt>T</dt><dd data-i18n="help.k13">Trails</dd>
-    <dt>G · E · H · C</dt><dd data-i18n="help.k14">Light map · heat map · tide map · currents</dd>
-    <dt>L N Y O</dt><dd data-i18n="help.k15">Bonds · particles · bloom · optics</dd>
+    <dt>G · E · H · C</dt><dd data-i18n="help.k14">Light map · heat map · tide map (again: no map) · currents</dd>
+    <dt>Y · O</dt><dd data-i18n="help.k15">Glow · microscope</dd>
     <dt>1–8 · 0</dt><dd data-i18n="help.k16">The tools: loupe, touch, lamp, shade, warm, cold, needle, pipette (held down: for a moment; again: put it down) · pan, nothing in hand</dd>
     <dt data-i18n="help.k17.keys">B · Esc</dt><dd data-i18n="help.k17">The bench · put the tool down</dd>
     <dt data-i18n="help.k18.keys">[ ] · ⇧ Wheel</dt><dd data-i18n="help.k18">The tool’s reach (with the loupe: its magnification)</dd>
@@ -17148,8 +17155,8 @@ struct SV {
       this.seedValue = 1;
       this.censusEvery = 20;
       this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1, tide: 0, heat: 1, bands: 0, optics: 1, specks: true, lod: true };
-      this.fx = { seaEvery: 1, bloom: true, specks: true, stoneEvery: STONE_EVERY, finish: 2, interiors: true };
-      this.fxFade = { bloom: 1, sea: 1, finish: 1, t: null };
+      this.fx = { seaEvery: 1, bloom: true, specks: true, stoneEvery: STONE_EVERY, haze: true, microscope: true, interiors: true };
+      this.fxFade = { bloom: 1, sea: 1, look: 1, t: null };
       this.simData = new ArrayBuffer(912);
       this.hand = new Float32Array(116);
       this.handU = new Uint32Array(this.hand.buffer);
@@ -17225,6 +17232,7 @@ struct SV {
       });
       b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
       b.post = d.createBuffer({ size: POST_WORDS * 4, usage: U.UNIFORM | U.COPY_DST });
+      b.postPlain = d.createBuffer({ size: POST_WORDS * 4, usage: U.UNIFORM | U.COPY_DST });
       b.seaU = d.createBuffer({ size: 128, usage: U.UNIFORM | U.COPY_DST });
       this.seaTex = d.createTexture({
         size: [SEA_N, SEA_N, SEA_CASCADES],
@@ -18233,7 +18241,7 @@ ${e.message}` : String(e?.message || e));
       return this.device.createBindGroup({ layout: this.pPlain.getBindGroupLayout(0), entries: [
         { binding: 0, resource: this.sampler },
         { binding: 1, resource: this.specSceneView },
-        { binding: 2, resource: { buffer: this.b.post } },
+        { binding: 2, resource: { buffer: this.b.postPlain } },
         { binding: 6, resource: { buffer: this.b.viewS } }
       ] });
     }
@@ -18640,14 +18648,14 @@ ${e.message}` : String(e?.message || e));
     _seaShown() {
       return this.seaTune.view !== 3 && (this.fx.seaEvery > 0 || this.fxFade.sea > 0);
     }
-    // bloom, the sea and the finish eased toward what fx asks (their passes run until faded out)
+    // bloom, the sea and the microscope eased toward what fx asks (their passes run until faded out)
     _fadeFx(realT) {
       const f2 = this.fxFade, dt = f2.t == null ? 0 : Math.min(0.1, Math.max(0, realT - f2.t));
       f2.t = realT;
       const ease4 = (v, to, rate2) => to > v ? Math.min(to, v + rate2 * dt) : Math.max(to, v - rate2 * dt);
       f2.bloom = ease4(f2.bloom, this.fx.bloom ? 1 : 0, 2);
       f2.sea = ease4(f2.sea, this.fx.seaEvery > 0 ? 1 : 0, 1.5);
-      f2.finish = ease4(f2.finish, this.fx.finish >= 1 ? 1 : 0, 1.5);
+      f2.look = ease4(f2.look, this.fx.microscope ? 1 : 0, 1.5);
     }
     // the ice as drawn eased toward the simulation's (ICE_SHOW_WGSL), at once in a world just made or loaded; over no
     // grid cells where there is no ice to draw or still drawn (iceArgsMain)
@@ -20207,8 +20215,8 @@ ${e.message}` : String(e?.message || e));
       const clk = this._clock();
       pd[12] = clk.t;
       pd[13] = this.ambient;
-      pd[14] = this.settings.optics * this.fxFade.finish;
-      pd[15] = this.K.heat ? this.settings.heat === 1 && this.fx.finish < 2 ? 0 : this.settings.heat : -1;
+      pd[14] = this.settings.optics * this.fxFade.look;
+      pd[15] = this.K.heat ? this.settings.heat === 1 && !this.fx.haze ? 0 : this.settings.heat : -1;
       pd.set(this.tide, 16);
       pd.set(clk.tidePh, 32);
       pd.set(this.waves, 36);
@@ -20229,10 +20237,11 @@ ${e.message}` : String(e?.message || e));
       pd.set(this.hand.subarray(0, 4), POST_LAMP);
       pd.set(this.lens, POST_LAMP + 4);
       pd.set(this.tool, POST_LAMP + 8);
-      if (this.fxFade.finish < 1) pd.set(this.look.map((v) => v * this.fxFade.finish), POST_LOOK);
-      else pd.set(this.look, POST_LOOK);
       pd.set(this._murkCam(cam, W2, H2), POST_MURK);
       pd.set(clk.edgePh, POST_EDGE);
+      pd.set(this.look, POST_LOOK);
+      if (specimen && specimen.target) d.queue.writeBuffer(this.b.postPlain, 0, pd);
+      if (this.fxFade.look < 1) pd.set(this.look.map((v) => v * this.fxFade.look), POST_LOOK);
       d.queue.writeBuffer(this.b.post, 0, pd);
       this._shiftPending = null;
       if (this._seaOn && pd[94] > 0 && this.cpShiftBG) {
@@ -21828,7 +21837,8 @@ ${e.message}` : String(e?.message || e));
     era: tr("gloss.era", "Every 10–18 minutes the climate turns: the baseline light and the water’s temperature change, one tide wave is replaced, and the currents shift. In about one era in six the water stands low and the highest ground shows as islands; the next full-water era covers them again. An era that warms the water by 5° or more is named Warm or Rising, one that cools it Bitter or Pale; otherwise the names are random labels."),
     water: tr("gloss.water", "The water’s background temperature, set by the climate: it walks from era to era between 4° and 28°, swings ±2.5° with the season, and now and then a heat wave or cold snap passes. Life warms its own water above this: every cell’s spent energy becomes heat, so crowds, bodies and reefs sit in warm patches."),
     tidemap: tr("gloss.tidemap", "The light the Tide brings, right now: dark where it is dim, through violet to pale blue where the bands are brightest. Thin lines trace the bands’ shape at every season, so they still show at low tide, and a dashed line shows where the bands will be in 20 seconds, so you can see where the producers’ light is heading. Tap the Tide gauge (on phones, the era name) to open it."),
-    heatmap: tr("gloss.heatmap", "How heat is drawn. Shimmer: warm water bends light like the air over a hot road, so plumes, colony halos and fronts waver. Full: a thermal camera, deep blue to teal to amber to white over a span from 2° below the background water to 10° above it, with a line every 2°."),
+    maps: tr("gloss.maps", "One map over the view at a time. Light colors every point by the light a photosynthesizing cell would get there; Heat is a thermal camera, deep blue to teal to amber to white over a span from 2° below the background water to 10° above it, with a line every 2°; Tide shows the light the Tide brings and where its bands are heading. Its key (G, E, H) or gauge opens it, and again closes it."),
+    haze: tr("gloss.haze", "Warm water bends light like the air over a hot road, so plumes, colony halos and fronts waver. Off, the view holds still over warm water (boiling water still roils)."),
     thermal: tr("gloss.thermal", "How well a cell works at its temperature: a rate that scales its photosynthesis, digestion and swimming. It is at its best within half a tolerance of the species’ optimum (higher the narrower its tolerance), then falls slowly on the cold side and steeply on the warm side. Away from its optimum a cell also pays extra upkeep for the stress."),
     optimum: tr("gloss.optimum", "The temperature a species works best at (a gene, 0–45°). It drifts by mutation, so lineages can follow the climate or find a warm or cold refuge. A spark of life founds a species suited to the water it sparked in."),
     tolerance: tr("gloss.tolerance", "How far from its optimum a species still works (a gene, ±2–15°). Narrow specialists work up to 25% better at their optimum than broad generalists, but a few degrees away they falter."),
@@ -21933,17 +21943,11 @@ ${e.message}` : String(e?.message || e));
     autoidle: tr("gloss.autoidle", "Left alone for a minute (three with a panel open), the camera starts filming the world on its own. Drag, scroll or tap to take it back."),
     renderscale: tr("gloss.renderscale", "The share of the screen’s resolution the world is drawn at. Auto lowers it while frames run late and raises it again when there is room, and shows the scale it is using now (the choice it matches underlined, or the scale beside Auto); it may go as low as Auto lowest, and in an emergency lower still, to 25%. A fixed value never changes."),
     autofloor: tr("gloss.autofloor", "The lowest render scale Auto may drop to."),
-    tunesea: tr("gloss.tunesea", "How often the sea’s waves are worked out: every frame (Full), every second (½) or fourth (¼) frame, their pace kept, in steps, or not at all, leaving the water’s surface still. On a phone it is a sixth of a frame. Auto lowers and raises it with the other Auto choices, by what each costs this device and how much it shows (the choice it uses is underlined)."),
-    tunebloom: tr("gloss.tunebloom", "The soft glow around bright cells, allowed or not. Auto leaves it out when frames run late and its time is worth more elsewhere."),
-    tunespecks: tr("gloss.tunespecks", "The finest specks drifting in the water, seen only close up. Auto leaves them out when frames run late."),
-    tunestone: tr("gloss.tunestone", "How often the stone is lit again while the world runs (every ½, 1 or 2 seconds), as its grains wear and its reefs grow. Auto lights it less often when frames run late."),
-    tuneinteriors: tr("gloss.tuneinteriors", "Whether cells seen up close show what is inside them (their nuclei, vacuoles and the food they digest). Off, they keep their shapes, walls and tissue, drawn more cheaply. Auto turns them off only on a device where frames run late up close."),
-    tunefinish: tr("gloss.tunefinish", "The last touches on the view: Full has all of them; Still leaves out the heat map’s faint shimmer over warm water (boiling water still roils); Plain also leaves out the eyepiece’s optics and the microscope’s look, about halving the cost of finishing each frame. Auto gives them up only on a device where frames run late and they cost much."),
+    adapt: tr("gloss.adapt", "On, when frames run late the page eases what costs this device most for the least you would notice, and brings it back when there is room: the water’s waves worked out less often, the glow, the suspension, the stone relit less often, the heat haze, the microscope, cells’ insides. It eases only what Display shows, marks each Display setting it is easing with a dot, and lists them here. Off, everything Display shows is drawn in full (render scale and frame rate still follow their own settings)."),
     density: tr("gloss.density", "The most device pixels drawn per CSS pixel. High-density (Retina) screens look sharper at 2× but cost up to four times the pixels of 1×. Readouts and outlines stay sharp either way. Auto draws at 1× (while a film rolls, up to 1.5×, so its frames are not stretched up). It shows the density it is using now. A fixed value never changes."),
     targetfps: tr("gloss.targetfps", "Frames per second aimed for, as a whole number of the screen’s refreshes so frames stay evenly spaced (60 on a 144 Hz screen is every second refresh, 72 fps). 30 halves the GPU’s work and saves battery; Display follows the screen’s refresh rate (120 on many phones and Macs), which costs the most. Simulated time keeps pace with real time at any rate. Auto aims for 60 and, when the device can’t keep up, lowers the rate itself (to 30, 20 or 15; shown beside Auto); a rate chosen is held even then."),
-    bloom: tr("gloss.bloom", "A soft glow around bright cells. Several extra full-screen passes."),
-    optics: tr("gloss.optics", "The microscope’s lens: the view softens and its colors part toward the edges, a round field stop darkens the corners, a faint haze lies behind the cells and dust drifts out of focus. One extra full-screen pass."),
-    lod: tr("gloss.lod", "Zoomed in, cells resolve into membranes, organelles and fused bodies, and bonds into soft strands. Off, every cell stays the glowing point it is from afar, at any zoom: far cheaper, so the page can run more particles. The loupe and the live close-up show the points too; species cards keep their detail."),
+    bloom: tr("gloss.bloom", "A soft glow around bright cells, and with it the microscope’s warm halation and the lamp’s veiling flare, which spread that glow. Several extra full-screen passes."),
+    lod: tr("gloss.lod", "Zoomed in, cells resolve into membranes, organelles and fused bodies, and bonds into soft strands. Off, every cell stays the glowing point it is from afar, at any zoom: far cheaper, so the page can run more particles. The loupe and the live close-up show the points too; species cards keep their insides."),
     specks: tr("gloss.specks", "The fine suspension that drifts between cells when zoomed far in. Drawn speck by speck; off saves a compute pass and a full-screen pass."),
     closeup: tr("gloss.closeup", "The live close-up in the specimen panel: a second, small view of the world drawn every frame."),
     particles: tr("gloss.particles", "Every grain, husk and cell is one particle; their number is fixed for a world’s whole life. Auto measures the GPU and picks the most it can run smoothly, and shows the count it picked for this world. Changing it starts a new world."),
@@ -21959,7 +21963,7 @@ ${e.message}` : String(e?.message || e));
     tempo: tr("gloss.tempo", "How quickly its song moves, from how fast and how hungrily it lives."),
     audioload: tr("gloss.audioload", "How much of its time the soundtrack’s audio thread spends rendering. Near 100% it would crackle, so above about 50% fewer notes may sound at once and the oldest fade out early."),
     watersurface: tr("gloss.watersurface", "The surface of the water far above the cells, out of focus: as its waves pass they gently bend the view and sweep soft bands of light across what lies beneath, more in a storm. Subtle tones it down, Strong turns it up, Off holds the view still."),
-    microlook: tr("gloss.microlook", "The view as a darkfield microscope shows living cells: black water, outlines glowing as light catches their edges and touched with rainbow, a warm glow about whatever is bright, a soft focus away from the middle and a little grain. Subtle tones it down, Strong turns it up, Off shows the cells plainly."),
+    microlook: tr("gloss.microlook", "The view as a darkfield microscope shows living cells: black water, outlines glowing as light catches their edges and touched with rainbow, a soft focus away from the middle and a little grain, seen through the eyepiece’s lens (colors parting toward the edges, a round field stop darkening the corners, dust drifting out of focus). Subtle tones it down, Strong turns it up, Off shows the cells plainly, without the lens. O turns it off and back on. Its warm glow about whatever is bright is Glow’s."),
     filmgrain: tr("gloss.filmgrain", "A fine flicker of grain over the picture, as on film, strongest in the midtones. Fine is barely seen, Heavy is an old reel; Off is clean."),
     wavemotion: tr("gloss.wavemotion", "How quickly the water’s waves move. Slow suits a calm view; Lively, a restless one. Sped-up worlds move them faster too, but less than the cells."),
     audiomusic: tr("gloss.audiomusic", "The composed music under everything: the piano, strings and vibraphone that follow the era and the species that reign. Off leaves only the life and the water."),
@@ -22018,7 +22022,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         p(tr("guide.climate.p1", "The <tide>Tide</tide> is four slow waves summed over the torus; where they add up, bright bands form and drift. Inside a band it is bright; outside, it is dim but never dark, and you can see it: what lies in a band is lit, the floor beneath it glows and the waves' crests catch it, while what lies outside is dim and cool. <light>Light</light> is what plants feed on: it is dim everywhere and brighter in the bands, and plants crowded together share it, so meadows bloom under a passing band and thin out behind it, and their grazers follow.", T)),
         p(tr("guide.climate.p2", "The <season>season</season> is a 5-minute cycle that swings tide strength between 10% and 100%. This is the Tide percentage shown in the gauge and graphs. The bands keep their shape; only their strength changes. At high tide they are bright and the water is a little warmer. At low tide they fade until they are barely brighter than the rest of the world. This drives the regular booms and busts. Every 10–18 minutes an <era>era</era> begins: the baseline light changes, one tide wave is replaced so the bright zones form and move differently, and two current patterns are swapped. The water’s temperature walks from era to era, so each world has its own thermal history. Each era is named for what marks it as it begins: water warming or cooling, light rising or failing, the water falling to bare the floor or rising over it again, the pool’s last storm, drought, frost or duckweed, or the life that holds the pool (a bloom, a dwindling, hunters or grazers gaining, a genus reigning, a burst of new species). A kind of era that returns is counted (The Second Drowning), quiet stretches take stage names of the world’s own, and the event log says what actually changed.", T)),
         p(tr("guide.climate.p3", "Tap a gauge to map what it reads: <b>Light</b> opens the light map, <b>Temp</b> the thermal camera and <b>Tide</b> the <tidemap>tide map</tidemap> (on phones, tap the era name). The map's name and scale float in a bar under the top rail, beside any highlight; close either one on its own, and Esc clears the highlight first, then the map.", T)),
-        p(tr("guide.climate.p4", "<b>Settings → Light map</b> colors every point by the light a photosynthesizing cell would receive there, with a contour every 10%; <b>Settings → Currents</b> draws the flow that carries silt and drifting cells. The <b>Tide</b> gauge at the top follows the season: the dot rides the 5-minute wave, and the <b>Temp</b> thermometer beside it shows the background temperature, with an arrow while it changes; it breathes during a heat wave or cold snap.", T))
+        p(tr("guide.climate.p4", "<b>Settings → Map → Light</b> colors every point by the light a photosynthesizing cell would receive there, with a contour every 10%; <b>Settings → Currents</b> draws the flow that carries silt and drifting cells. The <b>Tide</b> gauge at the top follows the season: the dot rides the 5-minute wave, and the <b>Temp</b> thermometer beside it shows the background temperature, with an arrow while it changes; it breathes during a heat wave or cold snap.", T))
       )
     },
     {
@@ -22029,7 +22033,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         p(tr("guide.heat.p1", "The water has a temperature, and most of its warmth comes from life. Every unit of energy a cell spends on <upkeep>upkeep</upkeep> becomes heat in its water, so crowds, bodies and reefs sit in warm patches of their own making. Heat also comes from sunlight (a little), from rotting carcass piles, and from <framboid>framboids</framboid>: grains of pyrite that crystallize in those piles and warm their water as they burn out over a few minutes, so a die-off leaves a warm oasis behind it for a while. Heat spreads a few cells, rides the currents (warm water trails downstream of a bloom) and relaxes toward the climate's <water>background</water> within about half a minute. Stone holds heat: reefs and bedrock warm and cool slowly.", T)),
         p(tr("guide.heat.p2", "Each species prefers a temperature (its <optimum>optimum</optimum>) and stands only so much either side (its <tolerance>tolerance</tolerance>). How well it <thermal>works</thermal> falls off slowly in the cold and steeply in the heat, and narrow specialists work best of all at their optimum, so small differences in warmth matter. Swimmers steer toward water that suits them (<thermotaxis>thermotaxis</thermotaxis>). Far too cold, a cell goes <torpor>torpid</torpor>; far too hot, it bleaches and may <scalding>scald</scalding>.", T)),
         p(tr("guide.heat.p3", "<heatmaker>Heat-makers</heatmaker> burn extra energy to warm themselves and their water. In a cold era their colonies are lifeboats where life keeps moving and singing while the world around it goes still; in a <heatwave>heat wave</heatwave> they overheat from the core outward. Warm water also rots husks faster, so cold eras favor scavengers and warm ones recycle matter quickly.", T)),
-        p(tr("guide.heat.p4", "<b>Settings → Heat map</b> (E): <b>Shimmer</b> makes warm water waver as if seen through rising heat; <b>Full</b> is a thermal camera with an isotherm every 2°. Framboids show as brassy beaded spheres, faintly glowing while they burn.", T))
+        p(tr("guide.heat.p4", "<b>Settings → Heat haze</b> makes warm water waver as if seen through rising heat; <b>Map → Heat</b> (E) is a thermal camera with an isotherm every 2°. Framboids show as brassy beaded spheres, faintly glowing while they burn.", T))
       )
     },
     {
@@ -23056,14 +23060,14 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       unitOf.set(st, u);
       units.push(u);
     }
-    const other = mk(null);
-    other.other = true;
+    const other2 = mk(null);
+    other2.other = true;
     const owner = (st) => {
       for (let s = st; s && inSet.has(s); s = s.parent) {
         const u = unitOf.get(s);
         if (u) return u;
       }
-      return other;
+      return other2;
     };
     let species = 0, lineages = 0;
     const within = (nd) => nd.end >= t0 && nd.born <= t1;
@@ -23088,8 +23092,8 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       u.parent = p2 && !p2.other ? p2 : null;
       (u.parent ? u.parent.kids : roots).push(u);
     }
-    for (const u of [...units, other]) for (const v of u.vals) if (v > u.peak) u.peak = v;
-    return { t0, t1, ts, units, roots, other: other.peak > 0 ? other : null, outside: other.count, lineages, species };
+    for (const u of [...units, other2]) for (const v of u.vals) if (v > u.peak) u.peak = v;
+    return { t0, t1, ts, units, roots, other: other2.peak > 0 ? other2 : null, outside: other2.count, lineages, species };
   }
   function addOnGrid(nd, ts, out) {
     const n = ts.length, t0 = ts[0], dt = (ts[n - 1] - t0) / (n - 1 || 1);
@@ -26022,7 +26026,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       render(true);
     });
     const cardBtn = (serial) => api.saved(serial) ? `<button type="button" class="btn" data-act="card" data-hint="${tr("spec.act.card.hint", "Its card: name it, share it, load the pipette with it")}">${tr("spec.act.card", "Card")}</button>` : `<button type="button" class="btn" data-act="save" data-hint="${tr("spec.act.save.hint", "Save its card to the cabinet, to carry it to any world")}">${tr("spec.act.save", "Save")}</button>`;
-    const comp = (label3, tip, shares, g, hint) => {
+    const comp2 = (label3, tip, shares, g, hint) => {
       const types = [0, 1, 2].filter((r) => shares[r] > 5e-4);
       const pct = (v) => v < 0.01 ? "<1" : String(Math.round(v * 100));
       const seg = types.map((r) => `<i style="flex:${Math.max(shares[r], 0.015)};color:${cssRgb(roleColor(g, r))}"></i>`).join("");
@@ -26130,7 +26134,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         h += kv(tr("spec.org.moving", "Moving"), fmtLen(o.speed, "/s"), "speed");
         h += kv(tr("spec.org.mean-energy", "Mean energy"), o.meanE.toFixed(2), "energy");
         const tot = o.roles[0] + o.roles[1] + o.roles[2] || 1;
-        h += comp(tr("spec.org.cell-types", "Cell types"), "celltype", o.roles.map((c) => c / tot), g, tr("spec.org.cell-types.hint", "Of its {n, plural, other {# cells}}: {mix}.", { n: tot, mix: [0, 1, 2].filter((r) => o.roles[r]).map((r) => `${fmt(o.roles[r])} ${ROLE[r]}`).join(", ") }));
+        h += comp2(tr("spec.org.cell-types", "Cell types"), "celltype", o.roles.map((c) => c / tot), g, tr("spec.org.cell-types.hint", "Of its {n, plural, other {# cells}}: {mix}.", { n: tot, mix: [0, 1, 2].filter((r) => o.roles[r]).map((r) => `${fmt(o.roles[r])} ${ROLE[r]}`).join(", ") }));
       }
       if ((g.adhesion || 0) > K.adhMin) h += kv(tr("spec.org.touching", "Touching"), o.touching ? tr("spec.org.touching-n", "{n} other species", { n: o.touching }) : tr("spec.org.touching-none", "no other species"), "touching");
       return blk(past ? tr("spec.org.title-past", "Its organism, last seen") : `<i class="corner org"></i>${term("organism", tr("spec.org.title", "Organism"))}`, h);
@@ -26236,7 +26240,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       ];
       h += blk(tr("spec.diet", "Diet"), diet.map(([l2, t2, v, c, w]) => `<div class="trait"><span>${term(t2, l2)}</span><span class="meter thin" style="color:${c}"><i style="width:${(clamp6(w, 0, 1) * 100).toFixed(1)}%"></i></span><b>${Math.round(v * 100)}%</b></div>`).join(""), { tip: "diet" });
       const sh = roleShares(g);
-      let b = comp(tr("spec.body.plan", "Body plan"), "bodyplan", sh, g, tr("spec.body.plan.hint", "Of every 100 cells it grows: {mix}.", { mix: [0, 1, 2].filter((r) => sh[r] > 5e-4).map((r) => `${(sh[r] * 100).toFixed(sh[r] < 0.01 ? 1 : 0)} ${ROLE[r]}`).join(", ") }));
+      let b = comp2(tr("spec.body.plan", "Body plan"), "bodyplan", sh, g, tr("spec.body.plan.hint", "Of every 100 cells it grows: {mix}.", { mix: [0, 1, 2].filter((r) => sh[r] > 5e-4).map((r) => `${(sh[r] * 100).toFixed(sh[r] < 0.01 ? 1 : 0)} ${ROLE[r]}`).join(", ") }));
       b += trait(tr("spec.body.adhesion", "Adhesion"), g.adhesion || 0, 0, 1, tr("spec.body.adhesion-value", "{p}%{bonds, select, yes { · bonds} other {}}", { p: Math.round((g.adhesion || 0) * 100), bonds: (g.adhesion || 0) > K.adhMin ? "yes" : "no" }), "adhesion");
       if ((g.adhesion || 0) > K.adhMin) b += kv(tr("spec.body.growth", "Growth"), describeGrowth(growPlan(g, K), g, K), "growth");
       if (g.calcify > 5e-3) b += trait(tr("spec.body.calcify", "Calcifying"), g.calcify, 0, 1, `${Math.round(g.calcify * 100)}%`, "calcify");
@@ -28965,11 +28969,11 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       const seen = /* @__PURE__ */ new Set(), clumps = [];
       for (const k0 of dense) {
         if (seen.has(k0)) continue;
-        const comp2 = [], stack2 = [k0];
+        const comp3 = [], stack2 = [k0];
         seen.add(k0);
         while (stack2.length) {
           const k = stack2.pop(), i = Math.floor(k / 65536), j = k % 65536;
-          comp2.push(k);
+          comp3.push(k);
           for (let a = -1; a <= 1; a++) for (let c = -1; c <= 1; c++) {
             const n2 = (i + a) * 65536 + (j + c);
             if (dense.has(n2) && !seen.has(n2)) {
@@ -28979,27 +28983,27 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
           }
         }
         let i0 = Infinity, i1 = -Infinity, j0 = Infinity, j1 = -Infinity;
-        for (const k of comp2) {
+        for (const k of comp3) {
           const i = Math.floor(k / 65536), j = k % 65536;
           i0 = Math.min(i0, i);
           i1 = Math.max(i1, i);
           j0 = Math.min(j0, j);
           j1 = Math.max(j1, j);
         }
-        const fill = comp2.length / ((i1 - i0 + 1) * (j1 - j0 + 1));
-        if (comp2.length >= 4 && fill >= 0.55 && comp2.length * b * b <= 0.2 * r[2] * r[3]) clumps.push(comp2);
+        const fill = comp3.length / ((i1 - i0 + 1) * (j1 - j0 + 1));
+        if (comp3.length >= 4 && fill >= 0.55 && comp3.length * b * b <= 0.2 * r[2] * r[3]) clumps.push(comp3);
       }
       const prev = this._clumpKeys || /* @__PURE__ */ new Map(), keys = /* @__PURE__ */ new Map();
       let best = null;
-      for (const comp2 of clumps) {
-        const rows2 = comp2.flatMap((k) => bins.get(k)), byKind = /* @__PURE__ */ new Map();
+      for (const comp3 of clumps) {
+        const rows2 = comp3.flatMap((k) => bins.get(k)), byKind = /* @__PURE__ */ new Map();
         for (const i of rows2) byKind.set(v.kind[i], (byKind.get(v.kind[i]) || 0) + 1);
         const shares2 = [...byKind].map(([k, c]) => ({ kind: k, share: c / rows2.length })).sort((p2, q) => q.share - p2.share);
         const many = shares2.filter((x) => x.share >= 0.05).length, eff = 1 / shares2.reduce((a, x) => a + x.share * x.share, 0);
         if (many < 3 || eff < 2.5 || rows2.length < 40) continue;
-        const set2 = new Set(comp2);
+        const set2 = new Set(comp3);
         let ring2 = 0, ringN = 0;
-        for (const k of comp2) {
+        for (const k of comp3) {
           const i = Math.floor(k / 65536), j = k % 65536;
           for (let a = -2; a <= 2; a++) for (let c = -2; c <= 2; c++) {
             const n2 = (i + a) * 65536 + (j + c);
@@ -29009,26 +29013,26 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
             ring2 += bins.get(n2)?.length || 0;
           }
         }
-        if (rows2.length / comp2.length < 2.5 * (ring2 / Math.max(1, ringN))) continue;
-        if (!best || rows2.length > best.rows.length) best = { comp: comp2, rows: rows2, shares: shares2, eff, many };
+        if (rows2.length / comp3.length < 2.5 * (ring2 / Math.max(1, ringN))) continue;
+        if (!best || rows2.length > best.rows.length) best = { comp: comp3, rows: rows2, shares: shares2, eff, many };
       }
-      for (const comp2 of clumps) {
+      for (const comp3 of clumps) {
         let key = null, most = 0;
         for (const [k, set2] of prev) {
           let c = 0;
-          for (const q of comp2) if (set2.has(q)) c++;
+          for (const q of comp3) if (set2.has(q)) c++;
           if (c > most) {
             most = c;
             key = k;
           }
         }
-        if (key == null || keys.has(key)) key = `${b}.${comp2[0]}`;
-        keys.set(key, new Set(comp2));
-        if (best && comp2 === best.comp) best.key = key;
+        if (key == null || keys.has(key)) key = `${b}.${comp3[0]}`;
+        keys.set(key, new Set(comp3));
+        if (best && comp3 === best.comp) best.key = key;
       }
       this._clumpKeys = keys;
       if (!best) return null;
-      const { comp, rows, shares } = best, set = new Set(comp);
+      const { comp: comp2, rows, shares } = best, set = new Set(comp2);
       let mx = 0, my = 0, bonded = 0, cs = 0;
       for (const i of rows) {
         mx += near(v.x[i], cx, W2);
@@ -29080,7 +29084,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         why,
         size: 2 * far,
         b,
-        bins: comp,
+        bins: comp2,
         anchor: v.id[anchor],
         band,
         // (its cells, for its outline, riding with them: all of them, every square's; the outline samples them evenly)
@@ -35839,12 +35843,15 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     // not the cache lit under the cells every frame (fsStoneLit, fsStoneLitScene, fsStoneLitMicro). The loupe's and the
     // close-up's grains, drawn every frame they are open, share the cache's names and are counted with it
     stone: { levels: [2, 1, 0.5], passes: /^fsStone($|\+)|^fsStoneCache$/, share: (from, to) => from / to, loss: [0.3, 0.2] },
-    // The composite's finish (Engine.fx.finish): 2 all of it; 1 without the heat map's shimmer (1 - SSIM 0.001-0.006
-    // against full quality: barely seen, 10-15% of the composite); 0 without the optics and the microscope's look
-    // either (0.10-0.13, as much as half the render scale; the composite about halved, 0.61 → 0.27 ms on an RTX 4070
-    // Ti at 2544 × 1289). Its cost is the composite's, learned at each level on the device (rel: each level's against
-    // the top's, per pixel), guessed from the RTX until then.
-    finish: { levels: [0, 1, 2], passes: null, share: (from, to, k) => finishRel(k, to) / finishRel(k, from), loss: [1.2, 0.05] },
+    // The composite's finish, as two knobs (Engine.fx.haze, Engine.fx.microscope), once one ladder (all of it; without
+    // the haze; without the microscope either): the heat haze, the shimmer over warm water (1 - SSIM 0.001-0.006 against
+    // full quality: barely seen, 10-15% of the composite; boiling water still roils without it), and the microscope, the
+    // optics and the look (0.10-0.13, as much as half the render scale; the composite about halved, 0.61 → 0.27 ms on an
+    // RTX 4070 Ti at 2544 × 1289). Their losses are the old ladder's steps', so the haze still goes long before the
+    // microscope and the microscope comes back first. Their cost is the composite's in each state of the two (k.other:
+    // the other's level as shown), learned on the device per pixel (rel), guessed from the RTX until then.
+    haze: { levels: [false, true], passes: null, share: (from, to, k) => comp(k, +to + 2 * other(k)) / comp(k, +from + 2 * other(k)), loss: [0.05] },
+    microscope: { levels: [false, true], passes: null, share: (from, to, k) => comp(k, other(k) + 2 * +to) / comp(k, other(k) + 2 * +from), loss: [1.2] },
     // Cells' insides in the main view (Engine.fx.interiors): left out, every cell takes the lean pipeline, its outline,
     // walls and tissue kept (1 - SSIM 0.007-0.012 at 150 and 400 pixels a unit; weighed above that, the insides being
     // what a close look is for). Its cost is the cells' pass, learned at each level at a like zoom (ratio), none
@@ -35859,10 +35866,11 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     neighbors: { levels: [64, 88, 112], passes: null, share: (from, to, k) => nbRel(k, to) / nbRel(k, from), loss: [5, 4] }
   };
   var rate = (every) => every > 0 ? 1 / every : 0;
-  var FINISH_GUESS = [0.45, 0.88, 1];
+  var COMP_GUESS = [0.45, 0.57, 0.88, 1];
+  var comp = (k, i) => Math.max(0.05, k?.rel?.[i] ?? COMP_GUESS[i]);
+  var other = (k) => k?.other ?? 1;
   var NB_GUESS = { 64: 0.75, 88: 0.85, 112: 1 };
   var nbRel = (k, n) => Math.max(0.05, k?.rel?.[KNOBS.neighbors.levels.indexOf(n)] ?? NB_GUESS[n] ?? 1);
-  var finishRel = (k, i) => Math.max(0.05, k?.rel?.[i] ?? FINISH_GUESS[i]);
   var ROOM = 0.85;
   var SCALE_LOSS = 12;
   var scaleLoss = (from, to) => SCALE_LOSS * (from - to) * (1 + 2 * (1 - to));
@@ -35910,12 +35918,18 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     if (!down || down.save < 0.25 * need || best.gain / best.loss < 1.5 * (down.loss / down.save)) return null;
     return { id: down.id, to: down.to, rebalance: true };
   }
-  var GUESS = { sea: 0.2, bloom: 0.05, specks: 0.05, stone: 0.03, finish: 0.3, interiors: 0, neighbors: 0 };
+  var GUESS = { sea: 0.2, bloom: 0.05, specks: 0.05, stone: 0.03, haze: 0.3, microscope: 0.3, interiors: 0, neighbors: 0 };
   function fullCost(id, k, draw) {
     const def = KNOBS[id], share2 = def.share(def.levels[def.levels.length - 1], def.levels[k.level], k);
     if (k.cost != null && share2 > 0) return k.cost / share2;
     if (k.full != null) return k.full;
     return (GUESS[id] ?? 0.05) * Math.max(draw || 0, 1);
+  }
+  function heldBack(levels, shown = {}, scale = null) {
+    const out = [];
+    for (const [id, def] of Object.entries(KNOBS)) if (levels[id] != null && shown[id] !== false && levels[id] < def.levels.length - 1) out.push([id, levels[id]]);
+    if (scale != null && scale < 0.995) out.push(["scale", scale]);
+    return out;
   }
 
   // src/glass.js
@@ -36095,18 +36109,22 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
   var isCoarse = matchMedia("(pointer: coarse)").matches;
   var touchOnly = !matchMedia("(any-hover: hover)").matches;
   var throttles = navigator.userAgentData?.mobile ?? (/Android|iPhone|iPad|Mobile/.test(navigator.userAgent) || isCoarse && !matchMedia("(any-pointer: fine)").matches);
-  var TUNE_TITLES = { sea: tr("settings.perf.tune.sea", "Water motion"), bloom: tr("settings.perf.tune.bloom", "Bloom"), specks: tr("settings.perf.tune.specks", "Specks"), stone: tr("settings.perf.tune.stone", "Stone light"), finish: tr("settings.perf.tune.finish", "Finish"), interiors: tr("settings.perf.tune.interiors", "Cell insides") };
-  var TUNE_OFF = tr("settings.off", "Off");
-  var TUNE_ON = tr("settings.on", "On");
-  var TUNE_FULL = tr("settings.perf.tune.full", "Full");
-  var TUNE_NAMES = {
-    sea: [TUNE_OFF, tr("settings.perf.tune.sea.quarter", "¼"), tr("settings.perf.tune.sea.half", "½"), TUNE_FULL],
-    bloom: [TUNE_OFF, TUNE_ON],
-    specks: [TUNE_OFF, TUNE_ON],
-    stone: [tr("settings.perf.tune.stone.2s", "2 s"), tr("settings.perf.tune.stone.1s", "1 s"), tr("settings.perf.tune.stone.half-s", "½ s")],
-    finish: [tr("settings.perf.tune.finish.plain", "Plain"), tr("settings.perf.tune.finish.still", "Still"), TUNE_FULL],
-    interiors: [TUNE_OFF, TUNE_ON]
+  var HELD = {
+    // i18n: Settings → Perf, under Adapt to this device: one thing held back for speed (listed joined by " · "): the water's waves worked out not at all ({level} 0), a quarter (1) or half (2) as often
+    sea: (l) => tr("settings.perf.held.sea", "{level, select, 0 {Water surface off} 1 {Water at a quarter rate} other {Water at half rate}}", { level: l }),
+    bloom: () => tr("settings.perf.held.bloom", "Glow off"),
+    specks: () => tr("settings.perf.held.specks", "Suspension off"),
+    // i18n: Settings → Perf, one thing held back: the stone lit again only every {s} seconds
+    stone: (l) => tr("settings.perf.held.stone", "Stone relit every {s} s", { s: KNOBS.stone.levels[l] }),
+    haze: () => tr("settings.perf.held.haze", "Heat haze off"),
+    microscope: () => tr("settings.perf.held.microscope", "Microscope off"),
+    interiors: () => tr("settings.perf.held.interiors", "Cell insides off"),
+    // i18n: Settings → Perf, one thing held back: {n} the neighbors a cell weighs each step, fewer than the most
+    neighbors: (l) => tr("settings.perf.held.neighbors", "{n} neighbors", { n: KNOBS.neighbors.levels[l] }),
+    // i18n: Settings → Perf, one thing held back: the world drawn at {pct} percent of the screen's resolution
+    scale: (v) => tr("settings.perf.held.scale", "{pct}% resolution", { pct: Math.round(v * 100) })
   };
+  var EASES = { water: "sea", bloom: "bloom", specks: "specks", haze: "haze", microlook: "microscope", lod: "interiors" };
   var NONE6 = 4294967295;
   var TAU4 = Math.PI * 2;
   var genomeOfWords = (w) => {
@@ -36155,9 +36173,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "4a2951d91f01615c") return;
+      if (localStorage.getItem(key) === "ecc0cd931b1bdb75") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "4a2951d91f01615c");
+      if (res) localStorage.setItem(key, "ecc0cd931b1bdb75");
     } catch {
     }
   }
@@ -36253,7 +36271,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
   var PARTICLE_SIZES = [8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576, 2097152, 4194304, 8388608].filter((n) => n >= MIN_PARTICLES);
   var EVENTS_ON = () => ({ on: true, ...Object.fromEntries(EVENT_TYPES.map((x) => [x, true])) });
   var PREFS_KEY = "tidemote.view";
-  var PREFS_V = 5;
+  var PREFS_V = 6;
   var CELL_MARK = "rgba(241,227,160,0.95)";
   var loadPrefs = () => {
     try {
@@ -36318,11 +36336,16 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       waves: prefs.waves ?? 1,
       // its waves' motion: 0 slow, 1 normal, 2 lively
       look: prefs.look ?? 2,
-      // the microscope's look (applyLook): 0 off, 1 subtle, 2 normal, 3 strong
+      // the microscope (applyLook, the optics with it): 0 off, 1 subtle, 2 normal, 3 strong
       grain: prefs.grain ?? 1,
-      // its film grain: 0 off, 1 fine, 2 heavy
-      // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
-      // pixels per CSS pixel, the frame rate aimed for (0: the display's), and a fixed particle count
+      // its grain: 0 off, 1 fine, 2 heavy
+      haze: prefs.haze ?? true,
+      // the heat haze over warm water (applyMap)
+      map: prefs.map ?? "off",
+      // the one map over the view (applyMap): 'off', 'light', 'heat' or 'tide'
+      // what the page may spend: render scale ('auto' adapts between floor and 1), the most device pixels per CSS
+      // pixel, the frame rate aimed for (0: the display's), a fixed particle count and neighbor budget, and whether the
+      // tuner may ease what Display shows (adapt; src/tuner.js)
       perf: {
         scale: prefs.scale ?? "auto",
         floor: prefs.floor ?? 0.5,
@@ -36330,8 +36353,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         fps: prefs.fps ?? "auto",
         particles: prefs.particles ?? null,
         scan: prefs.scan ?? null,
-        // the tuner's knobs (src/tuner.js): each 'auto' or a level of its own (an index into its ladder)
-        tune: Object.fromEntries(Object.entries(KNOBS).filter(([id]) => id in TUNE_TITLES).map(([id, k]) => [id, Number.isInteger(prefs.tune?.[id]) && prefs.tune[id] >= 0 && prefs.tune[id] < k.levels.length ? prefs.tune[id] : "auto"]))
+        adapt: prefs.adapt ?? true
       }
     };
     const hand = createHand(eng.hand, eng.handU, { reach: clamp6(prefs.reach ?? REACH.def, REACH.min, REACH.max), drops: eng.drops });
@@ -36364,16 +36386,29 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     let trailIdx = prefs.trails ?? 1;
     const defaults = { ...eng.settings };
     eng.settings.trails = trailLevels[trailIdx];
-    for (const k of ["links", "nodes", "bloom", "optics", "specks", "lod", "tide", "heat", "bands"]) if (prefs[k] !== void 0) eng.settings[k] = prefs[k];
+    for (const k of ["bloom", "specks", "lod"]) if (prefs[k] !== void 0) eng.settings[k] = prefs[k];
     eng.maxScan = state.perf.scan ?? K.maxScan;
     document.body.classList.toggle("no-closeup", !state.closeup);
     const persist = () => {
       const s = eng.settings;
-      savePrefs({ v: PREFS_V, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+      savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
       document.body.classList.toggle("no-closeup", !state.closeup);
     };
-    const applyLook = (p2 = { ...DARKFIELD, grain: [0, 0.25, 0.5][state.grain] }, strength = [0, 0.6, 1, 1.35][state.look]) => eng.look.set(packLook(p2, strength));
+    let lookLast = state.look || 2;
+    const applyLook = (p2 = { ...DARKFIELD, grain: [0, 0.25, 0.5][state.grain] }, strength = [0, 0.6, 1, 1.35][state.look]) => {
+      eng.look.set(packLook(p2, strength));
+      eng.settings.optics = state.look > 0 ? 1 : 0;
+      if (state.look) lookLast = state.look;
+    };
     applyLook();
+    const applyMap = () => {
+      const s = eng.settings;
+      if (state.map === "heat" && !K.heat) state.map = "off";
+      s.tide = state.map === "light" ? 1 : 0;
+      s.bands = state.map === "tide" ? 1 : 0;
+      s.heat = state.map === "heat" ? 2 : state.haze ? 1 : 0;
+    };
+    applyMap();
     const applyWater = () => {
       const t = eng.seaTune;
       t.height = [0, 0.5, 1, 1.8][state.water];
@@ -36383,14 +36418,26 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     applyWater();
     let renderScale = state.perf.scale === "auto" ? 1 : state.perf.scale;
     const tune = Object.fromEntries(Object.entries(KNOBS).map(([id, k]) => [id, { level: k.levels.length - 1, cost: null, full: null, hold: 0 }]));
-    const tuneAuto = (id) => id === "neighbors" ? state.perf.scan == null : state.perf.tune[id] === "auto";
+    const shown = () => ({
+      sea: state.water > 0,
+      bloom: eng.settings.bloom > 0,
+      specks: eng.settings.specks,
+      haze: !!K.heat && state.haze && state.map !== "heat",
+      microscope: state.look > 0,
+      interiors: eng.settings.lod,
+      neighbors: state.perf.scan == null
+    });
+    const pins = {};
+    const tuneAuto = (id, on = shown()) => id === "neighbors" ? on.neighbors : !(id in pins) && state.perf.adapt && on[id] !== false;
     function applyTune() {
-      for (const id of Object.keys(tune)) if (!tuneAuto(id) && id !== "neighbors") tune[id].level = state.perf.tune[id];
+      const on = shown();
+      for (const id of Object.keys(tune)) if (id !== "neighbors" && !tuneAuto(id, on)) tune[id].level = pins[id] ?? KNOBS[id].levels.length - 1;
       const at = (id) => KNOBS[id].levels[tune[id].level];
-      Object.assign(eng.fx, { seaEvery: at("sea"), bloom: at("bloom"), specks: at("specks"), stoneEvery: at("stone"), finish: at("finish"), interiors: at("interiors") });
-      eng.maxScan = tuneAuto("neighbors") ? at("neighbors") : state.perf.scan;
+      Object.assign(eng.fx, { seaEvery: at("sea"), bloom: at("bloom"), specks: at("specks"), stoneEvery: at("stone"), haze: at("haze"), microscope: at("microscope"), interiors: at("interiors") });
+      eng.maxScan = on.neighbors ? at("neighbors") : state.perf.scan;
     }
     applyTune();
+    const heldNow = () => heldBack(Object.fromEntries(Object.entries(tune).map(([id, k]) => [id, k.level])), shown(), state.perf.scale === "auto" ? renderScale : null);
     let filmDense = false;
     const density = () => Math.min(devicePixelRatio || 1, 2, state.perf.density === "auto" ? filmDense ? 1.5 : 1 : state.perf.density);
     let dpr = 1;
@@ -37095,52 +37142,35 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     }
     $2("focus-clear").addEventListener("click", clearFocus);
     const MAPS = [
-      { gauge: "g-light", name: tr("maps.light", "Light"), on: (s) => s.tide > 0, open: (s) => {
-        s.tide = 1;
-      }, close: (s) => {
-        s.tide = defaults.tide;
-      }, ramp: () => ["", tr("maps.light.lo", "dark"), tr("maps.light.hi", "full light")] },
-      { gauge: "g-heat", name: tr("maps.heat", "Temperature"), on: (s) => s.heat === 2, open: (s) => {
-        s.heat = 2;
-      }, close: (s) => {
-        s.heat = defaults.heat;
-      }, ramp: () => ["heat", tr("maps.heat.deg", "{t}°", { t: Math.round(eng.tbg - 2) }), tr("maps.heat.deg", "{t}°", { t: Math.round(eng.tbg + 10) })] },
-      { gauge: "g-tide", name: tr("maps.tide", "Tide"), on: (s) => s.bands > 0, open: (s) => {
-        s.bands = 1;
-      }, close: (s) => {
-        s.bands = 0;
-      }, ramp: () => ["tide", tr("maps.tide.lo", "dim"), tr("maps.tide.hi", "bright")] }
+      { id: "light", gauge: "g-light", name: tr("maps.light", "Light"), ramp: () => ["", tr("maps.light.lo", "dark"), tr("maps.light.hi", "full light")] },
+      { id: "heat", gauge: "g-heat", name: tr("maps.heat", "Temperature"), ramp: () => ["heat", tr("maps.heat.deg", "{t}°", { t: Math.round(eng.tbg - 2) }), tr("maps.heat.deg", "{t}°", { t: Math.round(eng.tbg + 10) })] },
+      { id: "tide", gauge: "g-tide", name: tr("maps.tide", "Tide"), ramp: () => ["tide", tr("maps.tide.lo", "dim"), tr("maps.tide.hi", "bright")] }
     ];
     const rampHtml = (m) => {
       const [cls, lo, hi] = m.ramp();
       return `<div class="ramp ${cls}"><span>${lo}</span><i></i><span>${hi}</span></div>`;
     };
-    const mapsOn = () => MAPS.filter((m) => m.on(eng.settings));
-    function clearMaps() {
-      for (const m of mapsOn()) m.close(eng.settings);
-      mapsChanged();
+    const mapOn = () => MAPS.find((m) => m.id === state.map) || null;
+    function setMap(id) {
+      state.map = id;
+      applyMap();
+      displayChanged();
     }
-    function toggleMap(m) {
-      const only = mapsOn().length === 1 && m.on(eng.settings);
-      for (const o of mapsOn()) o.close(eng.settings);
-      if (!only) m.open(eng.settings);
-      mapsChanged();
-    }
-    function mapsChanged() {
+    const toggleMap = (m) => setMap(state.map === m.id ? "off" : m.id);
+    const clearMaps = () => setMap("off");
+    function displayChanged() {
+      applyTune();
       persist();
       renderMaps();
       view.render();
     }
     function renderMaps() {
-      const on = mapsOn();
-      for (const m of MAPS) $2(m.gauge).classList.toggle("on", on.includes(m));
-      $2("maps").hidden = !on.length;
-      if (!on.length) return;
-      const html2 = on.length === 1 ? rampHtml(on[0]) : "";
-      const label3 = on.map((m) => m.name).join(" · ");
-      setText($2("maps-label"), label3);
-      setHTML($2("maps-ramp"), html2);
-      $2("maps-ramp").hidden = !html2;
+      const on = mapOn();
+      for (const m of MAPS) $2(m.gauge).classList.toggle("on", m === on);
+      $2("maps").hidden = !on;
+      if (!on) return;
+      setText($2("maps-label"), on.name);
+      setHTML($2("maps-ramp"), rampHtml(on));
     }
     for (const m of MAPS) {
       const g = $2(m.gauge);
@@ -38701,10 +38731,11 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const el2 = $2("settings"), opts = $2("opts"), btn = $2("set-open"), tabs = [...el2.querySelectorAll("#set-tabs [data-tab]")];
       let tab = "display";
       let pendingN = null;
+      const eased = (id) => EASES[id] ? `<i class="eased${heldNow().some(([k]) => k === EASES[id]) ? " on" : ""}" data-eased="${EASES[id]}" role="img" aria-label="${EASED}" data-hint="${EASED}"></i>` : "";
       const choice = (id, title, key, items, cur, tip) => {
         const now = String(cur) === "auto" ? autoNow(id) : null;
         const label3 = (v, l) => v === "auto" && now ? `${l} <span class="auto-now" data-auto="${id}">${now.text}</span>` : l;
-        return `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ""}</span><div class="row segs${items.length > 7 ? " many" : ""}" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip${now && String(v) === now.pick ? " auto-pick" : ""}" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? " disabled" : ""}>${label3(v, l)}</button>`).join("")}</div></div>`;
+        return `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${eased(id)}${key ? ` <kbd>${key}</kbd>` : ""}</span><div class="row segs${items.length > 7 ? " many" : ""}" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip${now && String(v) === now.pick ? " auto-pick" : ""}" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? " disabled" : ""}>${label3(v, l)}</button>`).join("")}</div></div>`;
       };
       function autoNow(id) {
         if (id === "fps") {
@@ -38715,10 +38746,6 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         if (id === "density") {
           const d = +density().toFixed(2);
           return { text: timesOf(d), pick: String(d) };
-        }
-        if (id.startsWith("tune-")) {
-          const k = id.slice(5), l = tune[k].level;
-          return { text: TUNE_NAMES[k][l], pick: String(l) };
         }
         if (id === "n" && !state.perf.particles) return { text: kfmt(eng.count), pick: String(eng.count) };
         if (id === "scan") return { text: String(eng.maxScan), pick: String(eng.maxScan) };
@@ -38736,25 +38763,30 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const pctOf = (n) => tr("settings.pct", "{n}%", { n }), timesOf = (n) => tr("settings.times", "{n}×", { n });
       const OFF = tr("settings.off", "Off"), NORMAL = tr("settings.normal", "Normal"), AUTO = tr("settings.auto", "Auto");
       const SUBTLE = tr("settings.subtle", "Subtle"), STRONG = tr("settings.strong", "Strong");
+      const EASED = tr("settings.display.eased", "Eased for speed right now");
       const group = (id, text2, rows) => section(id, text2, block("", rows));
       let confirming = false;
       function display() {
-        const s = eng.settings;
+        const s = eng.settings, map = mapOn();
         const filmL = tr("settings.display.film", "Film");
-        return group("picture", tr("settings.display.picture", "Picture"), choice("microlook", tr("settings.display.microscope", "Microscope"), "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], state.look, "microlook") + (state.look ? choice("grain", tr("settings.display.grain", "Film grain"), "", [[0, OFF], [1, tr("settings.display.grain-fine", "Fine")], [2, tr("settings.display.grain-heavy", "Heavy")]], state.grain, "filmgrain") : "") + onoff("optics", tr("settings.display.optics", "Optics"), "O", s.optics > 0, "optics") + onoff("bloom", tr("settings.display.bloom", "Bloom"), "Y", s.bloom > 0, "bloom") + choice("water", tr("settings.display.water", "Water surface"), "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], state.water, "watersurface") + (state.water ? choice("waves", tr("settings.display.waves", "Wave motion"), "", [[0, tr("settings.display.waves-slow", "Slow")], [1, NORMAL], [2, tr("settings.display.waves-lively", "Lively")]], state.waves, "wavemotion") : "") + choice("trails", tr("settings.display.trails", "Trails"), "T", trailNames.map((n, i) => [i, n]), trailIdx) + onoff("specks", tr("settings.display.specks", "Suspension"), "", s.specks, "specks") + onoff("lod", tr("settings.display.lod", "Zoom detail"), "", s.lod, "lod")) + group("overlays", tr("settings.display.overlays", "Overlays"), onoff("tide", tr("settings.display.light-map", "Light map"), "G", s.tide > 0, "light") + (s.tide ? rampHtml(MAPS[0]) : "") + (K.heat ? choice("heat", tr("settings.display.heat-map", "Heat map"), "E", [[0, OFF], [1, tr("settings.display.heat-shimmer", "Shimmer")], [2, tr("settings.display.heat-full", "Full")]], s.heat, "heatmap") : "") + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : "") + onoff("bands", tr("settings.display.tide-map", "Tide map"), "H", s.bands > 0, "tidemap") + (s.bands ? rampHtml(MAPS[2]) : "") + onoff("currents", tr("settings.display.currents", "Currents"), "C", state.currents) + onoff("links", tr("settings.display.bonds", "Bonds"), "L", s.links, "bond") + onoff("nodes", tr("settings.display.particles", "Particles"), "N", s.nodes) + choice("songmarks", tr("settings.display.song-marks", "Song marks"), "", [[0, OFF], [1, tr("settings.display.song-marks-picked", "Picked")], [2, tr("settings.display.song-marks-all", "All")]], state.songMarks, "songmarks") + choice("notes", tr("settings.display.annotations", "Annotations"), "", [[1, tr("settings.display.annotations-auto", "Auto camera")], [2, tr("settings.display.annotations-always", "Always")], [0, OFF]], state.notes, "annotations")) + group("view", tr("settings.display.view", "View"), (isCoarse ? "" : onoff("ui", tr("settings.display.interface", "Interface"), "U", state.ui, "interface")) + onoff("closeup", tr("settings.display.closeup", "Live close-up"), "", state.closeup, "closeup") + onoff("auto", tr("settings.display.auto-idle", "Auto when idle"), "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", filmL)} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="${filmL}">${film.state === "idle" ? `<button type="button" class="chip" data-o="film" data-v="now">${tr("settings.display.film-now", "Start filming")}</button>` : `<button type="button" class="chip" data-o="film" data-v="stop">${tr("settings.display.film-stop", "Stop filming")}</button>`}</div></div>` : ""));
+        return group("picture", tr("settings.display.picture", "Look"), choice("microlook", tr("settings.display.microscope", "Microscope"), "O", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], state.look, "microlook") + (state.look ? choice("grain", tr("settings.display.grain", "Grain"), "", [[0, OFF], [1, tr("settings.display.grain-fine", "Fine")], [2, tr("settings.display.grain-heavy", "Heavy")]], state.grain, "filmgrain") : "") + onoff("bloom", tr("settings.display.bloom", "Glow"), "Y", s.bloom > 0, "bloom") + choice("trails", tr("settings.display.trails", "Trails"), "T", trailNames.map((n, i) => [i, n]), trailIdx)) + group("water", tr("settings.display.water-group", "Water"), choice("water", tr("settings.display.water", "Surface"), "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], state.water, "watersurface") + (state.water ? choice("waves", tr("settings.display.waves", "Wave motion"), "", [[0, tr("settings.display.waves-slow", "Slow")], [1, NORMAL], [2, tr("settings.display.waves-lively", "Lively")]], state.waves, "wavemotion") : "") + (K.heat ? onoff("haze", tr("settings.display.heat-shimmer", "Heat haze"), "", state.haze, "haze") : "") + onoff("specks", tr("settings.display.specks", "Suspension"), "", s.specks, "specks")) + group("cells", tr("settings.display.cells", "Cells"), onoff("lod", tr("settings.display.lod", "Cell insides"), "", s.lod, "lod")) + group("overlays", tr("settings.display.overlays", "Overlays"), choice("map", tr("settings.display.map", "Map"), K.heat ? "G E H" : "G H", [["off", OFF], ["light", tr("settings.display.map-light", "Light")], ...K.heat ? [["heat", tr("settings.display.map-heat", "Heat")]] : [], ["tide", tr("settings.display.map-tide", "Tide")]], state.map, "maps") + (map ? rampHtml(map) : "") + onoff("currents", tr("settings.display.currents", "Currents"), "C", state.currents) + choice("songmarks", tr("settings.display.song-marks", "Song marks"), "", [[0, OFF], [1, tr("settings.display.song-marks-picked", "Picked")], [2, tr("settings.display.song-marks-all", "All")]], state.songMarks, "songmarks") + choice("notes", tr("settings.display.annotations", "Annotations"), "", [[1, tr("settings.display.annotations-auto", "Auto camera")], [2, tr("settings.display.annotations-always", "Always")], [0, OFF]], state.notes, "annotations")) + group("view", tr("settings.display.view", "View"), (isCoarse ? "" : onoff("ui", tr("settings.display.interface", "Interface"), "U", state.ui, "interface")) + onoff("closeup", tr("settings.display.closeup", "Live close-up"), "", state.closeup, "closeup") + onoff("auto", tr("settings.display.auto-idle", "Auto when idle"), "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", filmL)} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="${filmL}">${film.state === "idle" ? `<button type="button" class="chip" data-o="film" data-v="now">${tr("settings.display.film-now", "Start filming")}</button>` : `<button type="button" class="chip" data-o="film" data-v="stop">${tr("settings.display.film-stop", "Stop filming")}</button>`}</div></div>` : ""));
       }
       function audio_() {
         const m = sound.mix, mix4 = (k) => choice(`mix-${k}`, MIX[k].name, "", MIX[k].choices.map(([label3], i) => [i, label3]), m[k], `audio${k}`);
         const vol = Math.round(sound.volume * 100);
         return group("sound", tr("settings.audio.playback", "Playback"), onoff("sound", tr("settings.audio.soundtrack", "Soundtrack"), "M", sound.on) + `<div class="opt"><span class="lbl">${tr("settings.audio.volume", "Volume <kbd>− =</kbd>")}</span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${vol}" aria-label="${tr("settings.audio.volume.aria", "Volume")}"><b id="set-vol-v">${tr("settings.audio.volume-pct", "{pct}%", { pct: vol })}</b></div></div>` + mix4("background")) + group("mix", tr("settings.audio.mix", "Mix"), ["music", "cells", "water", "tools"].map(mix4).join("")) + group("character", tr("settings.audio.character", "Character"), mix4("space") + mix4("tone"));
       }
+      const heldWords = () => {
+        const h = heldNow();
+        return h.length ? h.map(([id, l]) => HELD[id](l)).join(" · ") : tr("settings.perf.held-none", "Nothing held back");
+      };
       const scanChoices = () => [.../* @__PURE__ */ new Set([...KNOBS.neighbors.levels, ...[1.5, 2].map((f2) => Math.round(K.maxScan * f2 / 8) * 8), state.perf.scan ?? K.maxScan])].sort((a, b) => a - b);
       function performance_() {
         const P = state.perf;
         const dev = Math.min(devicePixelRatio || 1, 2);
         const sizes2 = PARTICLE_SIZES.filter((n) => n <= maxParticles());
         const nowN = pendingN ?? (P.particles || "auto");
-        return group("res", tr("settings.perf.resolution", "Resolution"), choice("scale", tr("settings.perf.scale", "Render scale"), "", [["auto", AUTO], [1, pctOf(100)], [0.75, pctOf(75)], [0.5, pctOf(50)], [0.25, pctOf(25)]], P.scale, "renderscale") + (P.scale === "auto" ? choice("floor", tr("settings.perf.floor", "Auto lowest"), "", [[0.75, pctOf(75)], [0.5, pctOf(50)], [0.35, pctOf(35)], [0.25, pctOf(25)]], P.floor, "autofloor") : "") + choice("density", tr("settings.perf.density", "Pixel density"), "", [["auto", AUTO], [1, timesOf(1)], [1.5, timesOf(1.5), dev < 1.5], [2, timesOf(2), dev < 2]], P.density, "density") + choice("fps", tr("settings.perf.fps", "Target fps"), "", [["auto", AUTO], [30, "30"], [60, "60"], [0, tr("settings.perf.fps-display", "Display")]], P.fps, "targetfps")) + group("detail", tr("settings.perf.detail", "Detail"), Object.keys(TUNE_TITLES).map((k) => choice(`tune-${k}`, TUNE_TITLES[k], "", [["auto", AUTO], ...TUNE_NAMES[k].map((n, i) => [i, n]).reverse()], P.tune[k], `tune${k}`)).join("")) + group("world", tr("settings.perf.world", "World"), choice("n", tr("settings.perf.particles", "Particles"), "", [["auto", AUTO], ...sizes2.map((n) => [n, kfmt(n)])], nowN, "particles") + choice("scan", tr("settings.perf.neighbors", "Neighbors"), "", [["auto", AUTO], ...scanChoices().map((n) => [n, String(n)])], P.scan ?? "auto", "neighbors") + (pendingN != null && String(pendingN) !== String(P.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">${pendingN === "auto" ? tr("settings.perf.apply-auto", "Start a new world with a measured count") : tr("settings.perf.apply", "Start a new world with {n, number}", { n: pendingN })}</button></div>` : "") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", tr("settings.perf.profile", "Profile"))}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">${tr("settings.perf.copy-profile", "Copy profile")}</button></div></div>` : ""));
+        return group("quality", tr("settings.perf.quality", "Quality"), onoff("adapt", tr("settings.perf.adapt", "Adapt to this device"), "", P.adapt, "adapt") + `<p class="eased-now" id="perf-held">${heldWords()}</p>`) + group("res", tr("settings.perf.resolution", "Resolution"), choice("scale", tr("settings.perf.scale", "Render scale"), "", [["auto", AUTO], [1, pctOf(100)], [0.75, pctOf(75)], [0.5, pctOf(50)], [0.25, pctOf(25)]], P.scale, "renderscale") + (P.scale === "auto" ? choice("floor", tr("settings.perf.floor", "Auto lowest"), "", [[0.75, pctOf(75)], [0.5, pctOf(50)], [0.35, pctOf(35)], [0.25, pctOf(25)]], P.floor, "autofloor") : "") + choice("density", tr("settings.perf.density", "Pixel density"), "", [["auto", AUTO], [1, timesOf(1)], [1.5, timesOf(1.5), dev < 1.5], [2, timesOf(2), dev < 2]], P.density, "density") + choice("fps", tr("settings.perf.fps", "Target fps"), "", [["auto", AUTO], [30, "30"], [60, "60"], [0, tr("settings.perf.fps-display", "Display")]], P.fps, "targetfps")) + group("world", tr("settings.perf.world", "World"), choice("n", tr("settings.perf.particles", "Particles"), "", [["auto", AUTO], ...sizes2.map((n) => [n, kfmt(n)])], nowN, "particles") + choice("scan", tr("settings.perf.neighbors", "Neighbors"), "", [["auto", AUTO], ...scanChoices().map((n) => [n, String(n)])], P.scan ?? "auto", "neighbors") + (pendingN != null && String(pendingN) !== String(P.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">${pendingN === "auto" ? tr("settings.perf.apply-auto", "Start a new world with a measured count") : tr("settings.perf.apply", "Start a new world with {n, number}", { n: pendingN })}</button></div>` : "") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", tr("settings.perf.profile", "Profile"))}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">${tr("settings.perf.copy-profile", "Copy profile")}</button></div></div>` : ""));
       }
       function climate_() {
         const E = state.events;
@@ -38901,7 +38933,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         } else if (tab === "display") {
           trailIdx = 1;
           s.trails = trailLevels[trailIdx];
-          for (const k of ["tide", "heat", "bands", "links", "nodes", "bloom", "optics", "specks", "lod"]) s[k] = defaults[k];
+          for (const k of ["bloom", "specks", "lod"]) s[k] = defaults[k];
+          state.map = "off";
+          state.haze = true;
+          applyMap();
           state.currents = false;
           state.songMarks = 1;
           state.notes = 1;
@@ -38918,13 +38953,11 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           sound.setVolume(DEFAULT_VOLUME);
           sound.setMix(defaultMix());
         } else {
-          Object.assign(P, { scale: "auto", floor: 0.5, density: "auto", fps: "auto", scan: null });
+          Object.assign(P, { scale: "auto", floor: 0.5, density: "auto", fps: "auto", scan: null, adapt: true });
           for (const k of Object.keys(tune)) {
-            if (k in P.tune) P.tune[k] = "auto";
             tune[k].level = KNOBS[k].levels.length - 1;
             tune[k].hold = 0;
           }
-          applyTune();
           renderScale = Math.max(renderScale, P.floor);
           resetAdapt();
           fit3();
@@ -38952,10 +38985,16 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       let roAt = 0;
       const WHY_WORDS = { "GPU overloaded": tr("readout.why-overloaded", "GPU overloaded"), "under pressure": tr("readout.why-pressure", "under pressure"), "GPU busy": tr("readout.why-busy", "GPU busy"), "frames late": tr("readout.why-late", "frames late"), "browser pace": tr("readout.why-pace", "browser pace") };
       function readout(force) {
-        if (el2.hidden || tab !== "performance") return;
+        if (el2.hidden || tab !== "performance" && tab !== "display") return;
         const now = performance.now();
         if (!force && now - roAt < 500) return;
         roAt = now;
+        if (tab === "display") {
+          const held = new Set(heldNow().map(([id]) => id));
+          for (const m of opts.querySelectorAll("[data-eased]")) m.classList.toggle("on", held.has(m.dataset.eased));
+          return;
+        }
+        setText2("perf-held", heldWords());
         setText2("ro-fps", perf.fps ? perf.fps.toFixed(0) : "–");
         setText2("ro-ms", perf.gpu ? perf.gpu.toFixed(1) : "–");
         setText2("ro-res", pctOf(Math.round(renderScale * 100)));
@@ -38983,14 +39022,14 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         if (id === "trails") {
           trailIdx = +v;
           s.trails = trailLevels[trailIdx];
-        } else if (id === "tide") s.tide = +v;
-        else if (id === "heat") s.heat = +v;
-        else if (id === "bands") s.bands = +v;
-        else if (id === "currents") state.currents = !!+v;
-        else if (id === "links") s.links = !!+v;
-        else if (id === "nodes") s.nodes = !!+v;
+        } else if (id === "map") {
+          state.map = v;
+          applyMap();
+        } else if (id === "haze") {
+          state.haze = !!+v;
+          applyMap();
+        } else if (id === "currents") state.currents = !!+v;
         else if (id === "bloom") s.bloom = +v ? 0.012 : 0;
-        else if (id === "optics") s.optics = +v ? 1 : 0;
         else if (id === "specks") s.specks = !!+v;
         else if (id === "lod") s.lod = !!+v;
         else if (id === "closeup") state.closeup = !!+v;
@@ -39044,16 +39083,12 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         } else if (id === "fps") {
           P.fps = v === "auto" ? "auto" : +v;
           resetAdapt();
-        } else if (id.startsWith("tune-")) {
-          const k = id.slice(5);
-          P.tune[k] = v === "auto" ? "auto" : +v;
-          if (v === "auto") tune[k].level = KNOBS[k].levels.length - 1;
-          applyTune();
+        } else if (id === "adapt") {
+          P.adapt = !!+v;
           resetAdapt();
         } else if (id === "scan") {
           P.scan = v === "auto" ? null : +v;
           if (v === "auto") tune.neighbors.level = KNOBS.neighbors.levels.length - 1;
-          applyTune();
         } else if (id === "n") pendingN = v === "auto" ? "auto" : +v;
         else if (id === "apply") {
           const n = pendingN;
@@ -39077,9 +39112,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           confirming = false;
           resetTab();
         }
-        persist();
-        renderMaps();
-        render();
+        displayChanged();
       }
       opts.addEventListener("click", (e) => {
         const b = e.target.closest("[data-o]");
@@ -39143,9 +39176,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       flash(tr("flash.profiling", "Profiling for three seconds"));
       const passes = {};
       let frames = 0, gpu = 0;
-      const other = eng.onPassTimes, was = eng.passProfile;
+      const other2 = eng.onPassTimes, was = eng.passProfile;
       const mine = (times, f2) => {
-        if (other) other(times, f2);
+        if (other2) other2(times, f2);
         frames++;
         gpu += f2.ms;
         for (const [k, ms] of times) passes[k] = (passes[k] || 0) + ms;
@@ -39154,7 +39187,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       eng.onPassTimes = mine;
       await sleep(3e3);
       if (eng.onPassTimes === mine) {
-        eng.onPassTimes = other;
+        eng.onPassTimes = other2;
         eng.passProfile = was;
       }
       const per = (x) => +(x / Math.max(1, frames)).toFixed(3);
@@ -39922,21 +39955,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         flash(tr("flash.trails", "Trails {level, select, 0 {off} 1 {short} 2 {long} other {exposure}}", { level: trailIdx }));
         persist();
         view.render();
-      } else if (k === "l" || k === "L") {
-        eng.settings.links = !eng.settings.links;
-        flash(eng.settings.links ? tr("flash.bonds-on", "Bonds shown") : tr("flash.bonds-off", "Bonds hidden"));
-        persist();
-        view.render();
-      } else if (k === "n" || k === "N") {
-        eng.settings.nodes = !eng.settings.nodes;
-        flash(eng.settings.nodes ? tr("flash.particles-on", "Particles on") : tr("flash.particles-off", "Particles off"));
-        persist();
-        view.render();
       } else if (k === "y" || k === "Y") {
         eng.settings.bloom = eng.settings.bloom > 0 ? 0 : 0.012;
-        flash(eng.settings.bloom ? tr("flash.bloom-on", "Bloom on") : tr("flash.bloom-off", "Bloom off"));
-        persist();
-        view.render();
+        flash(eng.settings.bloom ? tr("flash.bloom-on", "Glow on") : tr("flash.bloom-off", "Glow off"));
+        displayChanged();
       } else if (k === "b" || k === "B") bench.toggle();
       else if (/^[0-8]$/.test(k)) {
         if (!e.repeat) {
@@ -39945,22 +39967,19 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           pickTool(id);
         }
       } else if (k === "o" || k === "O") {
-        eng.settings.optics = eng.settings.optics > 0 ? 0 : 1;
-        flash(eng.settings.optics ? tr("flash.optics-on", "Microscope optics on") : tr("flash.optics-off", "Microscope optics off"));
-        persist();
-        view.render();
+        state.look = state.look ? 0 : lookLast;
+        applyLook();
+        flash(state.look ? tr("flash.optics-on", "Microscope on") : tr("flash.optics-off", "Microscope off"));
+        displayChanged();
       } else if (k === "g" || k === "G") {
-        eng.settings.tide = eng.settings.tide ? 0 : 1;
-        flash(eng.settings.tide ? tr("flash.light-map-on", "Light map") : tr("flash.light-map-off", "Light map off"));
-        mapsChanged();
+        toggleMap(MAPS[0]);
+        flash(state.map === "light" ? tr("flash.light-map-on", "Light map") : tr("flash.light-map-off", "Light map off"));
       } else if ((k === "e" || k === "E") && K.heat) {
-        eng.settings.heat = (eng.settings.heat + 1) % 3;
-        flash([tr("flash.heat-off", "Heat map off"), tr("flash.heat-shimmer", "Heat shimmer"), tr("flash.heat-camera", "Thermal camera")][eng.settings.heat]);
-        mapsChanged();
+        toggleMap(MAPS[1]);
+        flash(state.map === "heat" ? tr("flash.heat-camera", "Thermal camera") : tr("flash.heat-off", "Heat map off"));
       } else if (k === "h" || k === "H") {
-        eng.settings.bands = eng.settings.bands ? 0 : 1;
-        flash(eng.settings.bands ? tr("flash.tide-map-on", "Tide map") : tr("flash.tide-map-off", "Tide map off"));
-        mapsChanged();
+        toggleMap(MAPS[2]);
+        flash(state.map === "tide" ? tr("flash.tide-map-on", "Tide map") : tr("flash.tide-map-off", "Tide map off"));
       } else if (k === "c" || k === "C") {
         state.currents = !state.currents;
         flash(state.currents ? tr("flash.currents-on", "Currents shown") : tr("flash.currents-off", "Currents hidden"));
@@ -39997,7 +40016,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         else if (bench.isOpen()) bench.toggle(false);
         else if (sel || spView != null) deselect();
         else if (focus.key) clearFocus();
-        else if (mapsOn().length) clearMaps();
+        else if (mapOn()) clearMaps();
         else if (lab.back()) {
         } else if (lab.isWide() && !phone()) lab.narrow();
         else if (lab.isOpen() && phone()) lab.close();
@@ -40484,8 +40503,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         g.classList.toggle("cold", eng.excursion < 0);
         if (why) g.dataset.live = why;
         else delete g.dataset.live;
-        const shown = Math.round(T2), dir = arrow ? arrow === "↑" ? "up" : "down" : "none";
-        g.setAttribute("aria-label", why ? tr("rail.heat.aria-off", "{why} Temperature {t}°{trend, select, up { and rising} down { and falling} other {}}", { why, t: shown, trend: dir }) : tr("rail.heat.aria", "Temperature {t}°{trend, select, up { and rising} down { and falling} other {}}", { t: shown, trend: dir }));
+        const shown2 = Math.round(T2), dir = arrow ? arrow === "↑" ? "up" : "down" : "none";
+        g.setAttribute("aria-label", why ? tr("rail.heat.aria-off", "{why} Temperature {t}°{trend, select, up { and rising} down { and falling} other {}}", { why, t: shown2, trend: dir }) : tr("rail.heat.aria", "Temperature {t}°{trend, select, up { and rising} down { and falling} other {}}", { t: shown2, trend: dir }));
       }
       updateEventChip();
       renderMaps();
@@ -40615,8 +40634,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       }
       let acted = false;
       for (let i = 0; i < n; i++) {
-        const knobs = {};
-        for (const [id, k] of Object.entries(tune)) knobs[id] = { level: k.level, auto: tuneAuto(id), cost: k.cost, full: k.full, ratio: k.ratio, rel: k.rel };
+        const knobs = {}, on = shown();
+        for (const [id, k] of Object.entries(tune)) knobs[id] = { level: k.level, auto: tuneAuto(id, on), cost: k.cost, full: k.full, ratio: k.ratio, rel: k.rel };
+        knobs.haze.other = on.microscope ? tune.microscope.level : 0;
+        knobs.microscope.other = on.haze ? tune.haze.level : 0;
         const heldK = Object.fromEntries(Object.entries(tune).map(([id, k]) => [id, now < k.hold]));
         heldK.scale = held;
         const draw = hasTS && perf.renderR ? perf.renderR : perf.gpu * 0.6;
@@ -40638,9 +40659,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         } else {
           const k = tune[d.id];
           if (k.cost != null) {
-            const def = KNOBS[d.id], top = def.levels.at(-1);
-            k.cost = (k.full ?? k.cost / Math.max(1e-6, def.share(top, def.levels[k.level]))) * def.share(top, def.levels[d.to]);
+            const def = KNOBS[d.id], top = def.levels.at(-1), kn = knobs[d.id];
+            k.cost = (k.full ?? k.cost / Math.max(1e-6, def.share(top, def.levels[k.level], kn))) * def.share(top, def.levels[d.to], kn);
           }
+          if (d.id === "haze" || d.id === "microscope") tune.haze.cost = tune.microscope.cost = k.cost;
           k.level = d.to;
           k.since = now;
           applyTune();
@@ -40651,15 +40673,16 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       return acted;
     }
     let prof = null;
+    const compAt = [];
     function tuneProfile(now) {
       if (prof && now - perf.profAt > 15e3) prof = null;
       if (!hasTS || prof || state.speed > 1 || state.phase !== "running" || now - perf.profAt < 1e4) return;
       perf.profAt = now;
-      const other = eng.onPassTimes, was = eng.passProfile;
+      const other2 = eng.onPassTimes, was = eng.passProfile;
       prof = { n: 0, passes: {} };
       eng.passProfile = true;
       const mine = (times, f2) => {
-        if (other) other(times, f2);
+        if (other2) other2(times, f2);
         if (!f2.drew) return;
         for (const [k, ms] of times) prof.passes[k] = (prof.passes[k] || 0) + ms;
         if (++prof.n < 20) return;
@@ -40670,13 +40693,13 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           k.cost = ms;
           if (share2 > 0) k.full = ms / share2;
         }
-        const fin = tune.finish, comp = (prof.passes.fsComposite || 0) / prof.n;
-        if (comp > 0) {
-          fin.cost = comp;
-          if (performance.now() - (fin.since || 0) > 2500) {
-            (fin.at ||= [])[fin.level] = comp / (renderScale * renderScale);
-            const top = fin.at[KNOBS.finish.levels.length - 1];
-            if (top) fin.rel = KNOBS.finish.levels.map((_, i) => fin.at[i] ? fin.at[i] / top : null);
+        const hz = tune.haze, mc = tune.microscope, comp2 = (prof.passes.fsComposite || 0) / prof.n;
+        if (comp2 > 0) {
+          hz.cost = mc.cost = comp2;
+          if (state.map === "off" && performance.now() - Math.max(hz.since || 0, mc.since || 0) > 2500) {
+            const on = shown();
+            compAt[(on.haze ? hz.level : 0) + 2 * (on.microscope ? mc.level : 0)] = comp2 / (renderScale * renderScale);
+            if (compAt[3]) hz.rel = mc.rel = [0, 1, 2, 3].map((i) => compAt[i] ? compAt[i] / compAt[3] : null);
           }
         }
         const ins = tune.interiors, ps = new Float32Array(eng.viewData)[7];
@@ -40689,7 +40712,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         }
         if (eng.onPassTimes === mine) {
           eng.passProfile = was;
-          eng.onPassTimes = other;
+          eng.onPassTimes = other2;
         }
         prof = null;
       };
@@ -42090,19 +42113,21 @@ Tidemote ${SAVE_VERSION} · world time ${fmtClock(eng.simTime)} · ${eng.count} 
         resetAdapt();
         fit3();
       },
-      // the tuner's knobs' levels; setEffects('low' | 'high' | 'auto') fixes them all cheapest or best, or leaves them to Auto
+      // the tuner's knobs' levels, and what it holds back ([id, level], tuner.js heldBack); setEffects('low' | 'high' |
+      // 'auto') pins the dressing's knobs (not the neighbors, Settings → Neighbors') cheapest or best, or frees them
       effects: () => Object.entries(tune).map(([id, k]) => `${id}:${k.level}`).join(" "),
+      held: heldNow,
       setEffects(v) {
-        for (const id of Object.keys(TUNE_TITLES)) state.perf.tune[id] = v === "auto" ? "auto" : v === "low" ? 0 : KNOBS[id].levels.length - 1;
-        for (const id of Object.keys(TUNE_TITLES)) if (v === "auto") tune[id].level = KNOBS[id].levels.length - 1;
-        applyTune();
-        resetAdapt();
+        this.setTune(Object.fromEntries(Object.keys(KNOBS).filter((id) => id !== "neighbors").map((id) => [id, v === "auto" ? "auto" : v === "low" ? 0 : KNOBS[id].levels.length - 1])));
       },
-      // knobs fixed at levels of their own ({ id: index | 'auto' }; the rest as they are)
+      // knobs pinned at levels of their own ({ id: index | 'auto' }; the rest as they are; never saved)
       setTune(o) {
         for (const [id, v] of Object.entries(o)) {
-          if (id in state.perf.tune) state.perf.tune[id] = v;
-          if (v !== "auto") tune[id].level = v;
+          if (!tune[id] || id === "neighbors") continue;
+          if (v === "auto") {
+            delete pins[id];
+            tune[id].level = KNOBS[id].levels.length - 1;
+          } else pins[id] = v;
         }
         applyTune();
         resetAdapt();
