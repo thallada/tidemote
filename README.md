@@ -62,6 +62,7 @@ esbuild preserves module scope, so top-level names can be reused across files.
 | `src/engine.js` | The WebGPU engine: buffers, pipelines, the per-frame pass sequence, census and pick readbacks, and the focus/highlight filter. |
 | `src/genome.js` | CPU genome helpers: founding archetypes, packing and decoding, colors, affinities, role shares, and diet/mobility guilds. |
 | `src/climate.js` | Shared seasons, climate eras and abiogenesis rules. |
+| `src/eras.js`, `src/eraname.js` | Era names: each era named as it begins for what marks it (the water's warmth, the light, the water's level, the pool's last event, the life holding the pool) in one of a dozen patterns, kept as English keys (`eras.js`, pure, tested in `test/eras.test.js`) and given in the page's words by `eraname.js`. |
 | `src/main.js` | The page: calibration, camera, organism tracing, species registry and naming, the census column, settings (display and performance), input. |
 | `src/specimen.js` | The specimen panel (a picked cell or grain, or a species opened by name). |
 | `src/lab.js` | The Field Lab: species, lineage, census, charts, log and guide. |

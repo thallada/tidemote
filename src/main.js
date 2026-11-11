@@ -3,7 +3,7 @@ import { voiceOf } from './audio/mapping.js';
 import { signalAt } from './audio/motif.js';
 import { V_SCALE } from './audio/listen.js';
 import { createEngine, MAXK, FIRST_LIFE, MAX_STEPS, compactState } from './engine.js';
-import { genomeSerial, readGenome, writeGenome, parseParticle, thermalGuild, dietGuild, growPlan, hasTails } from './genome.js';
+import { genomeSerial, readGenome, writeGenome, parseParticle, thermalGuild, dietGuild, mobilityGuild, growPlan, hasTails } from './genome.js';
 import { seasonAt, createClimate, abioRate, EVENT_TYPES, EVENT_NAME, excursionAt, eraName } from './climate.js';
 import { countPools } from './geography.js';
 import { createLab } from './lab.js';
@@ -525,8 +525,29 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function applyEvents() {
     if (climate) climate.allowed = new Set(state.events.on ? EVENT_TYPES.filter((x) => state.events[x]) : []);
   }
+  // the life holding the pool as an era begins, for its name (eras.js nameEra): the living, the established
+  // species, each diet's and way of moving's share of the living, the largest genus, and each diet's leading one
+  function eraLife() {
+    const guilds = { producer: 0, grazer: 0, scavenger: 0, predator: 0 }, moves = { swimmer: 0, drifter: 0, crawler: 0, sessile: 0 };
+    const genera = new Map(), byDiet = { producer: new Map(), grazer: new Map(), scavenger: new Map(), predator: new Map() };
+    let living = 0, species = 0;
+    for (const sp of life.reg.values()) {
+      if (!sp.alive || !(sp.pop > 0)) continue;
+      const diet = dietGuild(sp.genome), n = sp.pop;
+      living += n; if (sp.established) species++;
+      guilds[diet] += n; moves[mobilityGuild(sp.genome)] += n;
+      genera.set(sp.genus, (genera.get(sp.genus) || 0) + n);
+      byDiet[diet].set(sp.genus, (byDiet[diet].get(sp.genus) || 0) + n);
+    }
+    if (!living) return null;
+    const lead = (m) => { let best = null, bn = 0; for (const [g, n] of m) if (n > bn) { best = g; bn = n; } return [best, bn]; };
+    for (const o of [guilds, moves]) for (const k in o) o[k] /= living;
+    const [genus, gn] = lead(genera);
+    return { living, species, guilds, moves, genus: [genus, gn / living], top: Object.fromEntries(Object.entries(byDiet).map(([d, m]) => [d, lead(m)[0]])) };
+  }
   function resetClimate() {
     climate = createClimate(eng);
+    climate.lifeFacts = eraLife;
     applyEvents();
     climate.music = (Math.random() * 2 ** 32) >>> 0; // the world's soundtrack seed (kept with a saved world)
     climate.onEra = (era, prevAmb, prevTemp) => {

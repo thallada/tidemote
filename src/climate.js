@@ -1,37 +1,19 @@
 // CPU climate rules shared by the page and headless simulation.
 import { DEFAULT_K } from './shaders.js';
 import { tr } from './i18n.js';
+import { FIRST_ERA, nameEra, eraMemo } from './eras.js';
 
 export const seasonAt = (t) => 0.55 + 0.45 * Math.sin((t / 300) * Math.PI * 2);
 const climateMix = (a, b, t) => a + (b - a) * t;
-const climatePick = (r, a) => a[Math.floor(r() * a.length)];
-// (the words eras are named from, as keys: eraName gives them in the page's words)
-const ERA_ADJ = ['Restless', 'Dim', 'Bright', 'Still', 'Pale', 'Warm', 'Hollow', 'Rising', 'Long', 'Bitter', 'Green', 'Silver']; // i18n-ignore
-const ERA_NOUN = ['Glare', 'Tides', 'Drift', 'Calm', 'Surge', 'Murk', 'Bloom', 'Shallows', 'Gyre', 'Hush']; // i18n-ignore
-// An era that warms or cools by 5° or more is named for it; the others draw from the rest.
-const WARMING = ['Warm', 'Rising'], COOLING = ['Bitter', 'Pale']; // i18n-ignore
-const TEMPERATE = ERA_ADJ.filter((a) => !WARMING.includes(a) && !COOLING.includes(a));
 export const TEMP_MIN = 4, TEMP_MAX = 28;
 // A world runs for days: its record keeps the last ERA_KEEP eras (about five simulated days; the charts' era lines, the
 // Lab's list of eras and the lineage plots read them, the log the one before) and the last EVENT_KEEP pool events (headless
 // runs report them; the page reads only the one under way, climate.event)
 export const ERA_KEEP = 500, EVENT_KEEP = 64;
 // An era's name (climate.name) is kept in English, as a key: the soundtrack hears it (each era's music is keyed by its
-// words: audio/conductor.js eraMusic, score.js), saves and headless runs record it. eraName gives it in the page's words.
-const FIRST_ERA = 'The First Tides'; // i18n-ignore (the key; eraName gives its words)
-const ERA_RE = /^The (\w+) (\w+)$/;
-/** An era's name (climate.name, or a history entry's) as the page shows it; caps: in capitals (a species card's foot). */
-export function eraName(name, caps = false) {
-  // i18n: the first era's name, in capitals at a species card's foot (climate.era.first)
-  if (name === FIRST_ERA) return caps ? tr('card.era.first', 'THE FIRST TIDES') : tr('climate.era.first', 'The First Tides');
-  const m = ERA_RE.exec(name || '');
-  if (!m || !ERA_ADJ.includes(m[1]) || !ERA_NOUN.includes(m[2])) return caps && name ? name.toUpperCase() : name; // (a name this version does not know: a key, not a message)
-  // i18n: an era's name, in capitals at a species card's foot (climate.era)
-  if (caps) return tr('card.era', 'THE {adj, select, Restless {RESTLESS} Dim {DIM} Bright {BRIGHT} Still {STILL} Pale {PALE} Warm {WARM} Hollow {HOLLOW} Rising {RISING} Long {LONG} Bitter {BITTER} Green {GREEN} Silver {SILVER} other {{adj}}} {noun, select, Glare {GLARE} Tides {TIDES} Drift {DRIFT} Calm {CALM} Surge {SURGE} Murk {MURK} Bloom {BLOOM} Shallows {SHALLOWS} Gyre {GYRE} Hush {HUSH} other {{noun}}}', { adj: m[1], noun: m[2] });
-  // i18n: an era's name, drawn at random from these words; in a language whose adjectives agree with their noun, nest
-  // the selects (one for each noun, the adjectives inside it)
-  return tr('climate.era', 'The {adj, select, Restless {Restless} Dim {Dim} Bright {Bright} Still {Still} Pale {Pale} Warm {Warm} Hollow {Hollow} Rising {Rising} Long {Long} Bitter {Bitter} Green {Green} Silver {Silver} other {{adj}}} {noun, select, Glare {Glare} Tides {Tides} Drift {Drift} Calm {Calm} Surge {Surge} Murk {Murk} Bloom {Bloom} Shallows {Shallows} Gyre {Gyre} Hush {Hush} other {{noun}}}', { adj: m[1], noun: m[2] });
-}
+// words: audio/conductor.js eraMusic, score.js), saves and headless runs record it. eras.js names it for what marks the
+// era; eraName (eraname.js) gives it in the page's words.
+export { eraName } from './eraname.js';
 // the background water's temperature at the depth of a frost's night (°C)
 const FROST_WATER = 0.5;
 
@@ -136,7 +118,7 @@ export function createClimate(eng, rng = Math.random) {
       name: FIRST_ERA, started: 0, next: climateMix(600, 900, rng()),
       ambientTo: eng.ambient, tideTo: Array.from(eng.tide.filter((_, i) => i % 4 === 3)),
       tempTo: eng.temp, excursion: null, announced: null,
-      flow: null, index: 1,
+      flow: null, index: 1, eraMemo: eraMemo(),
       history: [{ t: 0, name: FIRST_ERA, ambient: eng.ambient, temp: eng.temp }],
       levelTo: 1, levelMid: undefined, event: null, events: [], phase: null, plan: plan(),
       nextEvent: K.eventEvery > 0 && !K.eventPlan ? K.eventFirst * 60 + gap() * 0.5 : Infinity,
@@ -214,8 +196,10 @@ export function createClimate(eng, rng = Math.random) {
     const prevTemp = climate.tempTo;
     climate.tempTo = Math.min(TEMP_MAX, Math.max(TEMP_MIN, prevTemp + climateMix(-10, 10, r())));
     const dT = climate.tempTo - prevTemp;
-    const adj = climatePick(r, dT >= 5 ? WARMING : dT <= -5 ? COOLING : TEMPERATE);
-    climate.name = `The ${adj} ${climatePick(r, ERA_NOUN)}`; // i18n-ignore (the era's key: eraName gives its words)
+    // the name's two draws, where names were always drawn (the climate's stream is the same whatever the name); the
+    // era is named below, once its water and any heat wave or cold snap are known
+    const draws = [r(), r()];
+    const since = climate.started, prevLevel = climate.levelTo;
     climate.started = t;
     climate.next = t + climateMix(600, 1080, r());
     // a heat wave or a cold snap in about a third of eras, somewhere in its middle
@@ -227,6 +211,11 @@ export function createClimate(eng, rng = Math.random) {
     climate.levelTo = r() < K.lowEras ? climateMix(K.lowLevel[0], K.lowLevel[1], r()) : 1;
     // and the floor itself shifts a little as sediment moves, so each low water shows new bars and islands
     if (K.pond) eng.shiftFloor?.(climate.index, K.floorDrift);
+    const facts = { dT, temp: climate.tempTo, light: climate.ambientTo, prevLight: prevAmb, level: climate.levelTo, prevLevel,
+      excursion: climate.excursion?.dT || 0, events: climate.events.filter((e) => e.t >= since && e.t <= t).map((e) => e.type),
+      life: climate.lifeFacts?.() || null };
+    climate.eraMemo ??= eraMemo();
+    climate.name = nameEra(facts, draws, climate.eraMemo, new Set(climate.history.map((h) => h.name)));
     climate.history.push({ t, name: climate.name, ambient: climate.ambientTo, temp: climate.tempTo, level: climate.levelTo });
     if (climate.history.length > ERA_KEEP) climate.history.splice(0, climate.history.length - ERA_KEEP);
     climate.onEra?.(climate.history.at(-1), prevAmb, prevTemp);

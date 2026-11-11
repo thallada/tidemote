@@ -7,6 +7,7 @@ import { BS, midicps } from './ugens.js';
 import { Field } from './field.js';
 import { Score } from './score.js';
 import { HandSound } from './handsound.js';
+import { eraTheme } from '../eras.js';
 
 export const STEP = 0.18; // one sixteenth: tidemote's soundtrack pulse
 // the layer of the viewer's mix (Engine.groups) that what each message schedules belongs to
@@ -22,12 +23,13 @@ export const MODES = {
   ionian: [[0, 2, 4, 5, 7, 9, 11], [0, 0, 3, -2]],
   lyddom: [[0, 2, 4, 6, 7, 9, 10], [0, 0, 1, 0]],
 };
-// tidemote's era words, each with a musical meaning
-const ADJ = { Restless: 'dorian', Dim: 'aeolian', Bright: 'lydian', Still: 'penta', Pale: 'lyddom', Warm: 'ionian', Hollow: 'phrygian', Rising: 'lydian', Long: 'dorian', Bitter: 'phrygian', Green: 'mixolydian', Silver: 'lyddom' };
-const NOUN = {
-  Glare: { glint: 1.8, bright: 1.25 }, Tides: { tide: 1.4 }, Drift: { dens: 0.85, gyre: 2 }, Calm: { dens: 0.65 },
-  Surge: { dens: 1.25 }, Murk: { bright: 0.6, sea: 1.5 }, Bloom: { bloom: 1.3 }, Shallows: { shift: 5 }, Gyre: { gyre: 3 },
-  Hush: { level: 0.7, dens: 0.6 },
+// what an era's name says of it (eras.js eraTheme), in music: its tone sets the mode, its theme the effects
+const MODE_OF = { warm: 'ionian', cold: 'lyddom', bright: 'lydian', dim: 'aeolian', low: 'phrygian', flood: 'mixolydian', calm: 'penta', shift: 'dorian',
+  bloom: 'mixolydian', lean: 'aeolian', hunt: 'phrygian', graze: 'dorian', scavenge: 'phrygian', radiate: 'lyddom', recover: 'ionian', reign: 'dorian' };
+const FX_OF = {
+  bright: { glint: 1.8, bright: 1.25 }, cold: { glint: 1.4, dens: 0.8 }, flood: { tide: 1.4 }, shift: { dens: 0.85, gyre: 2 }, calm: { dens: 0.65 },
+  hunt: { dens: 1.25 }, dim: { bright: 0.6, sea: 1.5 }, bloom: { bloom: 1.3 }, recover: { bloom: 1.15, dens: 0.85 }, low: { shift: 5 },
+  radiate: { gyre: 3 }, lean: { level: 0.7, dens: 0.6 }, scavenge: { bright: 0.8, dens: 0.9 }, warm: { bloom: 1.1, dens: 1.1 },
 };
 const ROOTS = [45, 47, 48, 50, 52, 53];
 // the keys a world may open in: open, unhurried modes (never the darkest)
@@ -36,17 +38,18 @@ export const hashStr = (s) => { let h = 2166136261; for (let i = 0; i < s.length
 // a choice that is the same for one world and one name, and differs between worlds (ws: the world's seed)
 export const worldHash = (name, ws = 0) => hashStr(`${name}#${ws >>> 0}`);
 
-// An era's music: its adjective sets the mode, its noun the effects, and the world's seed (ws) with
-// the name picks the key, so an era sounds like its name but not the same in every world. A world
-// opens (The First Tides) in a key and mode of its own.
+// An era's music: what its name says of it sets the mode (its tone) and the effects (its theme), and the
+// world's seed (ws) with the name picks the key, so an era sounds like its name but not the same in every
+// world. A world opens (The First Tides) in a key and mode of its own; a stage coined from a name, in an open
+// mode its name picks.
 export function eraMusic(name, prevRoot, ws = 0) {
-  const w = String(name || '').split(' ');
-  if (!name || name === 'The First Tides' || !ADJ[w[1]]) {
+  const th = eraTheme(name);
+  if (!th) {
     const h = worldHash('The First Tides', ws);
     return { name: name || 'The First Tides', mode: OPEN_MODES[h % OPEN_MODES.length], root: ROOTS[(h >>> 8) % ROOTS.length], fx: {} };
   }
-  const roots = ROOTS.filter((r) => r !== prevRoot);
-  return { name, mode: ADJ[w[1]], root: roots[worldHash(name, ws) % roots.length], fx: NOUN[w[2]] || {} };
+  const roots = ROOTS.filter((r) => r !== prevRoot), h = worldHash(name, ws);
+  return { name, mode: MODE_OF[th.tone] || OPEN_MODES[(h >>> 8) % OPEN_MODES.length], root: roots[h % roots.length], fx: FX_OF[th.theme] || {} };
 }
 
 // Scale degree → MIDI note, as SuperCollider's degreeToKey: a fractional degree carries an

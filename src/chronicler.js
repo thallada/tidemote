@@ -18,6 +18,7 @@
 import { dietGuild, mobilityGuild, growPlan, roleShares, affinity } from './genome.js';
 import { fmtClock, esc, UM_PER_UNIT } from './fmt.js';
 import { tr } from './i18n.js';
+import { eraName } from './eraname.js';
 import { MAXK, FIRST_LIFE, SPL_WATCH, SPL_CAUSE, SPL_CAUSES, SPL_PAIR, SPL_RANGE, DEFAULT_K } from './shaders.js';
 
 const NC = SPL_CAUSES.length;
@@ -1168,7 +1169,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     return { kind: 'era', score, col: 0xffa0e3f1, subjects: subj, force: score >= 0.7, key: 'era', keyGap: 30 * MIN,
       // i18n: an era's summary: {era}, its name; {character}: what kind of era it was (a guild's, other: none); {what}: who rose, who fell, the genera lost (chron.era.*, in a list)
       html: tr('chron.era.passed', '<b>{era}</b> has passed into history{character, select, producer {, a producers’ era} grazer {, a grazers’ era} scavenger {, a scavengers’ era} predator {, a hunters’ era} losses {, an era of losses} new {, an era of new species} flourishing {, a flourishing era} lean {, a lean era} other {}}: {what}.',
-        { era: esc(pend.name), character: character || 'none', what: andList(bits) }) };
+        { era: esc(eraName(pend.name)), character: character || 'none', what: andList(bits) }) };
   }
 
   // what one of the pool's events did, and to whom

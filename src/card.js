@@ -262,8 +262,8 @@ export function drawCard(ctx, d, art = {}) {
     : d.lineage.length > 1 ? tr('card.descends', 'Descends from {line}', { line: d.lineage.slice(0, 3).join(' ← ') + (d.lineage.length > 3 ? ' ← …' : '') }) : '';
   const lines = line ? wrap(ctx, line, fw) : [], room = ties ? 2 : 3;
   lines.slice(0, room).forEach((l, i) => text(i === room - 1 && lines.length > room ? `${l} …` : l, M, ly + i * 26, 18, d.story ? '#e8dcc0' : INK3, d.story ? 'italic 400' : 400, fw));
-  ctx.font = `600 17px ${F}`;
-  label(fit(ctx, eraName(d.home, true), fw - 20), M, H - 30, INK3);
+  // its home water: the era's name as written (code never puts a message's words in capitals)
+  text(eraName(d.home), M, H - 30, 17, INK3, 600, fw - 20);
   if (d.qr) {
     // dark modules on a cyan tile (many phone cameras read no light-on-dark code), whole device pixels a module
     // (crisp edges read best), a quiet zone of at least three modules (a code up to version 13, a card with a body
