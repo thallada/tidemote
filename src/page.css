@@ -787,7 +787,9 @@ dd { margin: 0; color: var(--ink-2); }
 .tags.sm { gap: 3px; }
 /* between the actions and the readings: one line, the same height for every species (the rest behind a
    +n chip, which opens to all of them), so the compass below never moves as the species changes */
-#spec-tags { height: 20px; overflow: hidden; align-content: flex-start; flex: none; }
+#spec-tags { height: 24px; overflow: hidden; align-content: flex-start; flex: none; }
+/* (its chips as tall as a target must be: the +n chip is one) */
+#spec-tags span { box-sizing: border-box; height: 24px; padding: 0 5px; display: flex; align-items: center; }
 #spec-tags .more { border-style: dashed; color: var(--ink-3); cursor: pointer; }
 #spec-tags.all { height: auto; }
 #spec-tags:empty { display: none; }
