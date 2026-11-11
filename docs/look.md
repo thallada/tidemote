@@ -24,7 +24,8 @@ the post uniforms with the look whole (`b.postPlain`), so a card's portrait neve
 | Display, after the gamma curve | `lookGrade` (`lookDisplay` over the water's view) | contrast, black (the darks pressed down), saturation, dye density, grain |
 
 The edge effects read the scene four times a pixel or more apart, so they fade in from 25 to 70 pixels per world
-unit (cells several pixels across) and their reach grows with zoom to 3 px. Under a full light or heat map the grade
+unit (cells several pixels across) and their reach grows with zoom to 3 px; where the optics blur the image they fade
+by how far it is spread (Stone, below: the look's edges). Under a full light or heat map the grade
 is mostly held back so the map reads true (`lookDisplay`); the close-up has no maps, bloom or field stop, so it takes
 the scene light, the tone curve and the whole grade. The shallow focus and the iris need the optics (the Microscope on).
 
@@ -119,6 +120,12 @@ and the look, and stone was added after them, so it took neither. Now:
   (it is in focus, in front). Taken first from height alone and at a quarter of the strength, it did not show (a
   grain's own dome outweighs its place in the pile, so every grain softened alike, slightly); `tools/stonelab.mjs
   --looks nofocus` photographs the same frames with `dof` at 0 to compare.
+- The look's edges (relief, rims, fringe, rainbow rims) are read from the sharp scene, a pixel or a few apart, and laid
+  over what `lensScene` has blurred: on cells and grains out of focus, deep in a pile or toward the rim they drew crisp
+  outlines, and the view looked about as sharp as with `dof` at 0. `lensScene` now also gives how far it spread the
+  image there, in pixels, and `lookScene` scales the edges by `rp / (rp + 2 spread)` (rp: how far apart it reads them),
+  about as a blurred edge's contrast falls; the loupe's softened rim does the same. Where nothing is spread (in focus,
+  Optics off, below the focus's start) nothing changes.
 - Rough outlines (`grainRough`): each mineral grain's outline pushed in by up to 3 % of its radius of noise in its own
   uv (shell 2 %, worn sand and forams about 1 %), each finer octave only where it is wider than a pixel, and on
   some grains a chip broken from one side.
