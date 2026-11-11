@@ -2484,7 +2484,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + group('view', tr('settings.display.view', 'View'), (isCoarse ? '' : onoff('ui', tr('settings.display.interface', 'Interface'), 'U', state.ui, 'interface'))
         + onoff('closeup', tr('settings.display.closeup', 'Live close-up'), '', state.closeup, 'closeup')
         + onoff('auto', tr('settings.display.auto-idle', 'Auto when idle'), '', state.auto, 'autoidle')
-        + (film.supported ? `<div class="opt"><span class="lbl">${term('film', filmL)} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="${filmL}">${film.state === 'idle' ? `<button type="button" class="chip" data-o="film" data-v="now">${tr('settings.display.film-now', 'Now')}</button><button type="button" class="chip" data-o="film" data-v="scene">${tr('settings.display.film-scene', 'Next scene')}</button>` : `<button type="button" class="chip" data-o="film" data-v="stop">${tr('settings.display.film-stop', 'Stop filming')}</button>`}</div></div>` : ''));
+        + (film.supported ? `<div class="opt"><span class="lbl">${term('film', filmL)} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="${filmL}">${film.state === 'idle' ? `<button type="button" class="chip" data-o="film" data-v="now">${tr('settings.display.film-now', 'Start filming')}</button>` : `<button type="button" class="chip" data-o="film" data-v="stop">${tr('settings.display.film-stop', 'Stop filming')}</button>`}</div></div>` : ''));
     }
     // Audio: the soundtrack on or off and its volume (the dock's slider is only on wide screens), what it does while
     // the page is hidden, its layers' levels and its space and tone (src/audio/mix.js), each by what it sounds like
@@ -2766,7 +2766,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id.startsWith('mix-')) sound.setMix({ [id.slice(4)]: +v });
       else if (id === 'grain') { state.grain = +v; applyLook(); }
       else if (id === 'ev-start') { if (!climate.event) climate.force(v); toggle(false); return; }
-      else if (id === 'film') { toggle(false); filmAct(v === 'stop' ? undefined : v); return; }
+      else if (id === 'film') { toggle(false); filmAct(); return; }
       else if (id.startsWith('ev-')) { state.events[id.slice(3)] = !!+v; applyEvents(); }
       else if (id === 'ui') { setInterface(!!+v); return; }
       else if (id === 'auto') { state.auto = !!+v; renderAuto(director.active); }
@@ -5112,18 +5112,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // the panels whose glass shows the view through it (the floating ones are opaque)
   const glass = trackGlass(['lab', 'spec', 'bench', 'held'].map($), canvas);
   let glassFilming = false;
-  let filmArmedShot = null;
-  // record now, or (the auto camera on) from the start of its next shot; again: stop
-  function filmAct(how = director.active ? 'scene' : 'now') {
+  // record now; again: stop
+  function filmAct() {
     if (!film.supported) { flash(tr('flash.film-unsupported', 'This browser cannot record the view')); return; }
     if (film.state === 'saving') return;
-    if (film.state !== 'idle') { const was = film.state; film.stop(); if (was === 'armed') flash(tr('flash.film-called-off', 'Filming called off')); return; }
-    if (how === 'scene') {
-      if (!director.active) startAuto(false);
-      filmArmedShot = director.shot ? director.shot.id : null;
-      film.arm();
-      flash(tr('flash.film-armed', 'Filming the camera’s next scene'));
-    } else if (film.start()) { filmRaise(); flash(tr('flash.filming', 'Filming')); }
+    if (film.state !== 'idle') { film.stop(); return; }
+    if (film.start()) { filmRaise(); flash(tr('flash.filming', 'Filming')); }
   }
   // a film begun with the canvas below its size: the canvas back up to it (and the full density, if need be)
   function filmRaise() {
@@ -5140,29 +5134,25 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function renderFilm() {
     const s = film.state;
     if (filmBtn) {
-      filmBtn.classList.toggle('armed', s === 'armed');
       filmBtn.classList.toggle('rolling', s === 'recording' || s === 'saving');
       filmBtn.setAttribute('aria-pressed', String(s !== 'idle'));
-      filmBtn.setAttribute('aria-label', s === 'idle' ? tr('dock.film.aria', 'Film') : s === 'armed' ? tr('dock.film.aria-armed', 'Waiting for the next scene: stop') : tr('dock.film.aria-rolling', 'Filming: stop'));
-      filmBtn.dataset.hint = s === 'idle' ? (director.active ? tr('dock.film.hint-scene', 'Film from the next scene · R') : tr('dock.film.hint', 'Film · R')) : tr('dock.film.hint-stop', 'Stop · R');
-      setLive($('film-v'), s === 'recording' || s === 'saving' ? filmClock(film.elapsed()) : s === 'armed' ? tr('dock.film-label-armed', 'Wait') : tr('dock.film-label', 'Film'));
+      filmBtn.setAttribute('aria-label', s === 'idle' ? tr('dock.film.aria', 'Film') : tr('dock.film.aria-rolling', 'Filming: stop'));
+      filmBtn.dataset.hint = s === 'idle' ? tr('dock.film.hint', 'Film · R') : tr('dock.film.hint-stop', 'Stop · R');
+      setLive($('film-v'), s === 'idle' ? tr('dock.film-label', 'Film') : filmClock(film.elapsed()));
     }
     if (!recBar) return;
     recBar.hidden = s === 'idle';
     recFrame.hidden = s !== 'recording';
-    recBar.classList.toggle('standby', s === 'armed');
     recBar.classList.toggle('saving', s === 'saving');
     if (s !== recShown) {
       recShown = s;
-      setLive($('rec-l'), s === 'armed' ? tr('film.state-armed', 'Standby') : s === 'saving' ? tr('film.state-saving', 'Saving') : tr('film.state', 'Recording'));
-      setLive($('rec-stop-l'), s === 'armed' ? tr('film.stop-label-armed', 'Cancel') : tr('film.stop-label', 'Stop'));
+      setLive($('rec-l'), s === 'saving' ? tr('film.state-saving', 'Saving') : tr('film.state', 'Recording'));
       $('rec-stop').disabled = s === 'saving';
-      $('rec-stop').setAttribute('aria-label', s === 'armed' ? tr('film.stop.aria-armed', 'Stop waiting for the next scene') : tr('film.stop.aria', 'Stop filming'));
     }
     if (s === 'idle') { if (filmDense) { filmDense = false; resizeDue = true; } return; }
-    setLive($('rec-t'), s === 'armed' ? tr('film.next-scene', 'Next scene') : filmClock(film.elapsed()));
+    setLive($('rec-t'), filmClock(film.elapsed()));
     const b = film.bytes(), cap = film.limit(), left = film.left();
-    setLive($('rec-mb'), s === 'armed' ? '' : fmtBytes(b));
+    setLive($('rec-mb'), fmtBytes(b));
     const near = s === 'recording' && left < 300;
     $('rec-left').hidden = !near;
     // i18n: the film stops itself at its limit in {t} (m:ss)
@@ -5178,13 +5168,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
   $('rec-stop')?.addEventListener('click', () => filmAct());
   // the private files may hold a film from before (being downloaded, or cut off by a closed tab)
   clearFilms();
-  // each frame: an armed film starts with the camera's next shot, and a rolling one counts up
+  // each frame: a rolling film counts up
   let filmShownAt = 0;
   function filmTick() {
-    if (film.state === 'armed') {
-      const sh = director.active ? director.shot : null;
-      if (!director.active || (sh && sh.id !== filmArmedShot && sh.type !== 'settle')) { if (film.start()) filmRaise(); }
-    }
     const now = performance.now();
     if (film.state !== 'idle' && now - filmShownAt > 250) { filmShownAt = now; renderFilm(); }
   }

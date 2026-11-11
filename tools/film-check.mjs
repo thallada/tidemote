@@ -42,7 +42,7 @@ const fps = () => page.evaluate(() => +document.getElementById('sys-fps')?.textC
 await page.waitForTimeout(8000);
 const fps0 = await fps();
 const film = savedFilm(page, path.join(out, tag));
-await page.evaluate(() => globalThis.__tidemote.filmAct('now'));
+await page.evaluate(() => globalThis.__tidemote.filmAct());
 const samples = [], t0 = Date.now(), base = pss();
 console.log(`${tag}: ${fps0} fps before filming; filming ${minutes} min`);
 while ((Date.now() - t0) / 60000 < minutes) {

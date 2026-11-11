@@ -229,7 +229,7 @@ for (const s of SIZES) {
   if (await page.$('#recbar')) {
     await page.keyboard.press('Escape');
     if (s.touch) await page.evaluate(() => globalThis.__tidemote.lab.close());
-    await page.evaluate(() => globalThis.__tidemote.filmAct('now'));
+    await page.evaluate(() => globalThis.__tidemote.filmAct());
     await page.waitForTimeout(2500);
     await snap('filming');
     if (!s.touch) rec.axeFilm = await axeRun(page);

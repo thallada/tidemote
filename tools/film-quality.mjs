@@ -47,7 +47,7 @@ for (let round = 0; round < rounds; round++) {
     await page.evaluate((v) => {
       window.__FILM_OPTS = v; window.__FILM_PROBE = { refs: [] };
       if (v.look === false) globalThis.__tidemote.look.off();
-      globalThis.__tidemote.filmAct('now');
+      globalThis.__tidemote.filmAct();
     }, v);
     const fps = [];
     for (let t = 0; t < secs; t += 5) { await page.waitForTimeout(5000); fps.push(await page.evaluate(() => +document.getElementById('sys-fps')?.textContent || 0)); }

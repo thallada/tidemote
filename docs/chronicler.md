@@ -129,8 +129,7 @@ overlay are copied scaled to at most 1080p onto the film's own canvas, the capti
 with its fade and a title (clock and era) in a corner; `captureStream(30)` of that canvas, with the soundtrack's output
 when it plays (`sound.stream()`, a MediaStreamDestination on the volume's gain), goes to a MediaRecorder (VP9/VP8 WebM,
 or MP4 where only that is offered) at about 0.12 bits a pixel. (This section predates docs/film.md, which describes the film as it is now: it runs
-until stopped, written out as it is made.) With the
-auto camera on, Film arms and starts with the camera's next shot. Hidden on phones (the dock is full), where Settings →
+until stopped, written out as it is made, and starts at once.) Hidden on phones (the dock is full), where Settings →
 Display carries it.
 
 ## Cost

@@ -1,8 +1,7 @@
 // Film (docs/film.md): what the view shows, for as long as the viewer films, as a video. Each frame the
 // world's canvas (and the overlay of marks drawn over it) is copied, scaled to at most 1080p, onto a
 // canvas of the film's own, the auto camera's caption burned in at the bottom and a small title in a
-// corner; that canvas is recorded with MediaRecorder, with the soundtrack when it plays. Armed while the
-// auto camera is on, it waits for the camera's next shot and films from its start.
+// corner; that canvas is recorded with MediaRecorder, with the soundtrack when it plays.
 //
 // Where the film goes as it is made (a sink), the first that works:
 // - the desktop app: straight into Videos/Tidemote (window.tidemoteDesktop.film), the free disk its limit;
@@ -132,8 +131,8 @@ function memorySink(type) {
  * createFilm({ canvas, source () -> [w, h] the view's full size in device pixels, overlay, caption (the caption element), audio () -> MediaStream|null,
  *   title () -> string (the corner's words), name () -> file name stem, desktop (window.tidemoteDesktop.film, or null),
  *   onChange (state), onSaved ({ blob?, path?, name, bytes, why }), onError (message) })
- * Returns { supported, state, start(), arm(), stop(), frame(), elapsed(), bytes(), limit(), left(), size(), sink() }.
- * state: idle | armed | recording | saving.
+ * Returns { supported, state, start(), stop(), frame(), elapsed(), bytes(), limit(), left(), size(), sink() }.
+ * state: idle | recording | saving.
  */
 export function createFilm({ canvas, source = null, overlay = null, caption = null, audio = () => null, title = () => '', name = () => 'tidemote', desktop = null, onChange = () => {}, onSaved = null, onError = () => {} }) {
   const fmt = filmFormat();
@@ -221,10 +220,8 @@ export function createFilm({ canvas, source = null, overlay = null, caption = nu
     return true;
   }
   function stop() {
-    if (st.state === 'armed') { set('idle'); return; }
     if (st.rec && st.rec.state !== 'inactive') st.rec.stop();
   }
-  const arm = () => { if (fmt && st.state === 'idle') set('armed'); };
   /** Bytes a second, over the last half minute (0 until two chunks are in). */
   function rateNow() {
     const r = st.rate;
@@ -286,7 +283,7 @@ export function createFilm({ canvas, source = null, overlay = null, caption = nu
     st.track?.requestFrame?.();
   }
   return {
-    supported: !!fmt, start, stop, arm, frame,
+    supported: !!fmt, start, stop, frame,
     get state() { return st.state; },
     /** Seconds filmed (recording or saving), else 0. */
     elapsed: () => (st.state === 'recording' ? (performance.now() - st.t0) / 1000 : st.state === 'saving' ? (st.tEnd - st.t0) / 1000 : 0),

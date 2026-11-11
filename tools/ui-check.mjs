@@ -84,7 +84,7 @@ for (const touch of [false, true]) {
   }
   {
     // the strip's Stop (on a phone the only one in sight): started from Settings' Now, tapped or clicked
-    await page.evaluate(() => globalThis.__tidemote.filmAct('now'));
+    await page.evaluate(() => globalThis.__tidemote.filmAct());
     await page.waitForTimeout(1500);
     const r = await page.evaluate(() => { const b = document.getElementById('rec-stop').getBoundingClientRect(), s = document.getElementById('recbar').getBoundingClientRect(); return { w: b.width, h: b.height, left: s.left, right: s.right, vw: innerWidth }; });
     check(`${tag} the strip fits the window and its Stop is a fair target`, r.left >= 0 && r.right <= r.vw && r.w >= 24 && r.h >= 24, JSON.stringify(r));

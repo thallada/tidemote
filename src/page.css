@@ -683,7 +683,6 @@ span.set-reset { display: inline-flex; align-items: center; gap: var(--s3); colo
 .card-tune-acts .btn svg { width: 14px; height: 14px; }
 /* filming: the button counts down, its dot red */
 #film .rec { opacity: 0; }
-#film.armed .rec { opacity: .7; animation: rec-blink 1.2s steps(2) infinite; color: var(--hot); }
 #film.rolling { color: var(--ink); border-color: var(--hot); }
 #film.rolling .rec { opacity: 1; color: var(--hot); }
 #film-v { font-variant-numeric: tabular-nums; min-width: 2.6em; }
@@ -701,10 +700,7 @@ span.set-reset { display: inline-flex; align-items: center; gap: var(--s3); colo
 #rec-stop { width: auto; display: inline-flex; align-items: center; gap: 7px; padding: 0 10px; font-size: 11px; letter-spacing: .18em; text-transform: uppercase; white-space: nowrap; }
 .rec-stop-i { width: 8px; height: 8px; border: 1px solid currentColor; }
 #rec-stop:disabled { opacity: .45; cursor: default; }
-/* waiting for the camera's next scene: the square hollow and slow; saving: still */
-.focus.rec.standby { border-color: rgba(255, 59, 71, 0.5); }
-.focus.rec.standby .rec-sq { background: none; border: 1px solid var(--rec); box-shadow: none; animation-duration: 2s; }
-.focus.rec.standby b { color: var(--ink-2); font-weight: 400; }
+/* saving: still */
 .focus.rec.saving .rec-sq { animation: none; opacity: .5; }
 /* and around the world, a hairline red frame with heavier corners */
 .recframe { position: absolute; left: 0; right: 0; top: var(--top); bottom: var(--bot); pointer-events: none; border: 1px solid rgba(255, 59, 71, 0.35); }
@@ -717,7 +713,7 @@ span.set-reset { display: inline-flex; align-items: center; gap: var(--s3); colo
 body.lab-open .recframe { left: var(--lab-pw); }
 body.lab-wide .recframe { left: min(620px, 100%); }
 body.spec-open .recframe { right: var(--spec-pw); }
-@media (prefers-reduced-motion: reduce) { .rec-sq, #film.armed .rec { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .rec-sq { animation: none; } }
 .help-src { margin: var(--s4) 0 0; padding-top: var(--s2); border-top: 1px solid var(--line); color: var(--ink-3); font-size: 12px; }
 .keys { display: grid; grid-template-columns: max-content 1fr; gap: 9px 18px; margin: 10px 0 0; }
 dd { margin: 0; color: var(--ink-2); }

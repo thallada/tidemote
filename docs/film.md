@@ -2,8 +2,7 @@
 
 Film (R, the dock's camera button, Settings → Film) records what the view shows as a video, the auto
 camera's captions burned in and the soundtrack with it, until the viewer stops it (R again, or Stop
-on the strip). With the auto camera on, "Next scene" waits for the camera's next shot and films from
-its start.
+on the strip). It starts at once, the auto camera on or off.
 
 ## How a film is made
 
@@ -126,8 +125,7 @@ MP4 (Chrome, Safari) is written as the recorder gives it.
 
 While it rolls, the strip under the rail (first of `.floats`) shows a blinking red square, RECORDING,
 the time filmed, the size written so far (the file's size exactly, once saved) and Stop; its hint says
-where the film is going and when it will stop itself. Waiting for the next scene it reads STANDBY with
-a hollow square and Cancel; between Stop and the download, SAVING. A hairline red frame with heavier
+where the film is going and when it will stop itself. Between Stop and the download it reads SAVING. A hairline red frame with heavier
 corners rings the world between the side panels. Neither is in the film: it records the canvases only.
 
 The rail itself has no room for it: at 1366 px the strip there squeezed the era's name and the gauges,
