@@ -9441,12 +9441,23 @@ fn lensAt(wp: vec2f) -> f32 {
   d -= post.world * round(d / post.world);
   return 1.0 - smoothstep(0.62 * post.lens.z, post.lens.z, length(d));
 }
+// The scene's light on the bared floor (l: sceneLit there), as it lights the murk and the floor seen through the water
+// (floorLit): the toned view's gain on the ground (litGain), its color (cool in the shade, warm in the sun), and in the
+// sun a golden glow and under the lamp an amber one, which the living's shadows keep from it.
+const LAND_SUN = 0.6;
+const LAND_LAMP = 0.5;
+fn landLit(l: Lit) -> vec3f {
+  let s = 1.0 - l.shadow;
+  let sun = pow(clamp(l.r * s, 0.0, 1.6), 1.4);
+  return l.k * litGain(l, 0.0) * (1.0 + vec3f(1.0, 0.9, 0.7) * (LAND_SUN * sun) + vec3f(1.0, 0.7, 0.38) * (LAND_LAMP * l.lamp * s));
+}
 // What lies on and over the focal plane at world point wp, seen at ppu pixels per unit, in the main view and the
 // loupe alike: the pool's dry floor and edge, ice, the rain's waves and duckweed. pool: poolAt(wpIn); k: optics;
 // behind: how little light the cells here give (they hide the floor); surf: the water's slope (surfaceAt, nothing
 // off open water).
-fn poolOver(cIn: vec3f, wpIn: vec2f, pool: PoolAt, ppu: f32, k: f32, behind: f32, surf: vec2f, lit: f32) -> vec3f {
+fn poolOver(cIn: vec3f, wpIn: vec2f, pool: PoolAt, ppu: f32, k: f32, behind: f32, surf: vec2f, l: Lit) -> vec3f {
   var c = cIn;
+  let lit = litGain(l, 0.0);
   // in the world's own coordinates, as the simulation finds the edge (its wobble does not tile the world); what
   // the floor and the ice show tiles it (vnoiseT...), so it stays put however the view wraps, seamless at its edges
   let wp = wpIn - post.world * floor(wpIn / post.world);
@@ -9471,7 +9482,7 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, pool: PoolAt, ppu: f32, k: f32, behind: f32
         mud *= 1.0 - 0.65 * max(a.w, b.w);
         mud += vec3f(0.012, 0.013, 0.014) * wetM * pow(vnoiseT(wp, 2.3, vec2f(0.0)), 8.0) + vec3f(0.16, 0.165, 0.17) * max(a.z, b.z);
       }
-      c += mud * dry * behind * mix(1.0, 0.8, k);
+      c += mud * landLit(l) * dry * behind * mix(1.0, 0.8, k);
     }
     // the meniscus: a thin bright contact line, uneven along its length (it pins and slips on the grains), and on
     // the water's side the curved surface rising to it, scattering a narrowing glow
@@ -9611,7 +9622,7 @@ struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
   bg = mix(bg, bg * mix(vec3f(0.85, 0.88, 0.94), vec3f(1.12, 1.06, 1.0), lamp), k) + (murkColor(ml) + floorLit(lit, m) * k) * behind;
   c = c * mix(0.72, 1.0, v) * mix(1.0, mix(0.88, 1.05, lamp), k) + bg;
   c = pondSpecks(c, hdr, i.pos.xy, min(1.0, live.a), litGain(lit, 0.0));
-  c = poolOver(c, wp, pool, post.ppu, k, behind, surf.slope, litGain(lit, 0.0));
+  c = poolOver(c, wp, pool, post.ppu, k, behind, surf.slope, lit);
   c = extremes(c, water, behind, bub);
   c = shadeOver(c, wp);
   c = instrument(c, wp, post.ppu);
@@ -9697,7 +9708,7 @@ fn loupeScene(r: vec2f) -> vec3f {
   var c = mapsOver(sunGrade(litShow(lookTone(hdr), lit, 1.0), lit), wp, i.pos.xy, water.x) + vec3f(0.006, 0.006, 0.012) + (murkColor(ml) + floorLit(lit, m) * k) * behind;
   c = pondMicro(c, hdr, microView.cam, r0 * microView.res * 0.5, microView.ppu, loupe.ppu, m, litGain(lit, 0.0));
   // the drought's dry floor and its rain, the frost's ice, the storm's waves, duckweed
-  c = poolOver(c, wp, pool, loupe.ppu, k, behind, surf.slope, litGain(lit, 0.0));
+  c = poolOver(c, wp, pool, loupe.ppu, k, behind, surf.slope, lit);
   c = extremes(c, water, behind, bub);
   c = shadeOver(c, wp);
   c = lookDisplay(pow(max(c, vec3f(0.0)), vec3f(1.0 / 2.2)), i.pos.xy);

@@ -187,7 +187,10 @@ rather than outshine: with `LIT_CELL` 0.92x to 1.28x they read 1.13-1.14x on scr
 halves a gain in log, the shoulder takes a little more; 0.9x to 1.12x read 1.09x). In the
 sun the living shade the ground a little way from them (`sunShadow`: their layer looked up `SHADOW_H` units toward
 the light, softened; it lies that far off them at every zoom), which there has the open water's light. The murk glows faintly golden in the sun
-(`floorLit`; amber under the lamp; with Optics on). Before the tone curve the scene only takes the
+(`floorLit`; amber under the lamp; with Optics on). The pool's bared floor takes the light as the floor seen through
+the water does (`landLit`, poolOver's dry mud): the ground's gain and the light's color, a golden glow in the sun
+(`LAND_SUN`) and an amber one under the lamp (`LAND_LAMP`), none where the living shade it, so a Tide's band or the
+lamp passing over an island lights its mud (painted over the scene unlit before, the mud showed no light at all). Before the tone curve the scene only takes the
 light's color: cool in the shade, warm in the sun, amber by the lamp's share. The sea's caustics focus it (`seaFocus`:
 stronger in the sun), the crests' sheen and the suspension's specks take the ground's gain. The loupe has no layer of
 the living of its own, so all of it is lit as the living (its floor glows as the view's). The close-up (specimen
