@@ -8904,21 +8904,73 @@ fn seaAt(p: vec2f, ppu: f32) -> vec4f {
   }
   return o;
 }
+// The sea's waves longer than a view of span world units at world point p (as seaAt: slope, carrying): each cascade's
+// mipmap read at the level whose texels are SEA_LOW views across, as a cubic B-spline (four bilinear taps: linear
+// filtering's kinks at those coarse texels would crease the bending), between two levels as the zoom goes. It is
+// taken from the bending at every point (seaSurface), so a ripple wider than the view does not carry the whole view to
+// and fro, reading as the camera swaying; it is the world's own, the same wherever the view is, so a pan changes no
+// point's bending and a zoom changes it only slowly. SEA_LOW 0.35: open water's whole view sways no more than it did
+// with the view's center taken away, at any zoom (and far less from afar); at 0.5 a storm seen from close up swayed
+// half as much again as that, at 0.25 a close view's warping halved. Once the view spans about one and a half of the sea's longest waves
+// (SEA_LONG, its peak's), the level read holds a few percent of their slope and the view sways with none of them: it
+// fades out and is left out (so where the composite reads the sea at every pixel, wider views than seaFieldMain's,
+// it mostly costs nothing: on a view 1700 pixels or more across, nothing).
+const SEA_LOW = 0.35;
+const SEA_LONG = ${f(SEA.systems[0].lp)};
+fn seaLevel(p: vec2f, c: u32, lev: f32) -> vec4f {
+  let n = f32(${SEA_N}u >> u32(lev));
+  let q = p / post.seaC[c].xy * n - 0.5;
+  let i = floor(q);
+  let f = q - i;
+  let f2 = f * f;
+  let f3 = f2 * f;
+  let w0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) / 6.0;
+  let w1 = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0;
+  let w2 = (1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3) / 6.0;
+  let w3 = f3 / 6.0;
+  let g0 = w0 + w1;
+  let g1 = w2 + w3;
+  let a = (i - 0.5 + w1 / g0) / n;
+  let b = (i + 1.5 + w3 / g1) / n;
+  return (textureSampleLevel(seaTex, seaSamp, a, c, lev) * g0.x + textureSampleLevel(seaTex, seaSamp, vec2f(b.x, a.y), c, lev) * g1.x) * g0.y
+    + (textureSampleLevel(seaTex, seaSamp, vec2f(a.x, b.y), c, lev) * g0.x + textureSampleLevel(seaTex, seaSamp, b, c, lev) * g1.x) * g1.y;
+}
+fn seaLow(p: vec2f, span: f32) -> vec4f {
+  var o = vec4f(0.0);
+  let T = span * SEA_LOW;
+  if (T >= 0.75 * SEA_LONG) { return o; }
+  // (the coarsest level read is 4 texels across, a cascade's waves fading out before it)
+  let top = ${f(Math.log2(SEA_N) - 2)};
+  for (var c = 0u; c < ${SEA_CASCADES}u; c++) {
+    let L = post.seaC[c];
+    if (L.w <= 0.0) { continue; }
+    let lod = max(log2(T * f32(${SEA_N}) / max(L.x, L.y)), 0.0);
+    if (lod >= top) { continue; }
+    let l0 = floor(lod);
+    let t = mix(seaLevel(p, c, l0), seaLevel(p, c, l0 + 1.0), lod - l0) * (1.0 - smoothstep(top - 1.0, top, lod));
+    o += vec4f(t.xy, t.zw * L.z);
+  }
+  return o * (1.0 - smoothstep(0.5 * SEA_LONG, 0.75 * SEA_LONG, T));
+}
 // What the water's surface does at world point wp, seen at ppu pixels a unit: shift (world units) how far it bends
 // the view of what lies beneath, slope its tilt (the sheen), light how much of the lamp's light it focuses there.
 struct Surface { shift: vec2f, slope: vec2f, light: f32 };
 // The sea is fixed in the world, the size it would be, so zooming in only magnifies it: from close up a single ripple
 // fills the view, and the surface (far above the focal plane, out of focus) shows only by bending the view and by the
 // light it focuses, the field breathing and soft bands of light sweeping across it. Its crests are sharpened as a
-// choppy sea's are (Tessendorf): the point seen at wp came from x0 = wp - D(x0), by fixed-point iteration. What the
-// view's center sees is taken away, from the carrying and from the bending: a ripple wider than the view would
-// otherwise carry the whole of it to and fro, reading as the camera swaying, while what varies across the view stays;
-// taking it at every zoom keeps the sea in place across zooms. The light: the surface's curvature focuses the lamp onto
-// the focal plane below, brightening where it converges (by the divergence of the slope) and dimming where it spreads.
-fn seaSurface(wp: vec2f, ppu: f32, c0: vec4f) -> Surface {
+// choppy sea's are (Tessendorf): the point seen at wp came from x0 = wp - D(x0), by fixed-point iteration. The waves
+// longer than the view (seaLow, span: the view's longer side in world units) are taken away, from the carrying and
+// from the bending: a ripple wider than the view would otherwise carry the whole of it to and fro, reading as the
+// camera swaying. Until 2026-11 what the view's center saw was taken away instead: that changed with every pan and
+// zoom, so what lay in the water slid against the dry floor (which no surface bends) as the view moved, 2 to 25% of
+// a pan as the center crossed the swell, and the bared ground seemed to swim apart from the water around it. The
+// light: the surface's curvature focuses the lamp onto the focal plane below, brightening where it converges (by the
+// divergence of the slope) and dimming where it spreads.
+fn seaSurface(wp: vec2f, ppu: f32, span: f32) -> Surface {
+  let lo = seaLow(wp, span);
   var x0 = wp;
   // (calm water's gentle swell is not choppy: no carrying)
-  if (post.seaC[0].z > 0.0) { for (var it = 0; it < 2; it++) { x0 = wp - (seaAt(x0, ppu).zw - c0.zw); } }
+  if (post.seaC[0].z > 0.0) { for (var it = 0; it < 2; it++) { x0 = wp - (seaAt(x0, ppu).zw - lo.zw); } }
   let s = seaAt(x0, ppu).xy;
   let e = ${f(0.4)};
   let div = (seaAt(x0 + vec2f(e, 0.0), ppu).x - s.x + seaAt(x0 + vec2f(0.0, e), ppu).y - s.y) / e;
@@ -8929,7 +8981,7 @@ fn seaSurface(wp: vec2f, ppu: f32, c0: vec4f) -> Surface {
   // bands as the crest passed (most plainly in the speck-strewn shallows by a low shore). Eased: the bending passes a
   // gentle stretch untouched and gives way to a steep one.
   let stretch = post.seaHead.y * div;
-  o.shift = (s - c0.xy) * (post.seaHead.y * inverseSqrt(1.0 + stretch * stretch * 4.0));
+  o.shift = (s - lo.xy) * (post.seaHead.y * inverseSqrt(1.0 + stretch * stretch * 4.0));
   o.slope = s * post.seaHead.x;
   o.light = min(inverseSqrt(focus * focus + post.seaLook.x), post.seaLook.y);
   return o;
@@ -9051,15 +9103,17 @@ fn keepInFrame(d: vec2f, lo: vec2f, hi: vec2f, band: f32) -> vec2f {
 }
 // a pixel of the main view kept within its frame (its band there is a tenth of its height)
 fn keepInView(d: vec2f, pos: vec2f) -> vec2f { return keepInFrame(d, pos, post.res - pos, 0.1 * post.res.y); }
-// The water's surface at wp, seen at ppu pixels a unit from a view centered where the sea is c0 (seaAt there): the sea, gently swaying in calm
+// the main view's longer side in world units (seaSurface's span)
+fn viewSpan() -> f32 { return max(post.res.x, post.res.y) / post.ppu; }
+// The water's surface at wp, seen at ppu pixels a unit in a view span world units across: the sea, gently swaying in calm
 // water and heaving in a storm, and the rings raindrops send across it (on open water only: dry mud and ice have no
 // surface to wave; room: waterRoom there).
-fn surfaceAt(wp: vec2f, ppu: f32, c0: vec4f, room: f32) -> Surface {
+fn surfaceAt(wp: vec2f, ppu: f32, span: f32, room: f32) -> Surface {
   var o: Surface;
   o.light = 1.0;
   let wet = smoothstep(0.0, 0.4, room);
   if (wet <= 0.0) { return o; }
-  if (post.seaHead.z > 0.0) { o = seaSurface(wp, ppu, c0); }
+  if (post.seaHead.z > 0.0) { o = seaSurface(wp, ppu, span); }
   return surfaceNear(o, wp, room);
 }
 // The sea's surface (sea) with the raindrops' rings and the water's edge at wp, room: waterRoom there
@@ -9087,7 +9141,7 @@ const SEA_FIELD = 4.0;
   if (any(g.xy >= textureDimensions(seaFieldW))) { return; }
   // (the view pixel whose middle the point stands at)
   let px = vec2f(g.xy) * SEA_FIELD + 0.5;
-  let s = seaSurface(post.cam + (px - post.res * 0.5) / post.ppu, post.ppu, seaAt(post.cam, post.ppu));
+  let s = seaSurface(post.cam + (px - post.res * 0.5) / post.ppu, post.ppu, viewSpan());
   textureStore(seaFieldW, g.xy, vec4f(s.shift, s.slope));
   textureStore(seaLightW, g.xy, vec4f(s.light, 0.0, 0.0, 0.0));
 }
@@ -9108,7 +9162,7 @@ fn seaFieldAt(pos: vec2f) -> Surface {
   if (g.x >= ${SHIFT_W}u || g.y >= ${SHIFT_H}u) { return; }
   let px = (vec2f(g.xy) + 0.5) / vec2f(${SHIFT_W}.0, ${SHIFT_H}.0) * post.res;
   let wp = post.cam + (px - post.res * 0.5) / post.ppu;
-  let surf = surfaceAt(wp, post.ppu, seaAt(post.cam, post.ppu), waterRoom(poolAt(wp)));
+  let surf = surfaceAt(wp, post.ppu, viewSpan(), waterRoom(poolAt(wp)));
   shiftMap[g.y * ${SHIFT_W}u + g.x] = keepInView(surf.shift * post.ppu, px);
 }
 // Schlieren, in pixels: with the heat map on Shimmer, warm water bends the light passing through it like the
@@ -9479,15 +9533,13 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, pool: PoolAt, ppu: f32, k: f32, behind: f32
   }
   return c;
 }
-// The composite's full-screen triangle, with the sea at the view's center (seaSurface takes it away from every
-// pixel's), sampled once at its corners rather than at every pixel (a quarter of the composite's sea taps)
-struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) @interpolate(flat) sea0: vec4f };
+// The composite's full-screen triangle
+struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 @vertex fn vsComp(@builtin(vertex_index) vi: u32) -> CompVO {
   let uv = vec2f(f32((vi << 1u) & 2u), f32(vi & 2u));
   var o: CompVO;
   o.pos = vec4f(uv * 2.0 - 1.0, 0.0, 1.0);
   o.uv = vec2f(uv.x, 1.0 - uv.y);
-  o.sea0 = seaAt(post.cam, post.ppu);
   return o;
 }
 @fragment fn fsComposite(i: CompVO) -> @location(0) vec4f {
@@ -9509,7 +9561,7 @@ struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location
       if (post.seaHead.z > 0.0) { sea = seaFieldAt(i.pos.xy); }
       surf = surfaceNear(sea, wp, room);
     }
-  } else { surf = surfaceAt(wp, post.ppu, i.sea0, waterRoom(pool)); }
+  } else { surf = surfaceAt(wp, post.ppu, viewSpan(), waterRoom(pool)); }
   if (post.seaLook.z > 0.5 && post.seaLook.z < 2.5) {
     return vec4f(vec3f(clamp(select(0.5 + 2.5 * dot(surf.slope, LAMP_L), 0.25 * surf.light, post.seaLook.z < 1.5), 0.0, 1.0)), 1.0);
   }
@@ -9573,8 +9625,8 @@ struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location
   return vec4f(sensor(c, i.pos.xy, k), 1.0);
 }
 
-// loupe: a circular lens composited over the main view (sea0: the sea at the loupe's center, seaAt there, as vsComp's)
-struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) @interpolate(flat) sea0: vec4f };
+// loupe: a circular lens composited over the main view
+struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 
 @vertex fn vsLoupe(@builtin(vertex_index) vi: u32) -> LV {
   let corners = array<vec2f, 6>(vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0), vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0));
@@ -9584,7 +9636,6 @@ struct LV { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) 
   var o: LV;
   o.pos = vec4f(px.x / loupe.res.x * 2.0 - 1.0, 1.0 - px.y / loupe.res.y * 2.0, 0.0, 1.0);
   o.uv = c * rr / loupe.radius;
-  o.sea0 = seaAt(microView.cam, loupe.ppu);
   return o;
 }
 
@@ -9612,7 +9663,7 @@ fn loupeScene(r: vec2f) -> vec3f {
   let r0 = r;
   let wp = microView.cam + r0 / toR;
   let pool = poolAt(wp);
-  let surf = surfaceAt(wp, loupe.ppu, i.sea0, waterRoom(pool));
+  let surf = surfaceAt(wp, loupe.ppu, max(microView.res.x, microView.res.y) / microView.ppu, waterRoom(pool));
   var bend = surf.shift;
   var water = vec3f(post.heat.x, 0.0, 0.0);
   var bub = Bubbles(vec2f(0.0), 1.0, vec3f(0.0));

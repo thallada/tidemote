@@ -149,7 +149,7 @@ wrap puts them and show no seam at the world's edges. Raindrop ripples bend the 
   were smoothed away the more the further across the world's long, oblong texels they ran, which pulled the shorter
   waves' run toward the long axis in big worlds. Fixed in the world, so
   zooming in only magnifies it: the surface lies far above the focal plane, out of focus, and shows only by what it
-  does to the light. It bends the view of what lies beneath (its slope, relative to the view's center, times a depth:
+  does to the light. It bends the view of what lies beneath (its slope, less its waves longer than the view, times a depth:
   at the whole pool, a soft wobble; from close up, where one ripple fills the view, the field breathing and warping
   slowly), focuses the lamp onto the focal plane (caustics: brighter where the slope converges, by its divergence
   times a depth, a soft network over the pool, broad bands of light sweeping over what lies beneath from closer; they
@@ -172,8 +172,17 @@ wrap puts them and show no seam at the world's edges. Raindrop ripples bend the 
   displacement (radix-2 in workgroup memory) into a texture array, and `seaMip` mipmaps it; the post pass samples it
   filtered for the zoom, or as a cubic B-spline where its texels are magnified (linear filtering's kinks at texel
   edges show as a grid, and as blocks in the caustics, which take the slope's derivative). Crests are sharpened as a
-  choppy sea's are (the point seen came from x0 = x − D(x0)), less D at the view's center, which keeps a ripple wider
-  than the view from carrying the whole view to and fro. Checked with `tools/waterlook/`: the composite draws the
+  choppy sea's are (the point seen came from x0 = x − D(x0)). The waves longer than the view are taken from the
+  bending and the carrying (`seaLow`: each cascade's mipmap at the level whose texels are `SEA_LOW` of the view's
+  longer side, read as a cubic B-spline, between two levels for the zoom; left out past a view of about one and a half of the
+  sea's longest waves, where it holds next to none), which keeps a ripple wider than the view from carrying the whole
+  view to and fro. It is the world's own, so a pan changes no point's bending and a zoom changes it slowly, and the
+  dry floor, which no surface bends, needs nothing: what lies in the water no longer slides against it. Until 2026-11
+  the sea at the view's center was taken away instead, which changed with every pan and zoom: under the auto camera
+  what lay in the water slid against a low shore's bared floor by 2 to 25% of each pan (a storm's sea at 28 pixels a
+  unit: up to 2 pixels a 12-pixel step, the land 0), and the dry ground seemed to swim apart from the water around it.
+  Taking it from the land too (the view moving as one) left the land bent and stretched at the frame's edges like the
+  water, and was dropped. Checked with `tools/waterlook/`: the composite draws the
   GPU's sea alone (`Engine.seaTune.view`: 1 its light, 2 its sheen), `gpucheck.py` measures the sheen through looklab
   (the view at 2z averaged down against the view at z, and the change from frame to frame), `zoomclip.mjs` films a
   storm through a steady zoom (`--calm`: calm water), `shore.py` photographs a low shore in a storm through looklab, `displaycheck.mjs` drives the Display
