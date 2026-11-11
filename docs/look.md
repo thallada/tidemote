@@ -9,7 +9,7 @@ with it, and O turns it off and back to its level) and sets its grain (Grain: Of
 `applyLook` in `src/main.js`. Glow (Y) is the bloom, and so also the halation and veiling flare drawn from its blur.
 Tools set the look with `T.look.set(p, strength)` (tunables over Darkfield's) and `T.look.off()`, and a perf plan's
 scenario with `look: "on"` or `"off"`. The tuner may fade the microscope out where frames run late (Settings → Perf →
-Adapt to this device; docs/performance.md), in the main view and the loupe only: the close-up reads its own copy of
+Adaptation; docs/performance.md), in the main view and the loupe only: the close-up reads its own copy of
 the post uniforms with the look whole (`b.postPlain`), so a card's portrait never keeps a faded look.
 
 ## Where each part lives

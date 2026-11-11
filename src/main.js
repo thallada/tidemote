@@ -59,7 +59,7 @@ const throttles = navigator.userAgentData?.mobile ?? (/Android|iPhone|iPad|Mobil
 // What the tuner holds back (tuner.js heldBack), as Settings → Performance says it: each knob below its best, by its
 // level, and the render scale on Auto
 const HELD = {
-  // i18n: Settings → Perf, under Adapt to this device: one thing held back for speed (listed joined by " · "): the water's waves worked out not at all ({level} 0), a quarter (1) or half (2) as often
+  // i18n: Settings → Perf, under Adaptation: one thing held back for speed (listed joined by " · "): the water's waves worked out not at all ({level} 0), a quarter (1) or half (2) as often
   sea: (l) => tr('settings.perf.held.sea', '{level, select, 0 {Water surface off} 1 {Water at a quarter rate} other {Water at half rate}}', { level: l }),
   bloom: () => tr('settings.perf.held.bloom', 'Glow off'), specks: () => tr('settings.perf.held.specks', 'Suspension off'),
   // i18n: Settings → Perf, one thing held back: the stone lit again only every {s} seconds
@@ -359,7 +359,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     microscope: state.look > 0, interiors: eng.settings.lod, neighbors: state.perf.scan == null });
   // knobs the tools fix at a level of their own (T.setTune, T.setEffects; never saved)
   const pins = {};
-  // A knob moves while Adapt to this device is on and its effect is shown (the neighbors with their own Auto); any
+  // A knob moves while Adaptation is on and its effect is shown (the neighbors with their own Auto); any
   // other sits at its best, or where a tool pinned it
   const tuneAuto = (id, on = shown()) => (id === 'neighbors' ? on.neighbors : !(id in pins) && state.perf.adapt && on[id] !== false);
   function applyTune() {
@@ -2502,7 +2502,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // i18n: Settings' choices, shared by its options
     const OFF = tr('settings.off', 'Off'), NORMAL = tr('settings.normal', 'Normal'), AUTO = tr('settings.auto', 'Auto');
     const SUBTLE = tr('settings.subtle', 'Subtle'), STRONG = tr('settings.strong', 'Strong');
-    // i18n: the mark beside a Display setting the page is easing right now to keep frames on time (Settings → Performance → Adapt to this device)
+    // i18n: the mark beside a Display setting the page is easing right now to keep frames on time (Settings → Performance → Adaptation)
     const EASED = tr('settings.display.eased', 'Eased for speed right now');
     // a group of option rows, under a heading or (text '') none
     const group = (id, text, rows) => section(id, text, block('', rows));
@@ -2545,8 +2545,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + group('mix', tr('settings.audio.mix', 'Mix'), ['music', 'cells', 'water', 'tools'].map(mix).join(''))
         + group('character', tr('settings.audio.character', 'Character'), mix('space') + mix('tone'));
     }
-    // what the tuner holds back now, in words (Performance, under Adapt to this device)
-    // i18n: Settings → Perf, under Adapt to this device, when the page holds nothing back for speed
+    // what the tuner holds back now, in words (Performance, under Adaptation)
+    // i18n: Settings → Perf, under Adaptation, when the page holds nothing back for speed
     const heldWords = () => { const h = heldNow(); return h.length ? h.map(([id, l]) => HELD[id](l)).join(' · ') : tr('settings.perf.held-none', 'Nothing held back'); };
     // the neighbor budgets offered: Auto's (the tuner's levels), 1½ and 2 times the default, and one chosen before
     const scanChoices = () => [...new Set([...KNOBS.neighbors.levels, ...[1.5, 2].map((f) => Math.round((K.maxScan * f) / 8) * 8), state.perf.scan ?? K.maxScan])].sort((a, b) => a - b);
@@ -2556,7 +2556,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const sizes = PARTICLE_SIZES.filter((n) => n <= maxParticles());
       const nowN = pendingN ?? (P.particles || 'auto');
       // (what the tuner holds back now under Adapt, a line of fixed height that readout keeps current)
-      return group('quality', tr('settings.perf.quality', 'Quality'), onoff('adapt', tr('settings.perf.adapt', 'Adapt to this device'), '', P.adapt, 'adapt')
+      return group('quality', tr('settings.perf.quality', 'Quality'), onoff('adapt', tr('settings.perf.adapt', 'Adaptation'), '', P.adapt, 'adapt')
         + `<p class="eased-now" id="perf-held">${heldWords()}</p>`)
         + group('res', tr('settings.perf.resolution', 'Resolution'), choice('scale', tr('settings.perf.scale', 'Render scale'), '', [['auto', AUTO], [1, pctOf(100)], [0.75, pctOf(75)], [0.5, pctOf(50)], [0.25, pctOf(25)]], P.scale, 'renderscale')
         + (P.scale === 'auto' ? choice('floor', tr('settings.perf.floor', 'Auto lowest'), '', [[0.75, pctOf(75)], [0.5, pctOf(50)], [0.35, pctOf(35)], [0.25, pctOf(25)]], P.floor, 'autofloor') : '')

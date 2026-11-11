@@ -1,6 +1,6 @@
 // The auto-tuner: which of the frame's costs to give up when frames run late, and which to win back when there is
 // room (main.js adaptQuality asks every two seconds; its emergency step-down, overload, acts at once). Each knob is a
-// ladder of settings, cheapest first, and while Settings → Performance → Adapt to this device is on (and the viewer
+// ladder of settings, cheapest first, and while Settings → Performance → Adaptation is on (and the viewer
 // shows the effect it eases, in Display) the tuner moves it one step at a time:
 // down, the step that saves the most GPU time for the least that is lost to the eye; up, the one that brings back the
 // most for the time it costs, if it fits. What a knob costs is measured where it can be (the GPU's timestamps, pass by

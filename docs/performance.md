@@ -173,7 +173,7 @@ Chrome reports its adapter's vendor (`img-tec`) but neither architecture nor des
   cell, against 85 on an M1 and 3 on an RTX 4070 Ti), `contactMain` 1.8, `resolveCount` 1.3-1.8. Seen whole, drawing
   8.6 ms: the sea's spectrum and inverse FFT 2.6, the composite 2.5, cells 1.2, bloom 0.3. Up close (80 pixels a unit)
   14.4 ms: cells 4.2-5.5, `contactGather` 3.3, the sea 2.3, the composite 2.2. 43 fps at full scale there before.
-- **The tuner** (`src/tuner.js`, Settings → Perf → Adapt to this device, on by default; the neighbors are Settings →
+- **The tuner** (`src/tuner.js`, Settings → Perf → Adaptation, on by default; the neighbors are Settings →
   Neighbors', Auto while left at the default): render scale and eight knobs (the sea's turns, bloom, the specks, the
   stone's relighting, the heat haze, the microscope, cells' insides, the neighbors), moved one step at a time every two
   seconds by what each step costs this device and what it shows. Every effect has one control, in Display, saying what

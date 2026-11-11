@@ -622,8 +622,6 @@ canvas.chart { cursor: crosshair; }
    grid of even cells over two lines or more. */
 .opt { display: grid; grid-template-columns: 9.6em minmax(0, 1fr); gap: var(--s3); align-items: center; }
 .opt > .lbl { white-space: nowrap; }
-/* (a label too long for its column, Adapt to this device, takes two lines) */
-.opt > .lbl:has(> [data-tip="adapt"]) { white-space: normal; }
 .opt > .segs { flex-wrap: nowrap; min-width: 0; padding-top: 1px; }
 .opt > .segs .chip { flex: 1 1 auto; min-width: 0; padding: 0 6px; margin-top: -1px; justify-content: center; white-space: nowrap; }
 .opt > .segs .chip:has(.auto-now) { gap: 5px; }
@@ -635,10 +633,10 @@ canvas.chart { cursor: crosshair; }
 /* a touch screen has no keys to show */
 @media (pointer: coarse) { .opt kbd { display: none; } }
 .opts .ramp { margin-left: calc(9.6em + var(--s3)); }
-/* a Display row the page is easing right now (Performance → Adapt to this device): a quiet dot, its place always kept */
+/* a Display row the page is easing right now (Performance → Adaptation): a quiet dot, its place always kept */
 .opt .eased { display: inline-block; width: 5px; height: 5px; margin: 0 0 1px var(--s1); border-radius: 50%; background: var(--sun); opacity: .75; vertical-align: middle; visibility: hidden; }
 .opt .eased.on { visibility: visible; }
-/* what the page holds back now (under Adapt to this device): three lines, room for all of it, whatever they say */
+/* what the page holds back now (under Adaptation): three lines, room for all of it, whatever they say */
 .opts .eased-now { margin: 0; height: 48px; font-size: 12px; line-height: 16px; color: var(--ink-2); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 .vol-row { display: flex; align-items: center; gap: var(--s3); height: 32px; }
 .vol-row input { flex: 1; min-width: 0; height: 24px; }
