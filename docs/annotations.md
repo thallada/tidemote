@@ -65,7 +65,7 @@ Each story is found from the events and the view, every 0.35 s at most, as a can
 | swim | a body of 3+ cells moving half a body length a second or more | as a body, and its heading as an arrow and where it has been as a dotted trail |
 | stalk | a hunter heading (within 45°) for the nearest cell of the species it last ate, within 1.5 units (up close) | lock on the hunter, a dashed line to its quarry with the distance between them, brackets on the quarry |
 | web | 3+ eaten–eater pairs among 3+ species in 30 s (not on a phone; when no label holds its corner) | a panel: the species by trophic level (three a level at most, ordered under their eaters so the arrows cross least), each a tag with its glyph in the species' own color, its genus over its epithet, and how much it ate and was eaten; a curved arrow from each eaten to its eater, as thick as its share (kills in hot) |
-| clump | the biggest dense clump in view (its squares on a world lattice, about 24 across the view, each 3× the view's mean, every square counted; compact, filling 55% of the box about it; a fifth of the view at most; 2.5× as dense as a ring of squares about it) of 3+ species each a twentieth of it (2.5+ in effect) | its outline, drawn once as found and riding with its cells; how many species, cells and how far across; a table of its species (glyph, name, share) and a bar in their colors; why it may hold together: its cells bonded into mats, grazers biting its producers there, hunters among them, births there (a nursery), the current flowing in toward it, its cells holding still while the rest drift. Told as found, held 12 s |
+| clump | the biggest dense clump in view (its squares on a world lattice, about 24 across the view, each 3× the view's mean, every square counted; compact, filling 55% of the box about it; a fifth of the view at most; 2.5× as dense as a ring of squares about it) of 3+ species each a twentieth of it (2.5+ in effect) | its outline about the cells it was found with (all of them, a steady sample past 1,500), built afresh at each look and riding with them; how many species, cells and how far across; a table of its species (glyph, name, share) and a bar in their colors; why it may hold together: its cells bonded into mats, grazers biting its producers there, hunters among them, births there (a nursery), the current flowing in toward it, its cells holding still while the rest drift. Told as found, held 12 s |
 | balance | the species in view with the most births and deaths in 30 s (12+) | census; born against died by cause as a split bar; THRIVING, DECLINING or TURNOVER |
 | genus | 3+ species of one genus in view | each sister its own glyph; their names |
 | old | 3+ of one species died of age in 20 s | crosses where they died |
@@ -73,11 +73,11 @@ Each story is found from the events and the view, every 0.35 s at most, as a can
 | current | the water across the view moving 0.05 units a second or more | lines of flow from seeds fixed in the world, chevrons running along them; speed and heading |
 | scavenging | a species that ate 4+ husks in 30 s | census of the scavengers; crosses where they ate |
 | sprint | the fastest cell in view, 4× the median speed and 0.25 units a second (about 15 µm/s) or more | lock, its heading, a trail of where it has been; how much faster than most |
-| beat | the biggest body in view of a species whose cells beat (its genome's beat) | brackets and its size; its beat as an oscillograph at the genome's rate; whether it swims or beats in place, tail or not |
+| beat | the biggest body in view whose beat plainly moves it: a tree or a body with tails of a species with a beat (a packed body without tails holds still whatever its beat gene), its cells moving about the body at 0.25 units a second or more, root mean square (`sway`, from the view's velocities: cells that do not beat jostle under 0.15 in nineteen bodies of twenty, beating trees reach 0.3–0.37 in half of theirs) | brackets and its size; its beat as an oscillograph at the genome's rate; whether it swims or beats in place, tail or not |
 | light | the view's light (the cells' own `lightAt`, from the page) reaching 1.25× its mean, with the producers crowded in the brightest (1.5× their share of the water) or half of those in the dim heading up its slope | the brightest water, hatched in sunlight's yellow; the producers' share there; how many seek it |
 | shelter | prey crowding among stone (squares with 6+ grains, counted by the scan: `NOTE_STONE`), 1.5× as dense as in the open, with hunters about (up close) | the stone's patches dashed; rings on the cells among them; kills there against the water's share |
-| range | a species with a quarter of the living in view | its range (where it is thickest) in its own color |
-| front | the two most numerous, each 15%+, holding ground side by side | both ranges in their colors; a table of the two |
+| range | a species with a quarter of the living in view | its range (where it is thickest) in its own color, riding with its cells |
+| front | the two most numerous, each 15%+, holding ground side by side: squares each holds most bordering one another, and where each is thick (past 0.3 of its peak square) overlapping over no more than a third of the smaller (two crowds mixed through each other are not a meeting) | both ranges in their colors, each riding with its cells; a table of the two |
 | barren | a quarter of the view or more nearly empty (a tenth of the view's mean or less a square) | the empty water dotted; what it lacks (ice, stone, light, warmth, or nothing yet settled) |
 | deaths | 30+ deaths in 30 s, half in a fifth of the view or less | where they died, hatched; of what |
 | stranded | 5+ living cells on dry ground (the scan's flag: the water's level below the floor there, as `pondWith` has it) | a sandy shape about them, rings on them; how many rest as cysts; how many dried |
@@ -163,12 +163,15 @@ The marks ride the scene as what they mark does, however the auto camera pans an
   loops where a field crosses a level, fixed in the world, drawn each frame where the view shows them. Water too warm
   is the isotherm of the view's squares' warmth at what a species bears (from afar) or a soft shape about its too-warm
   cells (up close: each spreads a bump on a lattice fixed in the world, the field eased from look to look so the shape
-  changes as the crowd does, never at a jump); ice, light, stone, a range, a killing ground are the contours of their
-  squares' fields; a community's outline is drawn once, about its cells as found. A shape about cells (a scalding
-  species' ground, the stranded, a community) rides with them as their marks do: it is built at each look about an
-  origin carried along with its cells (their mean motion and the current, through `F.project`, the carrying the marks
-  and the page's brackets have) and drawn each frame about where that origin is now, so it never trails its cells
-  however fast they or the camera move; its shape eases as the crowd changes, in that moving frame (`ride`). Squares
+  changes as the crowd does, never at a jump); ice, light, stone, a killing ground are the contours of their squares'
+  fields. A shape about cells (a scalding species' ground, the stranded, a community, a range and the two of a front)
+  rides with them as their marks do: it is built afresh at each look from where its cells are then (past 1,500 of them
+  a steady sample by id hash, so a big crowd is outlined whole) about an origin carried along with them (their mean
+  motion and the current, through `F.project`, the carrying the marks and the page's brackets have) and drawn each
+  frame about where that origin is now, so it never trails its cells however fast they or the camera move, and what
+  the carrying got wrong since the last look the next puts right; its shape eases as the crowd changes, in that moving
+  frame (`ride`). (A community's outline was once drawn as found and carried on alone: it drifted off its cells and
+  kept a shape they had left; a range's was fixed in the world until the view's squares changed.) Squares
   out of view count as outside, a finite way below the level, so no edge runs along a row of square middles; and a
   square counts only where it lies on the camera's side of the world's wrap, never again as its repeat when the grid
   is wider than the world (else from afar one stretch was outlined two or three times over). Hatching is
@@ -211,8 +214,10 @@ the interface showing and logs what the notes held and what they cost (`__tidemo
 finding and drawing; events the ring overwrote before they were read). With `--audit` it also measures, every frame
 (`src/noteaudit.js`, `__tidemote.noteView.audit()`), how steadily the marks ride the scene (the second difference of
 each anchor's, label's, glyph's and zone corner's screen place from frame to frame, against a fixed world point's, the
-camera's own; a label's on the screen, where it is meant to hold still) and every pair of text boxes that overlap,
-with examples, into `audit.json`; `--when TYPE` takes a screenshot whenever a note of that type shows; `--frames` the
+camera's own; a label's on the screen, where it is meant to hold still), how far a shape about cells (a community, a
+range, a front, the stranded, a scalding species' ground) had come to lie from them by the time a new look found them
+(`offset`, px: the middle of its outline as drawn against its cells' middle, by note type), and every pair of text
+boxes that overlap, with examples, into `audit.json`; `--when TYPE` takes a screenshot whenever a note of that type shows; `--frames` the
 time between frames as drawn and the browser's long tasks, into `frames.json` (`--notes 0` to compare with them off);
 the audit's `blinks` should be none.
 

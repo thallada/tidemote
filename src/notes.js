@@ -41,6 +41,9 @@ export const TUNE = {
   swim: 0.5,       // body lengths a second from which a body is told swimming
   current: 0.05,   // world units a second from which the water's current is told
   sprint: 0.25,    // world units a second (about 15 µm/s) from which the fastest in view is told
+  beatSway: 0.25,  // world units a second its cells move about a body, from which it is told beating (cells that do
+                   // not beat: under 0.15 in nineteen of twenty bodies; beating trees: 0.3–0.37 in half of them)
+  meet: 1 / 3,     // two species meet (a front) only where their grounds overlap over no more than this share of the smaller
   stepped: true,   // a look at the view a step a frame
 };
 
@@ -617,11 +620,13 @@ export class Notes {
         if (best >= 0 && bs >= Math.max(4 * med, this.T.sprint)) out.push({ type: 'sprint', key: `sprint:${v.id[best]}`, prio: 0.5, strength: bs / Math.max(med, 1e-3),
           actor: v.id[best], akind: v.kind[best], kind: v.kind[best], speed: bs, times: bs / Math.max(med, 1e-3), heading: Math.atan2(v.vy[best], v.vx[best]), track: [v.id[best]] });
       }
-      // A beating body: an organism of a species whose cells beat, a wave running down it (its genome's beat).
+      // A beating body: an organism whose beat plainly moves it, a wave running down it (its genome's beat): a tree or a
+      // body with tails (a packed body without tails holds still whatever its beat gene), its cells swinging about it
+      // well past the jostle of cells that do not beat (sway).
       let bt = null;
       for (const b of this._bodies(v)) {
         const g = this.sp(b.kind);
-        if (!g || !(g.beat > 0) || b.n < 3 || !ctx.inner(b.ax, b.ay)) continue;
+        if (!g || !(g.beat > 0) || !(g.tree || g.tail) || b.n < 3 || b.sway < this.T.beatSway || !ctx.inner(b.ax, b.ay)) continue;
         if (!bt || b.n > bt.n) bt = b;
       }
       if (bt) {
@@ -700,10 +705,10 @@ export class Notes {
       }
       // Who holds the view: a species with a quarter or more of the living, its range; two such, where they meet.
       const top = [...S.by.values()].filter((x) => name(x.kind)).sort((a, b) => b.n - a.n);
-      const range = (k) => { const f = new Float32Array(G); for (const i of S.by.get(k).rows) if (sqOf[i] >= 0) f[sqOf[i]]++; return Array.from(f); };
       if (top[0] && top[0].n >= 0.25 * S.living) out.push({ type: 'range', key: `range:${top[0].kind}`, prio: 0.42, strength: top[0].n / S.living * 10, kind: top[0].kind,
-        share: top[0].n / S.living, cells: Math.round(top[0].n * S.scale), field: range(top[0].kind), grid: [...v.grid] });
+        share: top[0].n / S.living, cells: Math.round(top[0].n * S.scale), grid: [...v.grid] });
       if (top[1] && top[0].n >= 0.15 * S.living && top[1].n >= 0.15 * S.living) {
+        const range = (k) => { const f = new Float32Array(G); for (const i of S.by.get(k).rows) if (sqOf[i] >= 0) f[sqOf[i]]++; return f; };
         const fa = range(top[0].kind), fb = range(top[1].kind);
         // squares where each holds the most, and the edges between them: a front
         let edges = 0;
@@ -712,8 +717,14 @@ export class Notes {
           if (!a) continue;
           for (const n2 of [k + 1, k - 1, k + NOTE_TG, k - NOTE_TG]) if (n2 >= 0 && n2 < G && v.sqIn[n2] && Math.abs((n2 % NOTE_TG) - i) <= 1 && fb[n2] > fa[n2] && fb[n2] >= 3) edges++;
         }
-        if (edges >= 3) out.push({ type: 'front', key: `front:${top[0].kind}:${top[1].kind}`, prio: 0.48, strength: edges, kind: top[0].kind, akind: top[1].kind,
-          a: { kind: top[0].kind, share: top[0].n / S.living, field: fa }, b: { kind: top[1].kind, share: top[1].n / S.living, field: fb }, edges, grid: [...v.grid] });
+        // and two grounds, not one crowd of both: where each is thick (as its range is drawn, past 0.3 of its peak), the
+        // two overlapping over no more than `meet` of the smaller
+        const thick = (f) => { let peak = 0; for (const k of inSq) peak = Math.max(peak, f[k]); return Math.max(2, 0.3 * peak); };
+        const la = thick(fa), lb = thick(fb);
+        let na = 0, nb = 0, both = 0;
+        for (const k of inSq) { const a = fa[k] >= la, b = fb[k] >= lb; na += a; nb += b; both += a && b; }
+        if (edges >= 3 && both <= this.T.meet * Math.min(na, nb)) out.push({ type: 'front', key: `front:${top[0].kind}:${top[1].kind}`, prio: 0.48, strength: edges, kind: top[0].kind, akind: top[1].kind,
+          a: { kind: top[0].kind, share: top[0].n / S.living }, b: { kind: top[1].kind, share: top[1].n / S.living }, edges, grid: [...v.grid] });
       }
       // Barren water: a good share of the view with no life, and what it lacks.
       // (a square nearly empty for the view: a tenth of its mean or less, the view's cells being a sample when it is wide)
@@ -813,7 +824,8 @@ export class Notes {
 
   // The view's organisms: cells joined by their bonds (each cell's two bonded partners, of its own kind, as the view
   // read them), as { kind, ids, n, anchor (the member nearest its middle), its place (ax, ay), size (world units across),
-  // form, speed (world units a second), lengths (body lengths a second), heading, key }, kept by key from look to look
+  // form, speed (world units a second), sway (its cells' speed about the body's own, root mean square), lengths (body
+  // lengths a second), heading, key }, kept by key from look to look
   // (a body keeps its key while it keeps any of its cells). Once a look.
   _bodies(v = this.view) {
     if (this._bodyView === v) return this._bodyList;
@@ -861,7 +873,10 @@ export class Notes {
       // its long and short axes (the spread's eigenvalues): a filament is long and thin
       const trace = (sxx + syy) / n, det = (sxx * syy - sxy * sxy) / (n * n), disc = Math.sqrt(Math.max(0, trace * trace / 4 - det));
       const l1 = trace / 2 + disc, l2 = Math.max(trace / 2 - disc, 1e-9), elong = Math.sqrt(l1 / l2);
-      const size = 2 * Math.sqrt(far), speed = Math.hypot(vx, vy);
+      // (and how hard its cells move about it: their speeds against the body's own, a beat's swing)
+      let s2 = 0;
+      for (const i of rows) s2 += (v.vx[i] - vx) ** 2 + (v.vy[i] - vy) ** 2;
+      const size = 2 * Math.sqrt(far), speed = Math.hypot(vx, vy), sway = Math.sqrt(s2 / n);
       const ids = rows.map((i) => v.id[i]);
       // its key: the one it had while it held any of these cells (the one it shared most with), else its first cell's
       const votes = new Map();
@@ -870,7 +885,7 @@ export class Notes {
       if (key == null || keys.has(key)) { let lo = ids[0]; for (const id of ids) if (id < lo) lo = id; key = `${v.kind[rows[0]]}.${lo}`; }
       keys.add(key);
       for (const id of ids) cells.set(id, key);
-      list.push({ kind: v.kind[rows[0]], ids, n, anchor: v.id[anchor], ax: v.x[anchor], ay: v.y[anchor], size, speed,
+      list.push({ kind: v.kind[rows[0]], ids, n, anchor: v.id[anchor], ax: v.x[anchor], ay: v.y[anchor], size, speed, sway,
         lengths: speed / Math.max(size, 0.05), heading: Math.atan2(vy, vx), key,
         form: elong >= 3.5 ? 'filament' : n >= 20 && elong < 1.8 ? 'mat' : n >= 8 ? 'colony' : 'cluster' });
     }
@@ -990,8 +1005,8 @@ export class Notes {
     if (cs < 0.6 * (speed / living)) why.push(['still', cs]);
     return { key: best.key, cells: Math.round(rows.length * S.scale), species: new Set(rows.map((i) => v.kind[i])).size, many: best.many, shares: shares.slice(0, 5), why,
       size: 2 * far, b, bins: comp, anchor: v.id[anchor], band,
-      // (its cells, for its outline: drawn once as found, riding with them)
-      ids: rows.slice(0, 1500).map((i) => v.id[i]) };
+      // (its cells, for its outline, riding with them: all of them, every square's; the outline samples them evenly)
+      ids: rows.map((i) => v.id[i]) };
   }
 
   // the nearest hunter closing on a cell of the species it last ate: within reach, moving toward it

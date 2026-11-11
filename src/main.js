@@ -3,7 +3,7 @@ import { voiceOf } from './audio/mapping.js';
 import { signalAt } from './audio/motif.js';
 import { V_SCALE } from './audio/listen.js';
 import { createEngine, MAXK, FIRST_LIFE, MAX_STEPS, compactState } from './engine.js';
-import { genomeSerial, readGenome, writeGenome, parseParticle, thermalGuild, dietGuild } from './genome.js';
+import { genomeSerial, readGenome, writeGenome, parseParticle, thermalGuild, dietGuild, growPlan, hasTails } from './genome.js';
 import { seasonAt, createClimate, abioRate, EVENT_TYPES, EVENT_NAME, excursionAt, eraName } from './climate.js';
 import { countPools } from './geography.js';
 import { createLab } from './lab.js';
@@ -4929,8 +4929,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const g = genomeFor(slot);
     const sp = g && life.reg.get(g.serial);
     return sp ? { name: sp.name, guild: dietGuild(g), topt: g.topt ?? 19, tol: Math.max(g.tol ?? 7, 0.5), serial: g.serial, genus: sp.genus, genusName: sp.name.split(' ')[0], col: cssCol(g.col),
-      // (its beat: how hard its cells beat, how often a second; and whether its bodies grow tails)
-      beat: g.beat?.[0] ?? 0, beatHz: g.beat?.[1] ?? 0, tail: (g.tail?.[0] ?? 0) > 0 } : null;
+      // (its beat: how hard its cells beat, how often a second; whether its bodies grow as trees or bud tails, the only
+      // cells a beat moves: a packed body without tails holds still whatever its beat gene)
+      beat: g.beat?.[0] ?? 0, beatHz: g.beat?.[1] ?? 0, tree: !!growPlan(g, K), tail: hasTails(g, K) } : null;
   };
   const notes = new Notes({ species: noteSp, world: () => eng.grid });
   const noteView = createNoteView(octx);

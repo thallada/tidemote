@@ -7,10 +7,12 @@
 //   point itself (≈0, but for the water's bending of the view).
 //   Labels hold still on the screen (their leaders reach to their cells): 'label' is measured on the screen.
 //   blinks: labels readable (past half their alpha) for under 1.5 s: there should be none.
+//   offset: how far (screen px) a shape that rides with its cells (a community, a range, the stranded) had come to lie
+//   from them by the time a new look found them: the middle of its outline as drawn against its cells' middle.
 export function createAudit() {
   let S, tracks, boxes, frame, T = { ox: 0, oy: 0, rx: 0, ry: 0, k: 1 };
   function reset() {
-    S = { frames: 0, jerk: {}, overlapFrames: 0, overlaps: 0, examples: [], swaps: 0, hidden: 0, blinks: 0, blinked: [] };
+    S = { frames: 0, jerk: {}, offset: {}, overlapFrames: 0, overlaps: 0, examples: [], swaps: 0, hidden: 0, blinks: 0, blinked: [] };
     tracks = new Map();
     boxes = [];
     frame = 0;
@@ -45,6 +47,8 @@ export function createAudit() {
         /** a piece of text (or a tag) as drawn: its owner and its box */
     box(owner, s, l, t, r, b) { boxes.push({ owner, s, l, t, r, b }); },
     count(k) { S[k]++; },
+    /** a riding shape's distance (px) from its cells as a new look found them */
+    offset(c, px) { const O = (S.offset[c] ||= { n: 0, sum: 0, max: 0, over5: 0, over20: 0 }); O.n++; O.sum += px; O.max = Math.max(O.max, px); if (px > 5) O.over5++; if (px > 20) O.over20++; },
     /** a label readable for less than a moment and a half before it went (what it said, for how long) */
     blink(what, secs) { S.blinks++; if (S.blinked.length < 40) S.blinked.push(`${what} (${secs.toFixed(2)} s)`); },
     end() {
@@ -62,7 +66,8 @@ export function createAudit() {
     },
     summary() {
       const jerk = Object.fromEntries(Object.entries(S.jerk).map(([c, J]) => [c, { n: J.n, mean: +(J.sum / Math.max(1, J.n)).toFixed(3), max: +J.max.toFixed(1), over1: +(J.over1 / Math.max(1, J.n)).toFixed(4), over3: +(J.over3 / Math.max(1, J.n)).toFixed(4) }]));
-      return { ...S, jerk };
+      const offset = Object.fromEntries(Object.entries(S.offset).map(([c, O]) => [c, { n: O.n, mean: +(O.sum / Math.max(1, O.n)).toFixed(2), max: +O.max.toFixed(1), over5: +(O.over5 / Math.max(1, O.n)).toFixed(3), over20: +(O.over20 / Math.max(1, O.n)).toFixed(3) }]));
+      return { ...S, jerk, offset };
     },
   };
 }

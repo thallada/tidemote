@@ -30,6 +30,8 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const ease = (u) => 1 - (1 - clamp(u, 0, 1)) ** 3;
 const NONE = 0xffffffff;
 const hashU = (id) => (Math.imul(id, 2654435761) >>> 0) / 4294967296;
+// the most cells a shape about a crowd is built from at a look (a steady sample past it: ride)
+const RIDE_CAP = 1500;
 
 // the type, as the page's own labels: [weight, size, tracking (em), stretch]
 const TYPE = {
@@ -541,7 +543,7 @@ export function createNoteView(g) {
   }
   // A species' glyph: its guild's shape (producer a diamond, grazer a dot, hunter a triangle, scavenger a square) in
   // the species' own color, as its cells show, edged dark; beside its name wherever a name is told.
-  let curF = null;
+  let curF = null, rideTag = '';
   function spGlyph(kind, x, y, r = 3.6) {
     const sp = curF?.species(kind);
     shape(sp?.guild, x, y, r);
@@ -725,10 +727,10 @@ export function createNoteView(g) {
     return contours(f, NOTE_TG, NOTE_TG, level).map((L) => smooth(L, 3).map(([x, y]) => [ox + (x + 0.5) * s2, oy + (y + 0.5) * s2]));
   }
   // From points (a crowd): each spreads a soft bump of radius R about it on a lattice fixed in the world (a third of R a
-  // side); where they sum past half a bump's top is inside. With `st`, the field is carried from look to look and eased
-  // (each new look counts for a third), so the shape changes as the crowd does, never at a jump.
+  // side); where they sum past half a bump's top is inside. The field is carried from look to look in `st` and eased,
+  // so the shape changes as the crowd does, never at a jump.
   // (rel: inside where the field passes that share of its own peak, for a crowd known only by a sample of it)
-  function crowdLoops(pts, R, st = null, rel = 0) {
+  function crowdLoops(pts, R, st, rel = 0) {
     const c = R / 3, field = new Map(), K = Math.ceil(R / c);
     for (const [x, y] of pts) {
       const i0 = Math.round(x / c), j0 = Math.round(y / c);
@@ -739,14 +741,11 @@ export function createNoteView(g) {
         field.set(key, (field.get(key) || 0) + w);
       }
     }
-    let f = field;
-    if (st) {
-      if (st.c !== c) { st.c = c; st.f = new Map(); }
-      // (each look counts for a sixth: a shape that grows and shrinks over about a second, never flickering)
-      for (const [k, w] of st.f) { const nw = w * 0.83 + (field.get(k) || 0) * 0.17; if (nw < 0.02) st.f.delete(k); else st.f.set(k, nw); }
-      for (const [k, w] of field) if (!st.f.has(k)) st.f.set(k, w * 0.17);
-      f = st.f;
-    }
+    if (st.c !== c) { st.c = c; st.f = new Map(); }
+    // (each look counts for a sixth: a shape that grows and shrinks over about a second, never flickering)
+    for (const [k, w] of st.f) { const nw = w * 0.83 + (field.get(k) || 0) * 0.17; if (nw < 0.02) st.f.delete(k); else st.f.set(k, nw); }
+    for (const [k, w] of field) if (!st.f.has(k)) st.f.set(k, w * 0.17);
+    const f = st.f;
     if (!f.size) return [];
     let i0 = Infinity, j0 = Infinity, i1 = -Infinity, j1 = -Infinity;
     for (const k of f.keys()) { const i = Math.floor(k / 2097152) - 1048576, j = (k % 2097152) - 1048576; i0 = Math.min(i0, i); i1 = Math.max(i1, i); j0 = Math.min(j0, j); j1 = Math.max(j1, j); }
@@ -758,24 +757,44 @@ export function createNoteView(g) {
     if (rel) { let peak = 0; for (const w of arr) peak = Math.max(peak, w); level = Math.max(0.05, rel * peak); }
     return contours(arr, nx, ny, level).map((L) => smooth(L, 2).map(([x, y]) => [(x + i0) * c, (y + j0) * c]));
   }
-  // A crowd's shape that rides with it, as each cell's mark does. At each look it is built from its cells about an
+  // A crowd's shape that rides with it, as each cell's mark does. At each look it is built afresh from its cells (past
+  // RIDE_CAP of them, a steady sample: those whose ids hash under a share changed only by quarter octaves) about an
   // origin carried along with them (by their mean motion, and the current for `kind`, through F.project: the very
   // carrying the marks and the page's own brackets have), and each frame it is drawn about where that origin has been
   // carried to now. So it moves with the scene frame by frame, however fast its cells or the camera, while its shape
-  // eases as the crowd changes (crowdLoops' field, kept in that moving frame); `freeze`, drawn once as first found.
-  function ride(st, rows, kind, R, { freeze = false, rel = 0 } = {}) {
+  // eases as the crowd changes (crowdLoops' field, kept in that moving frame), and never drifts off its cells: what
+  // the carrying gets wrong between two looks the next look's cells put right.
+  // (rel: inside where the field passes that share of its own peak)
+  function ride(st, rows, kind, R, rel = 0) {
     const F = curF, v = F.model.view;
     if (st.view !== v && rows.length) {
       st.view = v;
-      const pts = rows.map((i) => nearView(F, v.x[i], v.y[i]));
+      const keep = rows.length > RIDE_CAP ? 2 ** (Math.floor(Math.log2(RIDE_CAP / rows.length) * 4) / 4) : 1, pts = [];
       let mx = 0, my = 0, vx = 0, vy = 0;
-      rows.forEach((i, q) => { mx += pts[q][0]; my += pts[q][1]; vx += v.vx[i]; vy += v.vy[i]; });
-      const n = rows.length;
+      for (const i of rows) {
+        if (keep < 1 && hashU(v.id[i]) >= keep) continue;
+        const p = nearView(F, v.x[i], v.y[i]);
+        pts.push(p); mx += p[0]; my += p[1]; vx += v.vx[i]; vy += v.vy[i];
+      }
+      const n = pts.length;
+      if (A && st.loops && st.o) {
+        const m = middleOf(st.loops), w = here(st, kind), c = F.project({ x: mx / n, y: my / n, vx: vx / n, vy: vy / n, t: v.simTime }, kind);
+        if (m && c) { const cw = F.toWorld(c); A.offset(rideTag, Math.hypot(w[0] + m[0] - cw[0], w[1] + m[1] - cw[1]) * F.ppu); }
+      }
       st.o = st.o ? here(st, kind) : [mx / n, my / n];
       st.t = v.simTime; st.vm = [vx / n, vy / n];
-      if (!freeze || !st.loops) st.loops = crowdLoops(pts.map(([x, y]) => [x - st.o[0], y - st.o[1]]), R, freeze ? null : (st.crowd ||= {}), rel);
+      st.loops = crowdLoops(pts.map(([x, y]) => [x - st.o[0], y - st.o[1]]), R, (st.crowd ||= {}), rel);
     }
     return st.loops ? { loops: st.loops, at: () => here(st, kind) } : null;
+  }
+  // (for the audit: the middle of an outline's loops, by area)
+  function middleOf(loops) {
+    let a = 0, x = 0, y = 0;
+    for (const L of loops) for (let i = 0; i < L.length; i++) {
+      const p = L[i], q = L[(i + 1) % L.length], c = p[0] * q[1] - q[0] * p[1];
+      a += c; x += (p[0] + q[0]) * c; y += (p[1] + q[1]) * c;
+    }
+    return Math.abs(a) > 1e-9 ? [x / (3 * a), y / (3 * a)] : null;
   }
   // where a riding shape's origin is now: carried from its look's moment to the moment shown, as a mark is
   function here(st, kind) {
@@ -978,6 +997,7 @@ export function createNoteView(g) {
     return S;
   }
   function plan(n, M, F) {
+    rideTag = n.type;
     const d = n.data, sp = (k) => F.species(k), nm = (k) => (sp(k)?.name ? up(sp(k).name) : tr('notes.unnamed', 'UNNAMED')), S = noteState(n.id);
     // a label names a species by its kind beside the words (its glyph drawn by its name: kind, and dataKinds a line's)
     const kd = (k) => (k != null && k >= 0 ? k : null);
@@ -1280,12 +1300,11 @@ export function createNoteView(g) {
         table: d.kinds.map((k) => { const n2 = M.stats.by.get(k)?.n || 0; return { kind: k, name: up(sp(k)?.name), value: String(Math.round(n2 * M.stats.scale)), share: n2 / total }; }) };
       for (const G of groups) P.keys.push({ glyph: G.glyph, text: nm(G.k), tone: INK });
     } else if (d.type === 'clump') {
-      // a community: its outline (a shape about its cells as they were when it was found: it does not shift), the label
-      // hung on a cell at its middle; what it holds as a table of its species (glyph, name, share) and a bar in their
-      // colors; why it may hold together
-      const v = M.view, rows = [];
-      for (const id of d.ids || []) { const i = v.at.get(id); if (i !== undefined) rows.push(i); }
-      const sh = ride((S.ride ||= {}), rows, d.shares[0]?.kind ?? -2, d.b * 1.4, { freeze: true, rel: 0.2 });
+      // a community: its outline (a shape about the cells it was found with, riding with them as they move and drift
+      // apart), the label hung on a cell at its middle; what it holds as a table of its species (glyph, name, share) and
+      // a bar in their colors; why it may hold together
+      const rows = viewRows('c', d.ids, (v) => { const rows = []; for (const id of d.ids || []) { const i = v.at.get(id); if (i !== undefined) rows.push(i); } return rows; });
+      const sh = ride((S.ride ||= {}), rows, d.shares[0]?.kind ?? -2, d.b * 1.4, 0.2);
       if (sh) P.draws.push((t) => blob(sh.loops, LINE, t, F, { width: 1.4, fill: ['rgba(150,222,230,1)', 0.05], at: sh.at }));
       const an = hang(0, [], -2, d.anchor);
       if (!an) return null;
@@ -1401,21 +1420,22 @@ export function createNoteView(g) {
           d.kills ? tr('notes.shelter.kills', '{pct} OF {kills} KILLS HERE IN {area} OF THE WATER', { pct: pct(d.killShare), kills: d.kills, area: pct(d.areaShare) }) : tr('notes.shelter.hunters', '{n} HUNTERS ABOUT', { n: d.hunters })] };
       P.keys.push({ glyph: 'ring', text: tr('notes.key.sheltering', 'SHELTERING AMONG STONE'), tone: INK });
     } else if (d.type === 'range' || d.type === 'front') {
-      // who holds the view: a species' range (where it is thickest), in its own color; two, and where they meet
-      const parts = d.type === 'range' ? [{ kind: d.kind, share: d.share, field: d.field }] : [d.a, d.b];
-      if (S.rangeOf !== d.grid + parts.map((x) => x.kind).join()) {
-        S.rangeOf = d.grid + parts.map((x) => x.kind).join();
-        S.loops = parts.map((x) => { let peak = 0; for (const f of x.field) peak = Math.max(peak, f); return gridLoops(x.field, d.grid, Math.max(2, 0.3 * peak), M.view.sqIn); });
-      }
-      parts.forEach((x, i) => {
-        const col = sp(x.kind)?.col || rgba(INK, 0.9), loops = S.loops[i];
-        P.draws.push((t) => blob(loops, INK, t - i * 0.3, F, { col, width: 1.6, fill: [col, 0.07] }));
+      // who holds the view: a species' range (where it is thickest), in its own color, a shape about its cells that
+      // rides with them; two, and where they meet
+      const parts = d.type === 'range' ? [{ kind: d.kind, share: d.share }] : [d.a, d.b];
+      const shapes = parts.map((x, i) => ride((S[`ride${i}`] ||= {}), M.rows(x.kind), x.kind, d.grid[2], 0.3));
+      if (!shapes[0]) return null;
+      shapes.forEach((sh, i) => {
+        if (!sh) return;
+        const col = sp(parts[i].kind)?.col || rgba(INK, 0.9);
+        P.draws.push((t) => blob(sh.loops, INK, t - i * 0.3, F, { col, width: 1.6, fill: [col, 0.07], at: sh.at }));
       });
-      // hung on the range's top
-      const top = S.loops[0][0];
-      if (!top) return null;
-      if (!S.at) S.at = top.reduce((b, p) => (p[1] < b[1] ? p : b), top[0]);
-      P.anchor = F.toScreen(S.at);
+      // hung on the range's top as first drawn, riding with it
+      const L0 = shapes[0].loops[0];
+      if (!L0) return null;
+      S.top ||= L0.reduce((b, p) => (p[1] < b[1] ? p : b), L0[0]);
+      const o = shapes[0].at();
+      P.anchor = F.toScreen([o[0] + S.top[0], o[1] + S.top[1]]);
       const pct = pctUp;
       // i18n: Live annotations: the two most numerous species where they meet, each name short ({a}, {b}: G. EPITHET)
       const meet = d.type === 'range' ? '' : tr('notes.front.main', '{a} · {b}', { a: short(sp(d.a.kind)?.name), b: short(sp(d.b.kind)?.name) });

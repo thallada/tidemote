@@ -46,6 +46,9 @@ const SP = {
   [FIRST_LIFE + 1]: { name: 'Prey', guild: 'grazer', topt: 20, tol: 6 },
   [FIRST_LIFE + 2]: { name: 'Weed', guild: 'producer', topt: 24, tol: 4 },
   [FIRST_LIFE + 3]: { name: 'Hardy', guild: 'producer', topt: 30, tol: 10 },
+  // (a tree that beats, and a packed body with the beat gene but no tails: its beat moves nothing)
+  [FIRST_LIFE + 4]: { name: 'Eel', guild: 'grazer', topt: 20, tol: 6, beat: 0.3, beatHz: 2, tree: true, tail: false },
+  [FIRST_LIFE + 5]: { name: 'Lump', guild: 'grazer', topt: 20, tol: 6, beat: 0.3, beatHz: 2, tree: false, tail: false },
 };
 const H = FIRST_LIFE, P = FIRST_LIFE + 1, Wd = FIRST_LIFE + 2, Hd = FIRST_LIFE + 3;
 const notes = () => new Notes({ species: (k) => SP[k] || null, world: () => WORLD, tune: { stepped: false } });
@@ -411,4 +414,47 @@ test('the auto camera flying on keeps a note about cells that will show where it
   // flying elsewhere: it goes
   N.update(ctx(102, { leaving: true, dest: { x: 70, y: 70, w: 20, h: 12 } }));
   assert.notEqual(n.exitAt, null);
+});
+
+test('two species meet where each holds a ground of its own; two crowds mixed through each other do not', () => {
+  // grounds side by side: Weed thick in x 20–48, Hardy in x 52–80, one cell a unit
+  const side = [];
+  for (let x = 20; x < 48; x++) for (let y = 30; y < 70; y++) side.push({ id: side.length + 1, x: x + 0.5, y: y + 0.5, kind: Wd }, { id: side.length + 2, x: x + 32.5, y: y + 0.5, kind: Hd });
+  // the same cells mixed through one ground, each species thicker in every other square (so the squares each holds
+  // most still border one another)
+  const s = 100 / NOTE_TG, mixed = side.map((c, q) => {
+    const x = 20 + (q >> 1) % 60 + 0.5, y = 30 + Math.floor((q >> 1) / 60) % 40 + 0.5, odd = (Math.floor(x / s) + Math.floor(y / s)) % 2;
+    return { ...c, x, y, kind: (q % 5 < 3) === !!odd ? Wd : Hd };
+  });
+  const front = (cells) => {
+    const N = notes();
+    N.ingest(scan(cells));
+    N.ingest(scan(cells, { simTime: 10.2 }));
+    N.update(ctx(100, { ppu: 10 }));
+    return N.cands.find((x) => x.type === 'front');
+  };
+  const f = front(side);
+  assert.ok(f);
+  assert.deepEqual([f.a.kind, f.b.kind].sort(), [Wd, Hd].sort());
+  assert.equal(front(mixed), undefined);
+});
+
+test('a beating body is told only when its beat plainly moves it: a tree or tails, its cells swinging hard about it', () => {
+  const Eel = FIRST_LIFE + 4, Lump = FIRST_LIFE + 5;
+  // a chain whose cells swing across it, every other one each way, at `sw` world units a second
+  const swinging = (k, sw) => chain(8, k, 20, 20).map((c, i) => ({ ...c, vy: i % 2 ? sw : -sw }));
+  const beat = (cells) => {
+    const N = notes();
+    N.ingest(scan(cells));
+    N.ingest(scan(cells, { simTime: 10.2 }));
+    N.update(ctx(100));
+    return N.cands.find((x) => x.type === 'beat');
+  };
+  const b = beat(swinging(Eel, 0.4));
+  assert.ok(b);
+  assert.equal(b.cells, 8);
+  // barely swinging: within the jostle of cells that do not beat
+  assert.equal(beat(swinging(Eel, 0.1)), undefined);
+  // a packed body with the gene but no tails: its beat moves nothing, whatever its cells do
+  assert.equal(beat(swinging(Lump, 0.4)), undefined);
 });
