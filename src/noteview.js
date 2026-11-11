@@ -731,20 +731,26 @@ export function createNoteView(g) {
   // so the shape changes as the crowd does, never at a jump.
   // (rel: inside where the field passes that share of its own peak, for a crowd known only by a sample of it)
   function crowdLoops(pts, R, st, rel = 0) {
-    const c = R / 3, field = new Map(), K = Math.ceil(R / c);
+    const c = R / 3, K = Math.ceil(R / c), key = (i, j) => (i + 1048576) * 2097152 + (j + 1048576);
+    // (this look's bumps summed in a typed array over the points' own lattice, then eased into the kept field)
+    let a0 = Infinity, b0 = Infinity, a1 = -Infinity, b1 = -Infinity;
+    for (const [x, y] of pts) { const i = Math.round(x / c), j = Math.round(y / c); a0 = Math.min(a0, i); a1 = Math.max(a1, i); b0 = Math.min(b0, j); b1 = Math.max(b1, j); }
+    a0 -= K; b0 -= K;
+    const fw = a1 + K - a0 + 1, fh = b1 + K - b0 + 1;
+    if (!(fw * fh <= 250000)) return [];
+    const field = new Float32Array(fw * fh);
     for (const [x, y] of pts) {
       const i0 = Math.round(x / c), j0 = Math.round(y / c);
       for (let a = -K; a <= K; a++) for (let b = -K; b <= K; b++) {
         const d2 = ((i0 + a) * c - x) ** 2 + ((j0 + b) * c - y) ** 2;
-        if (d2 >= R * R) continue;
-        const key = (i0 + a + 1048576) * 2097152 + (j0 + b + 1048576), w = (1 - d2 / (R * R)) ** 2;
-        field.set(key, (field.get(key) || 0) + w);
+        if (d2 < R * R) field[(j0 + b - b0) * fw + (i0 + a - a0)] += (1 - d2 / (R * R)) ** 2;
       }
     }
     if (st.c !== c) { st.c = c; st.f = new Map(); }
     // (each look counts for a sixth: a shape that grows and shrinks over about a second, never flickering)
-    for (const [k, w] of st.f) { const nw = w * 0.83 + (field.get(k) || 0) * 0.17; if (nw < 0.02) st.f.delete(k); else st.f.set(k, nw); }
-    for (const [k, w] of field) if (!st.f.has(k)) st.f.set(k, w * 0.17);
+    const at = (k) => { const i = Math.floor(k / 2097152) - 1048576 - a0, j = (k % 2097152) - 1048576 - b0; return i >= 0 && j >= 0 && i < fw && j < fh ? field[j * fw + i] : 0; };
+    for (const [k, w] of st.f) { const nw = w * 0.83 + at(k) * 0.17; if (nw < 0.02) st.f.delete(k); else st.f.set(k, nw); }
+    for (let j = 0; j < fh; j++) for (let i = 0; i < fw; i++) { const w = field[j * fw + i], k = key(i + a0, j + b0); if (w > 0 && !st.f.has(k)) st.f.set(k, w * 0.17); }
     const f = st.f;
     if (!f.size) return [];
     let i0 = Infinity, j0 = Infinity, i1 = -Infinity, j1 = -Infinity;

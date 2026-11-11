@@ -229,7 +229,9 @@ the water's own, the community, the rest), so no frame carries all of it; events
 columns come from three pooled sets and its ids go into an open-addressed table in typed arrays (`IdIndex`), so
 reading ten views a second makes nothing for the collector; a body keeps its key by a map of its cells (linear, not a
 body against each); the stalker looks only at the kinds some hunter last ate; the ring keeps about 150 bites a sim
-second at most (each counting for those left out); the readback is copied into one kept buffer. Measured with
+second at most (each counting for those left out); the readback is copied into one kept buffer; a shape about a crowd
+is built from 1,500 of its cells at most, its bumps summed in a typed array (a front's two ranges and a range from 2,800
+cells: about 2 ms on the frame a look lands, 99th percentile, in a synthetic scene under Node; a map per point took 7). Measured with
 `notes-live.mjs --frames` (the time between frames as drawn, the browser's long tasks) and `notes.debug().worst` (the
 longest single call of each part): before, 13 long tasks of about 80 ms in 150 s and frames to 131 ms; after, none,
 the longest frame 29–40 ms (as with the annotations off, 17–34), the longest step of a look 6 ms.
