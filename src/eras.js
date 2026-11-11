@@ -19,99 +19,135 @@ export const FIRST_ERA = 'The First Tides';
 export const NAME_MAX = 22;
 
 const W = (s) => s.split('|');
-// What can mark an era. adj: "The Pale …"; noun: its head word ("The Thaw", "The Long Thaw", "The Second
-// Thaw"); q: what an era is of ("Years of Thin Light"); phrase: whole names of its own.
+// What can mark an era. adj: its words for an era ("The Lean Years", "Age of Keen Hunters"); noun: its head word
+// ("The Thaw", "The Second Thaw"); tint: the adjectives that may color another theme's noun ("The Pale Hunt");
+// pair: the few of its own adjective and noun that say more together than either alone ("The Bitter Winter"; any
+// other pairing of its own only restates the noun, "The Hard Rime"); q: what an era is of ("Years of Thin Light");
+// phrase: whole names of its own.
 export const THEMES = {
   warm: {
     adj: W('Warm|Rising|Amber|Fevered|Languid|Heavy|Torpid|Copper|Sultry|Tepid'),
     noun: W('Thaw|Warming|Fever|Swelter|Simmer|Summer|Languor|Glow|Kindling|Torpor'),
     q: W('Warm Water|Fever|Long Summer|Amber Water|Languor|Slow Heat|Warmth'),
+    tint: W('Amber|Copper|Languid|Heavy|Sultry|Warm'),
+    pair: W('Amber Thaw|Copper Summer|Languid Summer|Heavy Summer|Sultry Glow'),
     phrase: W('The Water Warms|Summer in the Shallows|Warm Water Rising'),
   },
   cold: {
     adj: W('Pale|Bitter|Rimed|Brittle|Hoar|Frigid|Glass|White|Hard|Numb'),
-    noun: W('Chill|Rime|Glaze|Freeze|Winter|Hardening|Cooling|Hoarfrost|Numbing|Clearing'),
+    noun: W('Chill|Rime|Glaze|Freeze|Winter|Hardening|Cooling|Hoarfrost|Cold|Clearing'),
     q: W('Ice|Rime|Glass Water|Cold Water|Hoarfrost|Clear Cold|Slow Cold'),
+    tint: W('Pale|White|Glass|Bitter'),
+    pair: W('Bitter Winter|White Winter|Glass Winter|Brittle Winter|Pale Rime'),
     phrase: W('The Water Cools|When the Ice Came|The Cold Deepens'),
   },
   bright: {
     adj: W('Bright|Silver|Gilded|Open|Lucent|High|Shining|Limpid|Burnished|Radiant'),
     noun: W('Glare|Dazzle|Noon|Brightening|Radiance|Gleam|Glint|Luster|Clarity|Shimmer'),
     q: W('Long Light|High Light|Silver Light|Glare|Open Light|Clear Light|Bright Water'),
+    tint: W('Silver|Gilded|Burnished|Lucent'),
+    pair: W('Silver Noon|Gilded Noon|Burnished Gleam|Open Glare'),
     phrase: W('The Light Returns|Light in Every Basin|The Bands Burn Bright'),
   },
   dim: {
     adj: W('Dim|Hollow|Grey|Umber|Veiled|Sunless|Shaded|Dusky|Murky|Clouded'),
     noun: W('Murk|Dusk|Gloaming|Dimming|Umbra|Twilight|Pall|Shade|Darkening|Gloom'),
     q: W('Thin Light|Low Light|Dusk|Shadow|Grey Water|Failing Light|Little Light'),
+    tint: W('Grey|Umber|Veiled|Dusky|Hollow|Dim'),
+    pair: W('Grey Dusk|Umber Dusk|Hollow Gloom|Veiled Twilight'),
     phrase: W('The Light Withdraws|Under Thin Light|The Bands Grow Faint'),
   },
   low: {
-    adj: W('Bare|Shallow|Thin|Salt|Stranded|Ebbing|Drawn|Exposed|Narrow|Parted'),
-    noun: W('Ebb|Shallows|Drawdown|Stranding|Shoaling|Baring|Retreat|Lowstand|Recession|Narrowing'),
+    adj: W('Bare|Shallow|Thin|Salt|Stranded|Ebbing|Exposed|Narrow|Parted'),
+    noun: W('Ebb|Shallows|Drawdown|Stranding|Shoaling|Exposure|Retreat|Lowstand|Recession|Narrowing'),
     q: W('Low Water|Bare Ground|Sandbars|Islands|Shallow Water|Salt|Stranded Pools'),
+    tint: W('Bare|Salt|Thin'),
+    pair: W('Salt Shallows|Bare Shallows|Narrow Ebb'),
     phrase: W('The Water Falls|The Floor Laid Bare|Islands in the Pool|When the Bars Rose'),
   },
   flood: {
     adj: W('Brimming|Deep|Full|Drowned|Returning|Spilling|Risen|Welling|Flooding|Lapping'),
     noun: W('Drowning|Flood|Return|Inundation|Swell|Overflow|Highstand|Refilling|Spillover|Welling'),
     q: W('High Water|Deep Water|Rising Water|Drowned Bars|Full Water|Welling Water'),
+    tint: W('Deep|Drowned'),
+    pair: W('Deep Return|Full Highstand|Brimming Swell'),
     phrase: W('The Water Returns|Over the Islands|When the Bars Drowned|The Basins Fill'),
   },
   calm: {
-    adj: W('Still|Quiet|Long|Patient|Even|Soft|Mild|Settled|Slow|Gentle'),
+    adj: W('Still|Quiet|Patient|Even|Soft|Mild|Settled|Gentle|Hushed|Tranquil'),
     noun: W('Calm|Hush|Stillness|Lull|Quiet|Slackening|Doldrums|Repose|Respite|Stillstand'),
     q: W('Still Water|Slack Water|Slow Water|Quiet|Patience|Small Things|Calm'),
+    tint: W('Still|Quiet|Patient|Soft|Mild|Settled|Gentle'),
+    pair: W('Soft Repose|Settled Calm|Even Lull'),
     phrase: W('The Water Rests|The Long Afternoon|Under Even Light'),
   },
   shift: {
     adj: W('Restless|Shifting|Turning|Wandering|Fickle|Unquiet|Broken|Crossing|Errant|Uneasy'),
     noun: W('Drift|Gyre|Surge|Turning|Churn|Upheaval|Eddy|Unrest|Tides|Turnover'),
     q: W('Cross Currents|Eddies|Drift|Unrest|Turning Water|New Currents|Changing Water'),
+    tint: W('Restless|Shifting|Turning|Wandering|Fickle|Unquiet|Uneasy|Errant'),
+    pair: W('Restless Tides|Wandering Gyre|Broken Tides|Crossing Tides'),
     phrase: W('The Currents Turn|The Water Turns Over|New Currents Run'),
   },
   bloom: {
     adj: W('Green|Teeming|Verdant|Crowded|Fecund|Lush|Swarming|Thick|Abundant|Fruitful'),
-    noun: W('Bloom|Flush|Burgeoning|Swarming|Greening|Plenty|Abundance|Quickening|Teeming|Multitude'),
+    noun: W('Bloom|Flush|Burgeoning|Swarming|Greening|Profusion|Abundance|Quickening|Teeming|Multitude'),
     q: W('Plenty|Abundance|Green Water|Swarms|Multitudes|Crowding|Thick Water'),
+    tint: W('Green|Teeming|Verdant|Crowded|Lush|Thick'),
+    pair: W('Green Flush|Thick Bloom|Verdant Flush'),
     phrase: W('The Water Greens|Life in Every Drop|Every Basin Teems'),
   },
   lean: {
     adj: W('Lean|Hungry|Empty|Sparse|Barren|Ashen|Wasted|Meager|Bleak|Gaunt'),
-    noun: W('Dwindling|Famine|Hunger|Wasting|Thinning|Dearth|Winnowing|Emptying|Attrition|Want'),
+    noun: W('Dwindling|Famine|Hunger|Wasting|Thinning|Dearth|Winnowing|Emptying|Attrition|Privation'),
     q: W('Hunger|Scarcity|Want|Dearth|Empty Water|Famine|Leanness'),
+    tint: W('Lean|Hungry|Empty|Sparse|Barren|Ashen|Bleak|Gaunt'),
+    pair: W('Ashen Dwindling|Bleak Winnowing|Gaunt Famine'),
     phrase: W('The Water Empties|Few Remain|The Living Thin'),
   },
   hunt: {
     adj: W('Red|Sharp|Watchful|Grim|Iron|Keen|Hunted|Wary|Fierce|Taut'),
     noun: W('Hunt|Harrowing|Pursuit|Reckoning|Chase|Siege|Predation|Stalking|Culling|Ambush'),
     q: W('Hunters|Predators|Pursuit|Ambush|Stalkers|the Hunt|Sharp Mouths'),
+    tint: W('Red|Sharp|Watchful|Grim|Iron|Keen|Wary|Taut'),
+    pair: W('Red Hunt|Iron Siege|Grim Reckoning|Patient Hunt'),
     phrase: W('The Hunters Rise|The Hunters Gather|The Hunted Scatter'),
   },
   graze: {
     adj: W('Pastoral|Meadow|Shorn|Cropped|Unhurried|Placid|Close|Browsing'),
-    noun: W('Gleaning|Grazing|Cropping|Harvest|Browse|Mowing|Pasturage|Foraging'),
+    noun: W('Gleaning|Grazing|Cropping|Harvest|Gathering'),
     q: W('Grazers|Gleaners|Browsers|Harvest|Herds|Cropping|Pasture'),
+    tint: W('Pastoral|Placid|Meadow|Unhurried'),
+    pair: W('Meadow Harvest|Patient Grazing|Unhurried Cropping'),
     phrase: W('The Grazers Spread|The Meadows Shorn'),
   },
   scavenge: {
     adj: W('Fallow|Spent|Husked|Picked|Moldering|Sour|Sodden|Rotting'),
-    noun: W('Salvage|Leavings|Scavenging|Rot|Decay|Remains|Husking|Picking'),
+    noun: W('Salvage|Leavings|Scavenging|Rot|Decay|Remains'),
     q: W('Scavengers|Husks|Leavings|Salvage|Remains|Decay'),
+    tint: W('Fallow|Spent|Sodden|Sour|Moldering'),
+    pair: W('Fallow Salvage|Spent Leavings|Sodden Remains'),
     phrase: W('Nothing Goes to Waste|The Husks Are Taken'),
   },
   radiate: {
     adj: W('Branching|Manifold|New|Young|Budding|Strange|Diverging|Myriad|Untried|Novel'),
     noun: W('Radiation|Branching|Divergence|Unfolding|Parting|Proliferation|Sundering|Flowering|Speciation|Invention'),
     q: W('New Forms|Many Forms|Branching|Divergence|Strange Forms|Novelty|First Forms'),
+    tint: W('Branching|Manifold|Young|Budding|Strange|Myriad|Untried|Novel'),
+    pair: W('Strange Flowering|Manifold Unfolding|Young Radiation'),
     phrase: W('The Lines Branch|Many New Forms|The Tree Spreads'),
   },
   recover: {
     adj: W('Mending|Tender|Wakening|Healing|Renewed|Quickened|Kindled|Fresh'),
     noun: W('Recovery|Mending|Regrowth|Renewal|Resurgence|Wakening|Rekindling|Revival|Restoration|Healing'),
     q: W('Mending|Regrowth|Renewal|Second Growth|Return|Healing|New Growth'),
+    tint: W('Mending|Tender|Wakening|Healing|Renewed|Fresh|Kindled'),
+    pair: W('Tender Regrowth|Fresh Revival|Kindled Renewal'),
     phrase: W('Life Returns|The Slow Return|Green Again'),
   },
+  // words of time, pace and measure that suit any noun ("The Slow Thaw", "The Lesser Drowning"): an era's noun
+  // takes one of these or a tint of what else marks the era, never a restating word of its own
+  neutral: { adj: W('Long|Slow|Late|Early|Great|Lesser|Old|Brief|Lingering|Sudden|Waning|Gradual') },
   // a genus holding the pool: "The Quesku Ascendancy", "Age of Quesku", "The Queskian"
   reign: { noun: W('Ascendancy|Reign|Dominion|Sway|Primacy|Heyday|Tenure|Hegemony|Zenith|Supremacy') },
   // a quiet stretch named like a stage of the rocks: "The Vothian", "Late Vothian"
@@ -139,7 +175,7 @@ const COIN_END = W('ian|ian|ocene');
 const STEM = [W('Kal|Tor|Bra|Vel|Oss|Mar|Thal|Nor|Sar|Ast|Hel|Dov|Lor|Var|Ren|Mos|Bel|Tav|Ul|Esk|Gar|Quen|Ith|Ost'), W('ov|ar|in|en|oc|an|er|et|ad|is|um|ol|ith|ev')];
 // the real world's periods, epochs and stages, which a coined name never is
 const REAL = new Set(W('Cambrian|Ordovician|Silurian|Devonian|Permian|Triassic|Jurassic|Paleocene|Eocene|Oligocene|Miocene|Pliocene|Pleistocene|Holocene|Anthropocene|Aalenian|Bajocian|Bathonian|Callovian|Oxfordian|Kimmeridgian|Tithonian|Berriasian|Valanginian|Hauterivian|Barremian|Aptian|Albian|Cenomanian|Turonian|Coniacian|Santonian|Campanian|Maastrichtian|Danian|Selandian|Thanetian|Ypresian|Lutetian|Bartonian|Priabonian|Rupelian|Chattian|Aquitanian|Burdigalian|Langhian|Serravallian|Tortonian|Messinian|Zanclean|Piacenzian|Gelasian|Calabrian|Ionian|Tarantian|Induan|Olenekian|Anisian|Ladinian|Carnian|Norian|Rhaetian|Hettangian|Sinemurian|Toarcian|Asselian|Sakmarian|Artinskian|Kungurian|Roadian|Wordian|Capitanian|Tonian|Stenian|Ectasian|Calymmian|Statherian|Orosirian|Rhyacian|Siderian|Ediacaran|Cryogenian|Hadean|Archean|Darriwilian|Sandbian|Katian|Hirnantian|Rhuddanian|Aeronian|Telychian|Homerian|Gorstian|Ludfordian|Lochkovian|Pragian|Emsian|Eifelian|Givetian|Frasnian|Famennian|Tournaisian|Visean|Serpukhovian|Bashkirian|Moscovian|Kasimovian|Gzhelian|Fortunian|Drumian|Guzhangian|Paibian|Jiangshanian|Tremadocian|Floian|Dapingian'));
-const OPPOSITE = { warm: 'cold', cold: 'warm', bright: 'dim', dim: 'bright', low: 'flood', flood: 'low', bloom: 'lean', lean: 'bloom', recover: 'lean' };
+const OPPOSITE = { warm: 'cold', cold: 'warm', bright: 'dim', dim: 'bright', low: 'flood', flood: 'low', bloom: 'lean', lean: 'bloom', recover: 'lean', calm: 'shift', shift: 'calm' };
 const LIFE = new Set(['bloom', 'lean', 'hunt', 'graze', 'scavenge', 'radiate', 'recover']);
 
 // Each pattern: its English (the key's shape; eraname.js has a message for each) and how often it is chosen.
@@ -147,7 +183,12 @@ const LIFE = new Set(['bloom', 'lean', 'hunt', 'graze', 'scavenge', 'radiate', '
 const PATTERNS = {
   // a theme's own word names its first era more often than not ("The Drowning"); counted when it returns
   noun: { w: 0.5, ok: (c) => c.v.noun, make: (c, r) => { const n = c.first ? c.sig : pick(r, c.v.noun); return { name: `The ${n}`, head: n, sig: n === c.sig }; } },
-  'adj-noun': { w: 3, ok: (c) => c.v.noun && c.adjs, make: (c, r) => { const n = pick(r, c.v.noun), a = pick(r, c.adjs(r)); return echo(a, n) ? null : { name: `The ${a} ${n}`, head: n }; } },
+  // its noun with a word of time or pace, or a tint of what else marks the era; now and then one of its own pairs
+  'adj-noun': { w: 3, ok: (c) => c.v.noun, make: (c, r) => {
+    if (c.v.pair && r() < 0.2) { const [a, n] = pick(r, c.v.pair).split(' '); return { name: `The ${a} ${n}`, head: n }; }
+    const n = pick(r, c.v.noun), a = pick(r, c.second && r() < 0.6 ? THEMES[c.second].tint : THEMES.neutral.adj);
+    return echo(a, n) ? null : { name: `The ${a} ${n}`, head: n };
+  } },
   ordinal: { w: 1.5, ok: (c) => c.v.noun && c.nth >= 2 && c.nth <= 9, make: (c) => ({ name: `The ${ORDINAL[c.nth - 2]} ${c.sig}`, head: c.sig, sig: true }) },
   span: { w: 2, ok: (c) => c.v.q, make: (c, r) => { const q = pick(r, c.v.q); return { name: `${weighted(r, SPAN, SPAN_W)} of ${q}`, head: q }; } },
   years: { w: 0.9, ok: (c) => c.adjs, make: (c, r) => { const t = pick(r, TIME); return { name: `The ${pick(r, c.adjs(r))} ${t}`, head: t }; } },
@@ -251,7 +292,10 @@ export function nameEra(f, draws, memo, used = new Set()) {
   const strong = scored.filter(([t, s]) => s >= 0.45 && THEMES[t] && can(t)).slice(0, 3);
   const base = () => weighted(r, ['calm', 'shift', 'stage'], [0.4, 0.35, 0.25]);
   const theme = strong.length ? weighted(r, strong.map(([t]) => t), strong.map(([, s]) => s * s)) : base();
-  const second = strong.find(([t]) => t !== theme && OPPOSITE[t] !== theme && OPPOSITE[theme] !== t && THEMES[t].adj)?.[0];
+  // what else marks the era, to color its words: never the theme's own words again (an aftermath speaks in another
+  // theme's), never its opposite, and life's words color only life's ("The Pale Hunt", not "The Watchful Clarity")
+  const vocab = (t) => THEMES[t].like || t, va = vocab(theme);
+  const second = strong.map(([t]) => t).find((t) => vocab(t) !== va && OPPOSITE[vocab(t)] !== va && OPPOSITE[va] !== vocab(t) && THEMES[t].tint && (!LIFE.has(vocab(t)) || LIFE.has(va)));
   // the notable kinds of life ("Age of Pale Grazers"): the theme's own, else any
   const notable = L ? Object.keys(KIN_AT).filter((k) => ((L.guilds || {})[k] ?? (L.moves || {})[k] ?? 0) >= KIN_AT[k]) : [];
   const last = memo.last || {};
@@ -269,9 +313,9 @@ export function nameEra(f, draws, memo, used = new Set()) {
       return null;
     };
     return {
-      v, nth: n, first: n === 1, genus,
+      v, nth: n, first: n === 1, genus, second,
       sig: v.noun ? v.noun[hashStr(t, memo.seed) % v.noun.length] : null,
-      adjs: v.adj ? (rr) => (second && rr() < 0.4 ? THEMES[second].adj : v.adj) : null,
+      adjs: v.adj ? (rr) => (second && rr() < 0.4 ? THEMES[second].tint : v.adj) : null,
       kin: own && notable.includes(own) ? own : notable.length ? notable[hashStr(t, memo.seed, n) % notable.length] : null,
       coin: t === 'reign' ? genus && coinOf(genus, COIN_END[hashStr(genus, memo.seed) % COIN_END.length]) : t === 'stage' ? stage || minted() : null,
       late: t === 'reign' ? last.genus === genus && !last.late : !!stage,
@@ -361,5 +405,6 @@ export function eraTheme(name) {
     case 'genus-span': theme = 'reign'; break;
     default: theme = themeOf('noun', e.noun);
   }
-  return { theme, tone: (e.adj && themeOf('adj', e.adj)) || theme };
+  const tone = e.adj && themeOf('adj', e.adj);
+  return { theme, tone: tone && tone !== 'neutral' ? tone : theme };
 }

@@ -72,6 +72,28 @@ test('every pattern is reachable, and every name reads back to its own words', (
   assert.deepEqual([...seen].sort(), ['adj-noun', 'after', 'coin', 'genus', 'genus-span', 'kin', 'noun', 'ordinal', 'phrase', 'span', 'years']);
 });
 
+test('an adjective never restates its noun nor contradicts it', () => {
+  const OPP = { warm: 'cold', cold: 'warm', bright: 'dim', dim: 'bright', low: 'flood', flood: 'low', bloom: 'lean', lean: 'bloom', calm: 'shift', shift: 'calm' };
+  const nounOf = {}, adjOf = {};
+  for (const [t, v] of Object.entries(THEMES)) if (!v.like) {
+    for (const n of v.noun || []) (nounOf[n] ||= new Set()).add(t);
+    for (const a of v.adj || []) (adjOf[a] ||= new Set()).add(t);
+  }
+  const pairs = new Set(Object.values(THEMES).flatMap((v) => v.pair || []).map((p) => `The ${p}`));
+  for (const p of pairs) { const e = parseEra(p); assert.equal(e?.p, 'adj-noun', p); assert.equal(eraName(p), p); }
+  let n = 0;
+  for (let s = 1; s <= 12; s++) for (const name of world(s, 300, s % 3 !== 0).names) {
+    const e = parseEra(name);
+    if (e.p !== 'adj-noun' || pairs.has(name)) continue;
+    n++;
+    for (const nt of nounOf[e.noun]) for (const at of adjOf[e.adj]) {
+      assert.notEqual(at, nt, `${name} restates its noun`);
+      assert.notEqual(OPP[nt], at, `${name} contradicts its noun`);
+    }
+  }
+  assert.ok(n > 300, `${n}`);
+});
+
 test('every word has its message, and the old names still read', () => {
   const all = (k) => [...new Set(Object.values(THEMES).flatMap((t) => t[k] || []))];
   const names = [
