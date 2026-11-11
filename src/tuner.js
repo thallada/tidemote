@@ -1,6 +1,7 @@
 // The auto-tuner: which of the frame's costs to give up when frames run late, and which to win back when there is
 // room (main.js adaptQuality asks every two seconds; its emergency step-down, overload, acts at once). Each knob is a
-// ladder of settings, cheapest first, and on Auto (Settings → Performance) the tuner moves it one step at a time:
+// ladder of settings, cheapest first, and while Settings → Performance → Adapt to this device is on (and the viewer
+// shows the effect it eases, in Display) the tuner moves it one step at a time:
 // down, the step that saves the most GPU time for the least that is lost to the eye; up, the one that brings back the
 // most for the time it costs, if it fits. What a knob costs is measured where it can be (the GPU's timestamps, pass by
 // pass, every so often: costOf), and estimated where it cannot. Pure, tested in test/tuner.test.js.
@@ -32,12 +33,15 @@ export const KNOBS = {
   // not the cache lit under the cells every frame (fsStoneLit, fsStoneLitScene, fsStoneLitMicro). The loupe's and the
   // close-up's grains, drawn every frame they are open, share the cache's names and are counted with it
   stone: { levels: [2, 1, 0.5], passes: /^fsStone($|\+)|^fsStoneCache$/, share: (from, to) => from / to, loss: [0.3, 0.2] },
-  // The composite's finish (Engine.fx.finish): 2 all of it; 1 without the heat map's shimmer (1 - SSIM 0.001-0.006
-  // against full quality: barely seen, 10-15% of the composite); 0 without the optics and the microscope's look
-  // either (0.10-0.13, as much as half the render scale; the composite about halved, 0.61 → 0.27 ms on an RTX 4070
-  // Ti at 2544 × 1289). Its cost is the composite's, learned at each level on the device (rel: each level's against
-  // the top's, per pixel), guessed from the RTX until then.
-  finish: { levels: [0, 1, 2], passes: null, share: (from, to, k) => finishRel(k, to) / finishRel(k, from), loss: [1.2, 0.05] },
+  // The composite's finish, as two knobs (Engine.fx.haze, Engine.fx.microscope), once one ladder (all of it; without
+  // the haze; without the microscope either): the heat haze, the shimmer over warm water (1 - SSIM 0.001-0.006 against
+  // full quality: barely seen, 10-15% of the composite; boiling water still roils without it), and the microscope, the
+  // optics and the look (0.10-0.13, as much as half the render scale; the composite about halved, 0.61 → 0.27 ms on an
+  // RTX 4070 Ti at 2544 × 1289). Their losses are the old ladder's steps', so the haze still goes long before the
+  // microscope and the microscope comes back first. Their cost is the composite's in each state of the two (k.other:
+  // the other's level as shown), learned on the device per pixel (rel), guessed from the RTX until then.
+  haze: { levels: [false, true], passes: null, share: (from, to, k) => comp(k, +to + 2 * other(k)) / comp(k, +from + 2 * other(k)), loss: [0.05] },
+  microscope: { levels: [false, true], passes: null, share: (from, to, k) => comp(k, other(k) + 2 * +to) / comp(k, other(k) + 2 * +from), loss: [1.2] },
   // Cells' insides in the main view (Engine.fx.interiors): left out, every cell takes the lean pipeline, its outline,
   // walls and tissue kept (1 - SSIM 0.007-0.012 at 150 and 400 pixels a unit; weighed above that, the insides being
   // what a close look is for). Its cost is the cells' pass, learned at each level at a like zoom (ratio), none
@@ -52,10 +56,13 @@ export const KNOBS = {
   neighbors: { levels: [64, 88, 112], passes: null, share: (from, to, k) => nbRel(k, to) / nbRel(k, from), loss: [5, 4] },
 };
 const rate = (every) => (every > 0 ? 1 / every : 0);
-const FINISH_GUESS = [0.45, 0.88, 1];
+// the composite per pixel with the haze and the microscope each off or on (index: haze + 2 × microscope) against both
+// on: the old ladder's plain (0.45) and still (0.88) finishes, and the haze alone its 0.12 over plain
+export const COMP_GUESS = [0.45, 0.57, 0.88, 1];
+const comp = (k, i) => Math.max(0.05, k?.rel?.[i] ?? COMP_GUESS[i]);
+const other = (k) => k?.other ?? 1;
 const NB_GUESS = { 64: 0.75, 88: 0.85, 112: 1 };
 const nbRel = (k, n) => Math.max(0.05, k?.rel?.[KNOBS.neighbors.levels.indexOf(n)] ?? NB_GUESS[n] ?? 1);
-const finishRel = (k, i) => Math.max(0.05, k?.rel?.[i] ?? FINISH_GUESS[i]);
 // the share of the frame's interval a step up must leave the GPU under
 export const ROOM = 0.85;
 
@@ -77,7 +84,8 @@ export function costOf(passes) {
  *   behind: frames run late (true) or there is room (false),
  *   T: the frame's interval (ms), gpu: GPU ms a frame (mean), draw: of it, the drawing's (render scale's to save),
  *   knobs: { id: { level: index, auto, floor: lowest index allowed, cost: ms measured at its level (or null), full: ms
- *     last measured at its top level (or null) } },
+ *     last measured at its top level (or null); the haze's and the microscope's also rel, the composite in each state
+ *     of the two, and other, the other's level as shown } },
  *   scale: { cur, ladder (descending), floor, auto },
  *   held: { id: true } (not to be raised again yet), }
  * Returns { id: knob id or 'scale', to: its new level index (or scale) } .
@@ -132,10 +140,23 @@ export function decide(s) {
 // A knob's cost at its top level: from its cost measured at its level (where that level costs anything), else the
 // last measured at the top (full), else a share of the drawing judged from the phones and desktops measured (the sea
 // about a fifth of it on a phone, bloom a twentieth)
-const GUESS = { sea: 0.2, bloom: 0.05, specks: 0.05, stone: 0.03, finish: 0.3, interiors: 0, neighbors: 0 };
+const GUESS = { sea: 0.2, bloom: 0.05, specks: 0.05, stone: 0.03, haze: 0.3, microscope: 0.3, interiors: 0, neighbors: 0 };
 function fullCost(id, k, draw) {
   const def = KNOBS[id], share = def.share(def.levels[def.levels.length - 1], def.levels[k.level], k);
   if (k.cost != null && share > 0) return k.cost / share;
   if (k.full != null) return k.full;
   return (GUESS[id] ?? 0.05) * Math.max(draw || 0, 1);
+}
+
+/**
+ * What the tuner holds back right now, the one source for Settings → Performance's line and the marks on Display's
+ * rows: each knob below its best whose effect is shown ([id, level index], in KNOBS' order), then the render scale
+ * while Auto has it under 1 (['scale', scale]). levels: { id: index }; shown: { id: false } for an effect the viewer
+ * has off, never counted; scale: the render scale on Auto, else null.
+ */
+export function heldBack(levels, shown = {}, scale = null) {
+  const out = [];
+  for (const [id, def] of Object.entries(KNOBS)) if (levels[id] != null && shown[id] !== false && levels[id] < def.levels.length - 1) out.push([id, levels[id]]);
+  if (scale != null && scale < 0.995) out.push(['scale', scale]);
+  return out;
 }

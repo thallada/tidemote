@@ -21,7 +21,7 @@ const page = ctx.pages()[0];
 const meta = JSON.parse(fs.readFileSync(path.join(root, 'runs/perf/worlds', `${world}.bin`)).subarray(4, 4 + fs.readFileSync(path.join(root, 'runs/perf/worlds', `${world}.bin`)).readUInt32LE(0)).toString());
 // the default look (look = 'default'), or plain: no optics, specks or trails, so frames compare pixel by pixel; the
 // interface hidden (Settings → Display → Interface, U), the scale bar and its ticks with it: only the world shows
-const view = viewPrefs({ particles: meta.cpu.count, auto: false, labOpen: false, ui: false, scale: 1, ...(look === 'default' ? {} : { optics: 0, specks: false, trails: 0 }) });
+const view = viewPrefs({ particles: meta.cpu.count, auto: false, labOpen: false, ui: false, scale: 1, ...(look === 'default' ? {} : { look: 0, specks: false, trails: 0 }) });
 await page.addInitScript(({ view, init }) => {
   localStorage.setItem('tidemote.view', JSON.stringify(view));
   localStorage.setItem('tidemote.sound', '{"on":false}');

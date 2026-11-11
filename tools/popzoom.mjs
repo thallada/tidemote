@@ -71,7 +71,7 @@ for (let ppu = lo; ppu <= hi * 1.0001; ppu *= ratio, i++) {
       // which of the main view's choices hides them: each toggled at this zoom, the frame compared with the last again
       const tries = [['lod off', 'e.settings.lod = false', 'e.settings.lod = true'], ['links off', 'e.settings.links = false', 'e.settings.links = true'],
         ['interiors off', 'e.fx.interiors = false', 'e.fx.interiors = true'], ['plain draw', 'e.plainDraw = true', 'e.plainDraw = false'],
-        ['finish 0', 'e.fx.finish = 0', 'e.fx.finish = 2'], ['look off', 'globalThis.__tidemote.eng.look.fill(0)', ''],
+        ['microscope off', 'e.fx.microscope = false; e.fx.haze = false', 'e.fx.microscope = true; e.fx.haze = true'], ['look off', 'globalThis.__tidemote.eng.look.fill(0)', ''],
         ['nodes off', 'e.settings.nodes = false', 'e.settings.nodes = true']];
       for (const [name, on, off] of tries) {
         await page.evaluate((c) => { const e = globalThis.__tidemote.eng; eval(c); }, on);

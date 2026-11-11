@@ -127,14 +127,16 @@ if (parts.includes('maps')) {
   await lab(false);
   // the maps over the whole world, each switched on well before recording (its legend shown, its toggle text faded)
   await esc(); await aim(page, (await spots(1, 'diverse'))[0], 'fit'); await page.mouse.move(W - 1, 1);
-  const state = () => T(() => { const T = globalThis.__tidemote, s = T.eng.settings; return { tide: s.tide, heat: s.heat, bands: s.bands, currents: !!T.state.currents }; });
+  // (one map at a time: a map's key opens it in place of another, and closes it when it is open)
+  const state = () => T(() => { const T = globalThis.__tidemote; return { map: T.state.map, currents: !!T.state.currents }; });
+  const KEY = { light: 'g', heat: 'e', tide: 'h' };
   const reach = async (want) => {
-    for (const [k, key, val] of [['tide', 'g', want.tide ?? 0], ['heat', 'e', want.heat ?? 0], ['bands', 'h', want.bands ?? 0], ['currents', 'c', !!want.currents]]) {
-      for (let i = 0; i < 4 && (await state())[k] !== val; i++) { await page.keyboard.press(key); await wait(0.15); }
-    }
+    const s = await state(), map = want.map ?? 'off';
+    if (s.map !== map) { await page.keyboard.press(KEY[map === 'off' ? s.map : map]); await wait(0.15); }
+    if (s.currents !== !!want.currents) { await page.keyboard.press('c'); await wait(0.15); }
   };
   const base = await state();
-  for (const [name, o] of [['light', { tide: 1 }], ['heat', { heat: 2 }], ['tide', { bands: 1 }], ['currents', { currents: true }]]) {
+  for (const [name, o] of [['light', { map: 'light' }], ['heat', { map: 'heat' }], ['tide', { map: 'tide' }], ['currents', { currents: true }]]) {
     await reach(o); await wait(3);
     await shot(`ui_map_${name}`, S(6), { pre: 60, meta: { what: `map ${name}`, zoom: 'fit' } });
   }

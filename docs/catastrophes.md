@@ -131,7 +131,7 @@ wrap puts them and show no seam at the world's edges. Raindrop ripples bend the 
   exaggerated, rising with the rain and the storm's currents (`Engine.seaRough`); its clock is summed frame by frame at
   the sea's pace, so a change of pace never jumps it, and it is the world's own (from its seed). The clock follows the
   sim's speed only as its square root (`seaTune.follow` 0.5: at 64× the waves move 8 times faster), so a sped-up world
-  still reads as water rather than a flicker. Settings → Display: Water surface (Off, which skips the sea's passes;
+  still reads as water rather than a flicker. Settings → Display → Water: Surface (Off, which skips the sea's passes;
   Subtle 0.5, Normal, Strong 1.8 of its height) and Wave motion (Slow 0.5, Normal, Lively 1.7 of its pace).
   `src/seatune.js` holds every tunable (`Engine.seaTune`; tools set the rest).
   The waves run with the prevailing wind: the way the era's tide drifts (`Engine.tideWind`: its light bands' crest

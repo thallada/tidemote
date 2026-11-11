@@ -173,17 +173,25 @@ Chrome reports its adapter's vendor (`img-tec`) but neither architecture nor des
   cell, against 85 on an M1 and 3 on an RTX 4070 Ti), `contactMain` 1.8, `resolveCount` 1.3-1.8. Seen whole, drawing
   8.6 ms: the sea's spectrum and inverse FFT 2.6, the composite 2.5, cells 1.2, bloom 0.3. Up close (80 pixels a unit)
   14.4 ms: cells 4.2-5.5, `contactGather` 3.3, the sea 2.3, the composite 2.2. 43 fps at full scale there before.
-- **The tuner** (`src/tuner.js`, Settings → Perf: Water motion, Bloom, Specks, Stone light, Finish, Cell
-  insides, each Auto or fixed; the neighbors are Settings → Neighbors', Auto while left at the default): render scale and
-  seven knobs, moved one step at a time every two seconds by what each step costs this
-  device and what it shows. Finish: the heat map's shimmer (barely seen: 1 - SSIM 0.001-0.006), then the optics, their
-  murk and the microscope's look (0.10-0.13, the composite about halved); Cell insides: every cell in the main view
-  drawn by the lean point pipeline (0.007-0.012 up close); the neighbors 112, 88 or 64 (no ecological difference at 64
-  in 8k worlds, at 88 in 16k ones, `runs/lowend`). The finish's, the insides' and the neighbors' costs sit inside passes
-  shared with others (the composite, the cells' pass, the step), so each is learned from that pass at each of its
-  levels. `test/tuner.test.js` runs the tuner window after window against a Pixel 3, a Pixel 11 Pro and an RTX 4070 Ti
-  modeled from these measurements: each settles within its frame (the Pixel 3 at 30 fps, half scale, the plain finish,
-  88 neighbors, the sea at half rate; the Pixel 11 at 85% scale, the sea at a quarter; the RTX at its best).
+- **The tuner** (`src/tuner.js`, Settings → Perf → Adapt to this device, on by default; the neighbors are Settings →
+  Neighbors', Auto while left at the default): render scale and eight knobs (the sea's turns, bloom, the specks, the
+  stone's relighting, the heat haze, the microscope, cells' insides, the neighbors), moved one step at a time every two
+  seconds by what each step costs this device and what it shows. Every effect has one control, in Display, saying what
+  the viewer wants; the tuner only ever eases an effect the viewer has on (`shown` in `src/main.js`: a knob whose effect
+  is off sits at its best and is never counted as saving anything), and Adapt off leaves every knob at its best. What it
+  holds back right now (`heldBack`, pure and tested) is listed under Adapt and marked with a dot on each Display row it
+  eases; `T.held()` returns it to tools. Tools still pin knobs (`T.setTune`, `T.setEffects`, a bench plan's `tune` and
+  `effects`), never saved. The heat haze (barely seen: 1 - SSIM 0.001-0.006) and the microscope (the optics, their murk
+  and the look: 0.10-0.13, the composite about halved) were once one Finish ladder; as two knobs they keep its steps'
+  losses (0.05 and 1.2), so the haze still goes long before the microscope and the microscope comes back first, and
+  their cost is the composite's per pixel in each of the four states of the two (`COMP_GUESS` until learned). Cell
+  insides: every cell in the main view drawn by the lean point pipeline (0.007-0.012 up close); the neighbors 112, 88 or
+  64 (no ecological difference at 64 in 8k worlds, at 88 in 16k ones, `runs/lowend`). The haze's and the microscope's,
+  the insides' and the neighbors' costs sit inside passes shared with others (the composite, the cells' pass, the step),
+  so each is learned from that pass at each of its levels. `test/tuner.test.js` runs the tuner window after window
+  against a Pixel 3, a Pixel 11 Pro and an RTX 4070 Ti modeled from these measurements: each settles within its frame
+  (the Pixel 3 at 30 fps, half scale, without the haze or the microscope, 88 neighbors, the sea at half rate; the
+  Pixel 11 at 85% scale, the sea at a quarter; the RTX at its best).
   Behind, the step that saves the most GPU time for the least lost to the eye; with room (the frame under 85% busy), the
   one that brings back the most for its time; with no room, a rebalance (a cheap step given up to pay for one worth half
   as much again for its time; only the dressing pays, the resolution falls only when frames are late). A knob's cost is
@@ -194,7 +202,7 @@ Chrome reports its adapter's vendor (`img-tec`) but neither architecture nor des
   0.7 ms on the Pixel 11), bloom and the sea fade over a second as they turn (`Engine._fadeFx`), the stone relights every
   0.5, 1 or 2 s. On the Pixel 11 the sea goes to half and quarter rate before the resolution falls; on an RTX 4070 Ti,
   where the dressing costs next to nothing, only the resolution would. A climb that is late again within 6 s is held
-  (`perf.hold`). An emergency (`overload`: three frames over max(50 ms, 3 frames)) takes every Auto knob to its floor
+  (`perf.hold`). An emergency (`overload`: three frames over max(50 ms, 3 frames)) takes every free knob to its floor
   and the scale down at once, held for a minute, but never at fast speeds (their steps are planned to a budget,
   `fastCost`) or in a world's first 2 s (its loading). The sea is no longer turned while paused, on any device. Leaving
   out `contactGather` up close (3.3 ms) was tried and dropped: crowded cells lost the walls their tissue fills out to

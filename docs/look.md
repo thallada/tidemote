@@ -3,10 +3,14 @@
 What darkfield illumination and the microscope's camera make of the specimen: a layer of the composite pass
 (`fsComposite`, the loupe's `fsLoupe`, and the close-up's `fsPlain`: the specimen viewer and every card's portrait,
 mini-cards' too) between the drawn scene and the screen. `src/look.js` holds its tunables and `DARKFIELD`, their
-values; `Post.look` (4 vec4s) carries them to the GPU. Settings → Display scales the whole look (Microscope: Off,
-Subtle, Normal, Strong, at 0, 0.6, 1 and 1.35 of `DARKFIELD`) and sets its grain (Film grain: Off, Fine, Heavy, at 0,
-0.25 and 0.5); `applyLook` in `src/main.js`. Tools set it with `T.look.set(p, strength)` (tunables over Darkfield's)
-and `T.look.off()`, and a perf plan's scenario with `look: "on"` or `"off"`.
+values; `Post.look` (4 vec4s) carries them to the GPU. Settings → Display → Look scales the whole look (Microscope:
+Off, Subtle, Normal, Strong, at 0, 0.6, 1 and 1.35 of `DARKFIELD`; the eyepiece's optics are on with any of it, off
+with it, and O turns it off and back to its level) and sets its grain (Grain: Off, Fine, Heavy, at 0, 0.25 and 0.5);
+`applyLook` in `src/main.js`. Glow (Y) is the bloom, and so also the halation and veiling flare drawn from its blur.
+Tools set the look with `T.look.set(p, strength)` (tunables over Darkfield's) and `T.look.off()`, and a perf plan's
+scenario with `look: "on"` or `"off"`. The tuner may fade the microscope out where frames run late (Settings → Perf →
+Adapt to this device; docs/performance.md), in the main view and the loupe only: the close-up reads its own copy of
+the post uniforms with the look whole (`b.postPlain`), so a card's portrait never keeps a faded look.
 
 ## Where each part lives
 
@@ -22,7 +26,7 @@ and `T.look.off()`, and a perf plan's scenario with `look: "on"` or `"off"`.
 The edge effects read the scene four times a pixel or more apart, so they fade in from 25 to 70 pixels per world
 unit (cells several pixels across) and their reach grows with zoom to 3 px. Under a full light or heat map the grade
 is mostly held back so the map reads true (`lookDisplay`); the close-up has no maps, bloom or field stop, so it takes
-the scene light, the tone curve and the whole grade. The shallow focus and the iris need Optics on.
+the scene light, the tone curve and the whole grade. The shallow focus and the iris need the optics (the Microscope on).
 
 ## How it was chosen
 
@@ -187,7 +191,7 @@ rather than outshine: with `LIT_CELL` 0.92x to 1.28x they read 1.13-1.14x on scr
 halves a gain in log, the shoulder takes a little more; 0.9x to 1.12x read 1.09x). In the
 sun the living shade the ground a little way from them (`sunShadow`: their layer looked up `SHADOW_H` units toward
 the light, softened; it lies that far off them at every zoom), which there has the open water's light. The murk glows faintly golden in the sun
-(`floorLit`; amber under the lamp; with Optics on). The pool's bared floor takes the light as the floor seen through
+(`floorLit`; amber under the lamp; with the optics on). The pool's bared floor takes the light as the floor seen through
 the water does (`landLit`, poolOver's dry mud): the ground's gain and the light's color, a golden glow in the sun
 (`LAND_SUN`) and an amber one under the lamp (`LAND_LAMP`), none where the living shade it, so a Tide's band or the
 lamp passing over an island lights its mud (painted over the scene unlit before, the mud showed no light at all). Before the tone curve the scene only takes the
@@ -195,7 +199,7 @@ light's color: cool in the shade, warm in the sun, amber by the lamp's share. Th
 stronger in the sun), the crests' sheen and the suspension's specks take the ground's gain. The loupe has no layer of
 the living of its own, so all of it is lit as the living (its floor glows as the view's). The close-up (specimen
 viewer, card portraits) stays unlit, so a species looks the same wherever it was caught. Stone's cache is lit once, so
-the light is applied after it, in the composite, every frame. The Light map (G, on or off) still draws the light
+the light is applied after it, in the composite, every frame. The light map (Map → Light, G) still draws the light
 itself as a ramp; the faint teal tint it once had in place of all this is gone.
 
 Chosen (2026-11-02) by photographing one frozen world through `tools/looklab.mjs` with candidate composites swapped

@@ -38,7 +38,7 @@ import { miniCard, setThumb, hasThumb, dropThumb } from './minicard.js';
 import { stage, bodyOf, portraitCells } from './studio.js';
 import { studioPortrait } from './studiorender.js';
 import { encodeImages, encodeBytes } from './encode.js';
-import { KNOBS, decide, costOf } from './tuner.js';
+import { KNOBS, decide, costOf, heldBack } from './tuner.js';
 import { trackGlass } from './glass.js';
 import { isRideKey, keyWay, pointerWay, createThrottle, stepThrottle, throttleGrip, createRideCam, stepRideCam, willSpeed } from './ride.js';
 import { createCabinetStore, encodeCard, decodeCard, cardLink, cardFromHash, cardFromPng, cardIntoPng } from './cabinet.js';
@@ -56,13 +56,21 @@ const touchOnly = !matchMedia('(any-hover: hover)').matches;
 // A phone or tablet: its GPU slows by a third or more once it has run hot for a few minutes (thermal
 // throttling), and shares the GPU with the screen's compositor.
 const throttles = navigator.userAgentData?.mobile ?? (/Android|iPhone|iPad|Mobile/.test(navigator.userAgent) || (isCoarse && !matchMedia('(any-pointer: fine)').matches));
-// the tuner's knobs as Settings → Performance names them, and each level's name (cheapest first, as KNOBS' ladders)
-// i18n: Settings → Perf → Detail: each choice's title, and its levels from least to most (the sea's waves worked out never, every fourth or second frame, or every frame; the stone lit again every 2, 1 or ½ seconds)
-const TUNE_TITLES = { sea: tr('settings.perf.tune.sea', 'Water motion'), bloom: tr('settings.perf.tune.bloom', 'Bloom'), specks: tr('settings.perf.tune.specks', 'Specks'), stone: tr('settings.perf.tune.stone', 'Stone light'), finish: tr('settings.perf.tune.finish', 'Finish'), interiors: tr('settings.perf.tune.interiors', 'Cell insides') };
-const TUNE_OFF = tr('settings.off', 'Off'), TUNE_ON = tr('settings.on', 'On'), TUNE_FULL = tr('settings.perf.tune.full', 'Full');
-const TUNE_NAMES = { sea: [TUNE_OFF, tr('settings.perf.tune.sea.quarter', '¼'), tr('settings.perf.tune.sea.half', '½'), TUNE_FULL], bloom: [TUNE_OFF, TUNE_ON], specks: [TUNE_OFF, TUNE_ON],
-  stone: [tr('settings.perf.tune.stone.2s', '2 s'), tr('settings.perf.tune.stone.1s', '1 s'), tr('settings.perf.tune.stone.half-s', '½ s')],
-  finish: [tr('settings.perf.tune.finish.plain', 'Plain'), tr('settings.perf.tune.finish.still', 'Still'), TUNE_FULL], interiors: [TUNE_OFF, TUNE_ON] };
+// What the tuner holds back (tuner.js heldBack), as Settings → Performance says it: each knob below its best, by its
+// level, and the render scale on Auto
+const HELD = {
+  // i18n: Settings → Perf, under Adapt to this device: one thing held back for speed (listed joined by " · "): the water's waves worked out not at all ({level} 0), a quarter (1) or half (2) as often
+  sea: (l) => tr('settings.perf.held.sea', '{level, select, 0 {Water surface off} 1 {Water at a quarter rate} other {Water at half rate}}', { level: l }),
+  bloom: () => tr('settings.perf.held.bloom', 'Glow off'), specks: () => tr('settings.perf.held.specks', 'Suspension off'),
+  // i18n: Settings → Perf, one thing held back: the stone lit again only every {s} seconds
+  stone: (l) => tr('settings.perf.held.stone', 'Stone relit every {s} s', { s: KNOBS.stone.levels[l] }), haze: () => tr('settings.perf.held.haze', 'Heat haze off'),
+  microscope: () => tr('settings.perf.held.microscope', 'Microscope off'), interiors: () => tr('settings.perf.held.interiors', 'Cell insides off'),
+  // i18n: Settings → Perf, one thing held back: {n} the neighbors a cell weighs each step, fewer than the most
+  neighbors: (l) => tr('settings.perf.held.neighbors', '{n} neighbors', { n: KNOBS.neighbors.levels[l] }),
+  // i18n: Settings → Perf, one thing held back: the world drawn at {pct} percent of the screen's resolution
+  scale: (v) => tr('settings.perf.held.scale', '{pct}% resolution', { pct: Math.round(v * 100) }) };
+// the knob that eases each Display row (by its id), the row marked while it does
+const EASES = { water: 'sea', bloom: 'bloom', specks: 'specks', haze: 'haze', microlook: 'microscope', lod: 'interiors' };
 const NONE = 0xffffffff;
 const TAU = Math.PI * 2;
 const genomeOfWords = (w) => { const u = Uint32Array.from(w); return readGenome(u, new Float32Array(u.buffer), 0); };
@@ -224,7 +232,7 @@ const EVENTS_ON = () => ({ on: true, ...Object.fromEntries(EVENT_TYPES.map((x) =
 
 // view preferences that outlive the page; those another version saved are dropped for the defaults
 const PREFS_KEY = 'tidemote.view';
-const PREFS_V = 5;
+const PREFS_V = 6;
 const CELL_MARK = 'rgba(241,227,160,0.95)'; // the watched cell, inside its organism's (orange) brackets
 const loadPrefs = () => { try { const p = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'); return p && p.v === PREFS_V ? p : {}; } catch { return {}; } };
 const savePrefs = (p) => { try { localStorage.setItem(PREFS_KEY, JSON.stringify(p)); } catch { /* storage unavailable */ } };
@@ -255,14 +263,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
     notes: prefs.notes ?? 1, // live annotations (docs/annotations.md): 0 off, 1 with the auto camera, 2 always
     water: prefs.water ?? 2, // the water's surface: 0 off, 1 subtle, 2 normal, 3 strong (applyWater)
     waves: prefs.waves ?? 1, // its waves' motion: 0 slow, 1 normal, 2 lively
-    look: prefs.look ?? 2, // the microscope's look (applyLook): 0 off, 1 subtle, 2 normal, 3 strong
-    grain: prefs.grain ?? 1, // its film grain: 0 off, 1 fine, 2 heavy
-    // what the page may spend: render scale ('auto' adapts between floor and 1), the most device
-    // pixels per CSS pixel, the frame rate aimed for (0: the display's), and a fixed particle count
+    look: prefs.look ?? 2, // the microscope (applyLook, the optics with it): 0 off, 1 subtle, 2 normal, 3 strong
+    grain: prefs.grain ?? 1, // its grain: 0 off, 1 fine, 2 heavy
+    haze: prefs.haze ?? true, // the heat haze over warm water (applyMap)
+    map: prefs.map ?? 'off', // the one map over the view (applyMap): 'off', 'light', 'heat' or 'tide'
+    // what the page may spend: render scale ('auto' adapts between floor and 1), the most device pixels per CSS
+    // pixel, the frame rate aimed for (0: the display's), a fixed particle count and neighbor budget, and whether the
+    // tuner may ease what Display shows (adapt; src/tuner.js)
     perf: { scale: prefs.scale ?? 'auto', floor: prefs.floor ?? 0.5, density: prefs.density ?? 'auto',
-      fps: prefs.fps ?? 'auto', particles: prefs.particles ?? null, scan: prefs.scan ?? null,
-      // the tuner's knobs (src/tuner.js): each 'auto' or a level of its own (an index into its ladder)
-      tune: Object.fromEntries(Object.entries(KNOBS).filter(([id]) => id in TUNE_TITLES).map(([id, k]) => [id, Number.isInteger(prefs.tune?.[id]) && prefs.tune[id] >= 0 && prefs.tune[id] < k.levels.length ? prefs.tune[id] : 'auto'])) },
+      fps: prefs.fps ?? 'auto', particles: prefs.particles ?? null, scan: prefs.scan ?? null, adapt: prefs.adapt ?? true },
   };
   // the viewer's hand (hand.js, docs/hand.md): the tool in hand and what it does to the world; its record of acts is
   // the world's (life.hand), kept in saves
@@ -302,18 +311,32 @@ function run(eng, device, ctx, specCtx, hasTS) {
   let trailIdx = prefs.trails ?? 1;
   const defaults = { ...eng.settings }; // the engine's own, for Settings' reset
   eng.settings.trails = trailLevels[trailIdx];
-  for (const k of ['links', 'nodes', 'bloom', 'optics', 'specks', 'lod', 'tide', 'heat', 'bands']) if (prefs[k] !== undefined) eng.settings[k] = prefs[k];
+  for (const k of ['bloom', 'specks', 'lod']) if (prefs[k] !== undefined) eng.settings[k] = prefs[k];
   eng.maxScan = state.perf.scan ?? K.maxScan;
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ v: PREFS_V, trails: trailIdx, links: s.links, nodes: s.nodes, bloom: s.bloom, optics: s.optics, specks: s.specks, lod: s.lod, tide: s.tide, heat: s.heat, bands: s.bands, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+    savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   // the look (src/look.js, docs/look.md): Darkfield as the Display settings ask, how strong as a whole and how much
-  // grain; or, from the tools (T.look), any tunables
-  const applyLook = (p = { ...DARKFIELD, grain: [0, 0.25, 0.5][state.grain] }, strength = [0, 0.6, 1, 1.35][state.look]) => eng.look.set(packLook(p, strength));
+  // grain, the eyepiece's optics on with any of it; or, from the tools (T.look), any tunables
+  let lookLast = state.look || 2; // the Microscope's level before O turned it off
+  const applyLook = (p = { ...DARKFIELD, grain: [0, 0.25, 0.5][state.grain] }, strength = [0, 0.6, 1, 1.35][state.look]) => {
+    eng.look.set(packLook(p, strength));
+    eng.settings.optics = state.look > 0 ? 1 : 0;
+    if (state.look) lookLast = state.look;
+  };
   applyLook();
+  // the map (light, the thermal camera or tide) and the heat haze, as the engine's words (the haze beneath a map)
+  const applyMap = () => {
+    const s = eng.settings;
+    if (state.map === 'heat' && !K.heat) state.map = 'off';
+    s.tide = state.map === 'light' ? 1 : 0;
+    s.bands = state.map === 'tide' ? 1 : 0;
+    s.heat = state.map === 'heat' ? 2 : state.haze ? 1 : 0;
+  };
+  applyMap();
   // the sea (src/sea.js) as the Display settings ask: how high its waves (none: no sea at all, its passes skipped, for
   // anyone who would rather the view held still) and how quickly they move
   const applyWater = () => {
@@ -326,19 +349,29 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   // ------------------------------------------------------------ sizing
   let renderScale = state.perf.scale === 'auto' ? 1 : state.perf.scale;
-  // the tuner's knobs (src/tuner.js): each one's level (an index into its ladder, cheapest first; Auto's start at their
+  // the tuner's knobs (src/tuner.js): each one's level (an index into its ladder, cheapest first; each starts at its
   // best), what it cost at that level and at its best when last measured (tuneProfile), and until when a climb that
   // just failed is not tried again
   const tune = Object.fromEntries(Object.entries(KNOBS).map(([id, k]) => [id, { level: k.levels.length - 1, cost: null, full: null, hold: 0 }]));
-  // (the neighbors are on Auto while Settings → Neighbors is left at its default, and have their own row there)
-  const tuneAuto = (id) => (id === 'neighbors' ? state.perf.scan == null : state.perf.tune[id] === 'auto');
+  // what the viewer shows in Display of what each knob eases (false: off, so never eased nor counted as saving); the
+  // neighbors' while Settings → Neighbors is left on Auto
+  const shown = () => ({ sea: state.water > 0, bloom: eng.settings.bloom > 0, specks: eng.settings.specks, haze: !!K.heat && state.haze && state.map !== 'heat',
+    microscope: state.look > 0, interiors: eng.settings.lod, neighbors: state.perf.scan == null });
+  // knobs the tools fix at a level of their own (T.setTune, T.setEffects; never saved)
+  const pins = {};
+  // A knob moves while Adapt to this device is on and its effect is shown (the neighbors with their own Auto); any
+  // other sits at its best, or where a tool pinned it
+  const tuneAuto = (id, on = shown()) => (id === 'neighbors' ? on.neighbors : !(id in pins) && state.perf.adapt && on[id] !== false);
   function applyTune() {
-    for (const id of Object.keys(tune)) if (!tuneAuto(id) && id !== 'neighbors') tune[id].level = state.perf.tune[id];
+    const on = shown();
+    for (const id of Object.keys(tune)) if (id !== 'neighbors' && !tuneAuto(id, on)) tune[id].level = pins[id] ?? KNOBS[id].levels.length - 1;
     const at = (id) => KNOBS[id].levels[tune[id].level];
-    Object.assign(eng.fx, { seaEvery: at('sea'), bloom: at('bloom'), specks: at('specks'), stoneEvery: at('stone'), finish: at('finish'), interiors: at('interiors') });
-    eng.maxScan = tuneAuto('neighbors') ? at('neighbors') : state.perf.scan;
+    Object.assign(eng.fx, { seaEvery: at('sea'), bloom: at('bloom'), specks: at('specks'), stoneEvery: at('stone'), haze: at('haze'), microscope: at('microscope'), interiors: at('interiors') });
+    eng.maxScan = on.neighbors ? at('neighbors') : state.perf.scan;
   }
   applyTune();
+  // what the tuner holds back now (one source for Performance's line and Display's marks)
+  const heldNow = () => heldBack(Object.fromEntries(Object.entries(tune).map(([id, k]) => [id, k.level])), shown(), state.perf.scale === 'auto' ? renderScale : null);
   // Auto pixel density draws the scene at 1 device pixel per CSS pixel, always: above 1 the extra pixels are the
   // costliest sharpness the page could give (an M1 at 1.5× spent 18 ms a frame drawing), so only a density chosen
   // in Settings draws more. The one exception is a film begun with Auto (filmRaise): its frames are the screen's
@@ -985,35 +1018,28 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // tide map (on phones, where the Tide rides under the era name, the era opens it). A bar beside the
   // highlight names the map with its scale and closes it back to the plain view.
   // i18n: the map bar: the map's name, and the words at the ends of its scale ({t}: a temperature, °C)
+  // (one map at a time: state.map, whether chosen from a gauge, a key or Settings → Display → Map)
   const MAPS = [
-    { gauge: 'g-light', name: tr('maps.light', 'Light'), on: (s) => s.tide > 0, open: (s) => { s.tide = 1; }, close: (s) => { s.tide = defaults.tide; }, ramp: () => ['', tr('maps.light.lo', 'dark'), tr('maps.light.hi', 'full light')] },
-    { gauge: 'g-heat', name: tr('maps.heat', 'Temperature'), on: (s) => s.heat === 2, open: (s) => { s.heat = 2; }, close: (s) => { s.heat = defaults.heat; }, ramp: () => ['heat', tr('maps.heat.deg', '{t}°', { t: Math.round(eng.tbg - 2) }), tr('maps.heat.deg', '{t}°', { t: Math.round(eng.tbg + 10) })] },
-    { gauge: 'g-tide', name: tr('maps.tide', 'Tide'), on: (s) => s.bands > 0, open: (s) => { s.bands = 1; }, close: (s) => { s.bands = 0; }, ramp: () => ['tide', tr('maps.tide.lo', 'dim'), tr('maps.tide.hi', 'bright')] },
+    { id: 'light', gauge: 'g-light', name: tr('maps.light', 'Light'), ramp: () => ['', tr('maps.light.lo', 'dark'), tr('maps.light.hi', 'full light')] },
+    { id: 'heat', gauge: 'g-heat', name: tr('maps.heat', 'Temperature'), ramp: () => ['heat', tr('maps.heat.deg', '{t}°', { t: Math.round(eng.tbg - 2) }), tr('maps.heat.deg', '{t}°', { t: Math.round(eng.tbg + 10) })] },
+    { id: 'tide', gauge: 'g-tide', name: tr('maps.tide', 'Tide'), ramp: () => ['tide', tr('maps.tide.lo', 'dim'), tr('maps.tide.hi', 'bright')] },
   ];
   const rampHtml = (m) => { const [cls, lo, hi] = m.ramp(); return `<div class="ramp ${cls}"><span>${lo}</span><i></i><span>${hi}</span></div>`; };
-  const mapsOn = () => MAPS.filter((m) => m.on(eng.settings));
-  function clearMaps() {
-    for (const m of mapsOn()) m.close(eng.settings);
-    mapsChanged();
-  }
-  function toggleMap(m) {
-    const only = mapsOn().length === 1 && m.on(eng.settings);
-    for (const o of mapsOn()) o.close(eng.settings);
-    if (!only) m.open(eng.settings);
-    mapsChanged();
-  }
-  function mapsChanged() { persist(); renderMaps(); view.render(); }
+  const mapOn = () => MAPS.find((m) => m.id === state.map) || null;
+  // a map chosen ('off' clears it); its own key or gauge again turns it off
+  function setMap(id) { state.map = id; applyMap(); displayChanged(); }
+  const toggleMap = (m) => setMap(state.map === m.id ? 'off' : m.id);
+  const clearMaps = () => setMap('off');
+  // after any change to what Display shows: the tuner's knobs follow it (applyTune), then it is kept and drawn
+  function displayChanged() { applyTune(); persist(); renderMaps(); view.render(); }
   // the bar and the gauges' lit state, updated in place
   function renderMaps() {
-    const on = mapsOn();
-    for (const m of MAPS) $(m.gauge).classList.toggle('on', on.includes(m));
-    $('maps').hidden = !on.length;
-    if (!on.length) return;
-    const html = on.length === 1 ? rampHtml(on[0]) : '';
-    const label = on.map((m) => m.name).join(' · ');
-    setLive($('maps-label'), label);
-    setHTML($('maps-ramp'), html);
-    $('maps-ramp').hidden = !html;
+    const on = mapOn();
+    for (const m of MAPS) $(m.gauge).classList.toggle('on', m === on);
+    $('maps').hidden = !on;
+    if (!on) return;
+    setLive($('maps-label'), on.name);
+    setHTML($('maps-ramp'), rampHtml(on));
   }
   for (const m of MAPS) {
     const g = $(m.gauge);
@@ -2444,10 +2470,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // one row per option: its name and key on the left, the choices on the right. With Auto chosen
     // (and autoNow(id) known), the Auto chip shows what it is using now and the choice nearest it is
     // marked; readout() keeps both current in place.
+    // A row whose effect the tuner may ease (EASES) carries a quiet mark, shown while it is eased
+    // (readout keeps it current in place, holding its place when hidden)
+    const eased = (id) => (EASES[id] ? `<i class="eased${heldNow().some(([k]) => k === EASES[id]) ? ' on' : ''}" data-eased="${EASES[id]}" role="img" aria-label="${EASED}" data-hint="${EASED}"></i>` : '');
     const choice = (id, title, key, items, cur, tip) => {
       const now = String(cur) === 'auto' ? autoNow(id) : null;
       const label = (v, l) => (v === 'auto' && now ? `${l} <span class="auto-now" data-auto="${id}">${now.text}</span>` : l);
-      return `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ''}</span><div class="row segs${items.length > 7 ? ' many' : ''}" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip${now && String(v) === now.pick ? ' auto-pick' : ''}" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? ' disabled' : ''}>${label(v, l)}</button>`).join('')}</div></div>`;
+      return `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${eased(id)}${key ? ` <kbd>${key}</kbd>` : ''}</span><div class="row segs${items.length > 7 ? ' many' : ''}" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip${now && String(v) === now.pick ? ' auto-pick' : ''}" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? ' disabled' : ''}>${label(v, l)}</button>`).join('')}</div></div>`;
     };
     // what an Auto option is using now ({ text, pick: the data-v of the choice it matches, if any }):
     // the render scale, the pixel density, the frame rate aimed for, and a measured world's particle count
@@ -2455,7 +2484,6 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (id === 'fps') { const f = Math.round(1000 / frameTarget()); return { text: String(f), pick: String([30, 60].find((v) => Math.abs(v - f) <= 3) ?? '') }; }
       if (id === 'scale') return { text: pctOf(Math.round(renderScale * 100)), pick: String(+renderScale.toFixed(2)) };
       if (id === 'density') { const d = +density().toFixed(2); return { text: timesOf(d), pick: String(d) }; }
-      if (id.startsWith('tune-')) { const k = id.slice(5), l = tune[k].level; return { text: TUNE_NAMES[k][l], pick: String(l) }; }
       if (id === 'n' && !state.perf.particles) return { text: kfmt(eng.count), pick: String(eng.count) };
       if (id === 'scan') return { text: String(eng.maxScan), pick: String(eng.maxScan) };
       return null;
@@ -2474,31 +2502,30 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // i18n: Settings' choices, shared by its options
     const OFF = tr('settings.off', 'Off'), NORMAL = tr('settings.normal', 'Normal'), AUTO = tr('settings.auto', 'Auto');
     const SUBTLE = tr('settings.subtle', 'Subtle'), STRONG = tr('settings.strong', 'Strong');
+    // i18n: the mark beside a Display setting the page is easing right now to keep frames on time (Settings → Performance → Adapt to this device)
+    const EASED = tr('settings.display.eased', 'Eased for speed right now');
     // a group of option rows, under a heading or (text '') none
     const group = (id, text, rows) => section(id, text, block('', rows));
     let confirming = false; // the reset button asked to confirm
-    // Display: the picture (how the world is drawn and lit), what is drawn over it, and the view around it
+    // Display: what the viewer wants to see, each effect once (the look, the water, the cells), what is drawn over the
+    // world, and the view around it. Performance only says how hard the machine may work (the tuner eases these,
+    // marked while it does)
     function display() {
-      const s = eng.settings;
+      const s = eng.settings, map = mapOn();
       const filmL = tr('settings.display.film', 'Film');
-      return group('picture', tr('settings.display.picture', 'Picture'), choice('microlook', tr('settings.display.microscope', 'Microscope'), '', [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], state.look, 'microlook')
-        + (state.look ? choice('grain', tr('settings.display.grain', 'Film grain'), '', [[0, OFF], [1, tr('settings.display.grain-fine', 'Fine')], [2, tr('settings.display.grain-heavy', 'Heavy')]], state.grain, 'filmgrain') : '')
-        + onoff('optics', tr('settings.display.optics', 'Optics'), 'O', s.optics > 0, 'optics')
-        + onoff('bloom', tr('settings.display.bloom', 'Bloom'), 'Y', s.bloom > 0, 'bloom')
-        + choice('water', tr('settings.display.water', 'Water surface'), '', [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], state.water, 'watersurface')
+      return group('picture', tr('settings.display.picture', 'Look'), choice('microlook', tr('settings.display.microscope', 'Microscope'), 'O', [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], state.look, 'microlook')
+        + (state.look ? choice('grain', tr('settings.display.grain', 'Grain'), '', [[0, OFF], [1, tr('settings.display.grain-fine', 'Fine')], [2, tr('settings.display.grain-heavy', 'Heavy')]], state.grain, 'filmgrain') : '')
+        + onoff('bloom', tr('settings.display.bloom', 'Glow'), 'Y', s.bloom > 0, 'bloom')
+        + choice('trails', tr('settings.display.trails', 'Trails'), 'T', trailNames.map((n, i) => [i, n]), trailIdx))
+        + group('water', tr('settings.display.water-group', 'Water'), choice('water', tr('settings.display.water', 'Surface'), '', [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], state.water, 'watersurface')
         + (state.water ? choice('waves', tr('settings.display.waves', 'Wave motion'), '', [[0, tr('settings.display.waves-slow', 'Slow')], [1, NORMAL], [2, tr('settings.display.waves-lively', 'Lively')]], state.waves, 'wavemotion') : '')
-        + choice('trails', tr('settings.display.trails', 'Trails'), 'T', trailNames.map((n, i) => [i, n]), trailIdx)
-        + onoff('specks', tr('settings.display.specks', 'Suspension'), '', s.specks, 'specks')
-        + onoff('lod', tr('settings.display.lod', 'Zoom detail'), '', s.lod, 'lod'))
-        + group('overlays', tr('settings.display.overlays', 'Overlays'), onoff('tide', tr('settings.display.light-map', 'Light map'), 'G', s.tide > 0, 'light')
-        + (s.tide ? rampHtml(MAPS[0]) : '')
-        + (K.heat ? choice('heat', tr('settings.display.heat-map', 'Heat map'), 'E', [[0, OFF], [1, tr('settings.display.heat-shimmer', 'Shimmer')], [2, tr('settings.display.heat-full', 'Full')]], s.heat, 'heatmap') : '')
-        + (K.heat && s.heat === 2 ? rampHtml(MAPS[1]) : '')
-        + onoff('bands', tr('settings.display.tide-map', 'Tide map'), 'H', s.bands > 0, 'tidemap')
-        + (s.bands ? rampHtml(MAPS[2]) : '')
+        + (K.heat ? onoff('haze', tr('settings.display.heat-shimmer', 'Heat haze'), '', state.haze, 'haze') : '')
+        + onoff('specks', tr('settings.display.specks', 'Suspension'), '', s.specks, 'specks'))
+        + group('cells', tr('settings.display.cells', 'Cells'), onoff('lod', tr('settings.display.lod', 'Cell insides'), '', s.lod, 'lod'))
+        // i18n: Settings → Display → Map: the one map drawn over the view (light, temperature or the tide), or none
+        + group('overlays', tr('settings.display.overlays', 'Overlays'), choice('map', tr('settings.display.map', 'Map'), K.heat ? 'G E H' : 'G H', [['off', OFF], ['light', tr('settings.display.map-light', 'Light')], ...(K.heat ? [['heat', tr('settings.display.map-heat', 'Heat')]] : []), ['tide', tr('settings.display.map-tide', 'Tide')]], state.map, 'maps')
+        + (map ? rampHtml(map) : '')
         + onoff('currents', tr('settings.display.currents', 'Currents'), 'C', state.currents)
-        + onoff('links', tr('settings.display.bonds', 'Bonds'), 'L', s.links, 'bond')
-        + onoff('nodes', tr('settings.display.particles', 'Particles'), 'N', s.nodes)
         + choice('songmarks', tr('settings.display.song-marks', 'Song marks'), '', [[0, OFF], [1, tr('settings.display.song-marks-picked', 'Picked')], [2, tr('settings.display.song-marks-all', 'All')]], state.songMarks, 'songmarks')
         // i18n: Settings → Display → Annotations: live notes over the view shown with the auto camera only, always, or never
         + choice('notes', tr('settings.display.annotations', 'Annotations'), '', [[1, tr('settings.display.annotations-auto', 'Auto camera')], [2, tr('settings.display.annotations-always', 'Always')], [0, OFF]], state.notes, 'annotations'))
@@ -2518,6 +2545,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + group('mix', tr('settings.audio.mix', 'Mix'), ['music', 'cells', 'water', 'tools'].map(mix).join(''))
         + group('character', tr('settings.audio.character', 'Character'), mix('space') + mix('tone'));
     }
+    // what the tuner holds back now, in words (Performance, under Adapt to this device)
+    // i18n: Settings → Perf, under Adapt to this device, when the page holds nothing back for speed
+    const heldWords = () => { const h = heldNow(); return h.length ? h.map(([id, l]) => HELD[id](l)).join(' · ') : tr('settings.perf.held-none', 'Nothing held back'); };
     // the neighbor budgets offered: Auto's (the tuner's levels), 1½ and 2 times the default, and one chosen before
     const scanChoices = () => [...new Set([...KNOBS.neighbors.levels, ...[1.5, 2].map((f) => Math.round((K.maxScan * f) / 8) * 8), state.perf.scan ?? K.maxScan])].sort((a, b) => a - b);
     function performance_() {
@@ -2525,11 +2555,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const dev = Math.min(devicePixelRatio || 1, 2);
       const sizes = PARTICLE_SIZES.filter((n) => n <= maxParticles());
       const nowN = pendingN ?? (P.particles || 'auto');
-      return group('res', tr('settings.perf.resolution', 'Resolution'), choice('scale', tr('settings.perf.scale', 'Render scale'), '', [['auto', AUTO], [1, pctOf(100)], [0.75, pctOf(75)], [0.5, pctOf(50)], [0.25, pctOf(25)]], P.scale, 'renderscale')
+      // (what the tuner holds back now under Adapt, a line of fixed height that readout keeps current)
+      return group('quality', tr('settings.perf.quality', 'Quality'), onoff('adapt', tr('settings.perf.adapt', 'Adapt to this device'), '', P.adapt, 'adapt')
+        + `<p class="eased-now" id="perf-held">${heldWords()}</p>`)
+        + group('res', tr('settings.perf.resolution', 'Resolution'), choice('scale', tr('settings.perf.scale', 'Render scale'), '', [['auto', AUTO], [1, pctOf(100)], [0.75, pctOf(75)], [0.5, pctOf(50)], [0.25, pctOf(25)]], P.scale, 'renderscale')
         + (P.scale === 'auto' ? choice('floor', tr('settings.perf.floor', 'Auto lowest'), '', [[0.75, pctOf(75)], [0.5, pctOf(50)], [0.35, pctOf(35)], [0.25, pctOf(25)]], P.floor, 'autofloor') : '')
         + choice('density', tr('settings.perf.density', 'Pixel density'), '', [['auto', AUTO], [1, timesOf(1)], [1.5, timesOf(1.5), dev < 1.5], [2, timesOf(2), dev < 2]], P.density, 'density')
         + choice('fps', tr('settings.perf.fps', 'Target fps'), '', [['auto', AUTO], [30, '30'], [60, '60'], [0, tr('settings.perf.fps-display', 'Display')]], P.fps, 'targetfps'))
-        + group('detail', tr('settings.perf.detail', 'Detail'), Object.keys(TUNE_TITLES).map((k) => choice(`tune-${k}`, TUNE_TITLES[k], '', [['auto', AUTO], ...TUNE_NAMES[k].map((n, i) => [i, n]).reverse()], P.tune[k], `tune${k}`)).join(''))
         + group('world', tr('settings.perf.world', 'World'), choice('n', tr('settings.perf.particles', 'Particles'), '', [['auto', AUTO], ...sizes.map((n) => [n, kfmt(n)])], nowN, 'particles')
         + choice('scan', tr('settings.perf.neighbors', 'Neighbors'), '', [['auto', AUTO], ...scanChoices().map((n) => [n, String(n)])], P.scan ?? 'auto', 'neighbors')
         + (pendingN != null && String(pendingN) !== String(P.particles || 'auto')
@@ -2703,7 +2735,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         applyEvents();
       } else if (tab === 'display') {
         trailIdx = 1; s.trails = trailLevels[trailIdx];
-        for (const k of ['tide', 'heat', 'bands', 'links', 'nodes', 'bloom', 'optics', 'specks', 'lod']) s[k] = defaults[k];
+        for (const k of ['bloom', 'specks', 'lod']) s[k] = defaults[k];
+        state.map = 'off'; state.haze = true; applyMap();
         state.currents = false; state.songMarks = 1; state.notes = 1; state.closeup = true;
         state.water = 2; state.waves = 1; applyWater();
         state.look = 2; state.grain = 1; applyLook();
@@ -2713,9 +2746,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         sound.setVolume(DEFAULT_VOLUME);
         sound.setMix(defaultMix());
       } else {
-        Object.assign(P, { scale: 'auto', floor: 0.5, density: 'auto', fps: 'auto', scan: null });
-        for (const k of Object.keys(tune)) { if (k in P.tune) P.tune[k] = 'auto'; tune[k].level = KNOBS[k].levels.length - 1; tune[k].hold = 0; }
-        applyTune();
+        Object.assign(P, { scale: 'auto', floor: 0.5, density: 'auto', fps: 'auto', scan: null, adapt: true });
+        for (const k of Object.keys(tune)) { tune[k].level = KNOBS[k].levels.length - 1; tune[k].hold = 0; }
         renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit();
         pendingN = P.particles ? 'auto' : null;
       }
@@ -2734,10 +2766,17 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // i18n: the readout: why the page lowered its frame rate or resolution
     const WHY_WORDS = { 'GPU overloaded': tr('readout.why-overloaded', 'GPU overloaded'), 'under pressure': tr('readout.why-pressure', 'under pressure'), 'GPU busy': tr('readout.why-busy', 'GPU busy'), 'frames late': tr('readout.why-late', 'frames late'), 'browser pace': tr('readout.why-pace', 'browser pace') };
     function readout(force) {
-      if (el.hidden || tab !== 'performance') return;
+      if (el.hidden || (tab !== 'performance' && tab !== 'display')) return;
       const now = performance.now();
       if (!force && now - roAt < 500) return;
       roAt = now;
+      // what the tuner eases: marked on Display's rows, said under Adapt in Performance
+      if (tab === 'display') {
+        const held = new Set(heldNow().map(([id]) => id));
+        for (const m of opts.querySelectorAll('[data-eased]')) m.classList.toggle('on', held.has(m.dataset.eased));
+        return;
+      }
+      setText('perf-held', heldWords());
       setText('ro-fps', perf.fps ? perf.fps.toFixed(0) : '–');
       setText('ro-ms', perf.gpu ? perf.gpu.toFixed(1) : '–');
       setText('ro-res', pctOf(Math.round(renderScale * 100)));
@@ -2768,14 +2807,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const s = eng.settings, P = state.perf;
       if (id.startsWith('w-')) { worldAct(id, v); return; }
       if (id === 'trails') { trailIdx = +v; s.trails = trailLevels[trailIdx]; }
-      else if (id === 'tide') s.tide = +v;
-      else if (id === 'heat') s.heat = +v;
-      else if (id === 'bands') s.bands = +v;
+      else if (id === 'map') { state.map = v; applyMap(); }
+      else if (id === 'haze') { state.haze = !!+v; applyMap(); }
       else if (id === 'currents') state.currents = !!+v;
-      else if (id === 'links') s.links = !!+v;
-      else if (id === 'nodes') s.nodes = !!+v;
       else if (id === 'bloom') s.bloom = +v ? 0.012 : 0;
-      else if (id === 'optics') s.optics = +v ? 1 : 0;
       else if (id === 'specks') s.specks = !!+v;
       else if (id === 'lod') s.lod = !!+v;
       else if (id === 'closeup') state.closeup = !!+v;
@@ -2795,8 +2830,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'floor') { P.floor = +v; renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit(); }
       else if (id === 'density') { P.density = v === 'auto' ? 'auto' : +v; resetAdapt(); fit(); }
       else if (id === 'fps') { P.fps = v === 'auto' ? 'auto' : +v; resetAdapt(); }
-      else if (id.startsWith('tune-')) { const k = id.slice(5); P.tune[k] = v === 'auto' ? 'auto' : +v; if (v === 'auto') tune[k].level = KNOBS[k].levels.length - 1; applyTune(); resetAdapt(); }
-      else if (id === 'scan') { P.scan = v === 'auto' ? null : +v; if (v === 'auto') tune.neighbors.level = KNOBS.neighbors.levels.length - 1; applyTune(); }
+      else if (id === 'adapt') { P.adapt = !!+v; resetAdapt(); }
+      else if (id === 'scan') { P.scan = v === 'auto' ? null : +v; if (v === 'auto') tune.neighbors.level = KNOBS.neighbors.levels.length - 1; }
       else if (id === 'n') pendingN = v === 'auto' ? 'auto' : +v;
       else if (id === 'apply') { const n = pendingN; pendingN = null; setParticles(n); }
       else if (id === 'profile') { copyProfile(); return; }
@@ -2804,9 +2839,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'guide') { toggle(false); lab.open('guide'); return; }
       else if (id === 'reset' || id === 'reset-no') { confirming = id === 'reset'; render(); return; }
       else if (id === 'reset-yes') { confirming = false; resetTab(); }
-      persist();
-      renderMaps();
-      render();
+      // (a knob whose effect is off, or with Adapt off, sits at its best: applyTune)
+      displayChanged();
     }
     opts.addEventListener('click', (e) => { const b = e.target.closest('[data-o]'); if (b && !b.disabled) set(b.dataset.o, b.dataset.v); });
     opts.addEventListener('input', (e) => {
@@ -3482,19 +3516,18 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else { state.confirmReset = now; flash(tr('flash.reset-confirm', 'Press Shift+R again to discard this world')); }
     }
     else if (k === 't' || k === 'T') { trailIdx = (trailIdx + 1) % trailLevels.length; eng.settings.trails = trailLevels[trailIdx]; flash(tr('flash.trails', 'Trails {level, select, 0 {off} 1 {short} 2 {long} other {exposure}}', { level: trailIdx })); persist(); view.render(); }
-    else if (k === 'l' || k === 'L') { eng.settings.links = !eng.settings.links; flash(eng.settings.links ? tr('flash.bonds-on', 'Bonds shown') : tr('flash.bonds-off', 'Bonds hidden')); persist(); view.render(); }
-    else if (k === 'n' || k === 'N') { eng.settings.nodes = !eng.settings.nodes; flash(eng.settings.nodes ? tr('flash.particles-on', 'Particles on') : tr('flash.particles-off', 'Particles off')); persist(); view.render(); }
-    else if (k === 'y' || k === 'Y') { eng.settings.bloom = eng.settings.bloom > 0 ? 0 : 0.012; flash(eng.settings.bloom ? tr('flash.bloom-on', 'Bloom on') : tr('flash.bloom-off', 'Bloom off')); persist(); view.render(); }
+    else if (k === 'y' || k === 'Y') { eng.settings.bloom = eng.settings.bloom > 0 ? 0 : 0.012; flash(eng.settings.bloom ? tr('flash.bloom-on', 'Glow on') : tr('flash.bloom-off', 'Glow off')); displayChanged(); }
     else if (k === 'b' || k === 'B') bench.toggle();
     else if (/^[0-8]$/.test(k)) {
       // a digit takes up its tool (0: none), or puts down the one in hand; held down past a moment, a tool taken up
       // is only for as long as it is held
       if (!e.repeat) { const id = TOOLS[+k].id; quasi = id !== hand.tool && id !== 'none' ? { key: k, prev: hand.tool, at: performance.now() } : null; pickTool(id); }
     }
-    else if (k === 'o' || k === 'O') { eng.settings.optics = eng.settings.optics > 0 ? 0 : 1; flash(eng.settings.optics ? tr('flash.optics-on', 'Microscope optics on') : tr('flash.optics-off', 'Microscope optics off')); persist(); view.render(); }
-    else if (k === 'g' || k === 'G') { eng.settings.tide = eng.settings.tide ? 0 : 1; flash(eng.settings.tide ? tr('flash.light-map-on', 'Light map') : tr('flash.light-map-off', 'Light map off')); mapsChanged(); }
-    else if ((k === 'e' || k === 'E') && K.heat) { eng.settings.heat = (eng.settings.heat + 1) % 3; flash([tr('flash.heat-off', 'Heat map off'), tr('flash.heat-shimmer', 'Heat shimmer'), tr('flash.heat-camera', 'Thermal camera')][eng.settings.heat]); mapsChanged(); }
-    else if (k === 'h' || k === 'H') { eng.settings.bands = eng.settings.bands ? 0 : 1; flash(eng.settings.bands ? tr('flash.tide-map-on', 'Tide map') : tr('flash.tide-map-off', 'Tide map off')); mapsChanged(); }
+    // (O: the Microscope off, or back at the level it had)
+    else if (k === 'o' || k === 'O') { state.look = state.look ? 0 : lookLast; applyLook(); flash(state.look ? tr('flash.optics-on', 'Microscope on') : tr('flash.optics-off', 'Microscope off')); displayChanged(); }
+    else if (k === 'g' || k === 'G') { toggleMap(MAPS[0]); flash(state.map === 'light' ? tr('flash.light-map-on', 'Light map') : tr('flash.light-map-off', 'Light map off')); }
+    else if ((k === 'e' || k === 'E') && K.heat) { toggleMap(MAPS[1]); flash(state.map === 'heat' ? tr('flash.heat-camera', 'Thermal camera') : tr('flash.heat-off', 'Heat map off')); }
+    else if (k === 'h' || k === 'H') { toggleMap(MAPS[2]); flash(state.map === 'tide' ? tr('flash.tide-map-on', 'Tide map') : tr('flash.tide-map-off', 'Tide map off')); }
     else if (k === 'c' || k === 'C') { state.currents = !state.currents; flash(state.currents ? tr('flash.currents-on', 'Currents shown') : tr('flash.currents-off', 'Currents hidden')); persist(); view.render(); }
     else if (k === 'v' || k === 'V') view.toggle();
     else if (k === 'k' || k === 'K') { closeMenus(); lab.toggle(); }
@@ -3522,7 +3555,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (bench.isOpen()) bench.toggle(false);
       else if (sel || spView != null) deselect();
       else if (focus.key) clearFocus();
-      else if (mapsOn().length) clearMaps();
+      else if (mapOn()) clearMaps();
       else if (lab.back()) {} // the Lineage view back the way it came, before the Lab goes back to its census
       else if (lab.isWide() && !phone()) lab.narrow();
       else if (lab.isOpen() && phone()) lab.close();
@@ -4161,8 +4194,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (behind && perf.raised && now - perf.raisedAt < 6000) { const k = perf.raised; if (tune[k]) tune[k].hold = now + perf.hold; perf.raised = null; }
     let acted = false;
     for (let i = 0; i < n; i++) {
-      const knobs = {};
-      for (const [id, k] of Object.entries(tune)) knobs[id] = { level: k.level, auto: tuneAuto(id), cost: k.cost, full: k.full, ratio: k.ratio, rel: k.rel };
+      const knobs = {}, on = shown();
+      for (const [id, k] of Object.entries(tune)) knobs[id] = { level: k.level, auto: tuneAuto(id, on), cost: k.cost, full: k.full, ratio: k.ratio, rel: k.rel };
+      // (the haze's and the microscope's cost is the composite's, in the state the other leaves it)
+      knobs.haze.other = on.microscope ? tune.microscope.level : 0;
+      knobs.microscope.other = on.haze ? tune.haze.level : 0;
       const heldK = Object.fromEntries(Object.entries(tune).map(([id, k]) => [id, now < k.hold]));
       heldK.scale = held;
       const draw = hasTS && perf.renderR ? perf.renderR : perf.gpu * 0.6;
@@ -4176,7 +4212,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         renderScale = d.to; resizeDue = true;
       } else {
         const k = tune[d.id];
-        if (k.cost != null) { const def = KNOBS[d.id], top = def.levels.at(-1); k.cost = (k.full ?? k.cost / Math.max(1e-6, def.share(top, def.levels[k.level]))) * def.share(top, def.levels[d.to]); }
+        if (k.cost != null) { const def = KNOBS[d.id], top = def.levels.at(-1), kn = knobs[d.id]; k.cost = (k.full ?? k.cost / Math.max(1e-6, def.share(top, def.levels[k.level], kn))) * def.share(top, def.levels[d.to], kn); }
+        if (d.id === 'haze' || d.id === 'microscope') tune.haze.cost = tune.microscope.cost = k.cost;
         k.level = d.to; k.since = now; applyTune();
       }
       perf.raised = behind ? null : d.id;
@@ -4187,6 +4224,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // Every 10 s at real time or slower (with GPU timestamps), 20 frames timed pass by pass, for what each knob costs
   // at its level (tuner.js costOf); sharing the engine's profile with any other listener (a bench, Copy profile)
   let prof = null;
+  const compAt = []; // the composite per pixel in each state of the haze and the microscope (tune.haze.rel)
   function tuneProfile(now) {
     // (a window another listener cut off, as one taking the engine's callback alone would, is let go after 15 s)
     if (prof && now - perf.profAt > 15000) prof = null;
@@ -4208,14 +4246,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
         k.cost = ms;
         if (share > 0) k.full = ms / share;
       }
-      // the finish's cost: the composite's, per pixel at each of its levels once its fade has run (rel: against the top's)
-      const fin = tune.finish, comp = (prof.passes.fsComposite || 0) / prof.n;
+      // the haze's and the microscope's cost: the composite's, per pixel in each state of the two as shown once the
+      // microscope's fade has run, with no map over it (rel: index haze + 2 × microscope, against both on)
+      const hz = tune.haze, mc = tune.microscope, comp = (prof.passes.fsComposite || 0) / prof.n;
       if (comp > 0) {
-        fin.cost = comp;
-        if (performance.now() - (fin.since || 0) > 2500) {
-          (fin.at ||= [])[fin.level] = comp / (renderScale * renderScale);
-          const top = fin.at[KNOBS.finish.levels.length - 1];
-          if (top) fin.rel = KNOBS.finish.levels.map((_, i) => (fin.at[i] ? fin.at[i] / top : null));
+        hz.cost = mc.cost = comp;
+        if (state.map === 'off' && performance.now() - Math.max(hz.since || 0, mc.since || 0) > 2500) {
+          const on = shown();
+          compAt[(on.haze ? hz.level : 0) + 2 * (on.microscope ? mc.level : 0)] = comp / (renderScale * renderScale);
+          if (compAt[3]) hz.rel = mc.rel = [0, 1, 2, 3].map((i) => (compAt[i] ? compAt[i] / compAt[3] : null));
         }
       }
       // the insides' cost: the cells' pass, at each level at a like zoom (ratio: off against on, per pixel); nothing
@@ -5527,17 +5566,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
   globalThis.__tidemote = { state, cam, perf, eng, notes, noteView, sound, lab, life: () => life, climate: () => climate, renderScale: () => renderScale, maxZoom, setSpeed, findMember, deselect,
     chron, cards, film, filmAct, openSpecies, director, saveWorld, worlds: worldStore, boot: bootTimes, pruned,
     setScale(v) { state.perf.scale = v; if (v !== 'auto') renderScale = v; resetAdapt(); fit(); },
-    // the tuner's knobs' levels; setEffects('low' | 'high' | 'auto') fixes them all cheapest or best, or leaves them to Auto
+    // the tuner's knobs' levels, and what it holds back ([id, level], tuner.js heldBack); setEffects('low' | 'high' |
+    // 'auto') pins the dressing's knobs (not the neighbors, Settings → Neighbors') cheapest or best, or frees them
     effects: () => Object.entries(tune).map(([id, k]) => `${id}:${k.level}`).join(' '),
-    setEffects(v) {
-      // (the dressing's: the neighbors are Settings → Neighbors')
-      for (const id of Object.keys(TUNE_TITLES)) state.perf.tune[id] = v === 'auto' ? 'auto' : v === 'low' ? 0 : KNOBS[id].levels.length - 1;
-      for (const id of Object.keys(TUNE_TITLES)) if (v === 'auto') tune[id].level = KNOBS[id].levels.length - 1;
-      applyTune(); resetAdapt();
-    },
-    // knobs fixed at levels of their own ({ id: index | 'auto' }; the rest as they are)
+    held: heldNow,
+    setEffects(v) { this.setTune(Object.fromEntries(Object.keys(KNOBS).filter((id) => id !== 'neighbors').map((id) => [id, v === 'auto' ? 'auto' : v === 'low' ? 0 : KNOBS[id].levels.length - 1]))); },
+    // knobs pinned at levels of their own ({ id: index | 'auto' }; the rest as they are; never saved)
     setTune(o) {
-      for (const [id, v] of Object.entries(o)) { if (id in state.perf.tune) state.perf.tune[id] = v; if (v !== 'auto') tune[id].level = v; }
+      for (const [id, v] of Object.entries(o)) { if (!tune[id] || id === 'neighbors') continue; if (v === 'auto') { delete pins[id]; tune[id].level = KNOBS[id].levels.length - 1; } else pins[id] = v; }
       applyTune(); resetAdapt();
     },
     // as the adaptive scale does it: applied when the next frame begins

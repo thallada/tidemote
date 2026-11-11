@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { KNOBS, decide, costOf, scaleLoss } from '../src/tuner.js';
+import { KNOBS, decide, costOf, scaleLoss, heldBack, COMP_GUESS } from '../src/tuner.js';
 
 const ladder = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
 const all = (over = {}) => ({
@@ -65,6 +65,40 @@ test('a knob held after a failed climb is not raised again', () => {
   assert.equal(decide(s), null);
 });
 
+test('the heat haze and the microscope keep the old finish ladder\'s costs: the haze 12% of the composite, the microscope the rest down to plain', () => {
+  // (both on, as the old full finish; the haze alone off as its still one, both off as its plain one)
+  assert.ok(Math.abs(KNOBS.haze.share(true, false, { other: 1 }) - 0.88) < 1e-9);
+  assert.ok(Math.abs(KNOBS.microscope.share(true, false, { other: 0 }) - 0.45 / 0.88) < 1e-9);
+  assert.ok(Math.abs(KNOBS.haze.share(true, false, { other: 1 }) * KNOBS.microscope.share(true, false, { other: 0 }) - 0.45) < 1e-9);
+  // learned on the device: the composite in each state, against both on
+  const rel = [0.3, 0.4, 0.9, 1];
+  assert.ok(Math.abs(KNOBS.haze.share(true, false, { rel, other: 1 }) - 0.9) < 1e-9);
+  assert.ok(Math.abs(KNOBS.microscope.share(true, false, { rel, other: 0 }) - 0.3 / 0.9) < 1e-9);
+  assert.equal(COMP_GUESS.length, 4);
+});
+
+test('behind, the haze goes long before the microscope; with room, the microscope comes back first (the old finish\'s order)', () => {
+  const off = { sea: { level: 0, auto: true, cost: 0 }, bloom: { level: 0, auto: true, cost: 0 }, specks: { level: 0, auto: true, cost: 0 }, stone: { level: 0, auto: true, cost: 0 } };
+  const comp = (h, m) => ({ haze: { level: h, auto: true, cost: 2 * COMP_GUESS[h + 2 * m], other: m }, microscope: { level: m, auto: true, cost: 2 * COMP_GUESS[h + 2 * m], other: h } });
+  const pin = { scale: { cur: 0.5, ladder, floor: 0.5, auto: true } };
+  assert.deepEqual(decide(base({ ...pin, knobs: all({ ...off, ...comp(1, 1) }) })), { id: 'haze', to: 0 });
+  assert.deepEqual(decide(base({ ...pin, knobs: all({ ...off, ...comp(0, 1) }) })), { id: 'microscope', to: 0 });
+  assert.deepEqual(decide(base({ behind: false, gpu: 6, knobs: all(comp(0, 0)), scale: { cur: 1, ladder, floor: 0.5, auto: true } })), { id: 'microscope', to: 1 });
+  // a microscope the viewer has off (not free to move) is never counted as saving anything
+  assert.deepEqual(decide(base({ ...pin, knobs: { microscope: { ...comp(0, 1).microscope, auto: false } } })), null);
+});
+
+test('heldBack: what is eased, of what the viewer shows, then the resolution under Auto', () => {
+  const top = Object.fromEntries(Object.entries(KNOBS).map(([id, k]) => [id, k.levels.length - 1]));
+  assert.deepEqual(heldBack(top, {}, 1), []);
+  assert.deepEqual(heldBack(top, {}, null), []);
+  assert.deepEqual(heldBack({ ...top, sea: 2, bloom: 0, microscope: 0 }, {}, 0.7), [['sea', 2], ['bloom', 0], ['microscope', 0], ['scale', 0.7]]);
+  // an effect the viewer has off is never said to be held back, whatever its knob's level
+  assert.deepEqual(heldBack({ ...top, bloom: 0, haze: 0 }, { bloom: false, haze: false }), []);
+  // a render scale the viewer fixed (null) is the viewer's, not held back
+  assert.deepEqual(heldBack({ ...top, neighbors: 1 }, {}, null), [['neighbors', 1]]);
+});
+
 test('render scale costs the eye more the further it falls', () => {
   assert.ok(scaleLoss(0.7, 0.6) > scaleLoss(1, 0.85) * (0.1 / 0.15));
   assert.ok(scaleLoss(0.5, 0.42) > scaleLoss(0.85, 0.7) * (0.08 / 0.15));
@@ -103,22 +137,26 @@ function simulate(dev, windows = 120) {
   const T0 = 1000 / 60, top = (id) => KNOBS[id].levels.length - 1;
   const lv = Object.fromEntries(Object.keys(dev.knobs).map((id) => [id, top(id)]));
   let scale = 1, slow = 1, good = 0, raised = null, held = {};
+  // (the haze and the microscope share one cost, the composite's in the state the two leave it, per pixel)
+  const COMP = ['haze', 'microscope'], compCost = () => dev.comp.full * dev.comp.rel[lv.haze + 2 * lv.microscope];
   const levelCost = (id) => {
     const k = dev.knobs[id], def = KNOBS[id];
-    return k.full * def.share(def.levels[top(id)], def.levels[lv[id]], k);
+    return COMP.includes(id) ? compCost() : k.full * def.share(def.levels[top(id)], def.levels[lv[id]], k);
   };
   const frame = () => {
     const ticks = 1 + 0.45 * (slow - 1);
     const step = (dev.step + (lv.neighbors != null ? levelCost('neighbors') - dev.knobs.neighbors.full : 0)) * ticks;
     const draw = dev.draw * scale * scale;
-    let fx = 0;
-    for (const id of Object.keys(dev.knobs)) if (id !== 'neighbors') fx += levelCost(id) * (dev.knobs[id].px ? scale * scale : 1);
+    let fx = compCost() * scale * scale;
+    for (const id of Object.keys(dev.knobs)) if (id !== 'neighbors' && !COMP.includes(id)) fx += levelCost(id) * (dev.knobs[id].px ? scale * scale : 1);
     return { step, draw: draw + fx, gpu: step + draw + fx };
   };
   const trail = [];
   for (let w = 0; w < windows; w++) {
     const T = T0 * slow, f = frame(), behind = f.gpu > 0.92 * T;
     const knobs = Object.fromEntries(Object.keys(dev.knobs).map((id) => [id, { level: lv[id], auto: true, cost: levelCost(id), ...dev.knobs[id] }]));
+    knobs.haze = { ...knobs.haze, rel: dev.comp.rel, other: lv.microscope };
+    knobs.microscope = { ...knobs.microscope, rel: dev.comp.rel, other: lv.haze };
     const s = { behind, T, gpu: f.gpu, draw: f.draw, knobs, held, scale: { cur: scale, ladder, floor: dev.floor ?? 0.5, auto: true } };
     let acted = '';
     if (behind) {
@@ -146,11 +184,13 @@ function simulate(dev, windows = 120) {
   return { lv, scale, slow, trail, gpu: frame().gpu, T: T0 * slow };
 }
 // measured (docs/performance.md, runs/phone): a Pixel 3 in an 8k world, a Pixel 11 Pro in a 16k one, an RTX 4070 Ti
-// in a 1M one (draw: the drawing at full scale less the knobs; px: a knob's cost follows the pixels)
+// in a 1M one (draw: the drawing at full scale less the knobs; px: a knob's cost follows the pixels; comp: the composite
+// at full scale with the haze and the microscope on, and in each state of the two, haze + 2 × microscope)
+const COMP_REL = [0.45, 0.57, 0.88, 1];
 const DEVICES = {
-  pixel3: { step: 20, draw: 12, floor: 0.5, knobs: { sea: { full: 5 }, bloom: { full: 0.6, px: true }, specks: { full: 0.2 }, stone: { full: 0.2 }, finish: { full: 30, px: true, rel: [0.45, 0.88, 1] }, interiors: { full: 0 }, neighbors: { full: 20, rel: [0.45, 0.6, 1] } } },
-  pixel11: { step: 8, draw: 5, knobs: { sea: { full: 2.6 }, bloom: { full: 0.3, px: true }, specks: { full: 0.05 }, stone: { full: 0.1 }, finish: { full: 2.5, px: true, rel: [0.45, 0.88, 1] }, interiors: { full: 0 }, neighbors: { full: 8, rel: [0.97, 0.98, 1] } } },
-  rtx: { step: 3.4, draw: 2.5, knobs: { sea: { full: 0.03 }, bloom: { full: 0.07, px: true }, specks: { full: 0.08 }, stone: { full: 0.1 }, finish: { full: 0.8, px: true, rel: [0.45, 0.88, 1] }, interiors: { full: 0 }, neighbors: { full: 3.4, rel: [0.97, 0.98, 1] } } },
+  pixel3: { step: 20, draw: 12, floor: 0.5, comp: { full: 30, rel: COMP_REL }, knobs: { sea: { full: 5 }, bloom: { full: 0.6, px: true }, specks: { full: 0.2 }, stone: { full: 0.2 }, haze: {}, microscope: {}, interiors: { full: 0 }, neighbors: { full: 20, rel: [0.45, 0.6, 1] } } },
+  pixel11: { step: 8, draw: 5, comp: { full: 2.5, rel: COMP_REL }, knobs: { sea: { full: 2.6 }, bloom: { full: 0.3, px: true }, specks: { full: 0.05 }, stone: { full: 0.1 }, haze: {}, microscope: {}, interiors: { full: 0 }, neighbors: { full: 8, rel: [0.97, 0.98, 1] } } },
+  rtx: { step: 3.4, draw: 2.5, comp: { full: 0.8, rel: COMP_REL }, knobs: { sea: { full: 0.03 }, bloom: { full: 0.07, px: true }, specks: { full: 0.08 }, stone: { full: 0.1 }, haze: {}, microscope: {}, interiors: { full: 0 }, neighbors: { full: 3.4, rel: [0.97, 0.98, 1] } } },
 };
 for (const [name, dev] of Object.entries(DEVICES)) {
   test(`the tuner settles on a ${name}, within its frame`, () => {

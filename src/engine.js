@@ -157,14 +157,13 @@ class Engine {
     // The dressing the page's tuner picks (src/tuner.js; Settings → Performance), on top of the viewer's settings,
     // never saved into them: how often the sea is turned (frames between, 0: no sea),
     // bloom and specks allowed, and how often the stone is lit again while the world runs (seconds).
-    // finish: the composite's (2 all of it; 1 without the heat map's shimmer; 0 without the optics and the
-    // microscope's look either, about half the composite's cost)
+    // haze: the heat haze over warm water allowed; microscope: the optics and the look (about half the composite)
     // interiors: cells drawn large in the main view show their insides (false: the lean pipeline for every cell,
     // outlines, walls and tissue kept)
-    this.fx = { seaEvery: 1, bloom: true, specks: true, stoneEvery: STONE_EVERY, finish: 2, interiors: true };
-    // (bloom, the sea and the finish's optics and look fade in and out over a second or so as fx turns them, never
-    // flipping: _fadeFx)
-    this.fxFade = { bloom: 1, sea: 1, finish: 1, t: null };
+    this.fx = { seaEvery: 1, bloom: true, specks: true, stoneEvery: STONE_EVERY, haze: true, microscope: true, interiors: true };
+    // (bloom, the sea and the microscope's optics and look fade in and out over a second or so as fx turns them, never
+    // flipping: _fadeFx; the close-up keeps the look whole, so a card's portrait never has it faded)
+    this.fxFade = { bloom: 1, sea: 1, look: 1, t: null };
     this.simData = new ArrayBuffer(912);
     // the viewer's hand (docs/hand.md; the page's src/hand.js sets it): Hand in simWGSL, its words as floats and
     // as ids. Zero, its ids NONE, in every headless run.
@@ -256,6 +255,7 @@ class Engine {
     });
     b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
     b.post = d.createBuffer({ size: POST_WORDS * 4, usage: U.UNIFORM | U.COPY_DST });
+    b.postPlain = d.createBuffer({ size: POST_WORDS * 4, usage: U.UNIFORM | U.COPY_DST });
     // the sea (SEA_WGSL, src/sea.js): its uniforms, and every cascade's slope and displacement, mipmapped (its
     // amplitudes and working buffer are made with the first frame: _seaBuffers)
     b.seaU = d.createBuffer({ size: 128, usage: U.UNIFORM | U.COPY_DST });
@@ -1119,7 +1119,7 @@ class Engine {
   _specBGOf() {
     return this.device.createBindGroup({ layout: this.pPlain.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: this.specSceneView },
-      { binding: 2, resource: { buffer: this.b.post } }, { binding: 6, resource: { buffer: this.b.viewS } }] });
+      { binding: 2, resource: { buffer: this.b.postPlain } }, { binding: 6, resource: { buffer: this.b.viewS } }] });
   }
 
   gridFor(n, aspect) {
@@ -1505,14 +1505,14 @@ class Engine {
   // whose band lies past the damping holds next to none).
   _bloom() { return this.settings.bloom * this.fxFade.bloom; }
   _seaShown() { return this.seaTune.view !== 3 && (this.fx.seaEvery > 0 || this.fxFade.sea > 0); }
-  // bloom, the sea and the finish eased toward what fx asks (their passes run until faded out)
+  // bloom, the sea and the microscope eased toward what fx asks (their passes run until faded out)
   _fadeFx(realT) {
     const f = this.fxFade, dt = f.t == null ? 0 : Math.min(0.1, Math.max(0, realT - f.t));
     f.t = realT;
     const ease = (v, to, rate) => (to > v ? Math.min(to, v + rate * dt) : Math.max(to, v - rate * dt));
     f.bloom = ease(f.bloom, this.fx.bloom ? 1 : 0, 2);
     f.sea = ease(f.sea, this.fx.seaEvery > 0 ? 1 : 0, 1.5);
-    f.finish = ease(f.finish, this.fx.finish >= 1 ? 1 : 0, 1.5);
+    f.look = ease(f.look, this.fx.microscope ? 1 : 0, 1.5);
   }
 
   // the ice as drawn eased toward the simulation's (ICE_SHOW_WGSL), at once in a world just made or loaded; over no
@@ -2860,9 +2860,9 @@ class Engine {
     pd[4] = time; pd[5] = this.season; pd[6] = this.settings.tide; pd[7] = cam.ppu;
     pd[8] = cam.x; pd[9] = cam.y; pd[10] = this.grid[0]; pd[11] = this.grid[1];
     const clk = this._clock();
-    pd[12] = clk.t; pd[13] = this.ambient; pd[14] = this.settings.optics * this.fxFade.finish;
-    // (the heat map's shimmer, its default, left out at a lower finish: boiling water still roils)
-    pd[15] = this.K.heat ? (this.settings.heat === 1 && this.fx.finish < 2 ? 0 : this.settings.heat) : -1;
+    pd[12] = clk.t; pd[13] = this.ambient; pd[14] = this.settings.optics * this.fxFade.look;
+    // (the heat haze left out by the tuner: boiling water still roils)
+    pd[15] = this.K.heat ? (this.settings.heat === 1 && !this.fx.haze ? 0 : this.settings.heat) : -1;
     pd.set(this.tide, 16);
     pd.set(clk.tidePh, 32);
     pd.set(this.waves, 36);
@@ -2880,10 +2880,12 @@ class Engine {
     pd.set(this.hand.subarray(0, 4), POST_LAMP);
     pd.set(this.lens, POST_LAMP + 4);
     pd.set(this.tool, POST_LAMP + 8);
-    if (this.fxFade.finish < 1) pd.set(this.look.map((v) => v * this.fxFade.finish), POST_LOOK);
-    else pd.set(this.look, POST_LOOK);
     pd.set(this._murkCam(cam, W, H), POST_MURK);
     pd.set(clk.edgePh, POST_EDGE);
+    // (the close-up, a card's portrait among its frames, reads its own copy with the look whole: fsPlain)
+    pd.set(this.look, POST_LOOK);
+    if (specimen && specimen.target) d.queue.writeBuffer(this.b.postPlain, 0, pd);
+    if (this.fxFade.look < 1) pd.set(this.look.map((v) => v * this.fxFade.look), POST_LOOK);
     d.queue.writeBuffer(this.b.post, 0, pd);
     // the water's bend on a coarse grid of the main view, for the page's overlays (read back after the submit)
     this._shiftPending = null;
@@ -3044,7 +3046,7 @@ class Engine {
       pass.end();
     }
 
-    // (the murk shows only through the optics: none at the tuner's plainest finish)
+    // (the murk shows only through the optics: none with the microscope off)
     if (pd[14] > 0) {
       const pass = enc.beginRenderPass({ colorAttachments: [{ view: this.murkView, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
       pass.setPipeline(this.pMurk); pass.setBindGroup(0, this.murkBG); pass.draw(3); pass.end();

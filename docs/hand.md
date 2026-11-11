@@ -281,7 +281,7 @@ The speed chip opens a ladder of every speed on offer (a double tap: ×1); held,
 up or down moves along it, a speed a rung, taken when let go; open, a drag or the wheel on it does the same. A
 phone's dock is seven equal slots, each an icon over its label (Pause, Speed, the Bench naming the tool in hand, Auto,
 Sound, Settings, Lab), what is on lit in its color with a bar at the dock's top edge; it has no Slower or Faster.
-Below Max, Fast runs as fast but draws every frame. Bloom is Y, reset zoom Z; ? shows the keys.
+Below Max, Fast runs as fast but draws every frame. Glow is Y, reset zoom Z; ? shows the keys.
 
 **Where it differs from the plan.** The thermal lens is new: warming was invisible without it. The pipette tears
 bodies by its own draw against their bonds rather than by a walk of the bond graph, so what comes whole and what
