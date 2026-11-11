@@ -139,7 +139,7 @@ for (const s of SIZES) {
     if (sessionStorage.getItem('ui-init')) return;
     sessionStorage.setItem('ui-init', '1');
     localStorage.clear();
-    localStorage.setItem('tidemote.sound', JSON.stringify({ on: false, volume: 0.7 }));
+    localStorage.setItem('tidemote.sound', JSON.stringify({ on: false }));
     if (view) localStorage.setItem('tidemote.view', JSON.stringify(view));
   }, +(args.particles || 0) ? viewPrefs({ particles: +args.particles }) : null);
   if (vk) await ctx.addInitScript(retryAdapter);

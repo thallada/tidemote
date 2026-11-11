@@ -93,7 +93,7 @@ for (const size of opt.sizes.split(',')) {
     // as a visitor's browser, so the intro holds on Begin with its menu (the page lets an automated one's go by)
     Object.defineProperty(navigator, 'webdriver', { get: () => false });
     window.__MC_MAX = n;
-    if (!sessionStorage.getItem('i')) { sessionStorage.setItem('i', '1'); localStorage.clear(); localStorage.setItem('tidemote.sound', JSON.stringify({ on: false, volume: 0.7 })); }
+    if (!sessionStorage.getItem('i')) { sessionStorage.setItem('i', '1'); localStorage.clear(); localStorage.setItem('tidemote.sound', JSON.stringify({ on: false })); }
     // canvas text, as it is drawn
     globalThis.__drawn = new Map();
     const P = CanvasRenderingContext2D.prototype, O = typeof OffscreenCanvasRenderingContext2D !== 'undefined' ? OffscreenCanvasRenderingContext2D.prototype : null;

@@ -1,4 +1,4 @@
-import { createSound, songClip } from './audio/sound.js';
+import { createSound, songClip, DEFAULT_VOLUME } from './audio/sound.js';
 import { voiceOf } from './audio/mapping.js';
 import { signalAt } from './audio/motif.js';
 import { V_SCALE } from './audio/listen.js';
@@ -2689,7 +2689,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         state.auto = true; renderAuto(director.active);
       } else if (tab === 'audio') {
         // (the soundtrack stays on or off as it was)
-        sound.setVolume(0.7);
+        sound.setVolume(DEFAULT_VOLUME);
         sound.setMix(defaultMix());
       } else {
         Object.assign(P, { scale: 'auto', floor: 0.5, density: 'auto', fps: 'auto', scan: null });

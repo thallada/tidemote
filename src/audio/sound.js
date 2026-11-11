@@ -63,9 +63,12 @@ function wavBlob(buf) {
   return new Blob([out.buffer], { type: 'audio/wav' });
 }
 
+/** The volume (0..1, a slider position) until the viewer sets one; a saved setting keeps its own. */
+export const DEFAULT_VOLUME = 0.8;
+
 export function createSound({ onChange = () => {}, onError = () => {}, onSang = null } = {}) {
   const pref = load();
-  const st = { on: false, volume: clamp(pref.volume ?? 0.7, 0, 1), mix: fullMix(pref.mix), starting: null, ctx: null, node: null, gain: null, sent: new Map(), speed: 1, lastScan: 0, seq: 0, scans: new Map() };
+  const st = { on: false, volume: clamp(pref.volume ?? DEFAULT_VOLUME, 0, 1), mix: fullMix(pref.mix), starting: null, ctx: null, node: null, gain: null, sent: new Map(), speed: 1, lastScan: 0, seq: 0, scans: new Map() };
   const persist = () => save({ volume: st.volume, on: st.on, mix: st.mix });
   const notify = () => onChange({ on: st.on, volume: st.volume });
 

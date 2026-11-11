@@ -19,7 +19,7 @@ export async function openPage({ size, html, n = 16384, init = null, initArg = n
   const ctx = await chromium.launchPersistentContext(prof, { ...launchOptions({ args: ['--enable-unsafe-webgpu'] }), ...SIZES[size], acceptDownloads: true });
   await ctx.addInitScript((mc) => {
     window.__MC_MAX = mc;
-    if (!sessionStorage.getItem('i')) { sessionStorage.setItem('i', '1'); localStorage.clear(); localStorage.setItem('tidemote.sound', JSON.stringify({ on: false, volume: 0.7 })); }
+    if (!sessionStorage.getItem('i')) { sessionStorage.setItem('i', '1'); localStorage.clear(); localStorage.setItem('tidemote.sound', JSON.stringify({ on: false })); }
   }, n);
   if (init) await ctx.addInitScript(init, initArg);
   if (vk) await ctx.addInitScript(retryAdapter);

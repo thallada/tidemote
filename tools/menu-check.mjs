@@ -27,7 +27,7 @@ for (const size of [{ tag: 'laptop', viewport: { width: 1366, height: 768 } }, {
     Object.defineProperty(navigator, 'webdriver', { get: () => false });
     window.__MC_MAX = 65536;
     if (sessionStorage.getItem('i')) return;
-    sessionStorage.setItem('i', '1'); localStorage.clear(); localStorage.setItem('tidemote.sound', JSON.stringify({ on: false, volume: 0.7 }));
+    sessionStorage.setItem('i', '1'); localStorage.clear(); localStorage.setItem('tidemote.sound', JSON.stringify({ on: false }));
   });
   const page = await ctx.newPage();
   const errs = []; page.on('pageerror', (e) => errs.push(e.message));
