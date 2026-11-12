@@ -139,8 +139,9 @@ and the look, and stone was added after them, so it took neither. Now:
 - The look's edges (relief, rims, fringe, rainbow rims) are read from the sharp scene, a pixel or a few apart, and laid
   over what `lensScene` has blurred: on cells and grains out of focus, deep in a pile or toward the rim they drew crisp
   outlines, and the view looked about as sharp as with `dof` at 0. `lensScene` now also gives how far it spread the
-  image there, in pixels, and `lookScene` scales the edges by `rp / (rp + 2 spread)` (rp: how far apart it reads them),
-  about as a blurred edge's contrast falls; the loupe's softened rim does the same. Where nothing is spread (in focus,
+  image there, in pixels, and `lookScene` scales the edges by `rp² / (rp² + (2 spread)²)` (rp: how far apart it reads
+  them), about as a high-pass of a blurred edge falls (at first `rp / (rp + 2 spread)`, which left a third of a crisp outline
+  on a cell blurred two pixels: on a crest the sea focuses the lamp onto, stacked bright outlines round a soft cell); the loupe's softened rim does the same. Where nothing is spread (in focus,
   Optics off, below the focus's start) nothing changes.
 - Rough outlines (`grainRough`): each mineral grain's outline pushed in by up to 3 % of its radius of noise in its own
   uv (shell 2 %, worn sand and forams about 1 %), each finer octave only where it is wider than a pixel, and on
@@ -190,9 +191,9 @@ than as a tint over the water. `sceneLit` (POST_WGSL) mirrors `lightAt`: the ban
 baseline, under the sky (`pond.z`, darkness) and any duckweed, and the lamp (added) or shade (taken), as `r`: how
 bright, in log, from the open water's light (0) to a summer band's (1, `LIT_SPAN` 4.4 times it). A winter's bands
 reach only about a quarter of that, so they barely show, as they should; the lamp goes past 1, the shade below 0. The
-light multiplies the toned view (`litShow`, after the tone curve so it is not squeezed, rolling off toward white above
-`LIT_KNEE`) by `litGain`: more on what lies on the floor, stone and silt (`LIT_GROUND`, 0.85x out of the light to 1.3x
-in a band), less on the living (`LIT_CELL`, 0.92x to 1.28x, their colors a little richer in the sun, `LIT_RICH`), who keep
+light multiplies the toned view (`litShow`, after the tone curve so it is not squeezed, rolling off above `LIT_KNEE` by its
+brightest channel, so a bright cell keeps its hue; rolled off channel by channel it turned white) by `litGain`: more on what lies on the floor, stone and silt (`LIT_GROUND`, 0.89x out of the light to
+1.225x in a band), less on the living (`LIT_CELL`, 0.94x to 1.21x, their colors a little richer in the sun, `LIT_RICH`), who keep
 their colors. The living are told from the
 matter by their share of each pixel's light: the living's layer (`liveTex`), which the splat (sprites of a pixel or so,
 `splatMain`/`fsSplat`) fills too, with the living's own light kept in a fifth channel and laid there uncovered. The empty
@@ -207,10 +208,12 @@ a grain's facets now and then turn to the light and flash (`sparkle` and `matter
 same light from the view's uniforms: `SPARK_SHARE` of the grains, each every few seconds on the real clock, as bright
 as `SPARK` times the light; a grain seen as a point flashes whole, one seen as a chip from a rocking facet). The microscope's look takes the light too (`sunLook`, `sunGrade`): a brighter lamp makes more of everything that
 spreads light about a bright thing, so in the light the bloom reaches further (`SUN_BLOOM`), the halation grows and
-turns golden (`SUN_HALO`), the veiling flare grows and warms (`SUN_VEIL`), darkfield's rims (the light membranes scatter)
-brighten (`SUN_RIM`, from about 25 pixels a unit), and the view is graded a little golden, its pale highlights most so
+turns golden (`SUN_HALO`), the veiling flare grows and warms (`SUN_VEIL`) (darkfield's rims brightened more again,
+`SUN_RIM`, and drew thick white outlines in the sun; they take the light as the cells do), and the view is graded a little golden, its pale highlights most so
 colored cells keep their hue (`SUN_GOLD`); richer rainbow rims were tried and left off (color, not light). Lit cells glow
-rather than outshine: with `LIT_CELL` 0.92x to 1.28x they read 1.13-1.14x on screen against the same cells out of it (the display's gamma
+rather than outshine: with `LIT_CELL` 0.92x to 1.28x (now 0.94x to 1.21x, and `LIT_GROUND`, `SUN_BLOOM`, `SUN_HALO`,
+`SUN_VEIL` and `seaFocus`'s strength each a quarter nearer none: in full light, and more on a crest, cells were turning
+nearly white) they read 1.13-1.14x on screen against the same cells out of it (the display's gamma
 halves a gain in log, the shoulder takes a little more; 0.9x to 1.12x read 1.09x). In the
 sun the living shade the ground a little way from them (`sunShadow`: their layer looked up `SHADOW_H` units toward
 the light, softened; it lies that far off them at every zoom), which there has the open water's light. The murk glows faintly golden in the sun

@@ -7958,9 +7958,10 @@ fn lookScene(hdrIn: vec3f, uv: vec2f, bl: vec3f, ppu: f32, res: vec2f, sun: f32,
   var hdr = hdrIn;
   // edges are read a pixel or more apart (rp), so only once cells are several pixels across; they are read from the
   // sharp scene, so where the optics spread the image (out of focus, toward the rim) they fade as a blurred edge's
-  // contrast would, or what the shallow focus softened would keep crisp outlines
+  // contrast would (as the square of rp over the blur's width, a high-pass's), or what the shallow focus softened
+  // would keep crisp outlines, bright on a crest the sea focuses the lamp onto
   let rp = clamp(ppu * 0.012, 0.75, 3.0);
-  let near = smoothstep(25.0, 70.0, ppu) * rp / (rp + 2.0 * spread);
+  let near = smoothstep(25.0, 70.0, ppu) * sqr(rp) / (sqr(rp) + sqr(2.0 * spread));
   if (L0.x + L0.y + L0.z + L0.w > 0.0 && near > 0.0) {
     let r = rp / res;
     let sc = scene(uv);
@@ -7978,10 +7979,11 @@ fn lookScene(hdrIn: vec3f, uv: vec2f, bl: vec3f, ppu: f32, res: vec2f, sun: f32,
     let rel = L0.y * near;
     hdr = hdr * max(0.0, 1.0 + 2.4 * rel * sh) + rel * 0.5 * max(sh, 0.0) * blur;
     // darkfield: light scatters at edges, a flat inside lets it pass
-    let rim = L0.z * near * (1.0 + SUN_RIM * sun);
-    // (what a membrane scatters is nearly white, a little cool)
-    let edge = abs(hp);
-    hdr = hdr * (1.0 - 0.4 * rim) + rim * 1.8 * mix(edge, vec3f(lookL(edge)) * vec3f(0.9, 1.0, 1.15), 0.35);
+    let rim = L0.z * near;
+    // (what a membrane scatters is nearly white, a little cool; on the bright side of an edge only, the membrane's,
+    // not as a halo over the dark water a few pixels outside it)
+    let edge = max(hp, vec3f(0.0));
+    hdr = hdr * (1.0 - 0.4 * rim) + rim * 1.4 * mix(edge, vec3f(lookL(edge)) * vec3f(0.9, 1.0, 1.15), 0.35);
     // an achromat's fringes: purple just outside a bright edge, yellow-green just inside
     let fl = lookL(hp);
     hdr += L0.w * near * (max(-fl, 0.0) * vec3f(0.55, 0.12, 1.0) + max(fl, 0.0) * vec3f(0.3, 0.55, 0.0)) * 1.5;
@@ -9271,8 +9273,8 @@ fn shadeOver(c: vec3f, wp: vec2f) -> vec3f {
 // what scatters shows the light, so the pools show on the grains, not on the dark water between them.
 const FOCUS_MATTER = 1.0;
 const FOCUS_GLINT = 2.5;
-const LIT_GROUND = vec2f(0.85, 1.3);  // the toned view's gain on stone and silt at r 0 and 1 (between, in log)
-const LIT_CELL = vec2f(0.92, 1.28);   // on the living
+const LIT_GROUND = vec2f(0.89, 1.225);  // the toned view's gain on stone and silt at r 0 and 1 (between, in log)
+const LIT_CELL = vec2f(0.94, 1.21);   // on the living
 const LIT_RICH = 0.12;                // the living's colors this much richer in a summer band
 const LIT_KNEE = 0.7;                 // the toned view rolls off above this toward white (litShow)
 struct Lit { k: vec3f, r: f32, lamp: f32, play: f32, shadow: f32 };
@@ -9311,14 +9313,17 @@ fn sunShadow(uv: vec2f, l: Lit) -> f32 {
 }
 fn coverAt(uv: vec2f) -> f32 { return min(1.0, textureSampleLevel(liveTex, samp, uv, 0.0).a); }
 // The toned view (display-linear) in the scene's light: by litGain, after the tone curve so it is not squeezed, the
-// living's colors richer in the sun, rolled off above LIT_KNEE toward white rather than clipped.
+// living's colors richer in the sun, rolled off above LIT_KNEE rather than clipped.
 fn litShow(cIn: vec3f, l: Lit, cells: f32) -> vec3f {
   let y = lookL(cIn);
   // (a grain's glints and sparkles, its brightest pixels, catch the sea's focus most)
   let shine = 1.0 + FOCUS_GLINT * max(l.play, 0.0) * (1.0 - l.shadow) * (1.0 - cells) * smoothstep(0.08, 0.4, y);
   let c = max(vec3f(0.0), mix(vec3f(y), cIn, 1.0 + LIT_RICH * cells * clamp(l.r, 0.0, 1.0))) * litGain(l, cells) * shine;
-  let o = c - LIT_KNEE;
-  return select(c, LIT_KNEE + (1.0 - LIT_KNEE) * (1.0 - exp(-o / (1.0 - LIT_KNEE))), c > vec3f(LIT_KNEE));
+  // (by its brightest channel, so a bright cell keeps its hue: rolled off channel by channel, the lit and the sea's
+  // focus turned cells and the rims round them white)
+  let m = max(c.r, max(c.g, c.b));
+  if (m <= LIT_KNEE) { return c; }
+  return c * (LIT_KNEE + (1.0 - LIT_KNEE) * (1.0 - exp(-(m - LIT_KNEE) / (1.0 - LIT_KNEE)))) / m;
 }
 // The light on the pond's floor, seen through the dark water behind what lies in it (display-linear, added as the
 // background is): its mud (the murk there) faintly golden in the sun, amber under the lamp, more where the sea focuses
@@ -9331,14 +9336,12 @@ fn floorLit(l: Lit, mud: f32) -> vec3f {
 // The microscope's look in the world's light (docs/look.md, Light): a brighter lamp makes more of everything that
 // spreads light about a bright thing, so in the light the bloom reaches further (SUN_BLOOM), the film's halation
 // (golden there) and the lamp's veiling flare (warmer) grow (SUN_HALO, SUN_VEIL; lookScene), and the view is graded a
-// little golden, its pale highlights most (SUN_GOLD, sunGrade); darkfield's rims, the light membranes scatter, grow
-// brighter (SUN_RIM; lookScene's, so from about 25 pixels a unit). sunLook: how much, 0 in the open water's light to 1
+// little golden, its pale highlights most (SUN_GOLD, sunGrade). sunLook: how much, 0 in the open water's light to 1
 // in a summer band (more under the lamp).
-const SUN_BLOOM = 0.6;
-const SUN_HALO = 0.8;
-const SUN_VEIL = 0.5;
+const SUN_BLOOM = 0.45;
+const SUN_HALO = 0.6;
+const SUN_VEIL = 0.375;
 const SUN_GOLD = 1.0;
-const SUN_RIM = 0.5;
 fn sunLook(l: Lit) -> f32 { return clamp(l.r, 0.0, 1.3); }
 fn sunGrade(c: vec3f, l: Lit) -> vec3f {
   // gilding the pale and the bright most (glints, rims, pale cells): colored cells keep their hue
@@ -9349,7 +9352,7 @@ fn sunGrade(c: vec3f, l: Lit) -> vec3f {
 }
 // The sea's focusing (surf.light) on what lies beneath, as the light there makes it: a little more in the sun than in
 // the shade.
-fn seaFocus(light: f32, l: Lit) -> f32 { return 1.0 + (light - 1.0) * mix(0.6, 1.1, clamp(l.r, 0.0, 1.0)); }
+fn seaFocus(light: f32, l: Lit) -> f32 { return 1.0 + (light - 1.0) * mix(0.45, 0.825, clamp(l.r, 0.0, 1.0)); }
 // The tide and thermal maps over the tonemapped view at world point wp (pos: the fragment's pixel; water: the
 // water's temperature there), in the main view and the loupe alike.
 fn mapsOver(cIn: vec3f, wp: vec2f, pos: vec2f, water: f32) -> vec3f {
