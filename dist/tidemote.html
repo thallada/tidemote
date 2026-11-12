@@ -1851,6 +1851,8 @@ svg.niche .n-dot { fill: var(--cyan); }
   // src/sea.js
   var SEA_N = 256;
   var SEA_CASCADES = 2;
+  var SEA_HEIGHT_LAYERS = Math.ceil(SEA_CASCADES / 4);
+  var SEA_LAYERS = SEA_CASCADES + SEA_HEIGHT_LAYERS;
   var SEA = {
     // the wind's ripples, and the capillary ripples riding them: peak wavelength (units), rms slope, spread about the
     // wind (cos^(2 spread) of half the angle off it)
@@ -1895,19 +1897,23 @@ svg.niche .n-dot { fill: var(--cyan); }
     for (let i = 0; i < n; i++) t += Math.abs(Math.cos((i + 0.5) / n * Math.PI - Math.PI / 2)) ** (2 * s);
     return t / n * 2 * Math.PI;
   }
-  function slopeIntegral(a, b, kp, P, steps2 = 256) {
+  function slopeIntegral(a, b, kp, P, steps2 = 256, e = 2) {
     if (!(b > a)) return 0;
     const la = Math.log(a), d = (Math.log(b) - la) / steps2;
     let s = 0;
     for (let i = 0; i < steps2; i++) {
       const k = Math.exp(la + (i + 0.5) * d);
-      s += k ** 4 * seaRadial(k, kp, P) * d;
+      s += k ** (2 + e) * seaRadial(k, kp, P) * d;
     }
     return s;
   }
   function seaScales(layout, P = SEA) {
     const k0 = layout[0].k0, k1 = layout[layout.length - 1].k1;
     return P.systems.map((s) => s.slope ** 2 / (spreadIntegral(s.spread) * slopeIntegral(k0, k1, 2 * Math.PI / s.lp, P)));
+  }
+  function seaHeightRms(layout, P = SEA) {
+    const k0 = layout[0].k0, k1 = layout[layout.length - 1].k1, scale = seaScales(layout, P);
+    return Math.sqrt(P.systems.reduce((v, s, j) => v + scale[j] * spreadIntegral(s.spread) * slopeIntegral(k0, k1, 2 * Math.PI / s.lp, P, 256, 0), 0));
   }
 
   // src/shaders.js
@@ -9070,6 +9076,9 @@ struct Post {
   // x how its caustics' focus is softened, y the most it focuses the light, z what is drawn (seaTune.view: 0 the
   // view, 1 the sea's light alone, 2 its sheen alone), w 1 where the composite reads it from its field (seaFieldMain)
   seaLook: vec4f,
+  // x: the sea's height (its texture's) in a storm's rms heights, as high as the sea is now (calm water's a share of
+  // a storm's), for the shallow focus (lensScene); y, z, w unused
+  seaDepth: vec4f,
   // the hand's lamp or shade, as the simulation has it (Hand.lamp); the warm stage's or cold probe's lens (center,
   // radius, 1 shown): the thermal camera inside the tool's reach
   lamp: vec4f,
@@ -9664,12 +9673,25 @@ fn valueNoise(p: vec2f, period: vec2f) -> f32 {
 // What a camera on a microscope adds to the specimen. Except for the murk in the water these are
 // fixed to the screen, so they stay put as the view pans. post.optics scales them all; 0 is bare.
 
-// The objective's image at uv; q is the offset from the optical axis in half-heights, wp the world
-// point. Lateral chromatic aberration pulls red and blue apart toward the edge of the field. Near the
-// rim the image softens (field curvature) and, at high magnification, the shallow focus loses
-// whatever lies above or below the focal plane there: cells come in and out of focus as they move. Its alpha: how far
-// the image is spread there, in pixels (lookScene softens the look's edges by it).
-fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32) -> vec4f {
+// The shallow focus (lensScene): how far from the focal plane a point may lie (in a storm's rms wave heights, seen at
+// DOF_PPU pixels a unit) and still be sharp, and from how far it is wholly soft; and how far the field curves away from
+// the plane toward the rim, per half-height squared off the axis. The more the view is magnified the shallower the
+// focus, as much as the waves' rise across the view shrinks (a view smaller than a ripple sees a slope of it), so the
+// view shows about as much of it soft at every zoom: calm water a gentle tilt to the plane that drifts as the ripples
+// pass, a storm a narrow band in focus sweeping over the view.
+const DOF_PPU = 200.0;
+const DOF_SHARP = 0.06;
+const DOF_SOFT = 0.22;
+const DOF_CURVE = 0.08;
+// The objective's image at uv; q is the offset from the optical axis in half-heights, wp the world point, dh how much
+// higher the sea's waves lift the water over it than over the view's middle (Surface.height's). Lateral chromatic
+// aberration pulls red and blue apart toward the edge of the field. Near the rim the image softens (field curvature)
+// and, at high magnification, the shallow focus loses whatever lies above or below the focal plane there. The water
+// over the pool is deeper under a wave's crest and shallower under its trough, and the image passing through more or
+// less water is focused nearer or further (water bends it): the microscopist keeps the middle of the view in focus, so
+// as the waves pass over, what lies under the crests and troughs away from it goes soft and comes back. Its alpha: how
+// far the image is spread there, in pixels (lookScene softens the look's edges by it).
+fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32, dh: f32) -> vec4f {
   let r2 = dot(q, q);
   let px = k * post.res.y / 1000.0 / post.res;
   let ca = q * r2 * 0.2 * px;
@@ -9682,12 +9704,11 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32) -> vec4f {
   // (with the look's shallow focus, not only toward the rim: whatever lies above or below the plane softens)
   let shallow = max(rim, post.look[3].x);
   if (shallow > 0.0 && post.ppu > start) {
-    let cells = max(vec2f(1.0), round(post.world / 2.5));
-    let drift = vec2f(0.0, post.simTime * 0.004);
-    // focused on the middle of the view, as a microscopist keeps what they watch sharp
-    let depth = valueNoise(wp / post.world * cells + drift, cells) - valueNoise(post.cam / post.world * cells + drift, cells);
+    // out of the focal plane by the waves (dh), and further toward the rim, where the field curves away from it: in
+    // the middle a point is sharp unless a wave lifts it well off the middle's level, at the rim only on it
+    let defocus = abs(dh) * post.ppu / DOF_PPU + DOF_CURVE * r2;
     let near = smoothstep(start, start * 4.0, post.ppu);
-    blur += shallow * smoothstep(0.08, 0.35, abs(depth)) * near * 4.5;
+    blur += shallow * smoothstep(DOF_SHARP, DOF_SOFT, defocus) * near * 4.5;
     // bare stone lies on the floor, the top of its pile near where the cells swim and the rest deeper: far thinner
     // than a grain is what a microscope holds in focus, so the grains on top are sharp and those under them soft,
     // the more the deeper, by the grain's cobble's place in the pile (fsStoneLit: stoneTex holds it here)
@@ -10799,8 +10820,9 @@ fn ringWave(d: vec2f, t: f32, amp: f32, seed: f32, s: ptr<function, vec2f>) {
 // linear filtering kinks at every texel's edge, which the shading shows as a grid; otherwise the hardware filters it
 // for the zoom (mipmaps, anisotropic: its texels are as oblong as the world), so the finer waves average away and the
 // same waves show at every zoom.
-fn seaTap(p: vec2f, c: u32, ppu: f32) -> vec4f {
-  let L = post.seaC[c].xy;
+fn seaTap(p: vec2f, c: u32, ppu: f32) -> vec4f { return seaTapIn(p, post.seaC[c].xy, c, ppu); }
+// the same of the texture's layer (a cascade's, or its height's) laid on a patch L
+fn seaTapIn(p: vec2f, L: vec2f, c: u32, ppu: f32) -> vec4f {
   let n = f32(${SEA_N});
   if (min(L.x, L.y) * ppu > 1.5 * n) {
     let q = p / L * n - 0.5;
@@ -10833,6 +10855,17 @@ fn seaAt(p: vec2f, ppu: f32) -> vec4f {
     o += vec4f(t.xy, t.zw * L.z);
   }
   return o;
+}
+// The sea's height at world point p (units, summed over the cascades that hold waves): their heights lie past the
+// cascades' layers, four to a layer (SEA_WGSL's seaSpectrum)
+fn seaHeight(p: vec2f, ppu: f32) -> f32 {
+  var h = 0.0;
+  for (var c = 0u; c < ${SEA_CASCADES}u; c++) {
+    let L = post.seaC[c];
+    if (L.w <= 0.0) { continue; }
+    h += seaTapIn(p, L.xy, ${SEA_CASCADES}u + c / 4u, ppu)[c % 4u];
+  }
+  return h;
 }
 // The sea's waves longer than a view of span world units at world point p (as seaAt: slope, carrying): each cascade's
 // mipmap read at the level whose texels are SEA_LOW views across, as a cubic B-spline (four bilinear taps: linear
@@ -10883,8 +10916,10 @@ fn seaLow(p: vec2f, span: f32) -> vec4f {
   return o * (1.0 - smoothstep(0.5 * SEA_LONG, 0.75 * SEA_LONG, T));
 }
 // What the water's surface does at world point wp, seen at ppu pixels a unit: shift (world units) how far it bends
-// the view of what lies beneath, slope its tilt (the sheen), light how much of the lamp's light it focuses there.
-struct Surface { shift: vec2f, slope: vec2f, light: f32 };
+// the view of what lies beneath, slope its tilt (the sheen), light how much of the lamp's light it focuses there,
+// height how high its waves lift the water over the point (in a storm's rms heights: post.seaDepth; the shallow focus,
+// lensScene, measures from it how far the water column there moves the focal plane).
+struct Surface { shift: vec2f, slope: vec2f, light: f32, height: f32 };
 // The sea is fixed in the world, the size it would be, so zooming in only magnifies it: from close up a single ripple
 // fills the view, and the surface (far above the focal plane, out of focus) shows only by bending the view and by the
 // light it focuses, the field breathing and soft bands of light sweeping across it. Its crests are sharpened as a
@@ -10896,7 +10931,9 @@ struct Surface { shift: vec2f, slope: vec2f, light: f32 };
 // a pan as the center crossed the swell, and the bared ground seemed to swim apart from the water around it. The
 // light: the surface's curvature focuses the lamp onto the focal plane below, brightening where it converges (by the
 // divergence of the slope) and dimming where it spreads.
-fn seaSurface(wp: vec2f, ppu: f32, span: f32) -> Surface {
+fn seaSurface(wp: vec2f, ppu: f32, span: f32) -> Surface { return seaSurfaceH(wp, ppu, span, false); }
+// the same with its height too (withHeight: only the field the composite reads, where the shallow focus needs it)
+fn seaSurfaceH(wp: vec2f, ppu: f32, span: f32, withHeight: bool) -> Surface {
   let lo = seaLow(wp, span);
   var x0 = wp;
   // (calm water's gentle swell is not choppy: no carrying)
@@ -10914,6 +10951,8 @@ fn seaSurface(wp: vec2f, ppu: f32, span: f32) -> Surface {
   o.shift = (s - lo.xy) * (post.seaHead.y * inverseSqrt(1.0 + stretch * stretch * 4.0));
   o.slope = s * post.seaHead.x;
   o.light = min(inverseSqrt(focus * focus + post.seaLook.x), post.seaLook.y);
+  // (the height of the water that has been carried here, as the slope's)
+  if (withHeight) { o.height = seaHeight(x0, ppu) * post.seaDepth.x; }
   return o;
 }
 // the raindrops' rings' slope at wp
@@ -11056,6 +11095,7 @@ fn surfaceNear(sea: Surface, wp: vec2f, room: f32) -> Surface {
   o.shift = keepInside(o.shift + r * 1.2, room);
   o.slope = (o.slope + r) * wet;
   o.light = mix(1.0, o.light, wet);
+  o.height *= wet;
   return o;
 }
 // The sea seen from close up, where its finest waves span many pixels (post.seaLook.w, Engine._seaPost): seaSurface
@@ -11071,17 +11111,22 @@ const SEA_FIELD = 4.0;
   if (any(g.xy >= textureDimensions(seaFieldW))) { return; }
   // (the view pixel whose middle the point stands at)
   let px = vec2f(g.xy) * SEA_FIELD + 0.5;
-  let s = seaSurface(post.cam + (px - post.res * 0.5) / post.ppu, post.ppu, viewSpan());
+  let s = seaSurfaceH(post.cam + (px - post.res * 0.5) / post.ppu, post.ppu, viewSpan(), true);
   textureStore(seaFieldW, g.xy, vec4f(s.shift, s.slope));
-  textureStore(seaLightW, g.xy, vec4f(s.light, 0.0, 0.0, 0.0));
+  textureStore(seaLightW, g.xy, vec4f(s.light, s.height, 0.0, 0.0));
 }
+fn seaFieldUV(pos: vec2f) -> vec2f { return ((pos - 0.5) / SEA_FIELD + 0.5) / vec2f(textureDimensions(seaField)); }
+// the height alone (Surface.height)
+fn seaFieldHeight(pos: vec2f) -> f32 { return textureSampleLevel(seaLight, samp, seaFieldUV(pos), 0.0).y; }
 fn seaFieldAt(pos: vec2f) -> Surface {
-  let uv = ((pos - 0.5) / SEA_FIELD + 0.5) / vec2f(textureDimensions(seaField));
+  let uv = seaFieldUV(pos);
   let f = textureSampleLevel(seaField, samp, uv, 0.0);
   var o: Surface;
   o.shift = f.xy;
   o.slope = f.zw;
-  o.light = textureSampleLevel(seaLight, samp, uv, 0.0).x;
+  let l = textureSampleLevel(seaLight, samp, uv, 0.0);
+  o.light = l.x;
+  o.height = l.y;
   return o;
 }
 // The water's bend over the main view on a coarse grid (SHIFT_W x SHIFT_H points, each at its cell's middle), in
@@ -11528,7 +11573,15 @@ struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
   let live = textureSampleLevel(liveTex, samp, uv, 0.0);
   var hdr: vec3f;
   var spread = 0.0;
-  if (k > 0.0) { let l = lensScene(uv, q, wp, i.pos.xy, k); hdr = l.rgb; spread = l.a; }
+  if (k > 0.0) {
+    // (the waves' height here against the view's middle's, from the sea's field: the shallow focus is seen close up,
+    // where the composite reads it; from afar, or with no sea, the waves move no focus)
+    var dh = 0.0;
+    if (post.seaLook.w > 0.5 && post.seaHead.z > 0.0) { dh = surf.height - seaFieldHeight(post.res * 0.5); }
+    let l = lensScene(uv, q, wp, i.pos.xy, k, dh);
+    hdr = l.rgb;
+    spread = l.a;
+  }
   else { hdr = scene(uv); }
   let bl = textureSampleLevel(bloomTex, samp, uv, 0.0).rgb;
   // in the scene's light, which the sea focuses onto what lies beneath it, and in which the bloom spreads further
@@ -11837,12 +11890,11 @@ fn amp(c: u32, i: u32, j: u32) -> f32 {
 
 fn cmul(a: vec2f, b: vec2f) -> vec2f { return vec2f(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
 
-@compute @workgroup_size(16, 16) fn seaSpectrum(@builtin(global_invocation_id) g: vec3u) {
-  let c = g.z;
-  let at = (c * N + g.y) * N + g.x;
-  let kv = waveK(c, g.x, g.y);
-  let k = length(kv);
-  if (k <= 0.0) { work[at] = vec4f(0.0); return; }
+// the height of cascade c's wave (i, j) now (none at k = 0)
+fn waveH(c: u32, i: u32, j: u32) -> vec2f {
+  let at = (c * N + j) * N + i;
+  let k = length(waveK(c, i, j));
+  if (k <= 0.0) { return vec2f(0.0); }
   let w0 = sea.clock.y;
   let w = round(sea.clock.z * pow(k / sea.clock.w, sea.shape.x) / w0) * w0;
   let ph = w * sea.clock.x;
@@ -11850,7 +11902,30 @@ fn cmul(a: vec2f, b: vec2f) -> vec2f { return vec2f(a.x * b.x - a.y * b.y, a.x *
   // the amplitudes under the wind as it blows now (amp), so a turning wind fades the waves along its old way and
   // raises them along its new one, the sea following it rather than jumping
   let s = h0[at];
-  let h = cmul(s.xy * amp(c, g.x, g.y), e) + cmul(s.zw * amp(c, (N - g.x) % N, (N - g.y) % N), vec2f(e.x, -e.y));
+  return cmul(s.xy * amp(c, i, j), e) + cmul(s.zw * amp(c, (N - i) % N, (N - j) % N), vec2f(e.x, -e.y));
+}
+
+@compute @workgroup_size(16, 16) fn seaSpectrum(@builtin(global_invocation_id) g: vec3u) {
+  let at = (g.z * N + g.y) * N + g.x;
+  // the heights (layers past the cascades'), four cascades a layer: each height is real, so two share a complex field,
+  // one as its real part and the other as its imaginary (z = a + i b inverts to a + i b)
+  if (g.z >= ${SEA_CASCADES}u) {
+    var o = vec4f(0.0);
+    for (var q = 0u; q < 4u; q++) {
+      let c = (g.z - ${SEA_CASCADES}u) * 4u + q;
+      if (c >= ${SEA_CASCADES}u) { break; }
+      let h = waveH(c, g.x, g.y);
+      let v = select(h, vec2f(-h.y, h.x), (q & 1u) == 1u);
+      o += select(vec4f(v, 0.0, 0.0), vec4f(0.0, 0.0, v), q >= 2u);
+    }
+    work[at] = o;
+    return;
+  }
+  let c = g.z;
+  let kv = waveK(c, g.x, g.y);
+  let k = length(kv);
+  if (k <= 0.0) { work[at] = vec4f(0.0); return; }
+  let h = waveH(c, g.x, g.y);
   // slope x + i slope y: i kx h + i (i ky h); displacement x + i displacement y: -i kx/k h + ky/k h
   let ih = vec2f(-h.y, h.x);
   let A = ih * kv.x + vec2f(-ih.y, ih.x) * kv.y;
@@ -17054,7 +17129,7 @@ struct SV {
   }
 
   // src/engine.js
-  var POST_LAMP = 100 + 4 * SEA_CASCADES;
+  var POST_LAMP = 104 + 4 * SEA_CASCADES;
   var POST_LOOK = POST_LAMP + 16;
   var VIEW_BYTES = 224;
   var POST_MURK = POST_LOOK + LOOK_WORDS;
@@ -17247,7 +17322,7 @@ struct SV {
       b.postPlain = d.createBuffer({ size: POST_WORDS * 4, usage: U.UNIFORM | U.COPY_DST });
       b.seaU = d.createBuffer({ size: 128, usage: U.UNIFORM | U.COPY_DST });
       this.seaTex = d.createTexture({
-        size: [SEA_N, SEA_N, SEA_CASCADES],
+        size: [SEA_N, SEA_N, SEA_LAYERS],
         format: "rgba16float",
         mipLevelCount: Math.log2(SEA_N) + 1,
         usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
@@ -18557,9 +18632,9 @@ ${e.message}` : String(e?.message || e));
     // The sea's amplitudes and the FFT's working buffer, made with the first frame, and the passes' bind groups.
     _seaBuffers() {
       const d = this.device, b = this.b, P = this.seaPipes, U2 = GPUBufferUsage;
-      const bytes = SEA_CASCADES * SEA_N * SEA_N * 16;
-      b.seaH0 = d.createBuffer({ size: bytes, usage: U2.STORAGE, label: "seaH0" });
-      b.seaWork = d.createBuffer({ size: bytes, usage: U2.STORAGE, label: "seaWork" });
+      const bytes = SEA_N * SEA_N * 16;
+      b.seaH0 = d.createBuffer({ size: SEA_CASCADES * bytes, usage: U2.STORAGE, label: "seaH0" });
+      b.seaWork = d.createBuffer({ size: SEA_LAYERS * bytes, usage: U2.STORAGE, label: "seaWork" });
       const bg = (pipe2, entries) => d.createBindGroup({ layout: pipe2.getBindGroupLayout(0), entries: entries.map(([binding, resource]) => ({ binding, resource })) });
       const level = (l) => this.seaTex.createView({ dimension: "2d-array", baseMipLevel: l, mipLevelCount: 1 });
       this.seaBG = {
@@ -18600,6 +18675,7 @@ ${e.message}` : String(e?.message || e));
         const rnd = () => (h = Math.imul(h ^ h >>> 15, 739982445) + 2654435769 >>> 0) / 2 ** 32;
         const P2 = this.seaSpec, layout = seaLayout(this.grid, P2), scale = seaScales(layout, P2), S = 4 * SEA_CASCADES, Y = S + 4 * P2.systems.length;
         layout.forEach((c, i) => f2.set([c.L[0], c.L[1], c.k0, c.k1], i * 4));
+        this._seaHrms = seaHeightRms(layout, P2);
         P2.systems.forEach((sys, j) => f2.set([2 * Math.PI / sys.lp, scale[j], sys.spread, 0], S + j * 4));
         f2.set([0, P2.p, P2.gamma, 2 * Math.PI / P2.lmin], Y);
         this._seaWindAt = Y;
@@ -18634,18 +18710,18 @@ ${e.message}` : String(e?.message || e));
       }
       pass.setPipeline(P.spectrum);
       pass.setBindGroup(0, this.seaBG.spectrum);
-      pass.dispatchWorkgroups(N / 16, N / 16, SEA_CASCADES);
+      pass.dispatchWorkgroups(N / 16, N / 16, SEA_LAYERS);
       pass.setPipeline(P.rows);
       pass.setBindGroup(0, this.seaBG.rows);
-      pass.dispatchWorkgroups(N, SEA_CASCADES);
+      pass.dispatchWorkgroups(N, SEA_LAYERS);
       pass.setPipeline(P.cols);
       pass.setBindGroup(0, this.seaBG.cols);
-      pass.dispatchWorkgroups(N, SEA_CASCADES);
+      pass.dispatchWorkgroups(N, SEA_LAYERS);
       pass.setPipeline(P.mip);
       this.seaBG.mips.forEach((g, i) => {
         const n = Math.max(1, N >> i + 1);
         pass.setBindGroup(0, g);
-        pass.dispatchWorkgroups(Math.ceil(n / 8), Math.ceil(n / 8), SEA_CASCADES);
+        pass.dispatchWorkgroups(Math.ceil(n / 8), Math.ceil(n / 8), SEA_LAYERS);
       });
       pass.end();
     }
@@ -18703,6 +18779,7 @@ ${e.message}` : String(e?.message || e));
       seaLayout(this.grid, this.seaSpec).forEach((c, i) => pd.set([c.L[0], c.L[1], t.chop * r * t.height * this.fxFade.sea, c.k0 < 2.5 * kc ? 1 : 0], 96 + i * 4));
       this._seaField = this.seaSpec.lmin * pd[7] >= 128;
       pd.set([t.lightSoft, t.lightCap, t.view, this._seaField ? 1 : 0], 96 + 4 * SEA_CASCADES);
+      pd[100 + 4 * SEA_CASCADES] = a / (this._seaHrms || 1);
     }
     _writeSim(extra = {}) {
       this._fillSim(extra);
@@ -36184,9 +36261,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "5486299b872d21b6") return;
+      if (localStorage.getItem(key) === "0f5d5cda22443a4f") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "5486299b872d21b6");
+      if (res) localStorage.setItem(key, "0f5d5cda22443a4f");
     } catch {
     }
   }
