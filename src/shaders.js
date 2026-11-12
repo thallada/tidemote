@@ -7796,7 +7796,7 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32, dh: f32) -> vec
     let sa = textureLoad(stoneTex, vec2i(clamp(uv * st, vec2f(0.0), st - 1.0)), 0).a;
     if (sa > 1.0 && textureSampleLevel(src, samp, uv, 0.0).a < 0.5) {
       let below = 1.0 - clamp((sa - 1.27) / 0.49, 0.0, 1.0); // cobbleZ runs 0.27 to 0.76; a framboid's and the selected grain's lie on top
-      let pileBlur = post.look[3].x * smoothstep(0.2, 0.8, below) * smoothstep(start, start * 2.5, post.ppu) * 24.0;
+      let pileBlur = post.look[3].x * smoothstep(0.2, 0.8, below) * smoothstep(start, start * 2.5, post.ppu) * 9.6;
       blur += pileBlur;
       if (pileBlur > 0.5) { deep = sa; }
     }
