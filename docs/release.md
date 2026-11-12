@@ -10,6 +10,10 @@ own GitHub runners, checks each build launches, and ships it:
 | tag `v1.2.3-beta.1` | `1.2.3-beta.1` | `staging` | — (no pre-releases) | draft pre-release |
 | Run workflow (Actions tab) | as for its ref | the branch typed in, or the usual one | — | — |
 
+Each run's **Artifacts** (at the foot of its page in the Actions tab, for anyone signed in to GitHub) are
+the three archives themselves: `Tidemote-VERSION-windows-x64.zip`, `-mac-universal.zip` and
+`-linux-x64.tar.gz`, each one folder holding the app.
+
 A release, then: `git tag v1.2.3 && git push origin v1.2.3`, try the build on Steam's `staging` branch,
 then in Steamworks → SteamPipe → Builds set that BuildID live on `default`. Valve does not let a build
 script set `default` live, so going public on Steam is always that click. To roll back, set an earlier
@@ -36,8 +40,11 @@ releases: its channels are public downloads, so whatever is pushed is what playe
 - **Launch check** (every OS, every run): `desktop/scripts/launch-check.mjs` starts the packaged app with
   Playwright and fails unless the page is served from `app://tidemote`, the `tidemoteDesktop` bridge is
   there, and steamworks.js's native addon loaded (`status().loaded`; Steam itself is not running on a
-  runner, so Steam stays off with the reason). Runners have no GPU, so the page's "No GPU adapter" screen
-  is expected and reported; `--need-gpu` makes a running world a requirement.
+  runner, so Steam stays off with the reason), and WebGPU compiled the world and stepped it (`--need-gpu`).
+  Linux and Windows runners have no GPU: the app gets Chromium's software adapter (SwiftShader, allowed
+  by `--enable-unsafe-swiftshader`) and a 4096-particle world (a count chosen in Settings), so every
+  pipeline compiles and runs in seconds; the macOS runner has a GPU of its own. Each OS's result is a line
+  in the run's summary; its report and screenshot are kept as an artifact only when it fails.
 - **macOS**: an ad-hoc signature, verified with `codesign --verify --deep --strict`, and `lipo -archs`
   shows the universal binary's two arches.
 - **Steam job**: fails unless steamcmd prints `Successfully finished AppID ... (BuildID ...)` (it can exit

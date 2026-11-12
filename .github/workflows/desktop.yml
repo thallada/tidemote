@@ -119,8 +119,10 @@ jobs:
           codesign --force --deep --sign - "$OUT/Tidemote.app"
           codesign --verify --deep --strict --verbose=2 "$OUT/Tidemote.app"
           lipo -archs "$OUT/${{ matrix.exe }}"
+      # the app starts, its Steam addon loads, and WebGPU (the runner's software adapter where it has no
+      # GPU) compiles the world and steps it; a line in the run's summary
       - name: Launch check
-        run: node desktop/scripts/launch-check.mjs --exe "$OUT/${{ matrix.exe }}" --out "launch-${{ matrix.folder }}"
+        run: node desktop/scripts/launch-check.mjs --exe "$OUT/${{ matrix.exe }}" --out "launch-${{ matrix.folder }}" --need-gpu --summary "$GITHUB_STEP_SUMMARY"
       # one top folder per archive; the Mac's zipped by ditto, which keeps the framework's symlinks
       - name: Archive
         run: |
@@ -129,17 +131,22 @@ jobs:
             win32)  (cd desktop/out && 7z a -tzip -mx=7 "../../$ARCHIVE.zip" "$(basename "$OUT")" > /dev/null); f="$ARCHIVE.zip" ;;
             darwin) ditto -c -k --keepParent "$OUT" "$ARCHIVE.zip"; f="$ARCHIVE.zip" ;;
           esac
+          echo "FILE=$f" >> "$GITHUB_ENV"
           size() { du -sk "$1" | cut -f1; }
           echo "- ${{ matrix.folder }}: $f, $(( $(size "$f") / 1024 )) MB ($(( $(size "$OUT") / 1024 )) MB unpacked)" >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v6
+      # the archive itself, not zipped again: the artifact is named after it
+      - uses: actions/upload-artifact@v7
         with:
-          name: desktop-${{ matrix.folder }}
-          path: |
-            ${{ env.ARCHIVE }}.*
-            launch-${{ matrix.folder }}/
-          compression-level: 0
+          path: ${{ env.FILE }}
+          archive: false
           retention-days: ${{ needs.version.outputs.tag && 90 || 14 }}
           if-no-files-found: error
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: launch-${{ matrix.folder }}
+          path: launch-${{ matrix.folder }}/
+          if-no-files-found: ignore
 
   steam:
     needs: [version, build]
@@ -152,10 +159,11 @@ jobs:
       - uses: actions/checkout@v5
         with:
           sparse-checkout: desktop/scripts
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
-          pattern: desktop-*
+          pattern: Tidemote-*
           path: artifacts
+          merge-multiple: true
       - name: Unpack each OS into its depot's folder
         run: bash desktop/scripts/unpack-artifacts.sh artifacts content
       - name: Install steamcmd
@@ -187,7 +195,7 @@ jobs:
       - if: always()
         run: rm -f "$RUNNER_TEMP/steamcmd/config/config.vdf"
       - if: failure()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: steam-logs
           path: |
@@ -206,10 +214,11 @@ jobs:
       - uses: actions/checkout@v5
         with:
           sparse-checkout: desktop/scripts
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
-          pattern: desktop-*
+          pattern: Tidemote-*
           path: artifacts
+          merge-multiple: true
       - run: bash desktop/scripts/unpack-artifacts.sh artifacts content
       - name: Install butler
         run: |
@@ -234,9 +243,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
-          pattern: desktop-*
+          pattern: Tidemote-*
           path: artifacts
           merge-multiple: true
       # a draft, seen only by the repository's maintainers until published by hand
@@ -247,4 +256,4 @@ jobs:
         run: |
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --generate-notes \
             --title "Tidemote ${TAG#v}" $([ "${{ needs.version.outputs.prerelease }}" = true ] && echo --prerelease) \
-            artifacts/Tidemote-*
+            $(find artifacts -type f -name 'Tidemote-*')
