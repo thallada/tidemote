@@ -9175,7 +9175,7 @@ fn seaFieldAt(pos: vec2f) -> Surface {
   let surf = surfaceAt(wp, post.ppu, viewSpan(), waterRoom(poolAt(wp)));
   shiftMap[g.y * ${SHIFT_W}u + g.x] = keepInView(surf.shift * post.ppu, px);
 }
-// Schlieren, in pixels: with the heat map on Shimmer, warm water bends the light passing through it like the
+// Schlieren, in pixels: with the heat haze on, warm water bends the light passing through it like the
 // air over a hot road, faintly, wherever warmth changes (around colonies and framboids, at fronts), the
 // ripples carried by the current. water: waterAt(wp).
 fn shimmer(wp: vec2f, water: vec3f) -> vec2f {

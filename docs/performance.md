@@ -178,9 +178,9 @@ Chrome reports its adapter's vendor (`img-tec`) but neither architecture nor des
   stone's relighting, the heat haze, the microscope, cells' insides, the neighbors), moved one step at a time every two
   seconds by what each step costs this device and what it shows. Every effect has one control, in Display, saying what
   the viewer wants; the tuner only ever eases an effect the viewer has on (`shown` in `src/main.js`: a knob whose effect
-  is off sits at its best and is never counted as saving anything), and Adapt off leaves every knob at its best. What it
-  holds back right now (`heldBack`, pure and tested) is listed under Adapt and marked with a dot on each Display row it
-  eases; `T.held()` returns it to tools. Tools still pin knobs (`T.setTune`, `T.setEffects`, a bench plan's `tune` and
+  is off sits at its best and is never counted as saving anything), and Adaptation off leaves every knob at its best. What it
+  holds back right now (`heldBack`, pure and tested) is listed under Adaptation and marked with a dot on each Display row
+  it eases. Tools still pin knobs (`T.setTune`, `T.setEffects`, a bench plan's `tune` and
   `effects`), never saved. The heat haze (barely seen: 1 - SSIM 0.001-0.006) and the microscope (the optics, their murk
   and the look: 0.10-0.13, the composite about halved) were once one Finish ladder; as two knobs they keep its steps'
   losses (0.05 and 1.2), so the haze still goes long before the microscope and the microscope comes back first, and

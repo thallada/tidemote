@@ -214,7 +214,6 @@ export function createClimate(eng, rng = Math.random) {
     const facts = { dT, temp: climate.tempTo, light: climate.ambientTo, prevLight: prevAmb, level: climate.levelTo, prevLevel,
       excursion: climate.excursion?.dT || 0, events: climate.events.filter((e) => e.t >= since && e.t <= t).map((e) => e.type),
       life: climate.lifeFacts?.() || null };
-    climate.eraMemo ??= eraMemo();
     climate.name = nameEra(facts, draws, climate.eraMemo, new Set(climate.history.map((h) => h.name)));
     climate.history.push({ t, name: climate.name, ambient: climate.ambientTo, temp: climate.tempTo, level: climate.levelTo });
     if (climate.history.length > ERA_KEEP) climate.history.splice(0, climate.history.length - ERA_KEEP);

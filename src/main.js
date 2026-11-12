@@ -2555,7 +2555,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const dev = Math.min(devicePixelRatio || 1, 2);
       const sizes = PARTICLE_SIZES.filter((n) => n <= maxParticles());
       const nowN = pendingN ?? (P.particles || 'auto');
-      // (what the tuner holds back now under Adapt, a line of fixed height that readout keeps current)
+      // (what the tuner holds back now under Adaptation, a line of fixed height that readout keeps current)
       return group('quality', tr('settings.perf.quality', 'Quality'), onoff('adapt', tr('settings.perf.adapt', 'Adaptation'), '', P.adapt, 'adapt')
         + `<p class="eased-now" id="perf-held">${heldWords()}</p>`)
         + group('res', tr('settings.perf.resolution', 'Resolution'), choice('scale', tr('settings.perf.scale', 'Render scale'), '', [['auto', AUTO], [1, pctOf(100)], [0.75, pctOf(75)], [0.5, pctOf(50)], [0.25, pctOf(25)]], P.scale, 'renderscale')
@@ -2770,7 +2770,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const now = performance.now();
       if (!force && now - roAt < 500) return;
       roAt = now;
-      // what the tuner eases: marked on Display's rows, said under Adapt in Performance
+      // what the tuner eases: marked on Display's rows, said under Adaptation in Performance
       if (tab === 'display') {
         const held = new Set(heldNow().map(([id]) => id));
         for (const m of opts.querySelectorAll('[data-eased]')) m.classList.toggle('on', held.has(m.dataset.eased));
@@ -2839,7 +2839,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'guide') { toggle(false); lab.open('guide'); return; }
       else if (id === 'reset' || id === 'reset-no') { confirming = id === 'reset'; render(); return; }
       else if (id === 'reset-yes') { confirming = false; resetTab(); }
-      // (a knob whose effect is off, or with Adapt off, sits at its best: applyTune)
+      // (a knob whose effect is off, or with Adaptation off, sits at its best: applyTune)
       displayChanged();
     }
     opts.addEventListener('click', (e) => { const b = e.target.closest('[data-o]'); if (b && !b.disabled) set(b.dataset.o, b.dataset.v); });
@@ -5566,10 +5566,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
   globalThis.__tidemote = { state, cam, perf, eng, notes, noteView, sound, lab, life: () => life, climate: () => climate, renderScale: () => renderScale, maxZoom, setSpeed, findMember, deselect,
     chron, cards, film, filmAct, openSpecies, director, saveWorld, worlds: worldStore, boot: bootTimes, pruned,
     setScale(v) { state.perf.scale = v; if (v !== 'auto') renderScale = v; resetAdapt(); fit(); },
-    // the tuner's knobs' levels, and what it holds back ([id, level], tuner.js heldBack); setEffects('low' | 'high' |
-    // 'auto') pins the dressing's knobs (not the neighbors, Settings → Neighbors') cheapest or best, or frees them
+    // the tuner's knobs' levels; setEffects('low' | 'high' | 'auto') pins the dressing's knobs (not the neighbors,
+    // Settings → Neighbors') cheapest or best, or frees them
     effects: () => Object.entries(tune).map(([id, k]) => `${id}:${k.level}`).join(' '),
-    held: heldNow,
     setEffects(v) { this.setTune(Object.fromEntries(Object.keys(KNOBS).filter((id) => id !== 'neighbors').map((id) => [id, v === 'auto' ? 'auto' : v === 'low' ? 0 : KNOBS[id].levels.length - 1]))); },
     // knobs pinned at levels of their own ({ id: index | 'auto' }; the rest as they are; never saved)
     setTune(o) {

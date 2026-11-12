@@ -5,7 +5,7 @@
 // speed to this power (0.5: 64× is 8 times faster), so sped-up worlds still read as water.
 
 // what is drawn (view): 0 the sea as it looks, 1 its light alone, 2 its sheen alone (tools/waterlook), 3 no sea (Settings
-// → Display → Water surface: Off); rough -1 the climate's weather, or a roughness held (tools)
+// → Display → Water → Surface: Off); rough -1 the climate's weather, or a roughness held (tools)
 /** The default tunables, from the sea's spectrum P (src/sea.js SEA) and the post pass's look. */
 export function seaTuneDefaults(P) {
   return {
