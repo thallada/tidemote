@@ -35,7 +35,10 @@ crest and shallower under a trough, which moves the plane seen sharp there. The 
 in focus, so a point blurs by how much higher or lower the waves lift the water over it than over the middle
 (`Surface.height`, the sea's height from its FFT, `seaHeight`, in a storm's rms heights, `seaHeightRms`, as high as
 the sea is now: `Post.seaDepth`; read from the sea's field, `seaFieldMain`), plus field curvature toward the rim
-(`DOF_CURVE` per half-height squared off the axis), so the edges are soft more often than the middle. The tolerance
+(`DOF_CURVE` times the square of the way out to the rim of the eyepiece's round field, the field stop the frame's
+corners touch), so the edges are soft more often than the middle. Measured against that field, every screen softens
+alike toward its corners: a wide screen's sides lie far out, a phone's near the axis (measured in half-heights, as
+until 2026-11, a 16:9 screen's sides were wholly soft and a phone's or a near-square window's barely touched). The tolerance
 (`DOF_SHARP`..`DOF_SOFT` at `DOF_PPU`) shrinks as the view is magnified, as fast as the waves' rise across the view
 does, so about as much of the view is soft at every zoom: calm water a gentle tilt to the plane that drifts as the
 ripples pass, a storm a narrow band in focus sweeping over the view. With no sea (Water → Surface off), only the

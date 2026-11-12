@@ -7749,14 +7749,15 @@ fn valueNoise(p: vec2f, period: vec2f) -> f32 {
 
 // The shallow focus (lensScene): how far from the focal plane a point may lie (in a storm's rms wave heights, seen at
 // DOF_PPU pixels a unit) and still be sharp, and from how far it is wholly soft; and how far the field curves away from
-// the plane toward the rim, per half-height squared off the axis. The more the view is magnified the shallower the
+// the plane at the rim of the eyepiece's field (the round field stop the frame lies in, its corners at the stop:
+// opticsMain), as the square of the way out to it (a lens's field curvature). The more the view is magnified the shallower the
 // focus, as much as the waves' rise across the view shrinks (a view smaller than a ripple sees a slope of it), so the
 // view shows about as much of it soft at every zoom: calm water a gentle tilt to the plane that drifts as the ripples
 // pass, a storm a narrow band in focus sweeping over the view.
 const DOF_PPU = 200.0;
 const DOF_SHARP = 0.06;
 const DOF_SOFT = 0.22;
-const DOF_CURVE = 0.08;
+const DOF_CURVE = 0.15;
 // The objective's image at uv; q is the offset from the optical axis in half-heights, wp the world point, dh how much
 // higher the sea's waves lift the water over it than over the view's middle (Surface.height's). Lateral chromatic
 // aberration pulls red and blue apart toward the edge of the field. Near the rim the image softens (field curvature)
@@ -7770,17 +7771,23 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32, dh: f32) -> vec
   let px = k * post.res.y / 1000.0 / post.res;
   let ca = q * r2 * 0.2 * px;
   var c = vec3f(scene(uv + ca).r, scene(uv).g, scene(uv - ca).b);
-  let rim = smoothstep(0.7, 3.8, r2);
+  // how far out toward the rim of the field the point lies (squared): the frame is a crop of the eyepiece's round
+  // field, its corners at the field's rim whatever its shape, so a wide screen's sides lie far out and a phone's near
+  // the axis, and every screen softens alike toward its corners (measured in half-heights instead, a wide screen's
+  // sides were wholly soft and a near-square or phone's barely touched)
+  let fr2 = r2 / (sqr(post.res.x / post.res.y) + 1.0);
+  let rim = smoothstep(0.55, 1.0, fr2);
   var blur = rim * 1.5;
   var spread = 0.0;
   var deep = 0.0; // a grain blurred deep in its pile: its order (fsStone's alpha), past which taps are in front of it
   let start = max(80.0, 2.0 * max(post.res.x / post.world.x, post.res.y / post.world.y));
-  // (with the look's shallow focus, not only toward the rim: whatever lies above or below the plane softens)
-  let shallow = max(rim, post.look[3].x);
+  // (with the look's shallow focus, not only toward the rim: whatever lies above or below the plane softens; toward
+  // the corners somewhat more, but never so much that the field's outer part is lost)
+  let shallow = max(0.6 * rim, post.look[3].x);
   if (shallow > 0.0 && post.ppu > start) {
     // out of the focal plane by the waves (dh), and further toward the rim, where the field curves away from it: in
     // the middle a point is sharp unless a wave lifts it well off the middle's level, at the rim only on it
-    let defocus = abs(dh) * post.ppu / DOF_PPU + DOF_CURVE * r2;
+    let defocus = abs(dh) * post.ppu / DOF_PPU + DOF_CURVE * fr2;
     let near = smoothstep(start, start * 4.0, post.ppu);
     blur += shallow * smoothstep(DOF_SHARP, DOF_SOFT, defocus) * near * 4.5;
     // bare stone lies on the floor, the top of its pile near where the cells swim and the rest deeper: far thinner
