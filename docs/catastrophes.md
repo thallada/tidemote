@@ -169,7 +169,8 @@ wrap puts them and show no seam at the world's edges. Raindrop ripples bend the 
   A new sea (amplitudes, wind) with each world (`seaInit`); each
   frame `seaSpectrum` turns it to now (frequencies rounded to multiples of 2π/1024 s, so the clock is
   `simTime mod 1024` from the CPU in f64 and never drifts), `fftRows`/`fftCols` invert slope and sideways
-  displacement (radix-2 in workgroup memory) into a texture array, and `seaMip` mipmaps it; the post pass samples it
+  displacement (radix-2 in workgroup memory) into a texture array, and the cascades' heights into a layer after
+  theirs (four to a layer, each real, so two to a complex field; the shallow focus reads them, docs/look.md), and `seaMip` mipmaps it; the post pass samples it
   filtered for the zoom, or as a cubic B-spline where its texels are magnified (linear filtering's kinks at texel
   edges show as a grid, and as blocks in the caustics, which take the slope's derivative). Crests are sharpened as a
   choppy sea's are (the point seen came from x0 = x − D(x0)). The waves longer than the view are taken from the

@@ -7,12 +7,12 @@ import {
   packUnorm, ARCHETYPE_TYPES,
 } from './genome.js';
 import { TIDE_PHASE } from './flow.js';
-import { SEA, SEA_N, SEA_CASCADES, seaLayout, seaScales } from './sea.js';
+import { SEA, SEA_N, SEA_CASCADES, SEA_LAYERS, seaLayout, seaScales, seaHeightRms } from './sea.js';
 import { seaTuneDefaults, seaSpecOf } from './seatune.js';
 import { makeRelief, reliefSteps, rankSteps, makeIceOrder } from './geography.js';
 import { LOOK_WORDS } from './look.js';
 // where the post uniforms' hand words begin (struct Post: the lamp, the lens), after the sea's
-const POST_LAMP = 100 + 4 * SEA_CASCADES;
+const POST_LAMP = 104 + 4 * SEA_CASCADES;
 // the look's words (Post.look, src/look.js) after the hand's
 export const POST_LOOK = POST_LAMP + 16;
 // the draw's view uniforms (struct View in DRAW_WGSL), the world's light at their end
@@ -256,10 +256,10 @@ class Engine {
     b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
     b.post = d.createBuffer({ size: POST_WORDS * 4, usage: U.UNIFORM | U.COPY_DST });
     b.postPlain = d.createBuffer({ size: POST_WORDS * 4, usage: U.UNIFORM | U.COPY_DST });
-    // the sea (SEA_WGSL, src/sea.js): its uniforms, and every cascade's slope and displacement, mipmapped (its
-    // amplitudes and working buffer are made with the first frame: _seaBuffers)
+    // the sea (SEA_WGSL, src/sea.js): its uniforms, and every cascade's slope and displacement, then their heights,
+    // mipmapped (its amplitudes and working buffer are made with the first frame: _seaBuffers)
     b.seaU = d.createBuffer({ size: 128, usage: U.UNIFORM | U.COPY_DST });
-    this.seaTex = d.createTexture({ size: [SEA_N, SEA_N, SEA_CASCADES], format: 'rgba16float', mipLevelCount: Math.log2(SEA_N) + 1,
+    this.seaTex = d.createTexture({ size: [SEA_N, SEA_N, SEA_LAYERS], format: 'rgba16float', mipLevelCount: Math.log2(SEA_N) + 1,
       usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING, label: 'sea' });
     this.seaView = this.seaTex.createView({ dimension: '2d-array' });
     this.seaSampler = d.createSampler({ addressModeU: 'repeat', addressModeV: 'repeat', magFilter: 'linear', minFilter: 'linear', mipmapFilter: 'linear', maxAnisotropy: 8 });
@@ -1418,9 +1418,9 @@ class Engine {
   // The sea's amplitudes and the FFT's working buffer, made with the first frame, and the passes' bind groups.
   _seaBuffers() {
     const d = this.device, b = this.b, P = this.seaPipes, U = GPUBufferUsage;
-    const bytes = SEA_CASCADES * SEA_N * SEA_N * 16;
-    b.seaH0 = d.createBuffer({ size: bytes, usage: U.STORAGE, label: 'seaH0' });
-    b.seaWork = d.createBuffer({ size: bytes, usage: U.STORAGE, label: 'seaWork' });
+    const bytes = SEA_N * SEA_N * 16;
+    b.seaH0 = d.createBuffer({ size: SEA_CASCADES * bytes, usage: U.STORAGE, label: 'seaH0' });
+    b.seaWork = d.createBuffer({ size: SEA_LAYERS * bytes, usage: U.STORAGE, label: 'seaWork' });
     const bg = (pipe, entries) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: entries.map(([binding, resource]) => ({ binding, resource })) });
     const level = (l) => this.seaTex.createView({ dimension: '2d-array', baseMipLevel: l, mipLevelCount: 1 });
     this.seaBG = {
@@ -1453,6 +1453,7 @@ class Engine {
       const rnd = () => ((h = (Math.imul(h ^ (h >>> 15), 0x2c1b3c6d) + 0x9e3779b9) >>> 0) / 2 ** 32);
       const P = this.seaSpec, layout = seaLayout(this.grid, P), scale = seaScales(layout, P), S = 4 * SEA_CASCADES, Y = S + 4 * P.systems.length;
       layout.forEach((c, i) => f.set([c.L[0], c.L[1], c.k0, c.k1], i * 4));
+      this._seaHrms = seaHeightRms(layout, P);
       P.systems.forEach((sys, j) => f.set([(2 * Math.PI) / sys.lp, scale[j], sys.spread, 0], S + j * 4));
       f.set([0, P.p, P.gamma, (2 * Math.PI) / P.lmin], Y);
       this._seaWindAt = Y;
@@ -1490,11 +1491,12 @@ class Engine {
     d.queue.writeBuffer(this.b.seaU, 0, this.seaData);
     const pass = enc.beginComputePass({ label: 'sea' });
     if (fresh) { pass.setPipeline(P.init); pass.setBindGroup(0, this.seaBG.init); pass.dispatchWorkgroups(N / 16, N / 16, SEA_CASCADES); }
-    pass.setPipeline(P.spectrum); pass.setBindGroup(0, this.seaBG.spectrum); pass.dispatchWorkgroups(N / 16, N / 16, SEA_CASCADES);
-    pass.setPipeline(P.rows); pass.setBindGroup(0, this.seaBG.rows); pass.dispatchWorkgroups(N, SEA_CASCADES);
-    pass.setPipeline(P.cols); pass.setBindGroup(0, this.seaBG.cols); pass.dispatchWorkgroups(N, SEA_CASCADES);
+    // (the spectrum, the FFT and the mipmaps over every layer: the cascades', then their heights')
+    pass.setPipeline(P.spectrum); pass.setBindGroup(0, this.seaBG.spectrum); pass.dispatchWorkgroups(N / 16, N / 16, SEA_LAYERS);
+    pass.setPipeline(P.rows); pass.setBindGroup(0, this.seaBG.rows); pass.dispatchWorkgroups(N, SEA_LAYERS);
+    pass.setPipeline(P.cols); pass.setBindGroup(0, this.seaBG.cols); pass.dispatchWorkgroups(N, SEA_LAYERS);
     pass.setPipeline(P.mip);
-    this.seaBG.mips.forEach((g, i) => { const n = Math.max(1, N >> (i + 1)); pass.setBindGroup(0, g); pass.dispatchWorkgroups(Math.ceil(n / 8), Math.ceil(n / 8), SEA_CASCADES); });
+    this.seaBG.mips.forEach((g, i) => { const n = Math.max(1, N >> (i + 1)); pass.setBindGroup(0, g); pass.dispatchWorkgroups(Math.ceil(n / 8), Math.ceil(n / 8), SEA_LAYERS); });
     pass.end();
   }
 
@@ -1542,6 +1544,9 @@ class Engine {
     // which a field that fine follows within half a percent
     this._seaField = this.seaSpec.lmin * pd[7] >= 128;
     pd.set([t.lightSoft, t.lightCap, t.view, this._seaField ? 1 : 0], 96 + 4 * SEA_CASCADES);
+    // the sea's height in a storm's rms heights (seaHeightRms: the spectrum's, the same for every roughness), as high
+    // as the sea is now, for the shallow focus
+    pd[100 + 4 * SEA_CASCADES] = a / (this._seaHrms || 1);
   }
 
   _writeSim(extra = {}) {

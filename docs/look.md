@@ -19,7 +19,7 @@ the post uniforms with the look whole (`b.postPlain`), so a card's portrait neve
 | The world's light, after the tone curve | `sceneLit`, `litGain`, `litShow`, `sunShadow`, `floorLit`, `seaFocus`; silt's `sparkle` (DRAW_WGSL) (Light, below) | none: `LIT_*`, `SHADOW_*`, `FOCUS_*`, `SUN_*` in POST_WGSL, `SPARK*` in DRAW_WGSL |
 | The mud in the water | `murk`, `murkLayers`, `murkColor`, `Engine._murkCam` (Murk, below) | none: `MUD_*` in MICRO_FNS |
 | Scene light, before the tone curve | `lookScene` | relief (DIC), rims (darkfield), rainbow rims (`prism`: each edge colored by the side it faces), color fringes; halation and veiling flare (from the bloom's blur) |
-| Objective | `lensScene`, the field stop in `fsComposite` | shallow focus (`dof`: the optics' depth blur anywhere, not only toward the rim), the field iris |
+| Objective | `lensScene`, the field stop in `fsComposite` | shallow focus (`dof`: the optics' depth blur anywhere, not only toward the rim; Shallow focus, below), the field iris |
 | Tone curve | `lookTone` | film: AgX's curve mixed in for `tonemap`'s |
 | Display, after the gamma curve | `lookGrade` (`lookDisplay` over the water's view) | contrast, black (the darks pressed down), saturation, dye density, grain |
 
@@ -28,6 +28,19 @@ unit (cells several pixels across) and their reach grows with zoom to 3 px; wher
 by how far it is spread (Stone, below: the look's edges). Under a full light or heat map the grade
 is mostly held back so the map reads true (`lookDisplay`); the close-up has no maps, bloom or field stop, so it takes
 the scene light, the tone curve and the whole grade. The shallow focus and the iris need the optics (the Microscope on).
+
+Shallow focus (`lensScene`, close up: from `start`, about 80 pixels a unit, full from four times that) blurs what
+lies off the focal plane, and the sea's waves set how far off that is: the water over a point is deeper under a
+crest and shallower under a trough, which moves the plane seen sharp there. The microscopist keeps the view's middle
+in focus, so a point blurs by how much higher or lower the waves lift the water over it than over the middle
+(`Surface.height`, the sea's height from its FFT, `seaHeight`, in a storm's rms heights, `seaHeightRms`, as high as
+the sea is now: `Post.seaDepth`; read from the sea's field, `seaFieldMain`), plus field curvature toward the rim
+(`DOF_CURVE` per half-height squared off the axis), so the edges are soft more often than the middle. The tolerance
+(`DOF_SHARP`..`DOF_SOFT` at `DOF_PPU`) shrinks as the view is magnified, as fast as the waves' rise across the view
+does, so about as much of the view is soft at every zoom: calm water a gentle tilt to the plane that drifts as the
+ripples pass, a storm a narrow band in focus sweeping over the view. With no sea (Water → Surface off), only the
+curvature. Until 2026-11 the depth was a value noise fixed in the world, unrelated to anything seen: cells blurred
+in patches, sharp ones right at the edge beside soft ones in the middle.
 
 ## How it was chosen
 
