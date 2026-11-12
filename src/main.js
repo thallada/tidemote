@@ -265,6 +265,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     waves: prefs.waves ?? 1, // its waves' motion: 0 slow, 1 normal, 2 lively
     look: prefs.look ?? 2, // the microscope (applyLook, the optics with it): 0 off, 1 subtle, 2 normal, 3 strong
     grain: prefs.grain ?? 1, // its grain: 0 off, 1 fine, 2 heavy
+    dof: prefs.dof ?? DARKFIELD.dof, // (temporary, branch dof-tune) its shallow focus's strength, tuned live in Display
     haze: prefs.haze ?? true, // the heat haze over warm water (applyMap)
     map: prefs.map ?? 'off', // the one map over the view (applyMap): 'off', 'light', 'heat' or 'tide'
     // what the page may spend: render scale ('auto' adapts between floor and 1), the most device pixels per CSS
@@ -316,13 +317,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+    savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, dof: state.dof, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   // the look (src/look.js, docs/look.md): Darkfield as the Display settings ask, how strong as a whole and how much
   // grain, the eyepiece's optics on with any of it; or, from the tools (T.look), any tunables
   let lookLast = state.look || 2; // the Microscope's level before O turned it off
-  const applyLook = (p = { ...DARKFIELD, grain: [0, 0.25, 0.5][state.grain] }, strength = [0, 0.6, 1, 1.35][state.look]) => {
+  const applyLook = (p = { ...DARKFIELD, grain: [0, 0.25, 0.5][state.grain], dof: state.dof }, strength = [0, 0.6, 1, 1.35][state.look]) => {
     eng.look.set(packLook(p, strength));
     eng.settings.optics = state.look > 0 ? 1 : 0;
     if (state.look) lookLast = state.look;
@@ -2515,6 +2516,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const filmL = tr('settings.display.film', 'Film');
       return group('picture', tr('settings.display.picture', 'Look'), choice('microlook', tr('settings.display.microscope', 'Microscope'), 'O', [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], state.look, 'microlook')
         + (state.look ? choice('grain', tr('settings.display.grain', 'Grain'), '', [[0, OFF], [1, tr('settings.display.grain-fine', 'Fine')], [2, tr('settings.display.grain-heavy', 'Heavy')]], state.grain, 'filmgrain') : '')
+        // (temporary, branch dof-tune: the shallow focus's strength, Darkfield's dof)
+        // i18n: Settings → Display, a temporary slider: the microscope's shallow focus strength; {v} its value (0.1 to 2)
+        + (state.look ? `<div class="opt"><span class="lbl">${tr('settings.display.dof', 'Focus blur')}</span><div class="vol-row"><input type="range" id="set-dof" min="0.1" max="2" step="0.05" value="${state.dof}" aria-label="${tr('settings.display.dof.aria', 'Focus blur')}"><b id="set-dof-v">${tr('settings.display.dof-v', '{v}', { v: state.dof.toFixed(2) })}</b></div></div>` : '')
         + onoff('bloom', tr('settings.display.bloom', 'Glow'), 'Y', s.bloom > 0, 'bloom')
         + choice('trails', tr('settings.display.trails', 'Trails'), 'T', trailNames.map((n, i) => [i, n]), trailIdx))
         + group('water', tr('settings.display.water-group', 'Water'), choice('water', tr('settings.display.water', 'Surface'), '', [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], state.water, 'watersurface')
@@ -2739,7 +2743,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         state.map = 'off'; state.haze = true; applyMap();
         state.currents = false; state.songMarks = 1; state.notes = 1; state.closeup = true;
         state.water = 2; state.waves = 1; applyWater();
-        state.look = 2; state.grain = 1; applyLook();
+        state.look = 2; state.grain = 1; state.dof = DARKFIELD.dof; applyLook();
         state.auto = true; renderAuto(director.active);
       } else if (tab === 'audio') {
         // (the soundtrack stays on or off as it was)
@@ -2846,6 +2850,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     opts.addEventListener('input', (e) => {
       if (e.target.id === 'w-name') wName = e.target.value;
       else if (e.target.id === 'set-vol') { if (!sound.on) toggleSound(); sound.setVolume(Number(e.target.value) / 100); }
+      else if (e.target.id === 'set-dof') {
+        state.dof = Number(e.target.value); applyLook(); persist();
+        $('set-dof-v').textContent = tr('settings.display.dof-v', '{v}', { v: state.dof.toFixed(2) });
+      }
     });
     opts.addEventListener('keydown', (e) => { if (e.target.id === 'w-name' && e.key === 'Enter') { e.preventDefault(); worldAct('w-save'); } });
     tabs.forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; confirming = false; ask = null; render(); }));
