@@ -2,7 +2,8 @@
 // starts, serves the page from its own origin, the page reaches the shell, and steamworks.js's native
 // addon loads (Steam itself is not running on a build machine, so Steam stays off), and with --need-gpu
 // that WebGPU starts and the world steps. CI machines without a GPU get Chromium's software adapter
-// (SwiftShader, allowed by --enable-unsafe-swiftshader) and a small world (4096 particles, as a count
+// (SwiftShader, allowed by --enable-unsafe-swiftshader; Windows' runner is offered none at all, by any
+// switch tried: SwiftShader, its Vulkan, ANGLE's WARP) and a small world (4096 particles, as a count
 // chosen in Settings) so it compiles every pipeline and steps in seconds. smoke.mjs is the fuller check
 // on a real GPU and with Steam.
 //   node desktop/scripts/launch-check.mjs --exe out/Tidemote-linux-x64/Tidemote [--out DIR] [--need-gpu]
@@ -25,10 +26,6 @@ if (!exe) throw new Error('--exe PATH to a packaged Tidemote executable');
 
 await mkdir(out, { recursive: true });
 const base = ['--enable-unsafe-swiftshader', ...(process.platform === 'linux' ? ['--ozone-platform=headless', '--no-sandbox'] : [])];
-// further ways to a software adapter, tried in turn while no world steps (Windows' runner has no GPU)
-const fallbacks = process.platform === 'win32'
-  ? [['--use-webgpu-adapter=swiftshader'], ['--enable-features=Vulkan', '--use-vulkan=swiftshader', '--use-webgpu-adapter=swiftshader'], ['--use-angle=warp']]
-  : [];
 const gha = !!process.env.GITHUB_ACTIONS;
 const esc = (t) => String(t).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
 
@@ -52,6 +49,9 @@ async function attempt(extra) {
       const t = globalThis.__tidemote;
       const a = t?.eng?.device?.adapterInfo || {};
       const shown = document.getElementById('nogpu')?.hidden === false;
+      // what Chromium offers when asked for its fallback (software) adapter, for the record
+      let fallback = null;
+      try { const f = await navigator.gpu?.requestAdapter({ forceFallbackAdapter: true }); fallback = f ? [f.info?.vendor, f.info?.architecture, f.info?.description].filter(Boolean).join(' / ') || 'unnamed' : 'none'; } catch (e) { fallback = `error: ${e.message}`; }
       return {
         origin: location.origin, ua: navigator.userAgent,
         bridge: typeof globalThis.tidemoteDesktop?.worlds?.list === 'function',
@@ -61,6 +61,7 @@ async function attempt(extra) {
         particles: t?.eng?.count ?? 0,
         failed: shown ? document.getElementById('nogpu-title')?.textContent : null,
         detail: shown ? document.getElementById('nogpu-detail')?.textContent : null,
+        fallback,
       };
     }));
     r.version = await app.evaluate(({ app: a }) => a.getVersion());
@@ -72,17 +73,12 @@ async function attempt(extra) {
   } finally {
     await app?.close().catch(() => {});
   }
-  const line = `${r.args.join(' ')} → ${r.exception ?? (r.stepped ? `stepped on ${r.gpu || 'an adapter'}` : `${r.failed ?? 'never stepped'}: ${r.detail ?? ''}`)}`;
+  const line = `${r.args.join(' ')} → ${r.exception ?? (r.stepped ? `stepped on ${r.gpu || 'an adapter'}` : `${r.failed ?? 'never stepped'}: ${r.detail ?? ''}`)}; fallback adapter: ${r.fallback}`;
   console.log(gha ? `::notice title=launch check (${process.platform})::${esc(line)}` : line);
   return r;
 }
 
-let report = await attempt([]);
-for (const extra of fallbacks) {
-  if (!needGpu || report.stepped || report.exception) break;
-  const next = await attempt(extra);
-  if (next.stepped) report = next;
-}
+const report = await attempt([]);
 const problems = [];
 if (report.exception) problems.push(`the app did not start: ${report.exception}`);
 if (report.origin !== 'app://tidemote') problems.push(`page origin ${report.origin}`);

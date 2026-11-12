@@ -73,9 +73,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-24.04, platform: linux, arch: x64, folder: linux, exe: Tidemote }
-          - { os: windows-2025, platform: win32, arch: x64, folder: windows, exe: Tidemote.exe }
-          - { os: macos-15, platform: darwin, arch: universal, folder: mac, exe: Tidemote.app/Contents/MacOS/Tidemote }
+          - { os: ubuntu-24.04, platform: linux, arch: x64, folder: linux, exe: Tidemote, gpu: --need-gpu }
+          - { os: windows-2025, platform: win32, arch: x64, folder: windows, exe: Tidemote.exe, gpu: '' }
+          - { os: macos-15, platform: darwin, arch: universal, folder: mac, exe: Tidemote.app/Contents/MacOS/Tidemote, gpu: --need-gpu }
     runs-on: ${{ matrix.os }}
     env:
       VERSION: ${{ needs.version.outputs.version }}
@@ -119,10 +119,11 @@ jobs:
           codesign --force --deep --sign - "$OUT/Tidemote.app"
           codesign --verify --deep --strict --verbose=2 "$OUT/Tidemote.app"
           lipo -archs "$OUT/${{ matrix.exe }}"
-      # the app starts, its Steam addon loads, and WebGPU (the runner's software adapter where it has no
-      # GPU) compiles the world and steps it; a line in the run's summary
+      # the app starts, its Steam addon loads, and WebGPU compiles the world and steps it (Linux: the
+      # software adapter; macOS: the runner's GPU; Windows' runner offers no adapter at all, so there
+      # it is reported, not required); a line in the run's summary
       - name: Launch check
-        run: node desktop/scripts/launch-check.mjs --exe "$OUT/${{ matrix.exe }}" --out "launch-${{ matrix.folder }}" --need-gpu --summary "$GITHUB_STEP_SUMMARY"
+        run: node desktop/scripts/launch-check.mjs --exe "$OUT/${{ matrix.exe }}" --out "launch-${{ matrix.folder }}" ${{ matrix.gpu }} --summary "$GITHUB_STEP_SUMMARY"
       # one top folder per archive; the Mac's zipped by ditto, which keeps the framework's symlinks
       - name: Archive
         run: |

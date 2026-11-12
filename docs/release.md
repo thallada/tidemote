@@ -40,10 +40,14 @@ releases: its channels are public downloads, so whatever is pushed is what playe
 - **Launch check** (every OS, every run): `desktop/scripts/launch-check.mjs` starts the packaged app with
   Playwright and fails unless the page is served from `app://tidemote`, the `tidemoteDesktop` bridge is
   there, and steamworks.js's native addon loaded (`status().loaded`; Steam itself is not running on a
-  runner, so Steam stays off with the reason), and WebGPU compiled the world and stepped it (`--need-gpu`).
-  Linux and Windows runners have no GPU: the app gets Chromium's software adapter (SwiftShader, allowed
-  by `--enable-unsafe-swiftshader`) and a 4096-particle world (a count chosen in Settings), so every
-  pipeline compiles and runs in seconds; the macOS runner has a GPU of its own. Each OS's result is a line
+  runner, so Steam stays off with the reason), and WebGPU compiled the world and stepped it (`--need-gpu`; each outcome is also an annotation on the
+  run's page).
+  On Linux, whose runner has no GPU, the app gets Chromium's software adapter (SwiftShader, allowed by
+  `--enable-unsafe-swiftshader`) and a 4096-particle world (a count chosen in Settings), so every
+  pipeline compiles and runs in seconds; the macOS runner has a GPU of its own. Windows' runner is
+  offered no adapter at all (SwiftShader, its Vulkan and ANGLE's WARP were each tried), so there WebGPU
+  is reported but not required: the Windows build's shaders are proven only on a real machine
+  (`smoke.mjs`). Each OS's result is a line
   in the run's summary; its report and screenshot are kept as an artifact only when it fails.
 - **macOS**: an ad-hoc signature, verified with `codesign --verify --deep --strict`, and `lipo -archs`
   shows the universal binary's two arches.
