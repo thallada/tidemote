@@ -9719,7 +9719,7 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32, dh: f32) -> vec
     let sa = textureLoad(stoneTex, vec2i(clamp(uv * st, vec2f(0.0), st - 1.0)), 0).a;
     if (sa > 1.0 && textureSampleLevel(src, samp, uv, 0.0).a < 0.5) {
       let below = 1.0 - clamp((sa - 1.27) / 0.49, 0.0, 1.0); // cobbleZ runs 0.27 to 0.76; a framboid's and the selected grain's lie on top
-      let pileBlur = post.look[3].x * smoothstep(0.2, 0.8, below) * smoothstep(start, start * 2.5, post.ppu) * 24.0;
+      let pileBlur = post.look[3].x * smoothstep(0.2, 0.8, below) * smoothstep(start, start * 2.5, post.ppu) * 9.6;
       blur += pileBlur;
       if (pileBlur > 0.5) { deep = sa; }
     }
@@ -17118,7 +17118,7 @@ struct SV {
   // src/look.js
   var LOOK = ["prism", "relief", "rims", "fringe", "halation", "veil", "film", "grain", "sat", "density", "contrast", "black", "dof", "iris"];
   var LOOK_WORDS = 16;
-  var DARKFIELD = { prism: 0.4, relief: 0.4, rims: 0.45, fringe: 0.2, halation: 0.45, veil: 0.5, film: 0.25, grain: 0.25, sat: 0.1, density: 0.25, contrast: 0.3, black: 0.6, dof: 0.4, iris: 0.2 };
+  var DARKFIELD = { prism: 0.4, relief: 0.4, rims: 0.45, fringe: 0.2, halation: 0.45, veil: 0.5, film: 0.25, grain: 0.25, sat: 0.1, density: 0.25, contrast: 0.3, black: 0.6, dof: 1, iris: 0.2 };
   function packLook(p2, s = 1) {
     const w = new Float32Array(LOOK_WORDS);
     LOOK.forEach((k, i) => {
@@ -36260,9 +36260,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "d035415851fcaed4") return;
+      if (localStorage.getItem(key) === "3537febede741bb7") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "d035415851fcaed4");
+      if (res) localStorage.setItem(key, "3537febede741bb7");
     } catch {
     }
   }
