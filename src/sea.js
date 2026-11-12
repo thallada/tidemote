@@ -14,11 +14,9 @@
 // Longuet-Higgins spread about the wind).
 
 export const SEA_N = 256; // samples a cascade's side
-export const SEA_CASCADES = 2; // patches the world / 4^c across
-// the sea texture's layers: each cascade's slope and displacement, then the cascades' heights four to a layer (each
-// real, so two to a complex field: one in its real part, the other in its imaginary)
-export const SEA_HEIGHT_LAYERS = Math.ceil(SEA_CASCADES / 4);
-export const SEA_LAYERS = SEA_CASCADES + SEA_HEIGHT_LAYERS;
+export const SEA_CASCADES = 2; // patches the world / 4^c across (at most 4: their heights share one layer)
+// the sea texture's layers: each cascade's slope and displacement, then one of the cascades' heights
+export const SEA_LAYERS = SEA_CASCADES + 1;
 export const SEA = {
   // the wind's ripples, and the capillary ripples riding them: peak wavelength (units), rms slope, spread about the
   // wind (cos^(2 spread) of half the angle off it)
@@ -68,28 +66,26 @@ function spreadIntegral(s) {
   return (t / n) * 2 * Math.PI;
 }
 
-// ∫ k^(1+e) radial(k) dk from a to b, in log steps: e 2 a slope's variance (k^2 for the slope, k for the polar
-// measure), e 0 a height's
-function slopeIntegral(a, b, kp, P, steps = 256, e = 2) {
-  if (!(b > a)) return 0;
-  const la = Math.log(a), d = (Math.log(b) - la) / steps;
-  let s = 0;
-  for (let i = 0; i < steps; i++) {
+// a system's variance over the whole sea, per unit of its scale: ∫ k^(1+e) radial(k) dk over the cascades' bands
+// times its spread over directions, in log steps (e 2 its slope's: k^2 for the slope, k for the polar measure; e 0
+// its height's)
+function variance(layout, s, P, e) {
+  const la = Math.log(layout[0].k0), d = (Math.log(layout[layout.length - 1].k1) - la) / 256, kp = (2 * Math.PI) / s.lp;
+  let v = 0;
+  for (let i = 0; i < 256; i++) {
     const k = Math.exp(la + (i + 0.5) * d);
-    s += k ** (2 + e) * seaRadial(k, kp, P) * d; // dk = k dlog k
+    v += k ** (2 + e) * seaRadial(k, kp, P) * d; // dk = k dlog k
   }
-  return s;
+  return v * spreadIntegral(s.spread);
 }
 
 /** Each system's spectrum scale, so its rms slope over the whole sea is as asked. */
 export function seaScales(layout, P = SEA) {
-  const k0 = layout[0].k0, k1 = layout[layout.length - 1].k1;
-  return P.systems.map((s) => s.slope ** 2 / (spreadIntegral(s.spread) * slopeIntegral(k0, k1, (2 * Math.PI) / s.lp, P)));
+  return P.systems.map((s) => s.slope ** 2 / variance(layout, s, P, 2));
 }
 
-/** The sea's rms height (units) as scaled by seaScales: the post pass measures how far its waves lift the water
- * over the focal plane in it (the shallow focus, lensScene). */
+/** The sea's rms height (units) as scaled by seaScales, for the shallow focus (lensScene). */
 export function seaHeightRms(layout, P = SEA) {
-  const k0 = layout[0].k0, k1 = layout[layout.length - 1].k1, scale = seaScales(layout, P);
-  return Math.sqrt(P.systems.reduce((v, s, j) => v + scale[j] * spreadIntegral(s.spread) * slopeIntegral(k0, k1, (2 * Math.PI) / s.lp, P, 256, 0), 0));
+  const scale = seaScales(layout, P);
+  return Math.sqrt(P.systems.reduce((v, s, j) => v + scale[j] * variance(layout, s, P, 0), 0));
 }

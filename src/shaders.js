@@ -7760,22 +7760,21 @@ const DOF_SOFT = 0.22;
 const DOF_CURVE = 0.15;
 // The objective's image at uv; q is the offset from the optical axis in half-heights, wp the world point, dh how much
 // higher the sea's waves lift the water over it than over the view's middle (Surface.height's). Lateral chromatic
-// aberration pulls red and blue apart toward the edge of the field. Near the rim the image softens (field curvature)
+// aberration pulls red and blue apart toward the rim of the field. Near the rim the image softens (field curvature)
 // and, at high magnification, the shallow focus loses whatever lies above or below the focal plane there. The water
 // over the pool is deeper under a wave's crest and shallower under its trough, and the image passing through more or
 // less water is focused nearer or further (water bends it): the microscopist keeps the middle of the view in focus, so
 // as the waves pass over, what lies under the crests and troughs away from it goes soft and comes back. Its alpha: how
 // far the image is spread there, in pixels (lookScene softens the look's edges by it).
 fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32, dh: f32) -> vec4f {
-  let r2 = dot(q, q);
-  let px = k * post.res.y / 1000.0 / post.res;
-  let ca = q * r2 * 0.2 * px;
-  var c = vec3f(scene(uv + ca).r, scene(uv).g, scene(uv - ca).b);
   // how far out toward the rim of the field the point lies (squared): the frame is a crop of the eyepiece's round
   // field, its corners at the field's rim whatever its shape, so a wide screen's sides lie far out and a phone's near
-  // the axis, and every screen softens alike toward its corners (measured in half-heights instead, a wide screen's
-  // sides were wholly soft and a near-square or phone's barely touched)
-  let fr2 = r2 / (sqr(post.res.x / post.res.y) + 1.0);
+  // the axis, and every screen's fringes and softening grow alike toward its corners (measured in half-heights
+  // instead, a wide screen's sides were wholly soft and a near-square or phone's barely touched)
+  let fr2 = dot(q, q) / (sqr(post.res.x / post.res.y) + 1.0);
+  let px = k * post.res.y / 1000.0 / post.res;
+  let ca = q * fr2 * 0.35 * px;
+  var c = vec3f(scene(uv + ca).r, scene(uv).g, scene(uv - ca).b);
   let rim = smoothstep(0.55, 1.0, fr2);
   var blur = rim * 1.5;
   var spread = 0.0;
@@ -8901,9 +8900,7 @@ fn ringWave(d: vec2f, t: f32, amp: f32, seed: f32, s: ptr<function, vec2f>) {
 // linear filtering kinks at every texel's edge, which the shading shows as a grid; otherwise the hardware filters it
 // for the zoom (mipmaps, anisotropic: its texels are as oblong as the world), so the finer waves average away and the
 // same waves show at every zoom.
-fn seaTap(p: vec2f, c: u32, ppu: f32) -> vec4f { return seaTapIn(p, post.seaC[c].xy, c, ppu); }
-// the same of the texture's layer (a cascade's, or its height's) laid on a patch L
-fn seaTapIn(p: vec2f, L: vec2f, c: u32, ppu: f32) -> vec4f {
+fn seaTap(p: vec2f, L: vec2f, c: u32, ppu: f32) -> vec4f {
   let n = f32(${SEA_N});
   if (min(L.x, L.y) * ppu > 1.5 * n) {
     let q = p / L * n - 0.5;
@@ -8932,19 +8929,19 @@ fn seaAt(p: vec2f, ppu: f32) -> vec4f {
   for (var c = 0u; c < ${SEA_CASCADES}u; c++) {
     let L = post.seaC[c];
     if (L.w <= 0.0) { continue; }
-    let t = seaTap(p, c, ppu);
+    let t = seaTap(p, L.xy, c, ppu);
     o += vec4f(t.xy, t.zw * L.z);
   }
   return o;
 }
-// The sea's height at world point p (units, summed over the cascades that hold waves): their heights lie past the
-// cascades' layers, four to a layer (SEA_WGSL's seaSpectrum)
+// The sea's height at world point p (units, summed over the cascades that hold waves): cascade c's in channel c of
+// the layer after the cascades' (SEA_WGSL's seaSpectrum)
 fn seaHeight(p: vec2f, ppu: f32) -> f32 {
   var h = 0.0;
   for (var c = 0u; c < ${SEA_CASCADES}u; c++) {
     let L = post.seaC[c];
     if (L.w <= 0.0) { continue; }
-    h += seaTapIn(p, L.xy, ${SEA_CASCADES}u + c / 4u, ppu)[c % 4u];
+    h += seaTap(p, L.xy, ${SEA_CASCADES}u, ppu)[c];
   }
   return h;
 }
@@ -9012,9 +9009,8 @@ struct Surface { shift: vec2f, slope: vec2f, light: f32, height: f32 };
 // a pan as the center crossed the swell, and the bared ground seemed to swim apart from the water around it. The
 // light: the surface's curvature focuses the lamp onto the focal plane below, brightening where it converges (by the
 // divergence of the slope) and dimming where it spreads.
-fn seaSurface(wp: vec2f, ppu: f32, span: f32) -> Surface { return seaSurfaceH(wp, ppu, span, false); }
-// the same with its height too (withHeight: only the field the composite reads, where the shallow focus needs it)
-fn seaSurfaceH(wp: vec2f, ppu: f32, span: f32, withHeight: bool) -> Surface {
+// (withHeight: its height too, only for the field the composite reads, where the shallow focus needs it)
+fn seaSurface(wp: vec2f, ppu: f32, span: f32, withHeight: bool) -> Surface {
   let lo = seaLow(wp, span);
   var x0 = wp;
   // (calm water's gentle swell is not choppy: no carrying)
@@ -9163,7 +9159,7 @@ fn surfaceAt(wp: vec2f, ppu: f32, span: f32, room: f32) -> Surface {
   o.light = 1.0;
   let wet = smoothstep(0.0, 0.4, room);
   if (wet <= 0.0) { return o; }
-  if (post.seaHead.z > 0.0) { o = seaSurface(wp, ppu, span); }
+  if (post.seaHead.z > 0.0) { o = seaSurface(wp, ppu, span, false); }
   return surfaceNear(o, wp, room);
 }
 // The sea's surface (sea) with the raindrops' rings and the water's edge at wp, room: waterRoom there
@@ -9192,7 +9188,7 @@ const SEA_FIELD = 4.0;
   if (any(g.xy >= textureDimensions(seaFieldW))) { return; }
   // (the view pixel whose middle the point stands at)
   let px = vec2f(g.xy) * SEA_FIELD + 0.5;
-  let s = seaSurfaceH(post.cam + (px - post.res * 0.5) / post.ppu, post.ppu, viewSpan(), true);
+  let s = seaSurface(post.cam + (px - post.res * 0.5) / post.ppu, post.ppu, viewSpan(), true);
   textureStore(seaFieldW, g.xy, vec4f(s.shift, s.slope));
   textureStore(seaLightW, g.xy, vec4f(s.light, s.height, 0.0, 0.0));
 }
@@ -10001,18 +9997,17 @@ fn waveH(c: u32, i: u32, j: u32) -> vec2f {
 
 @compute @workgroup_size(16, 16) fn seaSpectrum(@builtin(global_invocation_id) g: vec3u) {
   let at = (g.z * N + g.y) * N + g.x;
-  // the heights (layers past the cascades'), four cascades a layer: each height is real, so two share a complex field,
-  // one as its real part and the other as its imaginary (z = a + i b inverts to a + i b)
-  if (g.z >= ${SEA_CASCADES}u) {
-    var o = vec4f(0.0);
-    for (var q = 0u; q < 4u; q++) {
-      let c = (g.z - ${SEA_CASCADES}u) * 4u + q;
-      if (c >= ${SEA_CASCADES}u) { break; }
+  // the heights, in the layer after the cascades', cascade c's in channel c: each height is real, so two share a
+  // complex field, one as its real part and the other as its imaginary (a + i b inverts to a + i b)
+  if (g.z == ${SEA_CASCADES}u) {
+    var o = array<f32, 4>();
+    for (var c = 0u; c < ${SEA_CASCADES}u; c++) {
       let h = waveH(c, g.x, g.y);
-      let v = select(h, vec2f(-h.y, h.x), (q & 1u) == 1u);
-      o += select(vec4f(v, 0.0, 0.0), vec4f(0.0, 0.0, v), q >= 2u);
+      let v = select(h, vec2f(-h.y, h.x), (c & 1u) == 1u);
+      o[c & 2u] += v.x;
+      o[(c & 2u) + 1u] += v.y;
     }
-    work[at] = o;
+    work[at] = vec4f(o[0], o[1], o[2], o[3]);
     return;
   }
   let c = g.z;
