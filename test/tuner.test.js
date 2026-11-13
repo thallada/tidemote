@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { KNOBS, decide, costOf, scaleLoss, heldBack, COMP_GUESS, judge, LATE } from '../src/tuner.js';
+import { KNOBS, decide, costOf, scaleLoss, adaptation, COMP_GUESS, judge, LATE } from '../src/tuner.js';
 
 const ladder = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
 const all = (over = {}) => ({
@@ -88,15 +88,21 @@ test('behind, the haze goes long before the microscope; with room, the microscop
   assert.deepEqual(decide(base({ ...pin, knobs: { microscope: { ...comp(0, 1).microscope, auto: false } } })), null);
 });
 
-test('heldBack: what is eased, of what the viewer shows, then the resolution under Auto', () => {
+test('adaptation: every setting, what is eased of what the viewer shows and leaves on Auto', () => {
   const top = Object.fromEntries(Object.entries(KNOBS).map(([id, k]) => [id, k.levels.length - 1]));
-  assert.deepEqual(heldBack(top, {}, 1), []);
-  assert.deepEqual(heldBack(top, {}, null), []);
-  assert.deepEqual(heldBack({ ...top, sea: 2, bloom: 0, microscope: 0 }, {}, 0.7), [['sea', 2], ['bloom', 0], ['microscope', 0], ['scale', 0.7]]);
+  const held = (...a) => adaptation(...a).filter((r) => r[2] === 'held').map(([id, v]) => [id, v]);
+  const auto = { scale: { v: 1, auto: true }, fps: { v: 60, auto: true, slow: 1 } };
+  // every knob in KNOBS' order, then the render scale and the frame rate, all at their best
+  assert.deepEqual(adaptation(top, auto).map(([id, , s]) => `${id}:${s}`), [...Object.keys(KNOBS), 'scale', 'fps'].map((id) => `${id}:best`));
+  assert.deepEqual(held(top), []);
+  assert.deepEqual(held({ ...top, sea: 2, bloom: 0, microscope: 0 }, { scale: { v: 0.7, auto: true }, fps: { v: 30, auto: true, slow: 2 } }), [['sea', 2], ['bloom', 0], ['microscope', 0], ['scale', 0.7], ['fps', 30]]);
   // an effect the viewer has off is never said to be held back, whatever its knob's level
-  assert.deepEqual(heldBack({ ...top, bloom: 0, haze: 0 }, { bloom: false, haze: false }), []);
-  // a render scale the viewer fixed (null) is the viewer's, not held back
-  assert.deepEqual(heldBack({ ...top, neighbors: 1 }, {}, null), [['neighbors', 1]]);
+  assert.deepEqual(held({ ...top, bloom: 0, haze: 0 }, { shown: { bloom: false, haze: false } }), []);
+  assert.equal(adaptation({ ...top, bloom: 0 }, { shown: { bloom: false } })[1][2], 'off');
+  // a value the viewer chose (a knob, a render scale, a frame rate) is theirs, not held back
+  const mine = adaptation({ ...top, bloom: 0 }, { fixed: { bloom: true }, scale: { v: 0.5, auto: false }, fps: { v: 30, auto: false, slow: 1 } });
+  assert.deepEqual(mine.filter((r) => r[2] === 'fixed').map((r) => r[0]), ['bloom', 'scale', 'fps']);
+  assert.deepEqual(held({ ...top, neighbors: 1 }), [['neighbors', 1]]);
 });
 
 test('render scale costs the eye more the further it falls', () => {

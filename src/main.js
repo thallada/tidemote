@@ -38,7 +38,7 @@ import { miniCard, setThumb, hasThumb, dropThumb } from './minicard.js';
 import { stage, bodyOf, portraitCells } from './studio.js';
 import { studioPortrait } from './studiorender.js';
 import { encodeImages, encodeBytes } from './encode.js';
-import { KNOBS, decide, costOf, heldBack, judge } from './tuner.js';
+import { KNOBS, decide, costOf, adaptation, judge } from './tuner.js';
 import { trackGlass } from './glass.js';
 import { isRideKey, keyWay, pointerWay, createThrottle, stepThrottle, throttleGrip, createRideCam, stepRideCam, willSpeed } from './ride.js';
 import { createCabinetStore, encodeCard, decodeCard, cardLink, cardFromHash, cardFromPng, cardIntoPng } from './cabinet.js';
@@ -56,8 +56,8 @@ const touchOnly = !matchMedia('(any-hover: hover)').matches;
 // A phone or tablet: its GPU slows by a third or more once it has run hot for a few minutes (thermal
 // throttling), and shares the GPU with the screen's compositor.
 const throttles = navigator.userAgentData?.mobile ?? (/Android|iPhone|iPad|Mobile/.test(navigator.userAgent) || (isCoarse && !matchMedia('(any-pointer: fine)').matches));
-// What the tuner holds back (tuner.js heldBack), as Settings → Performance says it: each knob below its best, by its
-// level, and the render scale on Auto
+// What the tuner holds back (tuner.js adaptation), as Settings → Performance says it: each knob below its best, by its
+// level, the render scale on Auto, and the frame rate aimed lower
 const HELD = {
   // i18n: Settings → Perf, under Adaptation: one thing held back for speed (listed joined by " · "): the water's waves worked out not at all ({level} 0), a quarter (1) or half (2) as often
   sea: (l) => tr('settings.perf.held.sea', '{level, select, 0 {Water surface off} 1 {Water at a quarter rate} other {Water at half rate}}', { level: l }),
@@ -68,7 +68,9 @@ const HELD = {
   // i18n: Settings → Perf, one thing held back: {n} the neighbors a cell weighs each step, fewer than the most
   neighbors: (l) => tr('settings.perf.held.neighbors', '{n} neighbors', { n: KNOBS.neighbors.levels[l] }),
   // i18n: Settings → Perf, one thing held back: the world drawn at {pct} percent of the screen's resolution
-  scale: (v) => tr('settings.perf.held.scale', '{pct}% resolution', { pct: Math.round(v * 100) }) };
+  scale: (v) => tr('settings.perf.held.scale', '{pct}% resolution', { pct: Math.round(v * 100) }),
+  // i18n: Settings → Perf, one thing held back: the frame rate aimed lower, {n} frames a second
+  fps: (v) => tr('settings.perf.held.fps', '{n} fps', { n: v }) };
 // The Display rows the tuner may ease (by their ids), each offering Auto, its default: the effect drawn as Auto's
 // value (its data-v: Normal, or on), which the knob eases while Performance → Adaptation is on. A value the viewer
 // chooses instead is theirs and the tuner leaves it be (state.fixed), as Performance's own Auto choices do.
@@ -380,8 +382,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
     eng.maxScan = on.neighbors ? at('neighbors') : state.perf.scan;
   }
   applyTune();
-  // what the tuner holds back now (Performance's line under Adaptation)
-  const heldNow = () => heldBack(Object.fromEntries(Object.entries(tune).map(([id, k]) => [id, k.level])), shown(), state.perf.scale === 'auto' ? renderScale : null);
+  // where each setting the page may adapt stands now (tuner.js adaptation): a knob the viewer chose a Display value
+  // for, or a tool pinned, and Neighbors, a render scale or a frame rate chosen, are fixed; and of them what the tuner
+  // holds back now (Performance's line under Adaptation, the dock's readout)
+  const adaptNow = () => adaptation(Object.fromEntries(Object.entries(tune).map(([id, k]) => [id, k.level])), {
+    shown: shown(), fixed: Object.fromEntries(Object.keys(tune).map((id) => [id, id === 'neighbors' ? state.perf.scan != null : id in pins || !!state.fixed[ROW_OF[id]]])),
+    scale: { v: renderScale, auto: state.perf.scale === 'auto' }, fps: { v: Math.round(1000 / frameTarget()), auto: state.perf.fps === 'auto', slow: state.speed > 1 ? 1 : perf.slow } });
+  const heldNow = () => adaptNow().filter((r) => r[2] === 'held');
   // Auto pixel density draws the scene at 1 device pixel per CSS pixel, always: above 1 the extra pixels are the
   // costliest sharpness the page could give (an M1 at 1.5× spent 18 ms a frame drawing), so only a density chosen
   // in Settings draws more. The one exception is a film begun with Auto (filmRaise): its frames are the screen's
@@ -2520,6 +2527,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // i18n: Settings' choices, shared by its options
     const OFF = tr('settings.off', 'Off'), NORMAL = tr('settings.normal', 'Normal'), AUTO = tr('settings.auto', 'Auto');
     const SUBTLE = tr('settings.subtle', 'Subtle'), STRONG = tr('settings.strong', 'Strong');
+    // the settings the page may adapt, by the names of their rows in Display and Performance (the stone has no row)
+    const NAMES = { microscope: tr('settings.display.microscope', 'Microscope'), bloom: tr('settings.display.bloom', 'Glow'), sea: tr('settings.display.water', 'Surface'),
+      haze: tr('settings.display.heat-shimmer', 'Heat haze'), specks: tr('settings.display.specks', 'Suspension'), interiors: tr('settings.display.lod', 'Cell insides'),
+      // i18n: the readout's adapting summary: the stone's light, which the page may work out again less often
+      stone: tr('dock.adapt.stone', 'Stone light'), scale: tr('settings.perf.scale', 'Render scale'), fps: tr('settings.perf.fps', 'Target fps'), neighbors: tr('settings.perf.neighbors', 'Neighbors') };
     // a group of option rows, under a heading or (text '') none
     const group = (id, text, rows) => section(id, text, block('', rows));
     let confirming = false; // the reset button asked to confirm
@@ -2529,15 +2541,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
     function display() {
       const map = mapOn();
       const filmL = tr('settings.display.film', 'Film');
-      return group('picture', tr('settings.display.picture', 'Look'), autoRow('microlook', tr('settings.display.microscope', 'Microscope'), 'O', [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], 'microlook')
+      return group('picture', tr('settings.display.picture', 'Look'), autoRow('microlook', NAMES.microscope, 'O', [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], 'microlook')
         + (state.look ? choice('grain', tr('settings.display.grain', 'Grain'), '', [[0, OFF], [1, tr('settings.display.grain-fine', 'Fine')], [2, tr('settings.display.grain-heavy', 'Heavy')]], state.grain, 'filmgrain') : '')
-        + autoOnOff('bloom', tr('settings.display.bloom', 'Glow'), 'Y', 'bloom')
+        + autoOnOff('bloom', NAMES.bloom, 'Y', 'bloom')
         + choice('trails', tr('settings.display.trails', 'Trails'), 'T', trailNames.map((n, i) => [i, n]), trailIdx))
-        + group('water', tr('settings.display.water-group', 'Water'), autoRow('water', tr('settings.display.water', 'Surface'), '', [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], 'watersurface')
+        + group('water', tr('settings.display.water-group', 'Water'), autoRow('water', NAMES.sea, '', [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], 'watersurface')
         + (state.water ? choice('waves', tr('settings.display.waves', 'Wave motion'), '', [[0, tr('settings.display.waves-slow', 'Slow')], [1, NORMAL], [2, tr('settings.display.waves-lively', 'Lively')]], state.waves, 'wavemotion') : '')
-        + (K.heat ? autoOnOff('haze', tr('settings.display.heat-shimmer', 'Heat haze'), '', 'haze') : '')
-        + autoOnOff('specks', tr('settings.display.specks', 'Suspension'), '', 'specks'))
-        + group('cells', tr('settings.display.cells', 'Cells'), autoOnOff('lod', tr('settings.display.lod', 'Cell insides'), '', 'lod'))
+        + (K.heat ? autoOnOff('haze', NAMES.haze, '', 'haze') : '')
+        + autoOnOff('specks', NAMES.specks, '', 'specks'))
+        + group('cells', tr('settings.display.cells', 'Cells'), autoOnOff('lod', NAMES.interiors, '', 'lod'))
         // i18n: Settings → Display → Map: the one map drawn over the view (light, temperature or the tide), or none
         + group('overlays', tr('settings.display.overlays', 'Overlays'), choice('map', tr('settings.display.map', 'Map'), K.heat ? 'G E H' : 'G H', [['off', OFF], ['light', tr('settings.display.map-light', 'Light')], ...(K.heat ? [['heat', tr('settings.display.map-heat', 'Heat')]] : []), ['tide', tr('settings.display.map-tide', 'Tide')]], state.map, 'maps')
         + (map ? rampHtml(map) : '')
@@ -2574,12 +2586,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
       // (what the tuner holds back now under Adaptation, a line of fixed height that readout keeps current)
       return group('quality', tr('settings.perf.quality', 'Quality'), onoff('adapt', tr('settings.perf.adapt', 'Adaptation'), '', P.adapt, 'adapt')
         + `<p class="eased-now" id="perf-held">${heldWords()}</p>`)
-        + group('res', tr('settings.perf.resolution', 'Resolution'), choice('scale', tr('settings.perf.scale', 'Render scale'), '', [['auto', AUTO], [1, pctOf(100)], [0.75, pctOf(75)], [0.5, pctOf(50)], [0.25, pctOf(25)]], P.scale, 'renderscale')
+        + group('res', tr('settings.perf.resolution', 'Resolution'), choice('scale', NAMES.scale, '', [['auto', AUTO], [1, pctOf(100)], [0.75, pctOf(75)], [0.5, pctOf(50)], [0.25, pctOf(25)]], P.scale, 'renderscale')
         + (P.scale === 'auto' ? choice('floor', tr('settings.perf.floor', 'Auto lowest'), '', [[0.75, pctOf(75)], [0.5, pctOf(50)], [0.35, pctOf(35)], [0.25, pctOf(25)]], P.floor, 'autofloor') : '')
         + choice('density', tr('settings.perf.density', 'Pixel density'), '', [['auto', AUTO], [1, timesOf(1)], [1.5, timesOf(1.5), dev < 1.5], [2, timesOf(2), dev < 2]], P.density, 'density')
-        + choice('fps', tr('settings.perf.fps', 'Target fps'), '', [['auto', AUTO], [30, '30'], [60, '60'], [0, tr('settings.perf.fps-display', 'Display')]], P.fps, 'targetfps'))
+        + choice('fps', NAMES.fps, '', [['auto', AUTO], [30, '30'], [60, '60'], [0, tr('settings.perf.fps-display', 'Display')]], P.fps, 'targetfps'))
         + group('world', tr('settings.perf.world', 'World'), choice('n', tr('settings.perf.particles', 'Particles'), '', [['auto', AUTO], ...sizes.map((n) => [n, kfmt(n)])], nowN, 'particles')
-        + choice('scan', tr('settings.perf.neighbors', 'Neighbors'), '', [['auto', AUTO], ...scanChoices().map((n) => [n, String(n)])], P.scan ?? 'auto', 'neighbors')
+        + choice('scan', NAMES.neighbors, '', [['auto', AUTO], ...scanChoices().map((n) => [n, String(n)])], P.scan ?? 'auto', 'neighbors')
         + (pendingN != null && String(pendingN) !== String(P.particles || 'auto')
           // i18n: a new world with {n} particles, or as many as the GPU is measured to draw smoothly
           ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">${pendingN === 'auto' ? tr('settings.perf.apply-auto', 'Start a new world with a measured count') : tr('settings.perf.apply', 'Start a new world with {n, number}', { n: pendingN })}</button></div>` : '')
@@ -2816,6 +2828,47 @@ function run(eng, device, ctx, specCtx, hasTS) {
       setText('ro-world', perf.fps ? perf.worldFps.toFixed(0) : '–');
       setText('ro-why', state.speed > 1 ? tr('readout.why-fast', 'running fast') : WHY_WORDS[perf.why] ?? (perf.why || '–'));
     }
+    // The adapting summary, the dock's readout its button: why the page adapts, if it does, then every setting it may
+    // adapt and where each stands (eased in the sun's color, a value the viewer chose dim). The readout marks what is
+    // held back (heldNow, as Performance's line under Adaptation says it); a click opens Performance (on a touch screen
+    // the first tap shows the summary, the next opens it)
+    const strip = $('sys');
+    // i18n: the readout's adapting summary: a setting the page holds back for speed, or one at a value the viewer chose
+    const EASED = tr('dock.adapt.eased', 'Eased'), FIXED = tr('dock.adapt.fixed', 'Fixed'), ON = tr('settings.on', 'On');
+    // a setting's value as its row offers it (tuner.js adaptation's [id, value, state])
+    function adaptValue(id, v, st) {
+      if (st === 'off') return OFF;
+      if (id === 'scale') return pctOf(Math.round(v * 100));
+      if (id === 'fps') return String(v);
+      if (id === 'neighbors') return String(eng.maxScan);
+      // i18n: the readout's adapting summary: the stone's light worked out again every {s} seconds
+      if (id === 'stone') return tr('dock.adapt.every', 'Every {s} s', { s: KNOBS.stone.levels[v] });
+      // i18n: the readout's adapting summary: the water's waves worked out a quarter ({level} 1) or half (2) as often
+      if (id === 'sea' && v > 0 && v < 3) return tr('dock.adapt.rate', '{level, select, 1 {¼ rate} other {½ rate}}', { level: v });
+      const row = ROW_OF[id], x = v === 0 ? 0 : rowVal[row]();
+      return row === 'microlook' || row === 'water' ? [OFF, SUBTLE, NORMAL, STRONG][x] : x ? ON : OFF;
+    }
+    // (the effects in Display's order, then Performance's)
+    const SUMMED = [['microscope', 'bloom', 'sea', 'haze', 'specks', 'interiors', 'stone'], ['scale', 'fps', 'neighbors']];
+    tips.rich.eased = () => {
+      const all = adaptNow(), at = Object.fromEntries(all.map((r) => [r[0], r])), held = all.some((r) => r[2] === 'held');
+      const row = (id) => { const [, v, st] = at[id]; return `<div class="am-r" data-s="${st}"><span class="lbl">${NAMES[id]}</span><i></i><b>${adaptValue(id, v, st)}</b><em>${st === 'held' ? EASED : st === 'fixed' ? FIXED : ''}</em></div>`; };
+      // i18n: the readout's adapting summary: its heading, then (to its right) why the page adapts, if it says
+      return (held ? `<div class="am-h"><span>${tr('dock.adapt.title', 'Adapting')}</span><span>${WHY_WORDS[perf.why] ?? ''}</span></div>` : `<div class="am-h calm"><span>${tr('settings.perf.held-none', 'Nothing held back')}</span></div>`)
+        + SUMMED.map((ids) => `<div class="am-g">${ids.filter((id) => id !== 'haze' || K.heat).map(row).join('')}</div>`).join('')
+        // i18n: the readout's adapting summary, at its foot: what a click (or on a touch screen, a second tap) does
+        + `<div class="am-f">${tr('dock.adapt.open', '{touch, select, yes {Tap again to open Settings → Perf} other {Click to open Settings → Perf}}', { touch: isCoarse ? 'yes' : 'no' })}</div>`;
+    };
+    function adapt() {
+      const held = new Set(heldNow().map((r) => r[0]));
+      strip.classList.toggle('adapting', held.size > 0);
+      strip.classList.toggle('fps-held', held.has('fps'));
+      strip.classList.toggle('res-held', held.has('scale'));
+    }
+    let tapped = false;
+    strip.addEventListener('pointerdown', (e) => { tapped = e.pointerType !== 'mouse'; });
+    // (the hints opened theirs on the tap's way down, tip.js, and closed it on the next's)
+    strip.addEventListener('click', () => { const tap = tapped; tapped = false; if (!(tap && strip.hasAttribute('aria-describedby'))) toggle(true, 'performance'); });
     function set(id, v) {
       const s = eng.settings, P = state.perf;
       if (id.startsWith('w-')) { worldAct(id, v); return; }
@@ -2882,7 +2935,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     btn.addEventListener('click', () => toggle());
     $('brand').addEventListener('click', () => toggle(true, 'about'));
     $('set-close').addEventListener('click', () => toggle(false));
-    return { render, toggle, readout, isOpen: () => !el.hidden };
+    return { render, toggle, readout, adapt, isOpen: () => !el.hidden };
   })();
   // How the page runs on this device, to report it: three seconds of frames timed pass by pass on the
   // GPU and one simulation step dispatch by dispatch, with what was drawn, copied as JSON.
@@ -4069,6 +4122,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     updateEventChip();
     renderMaps();
+    view.adapt();
     tips.check();
     // Max shows what it reaches; every other speed is exact
     setText('t-rate', state.speed > 1 && !state.paused ? tr('readout.rate', '×{n}', { n: perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate) }) : '');

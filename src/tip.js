@@ -1,6 +1,7 @@
 // Hover, focus and tap hints. Glossary terms carry data-tip (a GLOSSARY key); controls carry
 // data-hint ("Label · key", and after a line break a second line). No element carries a title attribute, so nothing competes with these. A term may also
-// carry data-live, a note on what it shows right now, put before its glossary entry.
+// carry data-live, a note on what it shows right now, put before its glossary entry. A hint the page builds itself
+// (rich: { key: () => html }, its element's data-tip naming the key) is drawn as it opens and kept current while open.
 import { GLOSSARY } from './guide.js';
 
 export function createTips(tip) {
@@ -8,7 +9,9 @@ export function createTips(tip) {
   let shown = '';
   let via = '';
   let rect = null; // what opened the hint: 'hover', 'tap' or 'focus'; each closes its own way
+  const rich = {};
   const textFor = (el) => {
+    if (rich[el.dataset.tip]) return { html: rich[el.dataset.tip]() };
     if (el.dataset.tip) return GLOSSARY[el.dataset.tip] ? { text: (el.dataset.live ? `${el.dataset.live} ` : '') + GLOSSARY[el.dataset.tip] } : null;
     if (!el.dataset.hint) return null;
     const [h, more] = el.dataset.hint.split('\n');
@@ -23,8 +26,9 @@ export function createTips(tip) {
     if (owner && owner !== el) owner.removeAttribute('aria-describedby');
     owner = el;
     via = how;
-    tip.textContent = t.text;
-    shown = t.text;
+    tip.classList.toggle('rich', !!t.html);
+    if (t.html) tip.innerHTML = t.html; else tip.textContent = t.text;
+    shown = t.html ?? t.text;
     if (t.key) { const k = document.createElement('kbd'); k.textContent = t.key; tip.append(k); }
     if (t.more) { const m = document.createElement('div'); m.textContent = t.more; tip.append(m); }
     tip.hidden = false;
@@ -75,7 +79,7 @@ export function createTips(tip) {
     if (!owner) return;
     if (owner.isConnected) {
       const t = textFor(owner);
-      if (t && t.text !== shown) show(owner, via);
+      if (t && (t.html ?? t.text) !== shown) show(owner, via);
       return;
     }
     const key = owner.dataset.tip ? `[data-tip="${owner.dataset.tip}"]` : `[data-hint="${CSS.escape(owner.dataset.hint || '')}"]`;
@@ -88,5 +92,5 @@ export function createTips(tip) {
     }
     if (best) { owner = best; owner.setAttribute('aria-describedby', 'tip'); } else hide();
   }
-  return { hide, check };
+  return { hide, check, rich };
 }

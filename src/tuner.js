@@ -180,14 +180,18 @@ function fullCost(id, k, draw) {
 }
 
 /**
- * What the tuner holds back right now, as Settings → Performance's line says it: each knob below its best whose
- * effect is shown ([id, level index], in KNOBS' order), then the render scale while Auto has it under 1 (['scale',
- * scale]). levels: { id: index }; shown: { id: false } for an effect the viewer has off, never counted; scale: the
- * render scale on Auto, else null.
+ * Where each setting the page may adapt stands right now, as Settings → Performance's line under Adaptation and the
+ * dock's readout and its summary say it: [id, value, state] for each knob (its level index, in KNOBS' order), then
+ * the render scale (['scale', scale]) and the frame rate aimed for (['fps', frames a second]) where given. state: 'fixed', a
+ * value the viewer chose (or a tool); 'off', an effect the viewer has off; 'held', below its best (what the tuner
+ * holds back); else 'best'. levels: { id: index }; shown: { id: false } for an effect off; fixed: { id: true };
+ * scale: { v, auto }; fps: { v, auto, slow: the rate aimed lower, a divisor over 1 }.
  */
-export function heldBack(levels, shown = {}, scale = null) {
+export function adaptation(levels, { shown = {}, fixed = {}, scale = null, fps = null } = {}) {
+  const at = (fix, off, held) => (fix ? 'fixed' : off ? 'off' : held ? 'held' : 'best');
   const out = [];
-  for (const [id, def] of Object.entries(KNOBS)) if (levels[id] != null && shown[id] !== false && levels[id] < def.levels.length - 1) out.push([id, levels[id]]);
-  if (scale != null && scale < 0.995) out.push(['scale', scale]);
+  for (const [id, def] of Object.entries(KNOBS)) if (levels[id] != null) out.push([id, levels[id], at(fixed[id], shown[id] === false, levels[id] < def.levels.length - 1)]);
+  if (scale) out.push(['scale', scale.v, at(!scale.auto, false, scale.v < 0.995)]);
+  if (fps) out.push(['fps', fps.v, at(!fps.auto, false, fps.slow > 1)]);
   return out;
 }

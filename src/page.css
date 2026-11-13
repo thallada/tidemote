@@ -456,6 +456,21 @@ body.dragging-card #bench-open, body.dragging-card .bench-pip, body.dragging-car
 .sys .w-n { width: 7.6em; }
 .sys .w-3 { width: 2.4em; }
 .sys .w-4 { width: 3.2em; }
+/* the readout is a button (main.js, the adapting summary): its hint, and a click opens Settings → Perf. Its labels
+   brighten a step under the pointer, its box a finger tall but drawn no taller. While the page eases anything for
+   speed (view.adapt: .adapting; .fps-held, .res-held for those figures) the eased figures turn the sun's color, Auto's
+   "held" color, and the look is one class in page.html: v-a those figures and a hairline at the strip's end,
+   as the rail's gauges mark theirs (alone where only an effect without a figure is eased); v-b with a hairline under
+   each eased figure; v-c the figures and one hairline under the whole strip */
+button.sys { position: relative; height: 34px; padding: 0; border: 0; background: none; align-items: center; }
+.sys:hover, .sys[aria-describedby] { color: var(--ink-2); }
+.sys b { transition: color .4s ease, text-decoration-color .4s ease; text-decoration: underline 1px transparent; text-underline-offset: 4px; }
+.sys::before, .sys::after { content: ''; position: absolute; background: var(--sun); opacity: 0; transition: opacity .4s ease; }
+.sys::before { right: -7px; top: 50%; width: 1px; height: 12px; margin-top: -7px; }
+.sys::after { left: 0; right: 0; top: 50%; height: 1px; margin-top: 9px; }
+.sys:is(.v-a, .v-b).adapting::before, .sys.v-c.adapting::after { opacity: 1; }
+.sys.fps-held #sys-fps, .sys.res-held #sys-res { color: var(--sun); }
+.sys.v-b.fps-held #sys-fps, .sys.v-b.res-held #sys-res { text-decoration-color: var(--sun); }
 
 /* ------------------------------------------------------------------ world column */
 /* the Lab's census: what the world is made of above, the log filling what is left below */
@@ -578,6 +593,32 @@ body.ui-off :is(#hud, #spec, #lab, #help, #card, #tip, #plate) { visibility: hid
   color: var(--ink); padding: 8px 11px; font-size: 12.5px; line-height: 1.5; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
 }
 .tip kbd { color: var(--sun); margin-left: 8px; }
+/* a hint the page builds (tip.js rich): the readout's adapting summary, a ticked plate. Its heading (in the sun's
+   color while anything is eased, cyan when nothing is) and why, over every setting the page may adapt: its name, a
+   dotted leader, its value, and eased (sun) or fixed (dim) */
+.tip.rich {
+  width: 272px; padding: 9px 12px 8px; border: 0; box-shadow: none; outline: 1px solid var(--line); outline-offset: -1px; --tick: var(--line-2);
+  background:
+    linear-gradient(var(--tick), var(--tick)) left top / 7px 1px no-repeat, linear-gradient(var(--tick), var(--tick)) left top / 1px 7px no-repeat,
+    linear-gradient(var(--tick), var(--tick)) right top / 7px 1px no-repeat, linear-gradient(var(--tick), var(--tick)) right top / 1px 7px no-repeat,
+    linear-gradient(var(--tick), var(--tick)) left bottom / 7px 1px no-repeat, linear-gradient(var(--tick), var(--tick)) left bottom / 1px 7px no-repeat,
+    linear-gradient(var(--tick), var(--tick)) right bottom / 7px 1px no-repeat, linear-gradient(var(--tick), var(--tick)) right bottom / 1px 7px no-repeat,
+    var(--panel-solid);
+}
+.am-h { display: flex; justify-content: space-between; gap: var(--s3); padding-bottom: 7px; font-size: 11px; line-height: 1.2; font-weight: 500; letter-spacing: .24em; text-transform: uppercase; font-stretch: 115%; color: var(--sun);
+  background: radial-gradient(circle, var(--line-2) 1px, transparent 1.4px) left bottom / 6px 3px repeat-x; }
+.am-h.calm { color: var(--cyan); }
+.am-h span + span { color: var(--ink-2); letter-spacing: .14em; white-space: nowrap; }
+.am-g { display: flex; flex-direction: column; padding: 3px 0; }
+.am-g + .am-g { border-top: 1px solid var(--line); }
+.am-r { display: grid; grid-template-columns: auto minmax(8px, 1fr) auto 4.4em; align-items: center; gap: 6px; height: 21px; padding-left: 7px; margin-left: -7px; }
+.am-r i { height: 3px; align-self: end; margin-bottom: 7px; background: radial-gradient(circle, var(--line) 0.8px, transparent 1.1px) left / 4px 3px repeat-x; }
+.am-r b { font-weight: 400; font-size: 12.5px; color: var(--ink); white-space: nowrap; }
+.am-r em { font-style: normal; text-align: right; font-size: 11px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; font-stretch: 112%; }
+.am-r[data-s="held"] { box-shadow: inset 2px 0 0 var(--sun); }
+.am-r[data-s="held"] :is(.lbl, b, em) { color: var(--sun); }
+.am-r[data-s="fixed"] :is(b, em), .am-r[data-s="off"] b { color: var(--ink-3); }
+.am-f { padding-top: 6px; border-top: 1px solid var(--line); color: var(--ink-3); font-size: 11px; letter-spacing: .06em; }
 /* a species' name plate, as the world view labels a picked cell (a chart's hover); .rows: a line chart's values at a moment */
 .plate { position: fixed; z-index: 40; pointer-events: none; display: flex; align-items: baseline; gap: 8px; padding: 2px 5px 3px; background: rgba(6, 9, 10, 0.82); color: rgba(226, 241, 240, 0.95); font-size: 11px; font-weight: 500; letter-spacing: 1.5px; text-transform: uppercase; white-space: nowrap; }
 .plate i { align-self: center; width: 7px; height: 7px; flex: none; }
@@ -1443,7 +1484,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .dock .ico, .act { min-width: 44px; justify-content: center; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .intro, .flash, .hud, .caption, .spec { transition: none; }
+  .intro, .flash, .hud, .caption, .spec, .sys b, .sys::before, .sys::after { transition: none; }
   .calib::before { animation: none; }
 }
 
