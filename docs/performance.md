@@ -527,13 +527,29 @@ slower. How it was found (`bench.mjs --android`, `kind: step`, the sim module pa
   resident, so about 16 waves at 12 registers or fewer, 10 at 18, 6 at 26-32, 4 at 33-48: the slope before the
   cliff. 16-bit values take half a register from the same file; the Pixel 3 has no `shader-f16`, so WGSL cannot
   ask for them there. Uniforms live in a file of their own.
-- **Seeing it without the phone** (not built yet): Mesa's Vulkan driver for Adreno (turnip) runs on a desktop
-  against a pretended a630 (`drm-shim`, `FD_GPU_ID=630`), and with `IR3_SHADER_DEBUG=cs,fs,nocache` prints each
-  pipeline's disassembly, full and half registers, waves and spills; the `webgpu` package's Dawn can be pointed at
-  it (`VK_DRIVER_FILES`), so the page's own WGSL goes through Tint as in Chrome. Another compiler than Qualcomm's:
-  a proxy for which side of the line a shader is on and roughly how far, not for small differences. The phone's own
-  SPIR-V comes from Chrome's `--enable-dawn-features=dump_shaders` (to the page's console). Qualcomm's compiled
-  shaders themselves: freedreno's `libwrap` around a native Vulkan runner, read with `cffdump` (a day or two).
+- **Seeing it without the phone** (`tools/adreno/regs.sh`, its README): Mesa's Vulkan driver for Adreno (turnip)
+  on this desktop against a pretended a630 (`drm-shim`), the `webgpu` package's Dawn pointed at it, so the page's
+  own WGSL goes through Tint as in Chrome; one line a kernel, in seconds. Another compiler than Qualcomm's: a proxy
+  for which side of a line a shader is on and roughly how far. It agrees with the phone where the phone was
+  measured (vec4 registers wanted at the widest moment, of 48; waves of threads resident):
+
+  | kernel | widest | waves | on the Pixel 3 |
+  |---|---|---|---|
+  | `lifeMain` before the split | 61.5 (366 spills) | 4 | 44 ms |
+  | `contactMain` | 14.4 | 12 | 0.8 |
+  | `matterMain` | 23.2 | 8 | 0.8 |
+  | `senseMain` | 29.2 | 6 | 4.2 |
+  | `lifeMain` | 46.6 | 4 | 3.2 |
+  | `senseMain`, coarse | 35.8 | 4 | 5.9 |
+  | `lifeMain`, coarse | 51.8 | 4 | 3.8 |
+  | `contactGather` | 21.1 | 8 | 3.5 |
+
+  So `lifeMain` is a hair under the cap and its coarse form over it, and the lines to get under are 32 (6 waves)
+  and 24 (8). No one part of `lifeMain` holds its widest moment (cut out: the trees' forces and the pond 42.6 each,
+  everything else 45-46.6; its motion alone 41.6, its energy and events alone 36; what `senseMain` left read where
+  used, not at its start, 44.1). The phone's own SPIR-V comes from Chrome's
+  `--enable-dawn-features=dump_shaders` (to the page's console). Qualcomm's compiled shaders themselves:
+  freedreno's `libwrap` around a native Vulkan runner, read with `cffdump` (a day or two; not done).
 - **Next on a phone**: that tooling; the composite's field pass; the cells' fragment shader (its partners' loop);
   `lifeMain`'s bonds (1.5 of its 3.2 ms). Heat: a few minutes of benchmarks took the phone to thermal state 2-3
   without a fan, where every pass ran about 1.5 times slower.
