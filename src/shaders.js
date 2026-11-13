@@ -5816,8 +5816,8 @@ struct PO {
 }
 
 @fragment fn fsPoint(i: PO) -> @location(0) vec4f { return pointColor(i); }
-// The main view also gathers the living alone (location 1), so the composite lays cells over the matter
-// and stone beneath them rather than averaging them in.
+// Every view also gathers the living alone (location 1), so its scene lays cells over the matter and stone
+// beneath them rather than averaging them in (overCells).
 struct PointOut { @location(0) all: vec4f, @location(1) live: vec4f };
 @fragment fn fsPointLive(i: PO) -> PointOut {
   let c = pointColor(i);
@@ -7587,10 +7587,9 @@ fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
 // the optics and the look take stone as they take cells (the lens's fringes and blur, its shallow focus, the
 // darkfield rims and relief, the glow), and it is lit once a pixel however many times they read it.
 fn underCells(t: vec4f, st: vec3f) -> vec4f { return vec4f(t.rgb + st * (1.0 - min(1.0, t.a)) * max(1.0, t.a), t.a); }
-// The main view's, with the living over what lies beneath them (l: liveTex, the living alone, fsPointLive): where
-// they cover a pixel they show alone, not averaged with the grains they sit on (or the stone beside them), as their
-// coverage has it; still scaled so scene() divides out the cover. (The loupe and the close-up draw no living alone:
-// their cells are averaged with the grains under them.)
+// Every view's (the main view's, the loupe's, the close-up's), with the living over what lies beneath them (l: liveTex,
+// the living alone, fsPointLive): where they cover a pixel they show alone, not averaged with the grains they sit on
+// (or the stone beside them), as their coverage has it; still scaled so scene() divides out the cover.
 fn overCells(t: vec4f, l: vec4f, st: vec3f) -> vec4f {
   let under = underCells(t, st);
   if (l.a <= 0.0) { return under; }
@@ -7624,7 +7623,7 @@ struct LitOut { @location(0) scene: vec4f, @location(1) pile: vec4f };
 }
 // (the loupe's and the close-up's, lit as they are drawn, at their own scale)
 @fragment fn fsStoneLitMicro(i: VO) -> @location(0) vec4f {
-  return underCells(textureLoad(src, vec2i(i.pos.xy), 0), boulder(i.uv, microView.cam + (i.pos.xy - microView.res * 0.5) / microView.ppu, microView.ppu));
+  return overCells(textureLoad(src, vec2i(i.pos.xy), 0), textureLoad(liveTex, vec2i(i.pos.xy), 0), boulder(i.uv, microView.cam + (i.pos.xy - microView.res * 0.5) / microView.ppu, microView.ppu));
 }
 
 @fragment fn fsDown(i: VO) -> @location(0) vec4f {

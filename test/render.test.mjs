@@ -43,7 +43,9 @@ test('LOD preserves light, bonded outlines merge, and all detail views validate'
   const intent = new Uint32Array(8 * 4).fill(0xffffffff);
   const texture = device.createTexture({ size: [256, 256], format: 'rgba16float',
     usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
-  t.after(() => texture.destroy());
+  // (the scene pass's second target: the living alone)
+  const live = device.createTexture({ size: [256, 256], format: 'rgba16float', usage: GPUTextureUsage.RENDER_ATTACHMENT });
+  t.after(() => { texture.destroy(); live.destroy(); });
   // Resolve the distant profile at the same radius to compare integrated light without
   // the sampling noise of a six-pixel sprite. This reference is used only in this GPU test.
   const referenceModule = device.createShaderModule({ code: DRAW_WGSL + `
@@ -65,13 +67,15 @@ test('LOD preserves light, bonded outlines merge, and all detail views validate'
     eng._writeView(eng.b.view, eng.viewData, { x: 5, y: 5, ppu }, 256, 256, 1, 2, 0xffffffff);
     const enc = device.createCommandEncoder();
     enc.copyBufferToBuffer(eng.b.frameCtr, 20, eng.b.bridgeDraw, 4, 4);
-    const pass = enc.beginRenderPass({ colorAttachments: [{ view: texture.createView(), loadOp: 'clear', storeOp: 'store' }] });
+    const pass = enc.beginRenderPass({ colorAttachments: [{ view: texture.createView(), loadOp: 'clear', storeOp: 'store' }]
+      .concat(distantProfile ? [] : [{ view: live.createView(), loadOp: 'clear', storeOp: 'store' }]) });
+    pass.setBlendConstant([1, 1, 1, 1]);
     if (distantProfile) {
       pass.setPipeline(reference); pass.setBindGroup(0, referenceBG); pass.draw(4, eng.count);
     } else if (onlyCell !== null) {
-      pass.setPipeline(eng.pPoint); pass.setBindGroup(0, eng.bgPoint); pass.draw(4, 1, 0, onlyCell);
+      pass.setPipeline(eng.main.point); pass.setBindGroup(0, eng.sceneBG[0].point); pass.draw(4, 1, 0, onlyCell);
     } else {
-      eng._drawScene(pass, eng.bgLine, eng.bgPoint, eng.bgBridge, eng.viewData);
+      eng._drawScene(pass, eng.viewData, 0);
     }
     pass.end();
     const buf = device.createBuffer({ size: 256 * 256 * 8, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
@@ -166,4 +170,11 @@ test('LOD preserves light, bonded outlines merge, and all detail views validate'
     specimen: { cx: 5, cy: 5, ppu: 800, w: 256, h: 256, dpr: 1, target: target.createView() } });
   await device.queue.onSubmittedWorkDone();
   assert.deepEqual(errors, [], 'all three view bind groups and indirect arguments validate');
+  // and with the tuner's insides left out, which the loupe and the live close-up follow
+  eng.fx.interiors = false;
+  eng.frame({ target: target.createView(), cam: { x: 5, y: 5, ppu: 500 }, paused: true, selId: 123,
+    loupe: { cx: 5, cy: 5, x: 128, y: 128, r: 64, ppu: 500 },
+    specimen: { cx: 5, cy: 5, ppu: 800, w: 256, h: 256, dpr: 1, target: target.createView(), live: true } });
+  await device.queue.onSubmittedWorkDone();
+  assert.deepEqual(errors, [], 'the lean views validate');
 });

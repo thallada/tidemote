@@ -185,10 +185,11 @@ Chrome reports its adapter's vendor (`img-tec`) but neither architecture nor des
   and the look: 0.10-0.13, the composite about halved) were once one Finish ladder; as two knobs they keep its steps'
   losses (0.05 and 1.2), so the haze still goes long before the microscope and the microscope comes back first, and
   their cost is the composite's per pixel in each of the four states of the two (`COMP_GUESS` until learned). Cell
-  insides: every cell in the main view drawn by the lean point pipeline (0.007-0.012 up close); the neighbors 112, 88 or
-  64 (no ecological difference at 64 in 8k worlds, at 88 in 16k ones, `runs/lowend`). The haze's and the microscope's,
-  the insides' and the neighbors' costs sit inside passes shared with others (the composite, the cells' pass, the step),
-  so each is learned from that pass at each of its levels. `test/tuner.test.js` runs the tuner window after window
+  insides: every cell in the main view drawn by the lean point pipeline (0.007-0.012 up close), and in the loupe and
+  the live close-up, which draw the world as the main view does (the cost learned from the main view's pass alone);
+  the neighbors 112, 88 or 64 (no ecological difference at 64 in 8k worlds, at 88 in 16k ones, `runs/lowend`). The
+  haze's and the microscope's, the insides' and the neighbors' costs sit inside passes shared with others (the
+  composite, the cells' pass, the step), so each is learned from that pass at each of its levels. `test/tuner.test.js` runs the tuner window after window
   against a Pixel 3, a Pixel 11 Pro and an RTX 4070 Ti modeled from these measurements: each settles within its frame
   (the Pixel 3 at 30 fps, half scale, without the haze or the microscope, 88 neighbors, the sea at half rate; the
   Pixel 11 at 85% scale, the sea at a quarter; the RTX at its best).
