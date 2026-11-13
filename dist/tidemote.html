@@ -11391,9 +11391,12 @@ const LIT_RICH = 0.12;                // the living's colors this much richer in
 const LIT_KNEE = 0.7;                 // the toned view rolls off above this toward white (litShow)
 struct Lit { k: vec3f, r: f32, lamp: f32, play: f32, shadow: f32 };
 fn sceneLit(wp: vec2f, focus: f32) -> Lit {
-  let l = lightPost(wp, tideAt(wp, post.world, post.simTime, post.tide, post.tidePh));
+  return litFrom(lightPost(wp, tideAt(wp, post.world, post.simTime, post.tide, post.tidePh)), max(lampAt(wp), 0.0), focus);
+}
+// (from the light l and the lamp's own light there: the main view reads them from its field, fsField)
+fn litFrom(l: f32, lamp: f32, focus: f32) -> Lit {
   var o: Lit;
-  o.lamp = max(lampAt(wp), 0.0);
+  o.lamp = lamp;
   o.r = clamp(litR(l, post.ambient), -0.7, 1.6);
   let tint = mix(vec3f(0.96, 0.98, 1.03), vec3f(1.03, 1.0, 0.95), clamp(o.r, 0.0, 1.0));
   o.k = mix(tint, vec3f(1.2, 0.92, 0.6), o.lamp / max(l, 1e-3));
@@ -11726,40 +11729,69 @@ struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
   o.uv = vec2f(uv.x, 1.0 - uv.y);
   return o;
 }
+// The main view's smooth fields (docs/look.md, The composite's fields): what fsComposite needs at each pixel that varies
+// slowly across the view, worked out by fsField at a fraction of its pixels (Engine FIELD_STEP) and read between them.
+// On a phone's GPU a shader costs what it holds, run or not (docs/performance.md, The step in two kernels): the water's
+// surface, its heat and haze and the scene's light, computed in the composite, held a Pixel 3's composite at 4.9 ms,
+// read from these 2.7. A: the surface's shift (world units) and the haze's (shimmer, pixels); B: the light there
+// (lightPost) and the lamp's own, the surface's light and height; C: the surface's slope, the water's temperature and
+// how steeply it changes (waterAt's x and the length of its slope, all bubblesNear asks of it). The loupe and the
+// close-up work them out inline (sceneLit, surfaceAt).
+@group(0) @binding(18) var fieldA: texture_2d<f32>;
+@group(0) @binding(19) var fieldB: texture_2d<f32>;
+@group(0) @binding(28) var fieldC: texture_2d<f32>;
+struct FieldOut { @location(0) a: vec4f, @location(1) b: vec4f, @location(2) c: vec4f };
+@fragment fn fsField(i: CompVO) -> FieldOut {
+  // (the composite's pixel this field's pixel stands at, so the composite reads it at its own uv)
+  let pos = i.uv * post.res;
+  let wp = post.cam + (pos - post.res * 0.5) / post.ppu;
+  // the water's surface (the sea, raindrops' rings) bends the view and focuses the light
+  var surf: Surface;
+  let room = waterRoom(poolAt(wp));
+  if (post.seaLook.w > 0.5) {
+    // (the sea from its field: surfaceAt's otherwise)
+    surf.light = 1.0;
+    if (smoothstep(0.0, 0.4, room) > 0.0) {
+      var sea: Surface;
+      sea.light = 1.0;
+      if (post.seaHead.z > 0.0) { sea = seaFieldAt(pos); }
+      surf = surfaceNear(sea, wp, room);
+    }
+  } else { surf = surfaceAt(wp, post.ppu, viewSpan(), room); }
+  var water = vec3f(post.heat.x, 0.0, 0.0);
+  var roil = vec2f(0.0);
+  if (post.heatVis >= 0.0) {
+    water = waterAt(wp - post.world * floor(wp / post.world));
+    roil = shimmer(wp, water);
+  }
+  let l = lightPost(wp, tideAt(wp, post.world, post.simTime, post.tide, post.tidePh));
+  var o: FieldOut;
+  o.a = vec4f(surf.shift, roil);
+  o.b = vec4f(l, max(lampAt(wp), 0.0), surf.light, surf.height);
+  o.c = vec4f(surf.slope, water.x, length(water.yz));
+  return o;
+}
+fn fieldAt(t: texture_2d<f32>, uv: vec2f) -> vec4f { return textureSampleLevel(t, samp, uv, 0.0); }
+// the water as bubblesNear and extremes ask of it (its slope's length in place of the slope), from field C
+fn fieldWater(c: vec4f) -> vec3f { return vec3f(c.z, c.w, 0.0); }
 @fragment fn fsComposite(i: CompVO) -> @location(0) vec4f {
   let k = post.optics;
   let q = (i.pos.xy - post.res * 0.5) / (post.res.y * 0.5);
   let wp = post.cam + (i.pos.xy - post.res * 0.5) / post.ppu;
-  var water = vec3f(post.heat.x, 0.0, 0.0);
-  var uv = i.uv;
-  // the water's surface (the sea, raindrops' rings) bends the view and focuses the light
-  var surf: Surface;
-  let pool = poolAt(wp);
-  if (post.seaLook.w > 0.5) {
-    // (the sea from its field: surfaceAt's otherwise)
-    surf.light = 1.0;
-    let room = waterRoom(pool);
-    if (smoothstep(0.0, 0.4, room) > 0.0) {
-      var sea: Surface;
-      sea.light = 1.0;
-      if (post.seaHead.z > 0.0) { sea = seaFieldAt(i.pos.xy); }
-      surf = surfaceNear(sea, wp, room);
-    }
-  } else { surf = surfaceAt(wp, post.ppu, viewSpan(), waterRoom(pool)); }
   if (post.seaLook.z > 0.5 && post.seaLook.z < 2.5) {
-    return vec4f(vec3f(clamp(select(0.5 + 2.5 * dot(surf.slope, LAMP_L), 0.25 * surf.light, post.seaLook.z < 1.5), 0.0, 1.0)), 1.0);
+    return vec4f(vec3f(clamp(select(0.5 + 2.5 * dot(fieldAt(fieldC, i.uv).xy, LAMP_L), 0.25 * fieldAt(fieldB, i.uv).z, post.seaLook.z < 1.5), 0.0, 1.0)), 1.0);
   }
+  // the water's surface bending the view and the heat's haze (fsField), read at the pixel itself
+  let fa = fieldAt(fieldA, i.uv);
+  var uv = i.uv + fa.zw / post.res;
   // (and what lies beyond a bubble shows smaller through it; the bubbles lie where the water's bending and roiling
   // show them, swaying with what is around them)
-  var bend = surf.shift;
+  var bend = fa.xy;
   var bub = Bubbles(vec2f(0.0), 1.0, vec3f(0.0));
-  if (post.heatVis >= 0.0) {
-    water = waterAt(wp - post.world * floor(wp / post.world));
-    let roil = shimmer(wp, water);
-    uv += roil / post.res;
-    // (none in the lean composite: compPick draws the full one wherever water is warm enough for them, HOT_N; their
-    // registers cost every pixel, a Pixel 11 Pro's composite 4.1 → 1.9 ms without them)
-    if (!LEAN) { bub = bubblesAt(wp + surf.shift + roil / post.ppu, post.ppu, water); }
+  // (none in the lean composite: compPick draws the full one wherever water is warm enough for them, HOT_N; their
+  // registers cost every pixel, a Pixel 11 Pro's composite 4.1 → 1.9 ms without them)
+  if (!LEAN && post.heatVis >= 0.0) {
+    bub = bubblesAt(wp + fa.xy + fa.zw / post.ppu, post.ppu, fieldWater(fieldAt(fieldC, i.uv)));
     bend += bub.bend;
   }
   uv += keepInView(bend * post.ppu, i.pos.xy) / post.res;
@@ -11775,7 +11807,7 @@ struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
     // (the waves' height here against the view's middle's, from the sea's field: the shallow focus is seen close up,
     // where the composite reads it; from afar, or with no sea, the waves move no focus)
     var dh = 0.0;
-    if (post.seaLook.w > 0.5 && post.seaHead.z > 0.0) { dh = surf.height - seaFieldHeight(post.res * 0.5); }
+    if (post.seaLook.w > 0.5 && post.seaHead.z > 0.0) { dh = fieldAt(fieldB, i.uv).w - seaFieldHeight(post.res * 0.5); }
     let l = lensScene(uv, q, wp, i.pos.xy, k, dh);
     hdr = l.rgb;
     spread = l.a;
@@ -11783,14 +11815,15 @@ struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
   else { hdr = scene(uv); }
   let bl = textureSampleLevel(bloomTex, samp, uv, 0.0).rgb;
   // in the scene's light, which the sea focuses onto what lies beneath it, and in which the bloom spreads further
-  var lit = sceneLit(wp, surf.light);
+  let fb = fieldAt(fieldB, i.uv);
+  var lit = litFrom(fb.x, fb.y, fb.z);
   hdr = lookScene(hdr, uv, bl, post.ppu, post.res, sunLook(lit), spread);
-  hdr = (hdr + bl * post.bloom * (1.0 + SUN_BLOOM * sunLook(lit))) * seaFocus(surf.light, lit) * lit.k;
+  hdr = (hdr + bl * post.bloom * (1.0 + SUN_BLOOM * sunLook(lit))) * seaFocus(fb.z, lit) * lit.k;
   // the living's share of the pixel's light, and their shadows
   let cells = cellShare(all, live);
   lit.shadow = sunShadow(uv, lit, post.ppu, post.res);
   var c = sunGrade(litShow(lookTone(hdr), lit, cells), lit);
-  c = mapsOver(c, wp, i.pos.xy, water.x);
+  c = mapsOver(c, wp, i.pos.xy, fieldAt(fieldC, i.uv).z);
   let uq = i.uv - 0.5;
   let v = clamp(1.0 - dot(uq, uq) * 1.1, 0.0, 1.0);
   var bg = mix(vec3f(0.0015, 0.0012, 0.0035), vec3f(0.0055, 0.0045, 0.011), v);
@@ -11804,8 +11837,9 @@ struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
   bg = mix(bg, bg * mix(vec3f(0.85, 0.88, 0.94), vec3f(1.12, 1.06, 1.0), lamp), k) + (murkColor(ml) + floorLit(lit, m) * k) * behind;
   c = c * mix(0.72, 1.0, v) * mix(1.0, mix(0.88, 1.05, lamp), k) + bg;
   c = pondSpecks(c, hdr, i.pos.xy, min(1.0, live.a), litGain(lit, 0.0));
-  c = poolOver(c, wp, pool, post.ppu, k, behind, surf.slope, lit);
-  c = extremes(c, water, behind, bub);
+  let fc = fieldAt(fieldC, i.uv);
+  c = poolOver(c, wp, poolAt(wp), post.ppu, k, behind, fc.xy, lit);
+  c = extremes(c, fieldWater(fc), behind, bub);
   c = shadeOver(c, wp);
   c = instrument(c, wp, post.ppu);
   // the eyepiece's field stop and the dust on its optics (opticsMain, as the frame's size and the look leave them)
@@ -17378,6 +17412,7 @@ struct SV {
   var SHAPE_TILE = 64;
   var SHAPE_COLS = 32;
   var SHAPE_CAP = 16;
+  var FIELD_STEP = 2;
   var MAX_STEPS = 512;
   async function createEngine(device, format, { hasTimestamps = false, K = {}, onProgress = null, late = false } = {}) {
     const unknown = Object.keys(K).filter((k) => !(k in DEFAULT_K));
@@ -17797,6 +17832,13 @@ struct SV {
         this.pCompLean = a;
         this.pCompClearLean = c;
       }).catch(() => {
+      });
+      this.pField = rPipe({
+        layout: "auto",
+        label: "fsField",
+        primitive: { topology: "triangle-list" },
+        vertex: { module: this.postModule, entryPoint: "vsComp" },
+        fragment: { module: this.postModule, entryPoint: "fsField", targets: [0, 1, 2].map(() => ({ format: "rgba16float" })) }
       });
       this.cpCompPick = cPipe({ layout: "auto", compute: { module: this.postModule, entryPoint: "compPick" }, label: "compPick" });
       b.compArgs = d.createBuffer({ size: 32, usage: U.STORAGE | U.INDIRECT });
@@ -18375,6 +18417,18 @@ ${e.message}` : String(e?.message || e));
         { binding: 21, resource: this.seaFieldTex[0].createView() },
         { binding: 22, resource: this.seaFieldTex[1].createView() }
       ] });
+      this.fieldTex?.forEach((t) => t.destroy());
+      this.fieldTex = [0, 1, 2].map(() => d.createTexture({ size: [Math.ceil(w / FIELD_STEP), Math.ceil(h / FIELD_STEP)], format: "rgba16float", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING }));
+      this.fieldViews = this.fieldTex.map((t) => t.createView());
+      this.fieldBG = d.createBindGroup({ layout: this.pField.getBindGroupLayout(0), entries: [
+        { binding: 0, resource: this.sampler },
+        { binding: 2, resource: { buffer: this.b.post } },
+        { binding: 11, resource: { buffer: this.b.thermal } },
+        { binding: 13, resource: this.seaView },
+        { binding: 14, resource: this.seaSampler },
+        { binding: 23, resource: this.seaFieldTex[0].createView() },
+        { binding: 24, resource: this.seaFieldTex[1].createView() }
+      ] });
       this.murkView = this.murkTex.createView();
       this.microTex = tex(w, h);
       this.microView = this.microTex.createView();
@@ -18410,8 +18464,9 @@ ${e.message}` : String(e?.message || e));
         { binding: 10, resource: this.microView },
         { binding: 11, resource: { buffer: this.b.thermal } },
         { binding: 12, resource: this.liveView },
-        { binding: 13, resource: this.seaView },
-        { binding: 14, resource: this.seaSampler },
+        { binding: 18, resource: this.fieldViews[0] },
+        { binding: 19, resource: this.fieldViews[1] },
+        { binding: 28, resource: this.fieldViews[2] },
         { binding: 23, resource: this.seaFieldTex[0].createView() },
         { binding: 24, resource: this.seaFieldTex[1].createView() },
         { binding: 26, resource: this.opticsTex.createView() }
@@ -20849,6 +20904,13 @@ ${e.message}` : String(e?.message || e));
         cp.setBindGroup(0, this.seaFieldBG);
         cp.dispatchWorkgroups(Math.ceil(this.seaFieldTex[0].width / 8), Math.ceil(this.seaFieldTex[0].height / 8));
         cp.end();
+      }
+      {
+        const pass2 = enc.beginRenderPass({ colorAttachments: this.fieldViews.map((view) => ({ view, loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" })), timestampWrites: tsBegin() });
+        pass2.setPipeline(this.pField);
+        pass2.setBindGroup(0, this.fieldBG);
+        pass2.draw(3);
+        pass2.end();
       }
       const lean = this.pCompLean && pd[56] >= 1 && !(this.duck[3] > 0) && !(this.tool[4] > 0) && !(pd[6] > 0.5) && !(pd[55] > 0.5) && !(pd[15] > 1.5) && !(this.lens[3] > 0);
       if (this.pCompLean && !this.compLeanBG) this._rebindLate();
@@ -36662,9 +36724,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "ea6115a26c539cc0") return;
+      if (localStorage.getItem(key) === "7e50b8188eca5316") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "ea6115a26c539cc0");
+      if (res) localStorage.setItem(key, "7e50b8188eca5316");
     } catch {
     }
   }
@@ -41291,7 +41353,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           k.cost = ms;
           if (share2 > 0) k.full = ms / share2;
         }
-        const hz = tune.haze, mc = tune.microscope, comp2 = (prof.passes.fsComposite || 0) / prof.n;
+        const hz = tune.haze, mc = tune.microscope, comp2 = ((prof.passes.fsComposite || 0) + (prof.passes.fsField || 0)) / prof.n;
         if (comp2 > 0) {
           hz.cost = mc.cost = comp2;
           if (state.map === "off" && performance.now() - Math.max(hz.since || 0, mc.since || 0) > 2500) {
