@@ -514,12 +514,29 @@ slower. How it was found (`bench.mjs --android`, `kind: step`, the sim module pa
     pixels a unit and 5.1 → 6.4 at 80, where the plain pipeline draws: left as it was.
   - `lifeMain`'s bends (`bendOn`, `tailBases`: 0.9 of its 3.3 ms kept from running): `bendAt` told whether its arm is
     the mother, in place of `treeMom`'s reads again for every bend: 3.28 → 3.1. Left out.
-- **Next on a phone**: tools that show what Adreno's compiler holds (none found: every probe is a page load on the
-  phone); `senseMain`'s body in kernels of its own (bonds, matter, the living), each leaner; `lifeMain`'s bonds
-  (1.5 of its 3.2 ms); the cells' fragment shader, unprobed; and what the tuner prefers on such a device: at 30
-  fps everything fits a young world at 0.7 scale, where it now keeps 60 fps and gives up the haze and the
-  microscope. Heat: a few minutes of benchmarks took the phone to thermal state 2-3 without a fan, where every
-  pass ran about 1.5 times slower.
+- **A lighter microscope: not worth a tier.** At 80 pixels a unit the composite takes 4.93 ms with everything, 4.13
+  with the microscope off (the tuner's knob), 4.29 with the haze off, 3.10 with both. Kept from running one part at a
+  time: the lens 5.4 (slower), the look's edges 4.4, the shadows 5.0, the fringes 5.6. What "off" saves is small beside
+  what the code's presence costs (1.3 ms with all of it compiled out).
+- **The composite's smooth fields from a small pass** (emulated: the composite reading a texture in their place):
+  the water's heat and the haze 4.9 → 3.6 ms; those and the scene's light 4.05; those and the water's surface 2.7,
+  every effect kept. Being built (a half-resolution pass before the composite).
+- **Why the cliff** (Mesa's open driver for the same GPU, `src/freedreno/ir3`: `ir3_ra.h`, `ir3.c`,
+  `freedreno_devices.py`): an a6xx thread has at most 48 vec4 registers (192 values), past which values spill to
+  private memory (`stp`/`ldp`); and an a630 keeps floor(96 / a shader's vec4 registers) × 2 waves of 64 threads
+  resident, so about 16 waves at 12 registers or fewer, 10 at 18, 6 at 26-32, 4 at 33-48: the slope before the
+  cliff. 16-bit values take half a register from the same file; the Pixel 3 has no `shader-f16`, so WGSL cannot
+  ask for them there. Uniforms live in a file of their own.
+- **Seeing it without the phone** (not built yet): Mesa's Vulkan driver for Adreno (turnip) runs on a desktop
+  against a pretended a630 (`drm-shim`, `FD_GPU_ID=630`), and with `IR3_SHADER_DEBUG=cs,fs,nocache` prints each
+  pipeline's disassembly, full and half registers, waves and spills; the `webgpu` package's Dawn can be pointed at
+  it (`VK_DRIVER_FILES`), so the page's own WGSL goes through Tint as in Chrome. Another compiler than Qualcomm's:
+  a proxy for which side of the line a shader is on and roughly how far, not for small differences. The phone's own
+  SPIR-V comes from Chrome's `--enable-dawn-features=dump_shaders` (to the page's console). Qualcomm's compiled
+  shaders themselves: freedreno's `libwrap` around a native Vulkan runner, read with `cffdump` (a day or two).
+- **Next on a phone**: that tooling; the composite's field pass; the cells' fragment shader (its partners' loop);
+  `lifeMain`'s bonds (1.5 of its 3.2 ms). Heat: a few minutes of benchmarks took the phone to thermal state 2-3
+  without a fan, where every pass ran about 1.5 times slower.
 
 ## Where to look next (left off 2026-11-04, branch mac-perf merged; 2026-11-12 above)
 
