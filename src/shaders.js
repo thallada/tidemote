@@ -976,7 +976,7 @@ ${scan ? '' : `  // a tree holds its angles (bendOn), and a body bearing tails t
   // each grid cell: a living range's particles are all at least FIRST_LIFE, a matter range's all below)
   const ranges = (live) => /* wgsl */ `  for (var k = ${live ? '0u' : '9u'}; k < ${live ? '9u' : '18u'}; k++) {
     let k9 = i32(k % 9u);
-    let cell = u32(((cc.y + k9 / 3 - 1 + gh) % gh) * gw + (cc.x + k9 % 3 - 1 + gw) % gw);
+    let cell = u32(wrapNear(cc.y + k9 / 3 - 1, gh) * gw + wrapNear(cc.x + k9 % 3 - 1, gw));
     let cs0 = cellStart[cell];
     let lvk = cellStart[LIVE_AT + cell];
     let rs0 = ${live ? 'cs0' : 'cs0 + lvk'};
@@ -1990,6 +1990,8 @@ fn heatCell(x: i32, y: i32) -> f32 {
   let gh = i32(sim.grid.y);
   return thermal[u32(((y % gh) + gh) % gh) * sim.grid.x + u32(((x % gw) + gw) % gw)];
 }
+// A grid coordinate at most one cell outside the grid (-1..n), wrapped: ((x + n) % n) without a division.
+fn wrapNear(x: i32, n: i32) -> i32 { return select(select(x, x - n, x >= n), x + n, x < 0); }
 // Grid cell (x, y), wrapping.
 fn wrapCell(x: i32, y: i32) -> u32 {
   let gw = i32(sim.grid.x);
