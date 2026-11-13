@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SEA, SEA_N, SEA_CASCADES, seaLayout, seaScales, seaRadial, seaHeightRms } from '../src/sea.js';
+import { SEA, SEA_N, SEA_CASCADES, seaLayout, seaScales, seaRadial, seaHeightRms, seaBands, seaDrift } from '../src/sea.js';
 import { SEA_WGSL, POST_WGSL } from '../src/shaders.js';
 
 const world = [146, 82];
@@ -61,4 +61,31 @@ test('the sea WGSL expands', () => {
 test('the tunables\' defaults are the sea as it ships', async () => {
   const { seaTuneDefaults, seaSpecOf } = await import('../src/seatune.js');
   assert.deepEqual(seaSpecOf(SEA, seaTuneDefaults(SEA)), { ...SEA, systems: SEA.systems.map((s) => ({ ...s })) });
+});
+
+test('the GPU turns only the frequencies that hold waves, and only the cascades that hold any', () => {
+  const kc = (2 * Math.PI) / SEA.lmin;
+  // a phone's 8k world: all of its waves in the first cascade
+  assert.deepEqual(seaBands(seaLayout([27, 14])).map((b) => b.holds), [true, false]);
+  for (const w of [[27, 14], world, [600, 330]]) {
+    const L = seaLayout(w), B = seaBands(L);
+    L.forEach((c, i) => {
+      const { fx, fy } = B[i];
+      assert.ok(fx < SEA_N / 2 && fy < SEA_N / 2);
+      // every wavenumber left out lies past the band or past three times the damping wavenumber
+      for (let j = -SEA_N / 2; j < SEA_N / 2; j++) for (let k = -SEA_N / 2; k < SEA_N / 2; k++) {
+        if (Math.abs(k) <= fx && Math.abs(j) <= fy) continue;
+        const kk = Math.hypot((2 * Math.PI * k) / c.L[0], (2 * Math.PI * j) / c.L[1]);
+        assert.ok(kk >= Math.min(c.k1, 3 * kc) - 1e-9, `${w} cascade ${i}: (${k}, ${j})`);
+      }
+    });
+  }
+});
+
+test('the sea drifts along the wind between its two systems\' crests\' speeds', () => {
+  const v = seaDrift(seaLayout([27, 14]));
+  // each system's crests run at w/k: the first's lp/Tp, the second's slower as k^(beta - 1)
+  const c0 = SEA.systems[0].lp / SEA.Tp, c1 = c0 * (SEA.systems[1].lp / SEA.systems[0].lp) ** (1 - SEA.beta);
+  assert.ok(v > c1 && v < c0, `${v} not within ${c1}..${c0}`);
+  assert.ok(Math.abs(v / seaDrift(seaLayout(world)) - 1) < 0.05);
 });

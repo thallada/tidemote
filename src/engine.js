@@ -7,7 +7,7 @@ import {
   packUnorm, ARCHETYPE_TYPES,
 } from './genome.js';
 import { TIDE_PHASE } from './flow.js';
-import { SEA, SEA_N, SEA_CASCADES, SEA_LAYERS, seaLayout, seaScales, seaHeightRms } from './sea.js';
+import { SEA, SEA_N, SEA_CASCADES, SEA_LAYERS, seaLayout, seaScales, seaHeightRms, seaBands, seaDrift } from './sea.js';
 import { seaTuneDefaults, seaSpecOf } from './seatune.js';
 import { makeRelief, reliefSteps, rankSteps, makeIceOrder } from './geography.js';
 import { LOOK_WORDS } from './look.js';
@@ -92,6 +92,8 @@ const COMPILE_COST = { lifeMain: 26, fsPoint: 15, 'fsPointLive+live': 13, fsComp
 
 // how long the sea's wind takes to turn toward the tide's drift (simulated seconds, its time constant)
 const SEA_WIND_EASE = 30;
+// the sea's uniforms (SEA_WGSL's SeaU): the cascades, the systems, wave, clock, shape, seed, and the layers turned
+const SEA_U_BYTES = 16 * (SEA_CASCADES + SEA.systems.length + 4 + SEA_LAYERS);
 // how long a frame works out a new floor for (ms; shiftFloor)
 const FLOOR_MS = 2;
 
@@ -163,12 +165,12 @@ class Engine {
     this.censusEvery = 20;
     this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 0, heat: 1, bands: 0, optics: 1, specks: true, lod: true };
     // The dressing the page's tuner picks (src/tuner.js; Settings → Performance), on top of the viewer's settings,
-    // never saved into them: how often the sea is turned (frames between, 0: no sea),
-    // bloom and specks allowed, and how often the stone is lit again while the world runs (seconds).
+    // never saved into them: how often the sea is turned (frames between, 0: no sea), how often a grid cell searches for
+    // its cells' contacts (frames between: contactGather), bloom and specks allowed, and how often the stone is lit again while the world runs (seconds).
     // haze: the heat haze over warm water allowed; microscope: the optics and the look (about half the composite)
     // interiors: cells drawn large show their insides, in the main view, the loupe and the live close-up (false: the
     // lean pipeline for every cell, outlines, walls and tissue kept)
-    this.fx = { seaEvery: 1, bloom: true, specks: true, stoneEvery: STONE_EVERY, haze: true, microscope: true, interiors: true };
+    this.fx = { seaEvery: 1, contactsEvery: 2, bloom: true, specks: true, stoneEvery: STONE_EVERY, haze: true, microscope: true, interiors: true };
     // (bloom, the sea and the microscope's optics and look fade in and out over a second or so as fx turns them, never
     // flipping: _fadeFx; the close-up keeps the look whole, so a card's portrait never has it faded)
     this.fxFade = { bloom: 1, sea: 1, look: 1, t: null };
@@ -266,12 +268,12 @@ class Engine {
     b.postPlain = d.createBuffer({ size: POST_WORDS * 4, usage: U.UNIFORM | U.COPY_DST });
     // the sea (SEA_WGSL, src/sea.js): its uniforms, and every cascade's slope and displacement, then their heights,
     // mipmapped (its amplitudes and working buffer are made with the first frame: _seaBuffers)
-    b.seaU = d.createBuffer({ size: 128, usage: U.UNIFORM | U.COPY_DST });
+    b.seaU = d.createBuffer({ size: SEA_U_BYTES, usage: U.UNIFORM | U.COPY_DST });
     this.seaTex = d.createTexture({ size: [SEA_N, SEA_N, SEA_LAYERS], format: 'rgba16float', mipLevelCount: Math.log2(SEA_N) + 1,
       usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING, label: 'sea' });
     this.seaView = this.seaTex.createView({ dimension: '2d-array' });
     this.seaSampler = d.createSampler({ addressModeU: 'repeat', addressModeV: 'repeat', magFilter: 'linear', minFilter: 'linear', mipmapFilter: 'linear', maxAnisotropy: 8 });
-    this.seaData = new ArrayBuffer(128);
+    this.seaData = new ArrayBuffer(SEA_U_BYTES);
     this._seaOn = false;
     // the sea's tunables (src/seatune.js; Settings → Display sets its height and pace): its look, its pace, calm
     // water's share of a storm's, its waves (seaRebuild after changing those)
@@ -395,6 +397,7 @@ class Engine {
     const inbond = shader({ code: INBOND_WGSL, label: 'inbond' });
     this.cpInbond = ['inbondReset', 'inbondGather', 'contactGather'].map((entryPoint) => cPipe({ layout: 'auto', compute: { module: inbond, entryPoint }, label: entryPoint }));
     this.cpOrgans = cPipe({ layout: 'auto', compute: { module: inbond, entryPoint: 'organDirs' }, label: 'organDirs' });
+    this.cpCarry = cPipe({ layout: 'auto', compute: { module: inbond, entryPoint: 'touchCarry' }, label: 'touchCarry' });
     b.organDir = d.createBuffer({ size: MAXK * ORGANS * 4, usage: U.STORAGE });
     // the shape atlas (DRAW_WGSL): each species slot's bodies baked into a tile of SHAPE_TILE² texels, SHAPE_COLS
     // tiles a row (16 MB); the slots to bake each frame and the serial each was baked for
@@ -762,8 +765,8 @@ class Engine {
     b.subL?.destroy();
     b.subL = d.createBuffer({ size: (1 + n) * 4, usage: U.STORAGE | U.COPY_DST });
     b.bondsIn = d.createBuffer({ size: n * 20, usage: U.STORAGE });
-    // contacts start absent (NONE) until the first gather in view
-    b.touch = d.createBuffer({ size: n * 24, usage: U.STORAGE, mappedAtCreation: true });
+    // contacts start absent (NONE) until the first gather in view; kept row for row with the sway table (contactGather)
+    b.touch = d.createBuffer({ size: Math.min(n, 1 << 20) * 24, usage: U.STORAGE | U.COPY_SRC, mappedAtCreation: true });
     new Uint32Array(b.touch.getMappedRange()).fill(0xffffffff);
     b.touch.unmap();
     // each cell's drawn motion and recent events, by ID (contactGather): only cells in view need a slot
@@ -840,9 +843,9 @@ class Engine {
       b.stoneBands.slice(0, 4).map((band) => d.createBindGroup({ layout: this.pStone.getBindGroupLayout(0), entries: stoneEntries(view, band) })),
       d.createBindGroup({ layout: this.pStoneEdge.getBindGroupLayout(0), entries: stoneEntries(view, b.stoneBands[4]) })];
     this.bgStone = stoneBG(b.viewC); this.bgStoneL = stoneBG(b.viewL); this.bgStoneS = stoneBG(b.viewS);
-    const inbondRes = [null, b.intent, b.parts, b.bondsIn, b.inbondU, b.cellStart, b.touch, b.genomes, b.sway];
-    const inbondUse = [[2, 3, 4, 5], [1, 2, 3, 4, 5], [1, 2, 4, 5, 6, 7, 8]];
-    this.inbondBG = this.cpInbond.map((pipe, k) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0),
+    const inbondRes = [null, b.intent, b.parts, b.bondsIn, b.inbondU, b.cellStart, b.touch, b.genomes, b.sway, null, b.aux];
+    const inbondUse = [[2, 3, 4, 5], [1, 2, 3, 4, 5], [1, 2, 4, 5, 6, 7, 8], [2, 4, 5, 6, 8, 10]];
+    this.inbondBG = [...this.cpInbond, this.cpCarry].map((pipe, k) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0),
       entries: inbondUse[k].map((binding) => ({ binding, resource: { buffer: inbondRes[binding] } })) }));
     // (vsBridge sizes cells as vsPoint does, so it reads sway; vsLine doesn't)
     const lineBG = (pipe, view, k, sway = false) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
@@ -1485,15 +1488,15 @@ class Engine {
     const d = this.device, b = this.b, P = this.seaPipes, U = GPUBufferUsage;
     const bytes = SEA_N * SEA_N * 16;
     b.seaH0 = d.createBuffer({ size: SEA_CASCADES * bytes, usage: U.STORAGE, label: 'seaH0' });
-    b.seaWork = d.createBuffer({ size: SEA_LAYERS * bytes, usage: U.STORAGE, label: 'seaWork' });
+    b.seaWork = d.createBuffer({ size: SEA_LAYERS * bytes, usage: U.STORAGE | U.COPY_DST, label: 'seaWork' });
     const bg = (pipe, entries) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: entries.map(([binding, resource]) => ({ binding, resource })) });
     const level = (l) => this.seaTex.createView({ dimension: '2d-array', baseMipLevel: l, mipLevelCount: 1 });
     this.seaBG = {
       init: bg(P.init, [[0, { buffer: b.seaU }], [1, { buffer: b.seaH0 }]]),
       spectrum: bg(P.spectrum, [[0, { buffer: b.seaU }], [1, { buffer: b.seaH0 }], [2, { buffer: b.seaWork }]]),
-      rows: bg(P.rows, [[2, { buffer: b.seaWork }]]),
-      cols: bg(P.cols, [[2, { buffer: b.seaWork }], [3, level(0)]]),
-      mips: Array.from({ length: Math.log2(SEA_N) }, (_, i) => bg(P.mip, [[3, level(i + 1)], [4, level(i)]])),
+      rows: bg(P.rows, [[0, { buffer: b.seaU }], [2, { buffer: b.seaWork }]]),
+      cols: bg(P.cols, [[0, { buffer: b.seaU }], [2, { buffer: b.seaWork }], [3, level(0)]]),
+      mips: Array.from({ length: Math.log2(SEA_N) }, (_, i) => bg(P.mip, [[0, { buffer: b.seaU }], [3, level(i + 1)], [4, level(i)]])),
     };
   }
 
@@ -1517,8 +1520,11 @@ class Engine {
       let h = (this.seedValue ^ Math.imul(this._seaRoll ?? 0, 0x85ebca6b)) >>> 0;
       const rnd = () => ((h = (Math.imul(h ^ (h >>> 15), 0x2c1b3c6d) + 0x9e3779b9) >>> 0) / 2 ** 32);
       const P = this.seaSpec, layout = seaLayout(this.grid, P), scale = seaScales(layout, P), S = 4 * SEA_CASCADES, Y = S + 4 * P.systems.length;
-      layout.forEach((c, i) => f.set([c.L[0], c.L[1], c.k0, c.k1], i * 4));
+      // (a cascade that holds no waves turned nowhere: its band empty, and its layer left out, seaBands)
+      const bands = seaBands(layout, P), on = bands.flatMap((c, i) => (c.holds ? [i] : []));
+      layout.forEach((c, i) => f.set([c.L[0], c.L[1], c.k0, bands[i].holds ? c.k1 : c.k0], i * 4));
       this._seaHrms = seaHeightRms(layout, P);
+      this._seaDrift = seaDrift(layout, P);
       P.systems.forEach((sys, j) => f.set([(2 * Math.PI) / sys.lp, scale[j], sys.spread, 0], S + j * 4));
       f.set([0, P.p, P.gamma, (2 * Math.PI) / P.lmin], Y);
       this._seaWindAt = Y;
@@ -1527,6 +1533,11 @@ class Engine {
       f.set([P.beta, 0, 0, 0], Y + 8);
       u[Y + 12] = (rnd() * 2 ** 32) >>> 0;
       this._seaClock = Y + 4;
+      // the layers turned: the cascades that hold waves, then their heights (over the frequencies any of them holds)
+      const lay = [...on.map((i) => [i, bands[i].fx, bands[i].fy]), [SEA_CASCADES, Math.max(0, ...on.map((i) => bands[i].fx)), Math.max(0, ...on.map((i) => bands[i].fy))]];
+      lay.forEach((l, z) => u.set([...l, 0], Y + 16 + 4 * z));
+      this._seaLayers = lay.length;
+      this._seaRows = 2 * Math.max(...lay.map((l) => l[2])) + 1;
     }
     // how much time the sea's clock covers this frame: the real time passed, times the sim's speed (simulated time over
     // real time) to the power `follow` (1: simulated time; 0: real time, whatever the speed)
@@ -1547,21 +1558,26 @@ class Engine {
     // (turned half a circle: a wave of wavenumber k runs toward -k here, h0 e^{iwt} across e^{ik.x}, so the spread
     // favors the wavenumbers against the wind for the waves to run with it)
     // turned only when its clock moved (not paused), and turned less often by the tuner only every seaEvery frames (the
-    // clock runs on between, so the waves keep their pace, in steps)
+    // clock runs on between, and the composite reads the sea carried along its drift since: _seaPost)
     this._seaSkip = (this._seaSkip ?? 0) + 1;
     if (!fresh && (dt <= 0 || this._seaSkip < (this.fx.seaEvery || 4))) return;
     this._seaSkip = 0;
+    // (the clock and the wind it was turned at: read carried along its drift until the next, _seaPost)
+    this._seaTurn = [this._seaT, this._seaWind];
     f[this._seaWindAt] = this._seaWind + Math.PI;
     f[this._seaClock] = this._seaT;
     d.queue.writeBuffer(this.b.seaU, 0, this.seaData);
+    // (fresh, the working buffer zeroed: only the bands' rows are written after)
+    if (fresh) this._clear(enc, this.b.seaWork, 0, this.b.seaWork.size);
     const pass = enc.beginComputePass({ label: 'sea' });
     if (fresh) { pass.setPipeline(P.init); pass.setBindGroup(0, this.seaBG.init); pass.dispatchWorkgroups(N / 16, N / 16, SEA_CASCADES); }
-    // (the spectrum, the FFT and the mipmaps over every layer: the cascades', then their heights')
-    pass.setPipeline(P.spectrum); pass.setBindGroup(0, this.seaBG.spectrum); pass.dispatchWorkgroups(N / 16, N / 16, SEA_LAYERS);
-    pass.setPipeline(P.rows); pass.setBindGroup(0, this.seaBG.rows); pass.dispatchWorkgroups(N, SEA_LAYERS);
-    pass.setPipeline(P.cols); pass.setBindGroup(0, this.seaBG.cols); pass.dispatchWorkgroups(N, SEA_LAYERS);
+    // (the spectrum and the FFT over the bands' rows of the layers that hold waves, seaBands, then the mipmaps)
+    const Z = this._seaLayers, rows = this._seaRows;
+    pass.setPipeline(P.spectrum); pass.setBindGroup(0, this.seaBG.spectrum); pass.dispatchWorkgroups(N / 16, Math.ceil(rows / 16), Z);
+    pass.setPipeline(P.rows); pass.setBindGroup(0, this.seaBG.rows); pass.dispatchWorkgroups(rows, Z);
+    pass.setPipeline(P.cols); pass.setBindGroup(0, this.seaBG.cols); pass.dispatchWorkgroups(N, Z);
     pass.setPipeline(P.mip);
-    this.seaBG.mips.forEach((g, i) => { const n = Math.max(1, N >> (i + 1)); pass.setBindGroup(0, g); pass.dispatchWorkgroups(Math.ceil(n / 8), Math.ceil(n / 8), SEA_LAYERS); });
+    this.seaBG.mips.forEach((g, i) => { const n = Math.max(1, N >> (i + 1)); pass.setBindGroup(0, g); pass.dispatchWorkgroups(Math.ceil(n / 8), Math.ceil(n / 8), Z); });
     pass.end();
   }
 
@@ -1612,6 +1628,11 @@ class Engine {
     // the sea's height in a storm's rms heights (seaHeightRms: the spectrum's, the same for every roughness), as high
     // as the sea is now, for the shallow focus
     pd[100 + 4 * SEA_CASCADES] = a / (this._seaHrms || 1);
+    // how far its waves have drifted since it was last turned (seaDrift: along the wind it was turned at), so a sea
+    // turned every few frames (fx.seaEvery) keeps moving between
+    const [t0, wind] = this._seaTurn ?? [this._seaT, 0], T = SEA.T, ago = ((((this._seaT - t0) % T) + 1.5 * T) % T) - 0.5 * T;
+    pd[101 + 4 * SEA_CASCADES] = this._seaDrift * ago * Math.cos(wind);
+    pd[102 + 4 * SEA_CASCADES] = this._seaDrift * ago * Math.sin(wind);
   }
 
   _writeSim(extra = {}) {
@@ -1730,6 +1751,13 @@ class Engine {
     }
     if (this.K.heat) run('heatMain', Math.ceil(cells / HEAT_WG));
     if (!prof) pass.end();
+    // the contacts kept for the cells in view carried through this step's sort (touchCarry), for the grid cells that do
+    // not search next (contactGather); a step outside the frame's has every one search
+    if (prof) this._gatherKey = null;
+    else if (this._carry) {
+      const p = enc.beginComputePass();
+      p.setPipeline(this.cpCarry); p.setBindGroup(0, this.inbondBG[3]); p.dispatchWorkgroups(...this._carry); p.end();
+    }
     // the next temperatures and ice become this step's, and how many cells hold ice and hot water the next step's to read
     if (this.K.heat) {
       enc.copyBufferToBuffer(b.heatNext, 0, b.thermal, 0, cells * 4);
@@ -3027,15 +3055,18 @@ class Engine {
       else if (loupeLod) rect(0, loupe.cx, loupe.cy, LOUPE_FIELD * loupe.r / loupe.ppu, LOUPE_FIELD * loupe.r / loupe.ppu);
       if (specLod) rect(1, specimen.cx, specimen.cy, specimen.w / (2 * specimen.ppu), specimen.h / (2 * specimen.ppu));
       u[16] = gw; u[17] = gh; new Float32Array(u.buffer)[18] = time; new Float32Array(u.buffer)[19] = this.simTime % 4096;
-      // half the grid cells search for contacts each frame, alternating (contactGather), while the cells gathered
-      // stay those of the frame before and the world has not stepped since (a step sorts the particles anew, and
-      // the contacts kept are by sorted place: read back after one they were other cells', and a mat's cells
-      // flickered between their tiles and their own shapes): every one searches the first frame they change
-      const key = `${u.subarray(0, 16).join()},${this.worldGeneration},${this.frameNo}`;
-      this._gatherOdd = !this._gatherOdd;
-      u[2] = +this._gatherOdd;
-      u[3] = key === this._gatherKey ? 1 : 0;
-      this._gatherKey = key;
+      // a share of the grid cells search for contacts each frame, in turn (fx.contactsEvery: half, or a quarter;
+      // contactGather), while the cells gathered stay those of the frame before (and the world the same); the rest
+      // take back theirs, kept by id and carried through the steps between (touchCarry, over these grid cells; u[11]
+      // the time the last gathering's records hold), stepped or not (once kept by sorted place, read back after a
+      // step they were other cells', and every cell searched whenever the world had stepped: 3916aa0)
+      const key = `${u.subarray(0, 16).join()},${this.worldGeneration}`;
+      this._gatherN = ((this._gatherN ?? 0) + 1) % 4;
+      u[2] = this._gatherN;
+      u[3] = key === this._gatherKey ? this.fx.contactsEvery : 0;
+      u[11] = this._gatherT ?? 0;
+      this._gatherKey = key; this._gatherT = u[18];
+      this._carry = [Math.max(u[8], u[12]), Math.max(u[9], u[13]), specLod ? 2 : 1];
       d.queue.writeBuffer(this.b.inbondU, 0, u);
       const pass = enc.beginComputePass({ timestampWrites: tsBegin() });
       for (let k = 0; k < 3; k++) {
@@ -3047,7 +3078,7 @@ class Engine {
       pass.setBindGroup(0, this.organsBG);
       pass.dispatchWorkgroups(Math.ceil((MAXK * ORGANS) / 64));
       pass.end();
-    } else this._gatherKey = null;
+    } else this._gatherKey = this._carry = null;
     {
       const clear = this.clearAccum || this.settings.trails <= 0 || !this.lastCam;
       this.clearAccum = false;

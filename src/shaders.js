@@ -2,7 +2,7 @@
 // Kinds: 0 silt, 1 (unused: once glint), 2 husk, 3 stone, 4 framboid, 5..1023 living genomes.
 // Each living genome has up to three cell roles with their own signatures.
 
-import { SEA, SEA_N, SEA_CASCADES } from './sea.js';
+import { SEA, SEA_N, SEA_CASCADES, SEA_LAYERS } from './sea.js';
 
 export const MAXK = 1024;
 export const FIRST_LIFE = 5;
@@ -4515,13 +4515,67 @@ fn inbondGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_inde
 }
 
 // The six living cells each cell in view presses against hardest, nearest first, so vsPoint can
-// flatten the two membranes against each other (fused partners too: they share a wall).
+// flatten the two membranes against each other (fused partners too: they share a wall), kept beside its record
+// (row for row with the sway table, by id, so they need nothing from the sort to be found again).
 // Observational: only drawing reads it.
 const TOUCH_N = 6u;
 @group(0) @binding(6) var<storage, read_write> touch: array<u32>;
 @group(0) @binding(7) var<storage, read> genomes: array<Genome>;
 @group(0) @binding(8) var<storage, read_write> sway: array<Sway>;
+// where the last step sorted each particle (resolveCount: its grid cell and rank), for touchCarry
+@group(0) @binding(10) var<storage, read> aux: array<vec2u>;
 ${SWAY_SLOTS}
+const LIVE_BIT = 0x80000000u;
+const LIVE_AT = ${MAX_CELLS + 1}u;
+fn sortedTo(a: vec2u) -> u32 {
+  if ((a.y & LIVE_BIT) != 0u) { return cellStart[a.x] + (a.y & ~LIVE_BIT); }
+  return cellStart[a.x] + cellStart[LIVE_AT + a.x] + a.y;
+}
+// the slot of a cell's record written by the last gathering (views.count[0].w its time), or NONE: its contacts
+// kept there are its own, carried through every step since (touchCarry)
+fn keptSlot(id: u32) -> u32 {
+  let n = arrayLength(&sway);
+  let a = id % n;
+  let last = bitcast<f32>(views.count[0].w);
+  if (sway[a].id == id && sway[a].time == last) { return a; }
+  let b = swaySlot2(id, n);
+  if (sway[b].id == id && sway[b].time == last) { return b; }
+  return NONE;
+}
+var<workgroup> stale: atomic<u32>;
+// A cell's slot: the one holding its record; else the first, unless another cell holds that one (seen within half a
+// second of real time or two of sim time: a dead cell's record is read for its last moments, 1.6 s at most), then the
+// second
+fn recordSlot(id: u32, now: f32) -> u32 {
+  let n = arrayLength(&sway);
+  let a = id % n;
+  if (sway[a].id == id) { return a; }
+  var real = now - sway[a].time;
+  if (real < 0.0) { real += SIM_WRAP; }
+  var simAge = bitcast<f32>(views.grid.w) - sway[a].simT;
+  if (simAge < 0.0) { simAge += SIM_WRAP; }
+  let b = swaySlot2(id, n);
+  return select(a, b, sway[b].id == id || real < 0.5 || simAge < 2.0);
+}
+
+// After each step, the contacts the last gathering kept for the cells in view carried through its sort (aux), as
+// scatterMain carries bonds: a grid cell that does not search reads its cells' own, wherever the sort put them and their
+// contacts (Engine._step, while contacts are kept; the grid cells gathered last, and count[0].w their records' time)
+@compute @workgroup_size(64)
+fn touchCarry(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_index) l: u32) {
+  let r = cellRange(wg);
+  for (var i = r.x + l; i < r.y; i += 64u) {
+    let q = parts[i];
+    if (q.kind < FIRST_LIFE) { continue; }
+    let slot = keptSlot(q.id);
+    if (slot == NONE) { continue; }
+    for (var c = 0u; c < TOUCH_N; c++) {
+      let j = touch[slot * TOUCH_N + c];
+      if (j == NONE) { break; }
+      touch[slot * TOUCH_N + c] = select(NONE, sortedTo(aux[j]), j < arrayLength(&aux));
+    }
+  }
+}
 
 fn drawnSize(p: Particle) -> f32 { return genomes[p.kind].size * (1.0 - 0.12 * f32(roleOf(p.info))); }
 
@@ -4576,15 +4630,26 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
   // this grid cell (its particles were sorted into it before this step moved them)
   let at = ((views.first[wg.z].xy + vec2i(wg.xy)) % g + g) % g;
   let center = vec2f(at) + 0.5;
-  // Half the grid cells search for their cells' contacts each frame, by a checkerboard that alternates (first[0].w 1,
-  // first[0].z the frame's parity), the rest reading back last frame's (touch): which cells a cell touches changes over
-  // frames, not within one, and vsPoint places each contact where it is now. The gathering and sorting it takes was
-  // most of this pass (an M1, a 32k world at 40 pixels a unit: 2.7 ms of 4.6). The engine has every cell search when
-  // the grid cells gathered change (Engine._render).
-  let search = views.first[0].w == 0 || ((u32(at.x + at.y) + u32(views.first[0].z)) & 1u) == 0u;
-  if (l == 0u) { atomicStore(&nearCount, 0u); atomicStore(&nearMaxSize, 0u); }
+  // Half the grid cells search for their cells' contacts each frame, by a checkerboard that alternates (first[0].w 2,
+  // first[0].z the frame's count; 4: a quarter, by 2 × 2 tiles; 0: all of them), the rest taking back last frame's
+  // (touch, kept by id beside the record and carried through the steps between by touchCarry): which cells a cell
+  // touches changes over frames, not within one, and vsPoint places each contact where it is now. The gathering and
+  // sorting it takes was most of this pass (an M1, a 32k world at 40 pixels a unit: 2.7 ms of 4.6). A grid cell
+  // holding a living cell with no contacts kept from the last gathering (a newborn, one come into the gathered cells)
+  // searches anyway, and the engine has every cell search when the grid cells gathered change (Engine._render).
+  let every = u32(views.first[0].w);
+  let tile = select(u32(at.x + at.y) & 1u, u32(at.x & 1) + 2u * u32(at.y & 1), every == 4u);
+  let turn = every <= 1u || (tile + u32(views.first[0].z)) % every == 0u;
+  if (l == 0u) { atomicStore(&nearCount, 0u); atomicStore(&nearMaxSize, 0u); atomicStore(&stale, select(0u, 1u, turn)); }
   for (var b = l; b < NEAR_EDGES; b += 256u) { atomicStore(&binAt[b], 0u); }
   workgroupBarrier();
+  for (var j = r.x + l; j < select(r.y, r.x, turn); j += 256u) {
+    let q = parts[j];
+    if (q.kind >= FIRST_LIFE && keptSlot(q.id) == NONE) { atomicStore(&stale, 1u); }
+  }
+  workgroupBarrier();
+  if (l == 0u) { nearUniform = atomicLoad(&stale); }
+  let search = workgroupUniformLoad(&nearUniform) != 0u;
   for (var j = r.x + l; j < select(r.x, r.y, search); j += 256u) {
     let q = parts[j];
     if (q.kind < FIRST_LIFE) { continue; }
@@ -4650,8 +4715,14 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
     for (var c = 0u; c < TOUCH_N; c++) { best[c] = NONE; key[c] = 1.0; }
     // 0.085 world units per unit of size at full detail (pointSize); beyond 1.3 radii, no contact
     let reach = 0.085 * 1.3 * (si + maxSize);
+    let now = bitcast<f32>(views.grid.z);
+    let slot = recordSlot(p.id, now);
+    // (seen already this frame, by the other view)
+    if (sway[slot].id == p.id && sway[slot].time == now) { continue; }
     let home = select(vec2i(0), nearBin(pd), binned);
-    if (!search) { for (var c = 0u; c < TOUCH_N; c++) { best[c] = touch[i * TOUCH_N + c]; } }
+    // (not searching, every cell's own from the last gathering, keptSlot found them all, carried through the sorts since
+    // by touchCarry)
+    if (!search) { for (var c = 0u; c < TOUCH_N; c++) { best[c] = touch[slot * TOUCH_N + c]; } }
     for (var ring = 0; ring < select(0, select(1, NEAR_BINS, binned), search); ring++) {
       // every bin in this ring is at least ring - 1 bins away
       if (f32(ring - 1) * NEAR_BIN >= key[TOUCH_N - 1u] * reach) { break; }
@@ -4682,27 +4753,12 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
         }
       }
     }
-    if (search) { for (var c = 0u; c < TOUCH_N; c++) { touch[i * TOUCH_N + c] = best[c]; } }
+    for (var c = 0u; c < TOUCH_N; c++) { touch[slot * TOUCH_N + c] = best[c]; }
 
-    let now = bitcast<f32>(views.grid.z);
-    // its slot: the one holding its record; else the first, unless another cell holds that one (seen within half
-    // a second of real time or two of sim time: a dead cell's record is read for its last moments, 1.6 s at most),
-    // then the second
-    let swayN = arrayLength(&sway);
-    var slot = p.id % swayN;
     var was = sway[slot];
-    if (was.id != p.id) {
-      let s2 = swaySlot2(p.id, swayN);
-      let w2 = sway[s2];
-      var real = now - was.time;
-      if (real < 0.0) { real += SIM_WRAP; }
-      var simAge = bitcast<f32>(views.grid.w) - was.simT;
-      if (simAge < 0.0) { simAge += SIM_WRAP; }
-      if (w2.id == p.id || real < 0.5 || simAge < 2.0) { slot = s2; was = w2; }
-    }
     var dt = now - was.time;
     if (dt < 0.0) { dt += SIM_WRAP; } // real time reaches the GPU modulo SIM_WRAP too
-    if (was.id == p.id && dt == 0.0) { continue; }
+
     var bend = vec2f(0.0);
     var squash = vec2f(0.0);
     var rate = vec2f(0.0);
@@ -4781,6 +4837,9 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
     var markSize = 0.0;
     var biteAt = 0u;
     var shift = vec2f(0.0);
+    // the energy kept as last seen: a drop a bite or a birth makes, seen without searching, is left for the next
+    // frame, which searches, to judge with contacts of its own (a newborn is never among the frame before's)
+    var seenE = p.energy;
     let radius = 0.085 * si;
     // the nearest newborn of its kind it touches (perhaps its own daughter), and the nearest stranger
     var young = NONE;
@@ -4804,13 +4863,15 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
         // curling up or waking takes SLEEP_T
         sleep = clamp(sl.x + clamp(sleep - sl.x, -1.0, 1.0) * sdt / SLEEP_T, 0.0, 1.0);
         let dE = p.energy - f0.y;
+        let judge = search || dE >= -min(${f(0.6 * DEFAULT_K.bite)}, 0.2 * g.reproE);
+        if (!judge) { seenE = f0.y; }
         // its wound heals steadily
         markSize = max(0.0, markSize - sdt / BITE_T);
         // a producer that lost a bite's worth at once was bitten (not by giving birth): the wound in its
         // side, toward whoever bit it, deepens at once. A grazer biting again and again keeps it open
         // (and turns it toward where it now bites from) rather than starting it afresh, and only a fresh
         // wound makes it flinch.
-        if (dE < -${f(0.6 * DEFAULT_K.bite)} && g.photo > 0.4 && young == NONE) {
+        if (judge && dE < -${f(0.6 * DEFAULT_K.bite)} && g.photo > 0.4 && young == NONE) {
           let was = f32(biteAt) / 256.0 * TAU;
           var toward = select(renderHash(p.id) * TAU, was, markSize > 0.0);
           if (stranger != NONE) { var d = parts[stranger].pos - p.pos; d -= world * round(d / world); toward = atan2z(d.y, d.x); }
@@ -4829,7 +4890,7 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
           rate -= 6.0 * vec2f(cos(2.0 * a), sin(2.0 * a));
         }
         // a mother whose daughter has just budded off is drawn out toward her
-        if (dE < -0.2 * g.reproE && young != NONE && !born) {
+        if (judge && dE < -0.2 * g.reproE && young != NONE && !born) {
           var d = parts[young].pos - p.pos;
           d -= world * round(d / world);
           let a = atan2z(d.y, d.x);
@@ -4865,7 +4926,7 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
     let look = p.kind | (roleOf(p.info) << 10u) | select(0u, LOOK_BORN, born) | (biteAt << 13u) | select(0u, LOOK_NOVEL, novel);
     sway[slot] = Sway(p.id, pack2x16float(vel), pack2x16float(bend), now,
       pack2x16float(squash), pack2x16float(rate), pack2x16float(face), pack,
-      look, simNow, pack2x16float(vec2f(fed, p.energy)), pack2x16float(shift),
+      look, simNow, pack2x16float(vec2f(fed, seenE)), pack2x16float(shift),
       pack2x16float(ev), pack2x16float(vec2f(sleep, markSize)));
   }
 }
@@ -5362,6 +5423,13 @@ fn swayOf(p: Particle) -> Sway {
   let st = swayAt(p.id);
   if (st.id != p.id || abs(fract((view.time - st.time) / SIM_WRAP + 0.5) - 0.5) * SIM_WRAP > 0.2) { var none: Sway; none.id = ~p.id; return none; }
   return st;
+}
+// Where this cell's contacts begin in touch (kept row for row with its record, contactGather), or NONE without a
+// record of just now.
+fn touchRow(p: Particle) -> u32 {
+  if (swayOf(p).id != p.id) { return NONE; }
+  let n = arrayLength(&sway);
+  return select(swaySlot2(p.id, n), p.id % n, sway[p.id % n].id == p.id) * 6u;
 }
 // Heading as contactGather keeps it (turning only as the cell travels), so jostling doesn't spin the cell.
 fn cellDirection(p: Particle) -> vec2f {
@@ -5954,8 +6022,10 @@ struct PO {
       // A newborn and the cell it buds from are joined by a wide neck that pinches off as it grows:
       // the newborn to the nearest of its kind it touches, as contactGather placed it, and a cell to any
       // newborn of its kind touching it.
+      // (its contacts, kept beside its record: none without one of just now)
+      let row = touchRow(p);
       for (var c = 0u; c < 6u && used < 3u && px >= 6.0 && NECKS; c++) {
-        let index = touch[ii * 6u + c];
+        let index = select(touch[row + c], NONE, row == NONE);
         if (index == NONE) { break; }
         if (index >= arrayLength(&parts) || index == picked.x || index == picked.y) { continue; }
         let q = parts[index];
@@ -5991,7 +6061,7 @@ struct PO {
       var n = 0u;
       var kinTouch = 0.0;
       for (var c = 0u; c < 6u; c++) {
-        let index = touch[ii * 6u + c];
+        let index = select(touch[row + c], NONE, row == NONE);
         if (index == NONE) { break; }
         if (index >= arrayLength(&parts)) { continue; }
         let other = parts[index];
@@ -7300,7 +7370,8 @@ struct Post {
   // view, 1 the sea's light alone, 2 its sheen alone), w 1 where the composite reads it from its field (seaFieldMain)
   seaLook: vec4f,
   // x: the sea's height (its texture's) in a storm's rms heights, as high as the sea is now (calm water's a share of
-  // a storm's), for the shallow focus (lensScene); y, z, w unused
+  // a storm's), for the shallow focus (lensScene); yz how far its waves have drifted since the sea was last turned
+  // (units: its texture is read that far back; none while it turns every frame); w unused
   seaDepth: vec4f,
   // the hand's lamp or shade, as the simulation has it (Hand.lamp); the warm stage's or cold probe's lens (center,
   // radius, 1 shown): the thermal camera inside the tool's reach
@@ -9049,8 +9120,10 @@ fn ringWave(d: vec2f, t: f32, amp: f32, seed: f32, s: ptr<function, vec2f>) {
 // at ppu pixels a unit. A cascade whose texels the view magnifies is read as a cubic B-spline (four bilinear taps):
 // linear filtering kinks at every texel's edge, which the shading shows as a grid; otherwise the hardware filters it
 // for the zoom (mipmaps, anisotropic: its texels are as oblong as the world), so the finer waves average away and the
-// same waves show at every zoom.
-fn seaTap(p: vec2f, L: vec2f, c: u32, ppu: f32) -> vec4f {
+// same waves show at every zoom. (Between the sea's turns, the texture is read carried along its drift since the last:
+// post.seaDepth.yz, Engine._seaPost.)
+fn seaTap(at: vec2f, L: vec2f, c: u32, ppu: f32) -> vec4f {
+  let p = at - post.seaDepth.yz;
   let n = f32(${SEA_N});
   if (min(L.x, L.y) * ppu > 1.5 * n) {
     let q = p / L * n - 0.5;
@@ -9108,7 +9181,8 @@ fn seaHeight(p: vec2f, ppu: f32) -> f32 {
 // it mostly costs nothing: on a view 1700 pixels or more across, nothing).
 const SEA_LOW = 0.35;
 const SEA_LONG = ${f(SEA.systems[0].lp)};
-fn seaLevel(p: vec2f, c: u32, lev: f32) -> vec4f {
+fn seaLevel(at: vec2f, c: u32, lev: f32) -> vec4f {
+  let p = at - post.seaDepth.yz;
   let n = f32(${SEA_N}u >> u32(lev));
   let q = p / post.seaC[c].xy * n - 0.5;
   let i = floor(q);
@@ -10137,12 +10211,18 @@ struct SeaU {
   clock: vec4f, // t modulo T, 2 pi / T, the wind ripples' angular frequency at their peak, their peak wavenumber
   shape: vec4f, // beta (frequency as k^beta)
   seed: vec4u,
+  // the layers turned, in order (the cascades that hold waves, then the heights): each one's layer and the frequencies
+  // it holds, |f| <= y across and z down (seaBands); the rest of its spectrum stays zero
+  lay: array<vec4u, ${SEA_LAYERS}>,
 };
 @group(0) @binding(0) var<uniform> sea: SeaU;
 @group(0) @binding(1) var<storage, read_write> h0: array<vec4f>;
 @group(0) @binding(2) var<storage, read_write> work: array<vec4f>;
 @group(0) @binding(3) var seaOut: texture_storage_2d_array<rgba16float, write>;
 @group(0) @binding(4) var mipIn: texture_2d_array<f32>;
+
+// the t-th of a band's 2f + 1 frequencies (0..f, then -f..-1) as its index in the grid
+fn bandAt(t: u32, f: u32) -> u32 { return select(t, t + N - (2u * f + 1u), t > f); }
 
 fn waveK(c: u32, i: u32, j: u32) -> vec2f {
   let f = vec2f(f32(i), f32(j)) - select(vec2f(0.0), vec2f(f32(N)), vec2u(i, j) >= vec2u(N / 2u));
@@ -10207,14 +10287,21 @@ fn waveH(c: u32, i: u32, j: u32) -> vec2f {
   return cmul(s.xy * amp(c, i, j), e) + cmul(s.zw * amp(c, (N - i) % N, (N - j) % N), vec2f(e.x, -e.y));
 }
 
+// over the band's rows only, each whole (the rows' FFT leaves them full: the frequencies past the band zeroed again)
 @compute @workgroup_size(16, 16) fn seaSpectrum(@builtin(global_invocation_id) g: vec3u) {
-  let at = (g.z * N + g.y) * N + g.x;
+  let lay = sea.lay[g.z];
+  if (g.y > 2u * lay.z) { return; }
+  let x = g.x;
+  let y = bandAt(g.y, lay.z);
+  let at = (lay.x * N + y) * N + x;
+  let fx = select(x, N - x, x >= N / 2u);
+  if (fx > lay.y) { work[at] = vec4f(0.0); return; }
   // the heights, in the layer after the cascades', cascade c's in channel c: each height is real, so two share a
   // complex field, one as its real part and the other as its imaginary (a + i b inverts to a + i b)
-  if (g.z == ${SEA_CASCADES}u) {
+  if (lay.x == ${SEA_CASCADES}u) {
     var o = array<f32, 4>();
     for (var c = 0u; c < ${SEA_CASCADES}u; c++) {
-      let h = waveH(c, g.x, g.y);
+      let h = waveH(c, x, y);
       let v = select(h, vec2f(-h.y, h.x), (c & 1u) == 1u);
       o[c & 2u] += v.x;
       o[(c & 2u) + 1u] += v.y;
@@ -10222,11 +10309,11 @@ fn waveH(c: u32, i: u32, j: u32) -> vec2f {
     work[at] = vec4f(o[0], o[1], o[2], o[3]);
     return;
   }
-  let c = g.z;
-  let kv = waveK(c, g.x, g.y);
+  let c = lay.x;
+  let kv = waveK(c, x, y);
   let k = length(kv);
   if (k <= 0.0) { work[at] = vec4f(0.0); return; }
-  let h = waveH(c, g.x, g.y);
+  let h = waveH(c, x, y);
   // slope x + i slope y: i kx h + i (i ky h); displacement x + i displacement y: -i kx/k h + ky/k h
   let ih = vec2f(-h.y, h.x);
   let A = ih * kv.x + vec2f(-ih.y, ih.x) * kv.y;
@@ -10255,9 +10342,12 @@ fn fftLine(t: u32) {
 }
 fn rev(i: u32) -> u32 { return reverseBits(i) >> (32u - BITS); }
 
+// the band's rows only (the rest are zero, and stay so)
 @compute @workgroup_size(${SEA_N / 2}) fn fftRows(@builtin(local_invocation_id) l: vec3u, @builtin(workgroup_id) wg: vec3u) {
+  let lay = sea.lay[wg.y];
+  if (wg.x > 2u * lay.z) { return; }
   let t = l.x;
-  let base = (wg.y * N + wg.x) * N;
+  let base = (lay.x * N + bandAt(wg.x, lay.z)) * N;
   line[rev(t)] = work[base + t];
   line[rev(t + N / 2u)] = work[base + t + N / 2u];
   fftLine(t);
@@ -10268,12 +10358,13 @@ fn rev(i: u32) -> u32 { return reverseBits(i) >> (32u - BITS); }
 @compute @workgroup_size(${SEA_N / 2}) fn fftCols(@builtin(local_invocation_id) l: vec3u, @builtin(workgroup_id) wg: vec3u) {
   let t = l.x;
   let col = wg.x;
-  let base = wg.y * N * N + col;
+  let layer = sea.lay[wg.y].x;
+  let base = layer * N * N + col;
   line[rev(t)] = work[base + t * N];
   line[rev(t + N / 2u)] = work[base + (t + N / 2u) * N];
   fftLine(t);
-  textureStore(seaOut, vec2u(col, t), wg.y, line[t]);
-  textureStore(seaOut, vec2u(col, t + N / 2u), wg.y, line[t + N / 2u]);
+  textureStore(seaOut, vec2u(col, t), layer, line[t]);
+  textureStore(seaOut, vec2u(col, t + N / 2u), layer, line[t + N / 2u]);
 }
 
 // one mip level from the one above it: the average of its 2 × 2
@@ -10281,9 +10372,10 @@ fn rev(i: u32) -> u32 { return reverseBits(i) >> (32u - BITS); }
   let size = textureDimensions(seaOut);
   if (any(g.xy >= size)) { return; }
   let p = vec2i(g.xy * 2u);
-  let c = i32(g.z);
+  let layer = sea.lay[g.z].x;
+  let c = i32(layer);
   let v = textureLoad(mipIn, p, c, 0) + textureLoad(mipIn, p + vec2i(1, 0), c, 0) + textureLoad(mipIn, p + vec2i(0, 1), c, 0) + textureLoad(mipIn, p + vec2i(1, 1), c, 0);
-  textureStore(seaOut, g.xy, g.z, v * 0.25);
+  textureStore(seaOut, g.xy, layer, v * 0.25);
 }
 `;
 

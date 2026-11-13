@@ -50,6 +50,21 @@ export function seaLayout([wx, wy], P = SEA) {
   return cs;
 }
 
+/**
+ * The part of each cascade's wavenumber grid that holds waves, so the GPU turns only that (Engine._sea): a cascade whose
+ * band begins past 2.5 times the damping wavenumber holds next to none (holds false: not turned, and the composite
+ * skips it), and nothing past 3 times it is kept (a third of the damping length: under a thousandth of the slope's
+ * spectrum, test/sea.test.js), so each turns only its frequencies |f| <= fx across and fy down (of SEA_N / 2). A world
+ * of a few tens of units (a phone's 8k: 27 × 14) has waves only in the first cascade, out to |f| 21 across and 11 down.
+ */
+export function seaBands(layout, P = SEA) {
+  const kc = (2 * Math.PI) / P.lmin;
+  return layout.map((c) => {
+    const k = Math.min(c.k1, 3 * kc), f = (L) => Math.min(SEA_N / 2 - 1, Math.ceil((k * L) / (2 * Math.PI)));
+    return { holds: c.k0 < 2.5 * kc, fx: f(c.L[0]), fy: f(c.L[1]) };
+  });
+}
+
 /** A system's radial height spectrum at k (its spread over directions apart), peaking at kp, damped past lmin. */
 export function seaRadial(k, kp, P = SEA) {
   const sig = k < kp ? 0.07 : 0.09;
@@ -88,4 +103,27 @@ export function seaScales(layout, P = SEA) {
 export function seaHeightRms(layout, P = SEA) {
   const scale = seaScales(layout, P);
   return Math.sqrt(P.systems.reduce((v, s, j) => v + scale[j] * variance(layout, s, P, 0), 0));
+}
+
+/**
+ * How fast the sea's slope drifts along the wind (units per second of its clock, at a storm's pace): the one velocity
+ * that best carries the sea of a moment to the sea a moment on (least squares over its waves, each running at its own
+ * speed, weighted by its slope's variance; seaBands' waves only). Between the sea's turns (Engine.fx.seaEvery) the
+ * texture is read carried along it, so the waves keep moving: a sea held 1/30 s in a storm is off by 14% of its slope,
+ * carried along this 5% (a 27 × 14 world; docs/performance.md, Doing less work).
+ */
+export function seaDrift(layout, P = SEA) {
+  const scale = seaScales(layout, P), kc = (2 * Math.PI) / P.lmin, kp = (2 * Math.PI) / P.systems[0].lp, w0 = (2 * Math.PI) / P.Tp;
+  const la = Math.log(layout[0].k0), d = (Math.log(Math.min(layout[layout.length - 1].k1, 3 * kc)) - la) / 96;
+  let num = 0, den = 0;
+  for (let i = 0; i < 96; i++) {
+    const k = Math.exp(la + (i + 0.5) * d), w = w0 * (k / kp) ** P.beta;
+    for (let j = 0; j < 72; j++) {
+      const th = ((j + 0.5) / 72 - 0.5) * 2 * Math.PI, kx = k * Math.cos(th);
+      // the slope's variance at (k, th), on the polar measure (k dk = k^2 dlog k)
+      const v = k ** 4 * P.systems.reduce((a, s, n) => a + scale[n] * seaRadial(k, (2 * Math.PI) / s.lp, P) * Math.abs(Math.cos(th / 2)) ** (2 * s.spread), 0);
+      num += v * w * kx; den += v * kx * kx;
+    }
+  }
+  return den > 0 ? num / den : 0;
 }

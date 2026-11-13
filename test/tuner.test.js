@@ -271,3 +271,17 @@ test('with no step up fitting by the GPU\'s time, frames on time a while try the
   // a knob held after a failed climb is not tried, probe or not
   assert.equal(decide({ ...s, probe: true, knobs: { sea: off }, held: { sea: true }, scale: null }), null);
 });
+
+test('behind, work done less often comes before any effect turned off; with room, it is won back last', () => {
+  // the haze saves more for what it costs the eye, but turns an effect off: the contacts' and the sea's cadence go first
+  const knobs = all({ sea: { level: 3, auto: true, cost: 1.2 }, contacts: { level: 1, auto: true, cost: 3.4 },
+    haze: { level: 1, auto: true, cost: 3, other: 1 }, bloom: { level: 1, auto: true, cost: 0.3 } });
+  assert.deepEqual(decide(base({ knobs })), { id: 'contacts', to: 0 });
+  assert.deepEqual(decide(base({ knobs: { ...knobs, contacts: { level: 0, auto: true, cost: 2.6 } } })), { id: 'sea', to: 2 });
+  // the sea turned off is no cadence's step: past a quarter rate the usual order holds
+  const late = { ...knobs, contacts: { level: 0, auto: true, cost: 2.6 }, sea: { level: 1, auto: true, cost: 0.3 }, stone: { level: 0, auto: true, cost: 0 } };
+  assert.notEqual(decide(base({ knobs: late })).id, 'sea');
+  // with room for either, the effect comes back before the cadence
+  const up = { ...knobs, sea: { level: 2, auto: true, cost: 0.6 }, bloom: { level: 0, auto: true, cost: 0, full: 0.3 } };
+  assert.deepEqual(decide(base({ behind: false, gpu: 5, knobs: up })), { id: 'bloom', to: 1 });
+});

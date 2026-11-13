@@ -20,20 +20,29 @@
 // Each knob: levels, cheapest first (the engine's own words: Engine.fx); passes, the GPU passes whose time it is (by
 // their names in Engine.passProfile's report); share(from, to), the share of that time a step from level `from` to
 // level `to` keeps; loss[i], what stepping from level i + 1 down to level i costs the eye.
+// cadence: a knob whose steps down, short of its level 0's value (0 or false: the effect off), make its work less often
+// (or over less of it each frame), not less of it; behind, such steps are taken before any other (decide), so an effect
+// is turned less often before anything is turned off, and won back after.
 export const KNOBS = {
   sea: {
-    levels: [0, 4, 2, 1], // frames between turns of the sea (0: no sea)
+    levels: [0, 4, 2, 1], // frames between turns of the sea (0: no sea; between, it is read carried along its drift)
     // (a pass is named by its first three pipelines, Engine._profileEncoder: a fresh sea's 'seaInit+seaSpectrum+fftRows')
     passes: /^seaInit|^seaSpectrum|^fftRows|^fftCols|^seaMip|^seaShiftMap|^seaFieldMain/,
     share: (from, to) => rate(to) / Math.max(1e-6, rate(from)),
-    loss: [3, 0.6, 0.3],
+    loss: [3, 0.3, 0.15],
+    cadence: true,
   },
   bloom: { levels: [false, true], passes: /^fsDown$|^fsUp$/, share: (from, to) => (to ? 1 : 0), loss: [1] },
   specks: { levels: [false, true], passes: /^microSpecks$|^fsSpeck$/, share: (from, to) => (to ? 1 : 0), loss: [0.2] },
   // seconds between relightings: the cache's grains ('fsStone', 'fsStone+fsStone edge') and its light ('fsStoneCache'),
   // not the cache lit under the cells every frame (fsStoneLit, fsStoneLitScene, fsStoneLitMicro). The loupe's and the
   // close-up's grains, drawn every frame they are open, share the cache's names and are counted with it
-  stone: { levels: [2, 1, 0.5], passes: /^fsStone($|\+)|^fsStoneCache$/, share: (from, to) => from / to, loss: [0.3, 0.2] },
+  stone: { levels: [2, 1, 0.5], passes: /^fsStone($|\+)|^fsStoneCache$/, share: (from, to) => from / to, loss: [0.3, 0.2], cadence: true },
+  // Frames between a grid cell's searches for its cells' contacts (Engine.fx.contactsEvery: half the grid cells search
+  // each frame, or a quarter; the rest carry theirs through the steps between, touchCarry). The search is about two
+  // thirds of contactGather, the animation records the rest (GATHER_SEARCH). A contact is a few frames old at most, and
+  // a bite or a birth seen without a search is judged on the cell's next frame that searches: nothing is lost.
+  contacts: { levels: [4, 2], passes: /contactGather/, share: (from, to) => gather(to) / gather(from), loss: [0.1], cadence: true },
   // The composite's finish, as two knobs (Engine.fx.haze, Engine.fx.microscope), once one ladder (all of it; without
   // the haze; without the microscope either): the heat haze, the shimmer over warm water (1 - SSIM 0.001-0.006 against
   // full quality: barely seen, 10-15% of the composite; boiling water still roils without it), and the microscope, the
@@ -57,6 +66,9 @@ export const KNOBS = {
   neighbors: { levels: [64, 88, 112], passes: null, share: (from, to, k) => nbRel(k, to) / nbRel(k, from), loss: [5, 4] },
 };
 const rate = (every) => (every > 0 ? 1 / every : 0);
+// contactGather's share that is the search (a grid cell's every `every` frames), against the records made every frame
+export const GATHER_SEARCH = 0.65;
+const gather = (every) => 1 - GATHER_SEARCH + GATHER_SEARCH / every;
 // the composite per pixel with the haze and the microscope each off or on (index: haze + 2 × microscope) against both
 // on: the old ladder's plain (0.45) and still (0.88) finishes, and the haze alone its 0.12 over plain
 export const COMP_GUESS = [0.45, 0.57, 0.88, 1];
@@ -126,9 +138,9 @@ export function decide(s) {
     const at = (i) => full * def.share(def.levels[top], def.levels[i], k);
     if (s.behind && k.level > (k.floor ?? 0)) {
       const save = at(k.level) - at(k.level - 1);
-      if (save > 0.05) opts.push({ id, to: k.level - 1, gain: save, loss: def.loss[k.level - 1] });
+      if (save > 0.05) opts.push({ id, to: k.level - 1, gain: save, loss: def.loss[k.level - 1], cadence: def.cadence && !!def.levels[k.level - 1] });
     } else if (!s.behind && k.level < top && !s.held?.[id]) {
-      opts.push({ id, to: k.level + 1, gain: def.loss[k.level], loss: Math.max(0.05, at(k.level + 1) - at(k.level)) });
+      opts.push({ id, to: k.level + 1, gain: def.loss[k.level], loss: Math.max(0.05, at(k.level + 1) - at(k.level)), cadence: def.cadence && !!def.levels[k.level] });
     }
   }
   const sc = s.scale;
@@ -144,13 +156,15 @@ export function decide(s) {
   }
   if (!opts.length) return null;
   if (s.behind) {
-    // the most saved for the least lost to the eye (and, asked for a rebalance, what it saves and costs the eye)
-    opts.sort((a, b) => b.gain / b.loss - a.gain / a.loss);
-    return s.rebalance ? { id: opts[0].id, to: opts[0].to, save: opts[0].gain, loss: opts[0].loss } : { id: opts[0].id, to: opts[0].to };
+    // a cadence's step first (work done less often, nothing turned off), then the most saved for the least lost to the
+    // eye (and, asked for a rebalance, what it saves and costs the eye)
+    const pool = opts.some((o) => o.cadence) ? opts.filter((o) => o.cadence) : opts;
+    pool.sort((a, b) => b.gain / b.loss - a.gain / a.loss);
+    return s.rebalance ? { id: pool[0].id, to: pool[0].to, save: pool[0].gain, loss: pool[0].loss } : { id: pool[0].id, to: pool[0].to };
   }
   // the most brought back for its cost, among those that fit in ROOM of the frame (what lies between it and the frame
-  // keeps a climb from tipping straight back)
-  opts.sort((a, b) => b.gain / b.loss - a.gain / a.loss);
+  // keeps a climb from tipping straight back); a cadence's step last, as it went first
+  opts.sort((a, b) => a.cadence - b.cadence || b.gain / b.loss - a.gain / a.loss);
   const fit = opts.find((o) => s.gpu + o.loss < ROOM * s.T);
   if (fit) return { id: fit.id, to: fit.to };
   // None fits by the GPU's time, but frames have kept time a while (probe): they say more than that time can (a GPU
@@ -171,7 +185,7 @@ export function decide(s) {
 // A knob's cost at its top level: from its cost measured at its level (where that level costs anything), else the
 // last measured at the top (full), else a share of the drawing judged from the phones and desktops measured (the sea
 // about a fifth of it on a phone, bloom a twentieth)
-const GUESS = { sea: 0.2, bloom: 0.05, specks: 0.05, stone: 0.03, haze: 0.3, microscope: 0.3, interiors: 0, neighbors: 0 };
+const GUESS = { sea: 0.2, contacts: 0, bloom: 0.05, specks: 0.05, stone: 0.03, haze: 0.3, microscope: 0.3, interiors: 0, neighbors: 0 };
 function fullCost(id, k, draw) {
   const def = KNOBS[id], share = def.share(def.levels[def.levels.length - 1], def.levels[k.level], k);
   if (k.cost != null && share > 0) return k.cost / share;

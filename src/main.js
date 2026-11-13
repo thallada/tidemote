@@ -62,6 +62,8 @@ const HELD = {
   // i18n: Settings → Perf, under Adaptation: one thing held back for speed (listed joined by " · "): the water's waves worked out not at all ({level} 0), a quarter (1) or half (2) as often
   sea: (l) => tr('settings.perf.held.sea', '{level, select, 0 {Water surface off} 1 {Water at a quarter rate} other {Water at half rate}}', { level: l }),
   bloom: () => tr('settings.perf.held.bloom', 'Glow off'), specks: () => tr('settings.perf.held.specks', 'Suspension off'),
+  // i18n: Settings → Perf, one thing held back: which cells touch which (for drawing them pressed together) worked out a quarter as often, not half
+  contacts: () => tr('settings.perf.held.contacts', 'Contacts at a quarter rate'),
   // i18n: Settings → Perf, one thing held back: the stone lit again only every {s} seconds
   stone: (l) => tr('settings.perf.held.stone', 'Stone relit every {s} s', { s: KNOBS.stone.levels[l] }), haze: () => tr('settings.perf.held.haze', 'Heat haze off'),
   microscope: () => tr('settings.perf.held.microscope', 'Microscope off'), interiors: () => tr('settings.perf.held.interiors', 'Cell insides off'),
@@ -378,7 +380,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const on = shown();
     for (const id of Object.keys(tune)) if (id !== 'neighbors' && !tuneAuto(id, on)) tune[id].level = pins[id] ?? KNOBS[id].levels.length - 1;
     const at = (id) => KNOBS[id].levels[tune[id].level];
-    Object.assign(eng.fx, { seaEvery: at('sea'), bloom: at('bloom'), specks: at('specks'), stoneEvery: at('stone'), haze: at('haze'), microscope: at('microscope'), interiors: at('interiors') });
+    Object.assign(eng.fx, { seaEvery: at('sea'), contactsEvery: at('contacts'), bloom: at('bloom'), specks: at('specks'), stoneEvery: at('stone'), haze: at('haze'), microscope: at('microscope'), interiors: at('interiors') });
     eng.maxScan = on.neighbors ? at('neighbors') : state.perf.scan;
   }
   applyTune();
@@ -2531,7 +2533,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const NAMES = { microscope: tr('settings.display.microscope', 'Microscope'), bloom: tr('settings.display.bloom', 'Glow'), sea: tr('settings.display.water', 'Surface'),
       haze: tr('settings.display.heat-shimmer', 'Heat haze'), specks: tr('settings.display.specks', 'Suspension'), interiors: tr('settings.display.lod', 'Cell insides'),
       // i18n: the readout's adapting summary: the stone's light, which the page may work out again less often
-      stone: tr('dock.adapt.stone', 'Stone light'), scale: tr('settings.perf.scale', 'Render scale'), fps: tr('settings.perf.fps', 'Target fps'), neighbors: tr('settings.perf.neighbors', 'Neighbors') };
+      stone: tr('dock.adapt.stone', 'Stone light'),
+      // i18n: the readout's adapting summary: which cells touch which (drawn pressed together), which the page may work out less often
+      contacts: tr('dock.adapt.contacts', 'Cell contacts'), scale: tr('settings.perf.scale', 'Render scale'), fps: tr('settings.perf.fps', 'Target fps'), neighbors: tr('settings.perf.neighbors', 'Neighbors') };
     // a group of option rows, under a heading or (text '') none
     const group = (id, text, rows) => section(id, text, block('', rows));
     let confirming = false; // the reset button asked to confirm
@@ -2845,11 +2849,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (id === 'stone') return tr('dock.adapt.every', 'Every {s} s', { s: KNOBS.stone.levels[v] });
       // i18n: the readout's adapting summary: the water's waves worked out a quarter ({level} 1) or half (2) as often
       if (id === 'sea' && v > 0 && v < 3) return tr('dock.adapt.rate', '{level, select, 1 {¼ rate} other {½ rate}}', { level: v });
+      if (id === 'contacts') return v === 0 ? tr('dock.adapt.rate', '{level, select, 1 {¼ rate} other {½ rate}}', { level: 1 }) : NORMAL;
       const row = ROW_OF[id], x = v === 0 ? 0 : rowVal[row]();
       return row === 'microlook' || row === 'water' ? [OFF, SUBTLE, NORMAL, STRONG][x] : x ? ON : OFF;
     }
     // (the effects in Display's order, then Performance's)
-    const SUMMED = [['microscope', 'bloom', 'sea', 'haze', 'specks', 'interiors', 'stone'], ['scale', 'fps', 'neighbors']];
+    const SUMMED = [['microscope', 'bloom', 'sea', 'haze', 'specks', 'interiors', 'stone', 'contacts'], ['scale', 'fps', 'neighbors']];
     tips.rich.eased = () => {
       const all = adaptNow(), at = Object.fromEntries(all.map((r) => [r[0], r])), held = all.some((r) => r[2] === 'held');
       const row = (id) => { const [, v, st] = at[id]; return `<div class="am-r" data-s="${st}"><span class="lbl">${NAMES[id]}</span><i></i><b>${adaptValue(id, v, st)}</b><em>${st === 'held' ? EASED : st === 'fixed' ? FIXED : ''}</em></div>`; };
