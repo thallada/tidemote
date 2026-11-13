@@ -842,7 +842,10 @@ ${part === 'sense' ? '' : `  // the currents and the pond here, read once for al
   var force = vec2f(0.0);
   // a coarse step, in lifeMainCoarse (COARSE: a 1/60 s step's pipeline leaves all of it out)
   let coarse = COARSE && sim.ticks > 1u;
-  // Coarse steps also gather how the pair and stone forces change as this cell moves
+${scan ? `  // (its own drift, for a coarse step's grains: read first, while it holds little else)
+  var selfVel = p.vel;
+  if (coarse) { selfVel += flowAt(p.pos) * g.advect; }
+` : ''}  // Coarse steps also gather how the pair and stone forces change as this cell moves
   // (their gradients jF, jS: xx, xy, yy) and its neighbors' velocity weighted by how stiffly each holds
   // it (vN / wN, with wN2 for their number): see the motion below.
   var jF = vec3f(0.0);
@@ -967,6 +970,155 @@ ${scan ? '' : `  // a tree holds its angles (bendOn), and a body bearing tails t
   var tailNear = false;
   let budGap = 0.9 * 0.085 * g.size * (2.0 - 0.24 * f32(role));
 `;
+  // The scan's ranges of the living (live: the first nine) or the matter (the last nine): the same pairs in the same
+  // order as one loop over the eighteen, but each loop holds only what its own kind gathers (the living sort first in
+  // each grid cell: a living range's particles are all at least FIRST_LIFE, a matter range's all below)
+  const ranges = (live) => /* wgsl */ `  for (var k = ${live ? '0u' : '9u'}; k < ${live ? '9u' : '18u'}; k++) {
+    let k9 = i32(k % 9u);
+    let cell = u32(((cc.y + k9 / 3 - 1 + gh) % gh) * gw + (cc.x + k9 % 3 - 1 + gw) % gw);
+    let cs0 = cellStart[cell];
+    let lvk = cellStart[LIVE_AT + cell];
+    let rs0 = ${live ? 'cs0' : 'cs0 + lvk'};
+    let len = f32(${live ? 'lvk' : 'cellStart[cell + 1u] - cs0 - lvk'});
+    for (; at < len; at += st) {
+      let j = rs0 + u32(at);
+      let q = sortedLite[j];
+      var d = q.pos - p.pos;
+      d -= world * round(d * invWorld);
+      let r2 = dot(d, d);
+      if (r2 >= R2 || r2 < 1e-12) { continue; }
+      nIn += 1.0;
+      let r = sqrt(r2);
+      let x = r * invR;
+      let qk = q.kr & 1023u;
+      let a = clamp((sdot(sg.z, q.s0) + sdot(sg.w, q.s1)) * ${f(K.affScale)}, -1.0, 1.0);
+${live ? `      // A tight body's kin keep personal space only down to touching (where their two roles' sizes
+      // meet), so they press membrane to membrane, and keep less of their signature forces beyond it.
+      var bk = beta; var invBk = invBeta; var invOMk = invOM; var sigK = 1.0;
+      // (a body and its tails meet as a tail's cells meet: touching, no pull, alike from either side)
+      let withTail = qk == p.kind && (tail || (q.kr & (1u << 15u)) != 0u);
+      let tightQ = select(tight, 1.0, withTail);
+      if (tightQ > 0.0 && qk == p.kind) {
+        let tq = 0.085 * gSize * (2.0 - 0.12 * f32(role + ((q.kr >> 10u) & 3u)));
+        bk = mix(beta, min(beta, tq * invR), tightQ);
+        invBk = 1.0 / bk;
+        invOMk = 1.0 / (1.0 - bk);
+        sigK = mix(1.0, ${f(K.tissueSig)}, tightQ);
+        // a tree's shape is its bonds': its branches neither draw together nor apart
+        if (tree || withTail) { sigK = 0.0; }
+      }
+      let shape = 1.0 - abs(2.0 * x - 1.0 - bk) * invOMk;
+      var join = false;
+` : `      let bk = beta; let invOMk = invOM;
+      let shape = 1.0 - abs(2.0 * x - 1.0 - bk) * invOMk;
+`}      var fr: f32;
+      // how fr changes with distance (coarse steps' gradient), and the pull that scales shape
+      var dfr = 0.0;
+      var pull = 0.0;
+${live ? `      // its own kind in the way stops it (a tree fills space without overlapping itself); strangers are shoved aside
+      if (budTurn < 3u && qk == p.kind && distance(d, budAt) < 0.7 * budGap) { budBlocked = true; }
+      // a hungry forager lets other species inside its personal space so it can reach them
+      let core = select(1.0, ${f(K.huntCore)}, canHunt && qk != p.kind);
+      if (x < bk) { fr = (x * invBk - 1.0) * core; } else { fr = a * shape * sigK; }${W('mFr0 = fr; mFl = 0.0;')}
+      // hungry foragers are drawn toward the cells their diet favors
+      if ((q.kr & (1u << 12u)) != 0u && r < 0.5) { plantN += 1.0; }
+      if ((q.kr & (1u << 12u)) == 0u && qk != p.kind) { animN += 1.0; }
+      let appetite = select(0.0, select(gFlesh, ${f(K.grazePref)} * gGlint + ${f(K.plantPref)} * gFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)}, canHunt && qk != p.kind);
+      if (x >= bk) { fr += appetite * shape; pull = a + appetite; } else { dfr = core * invBk * invR; }
+      // an animal that is not a hunter swims away from hunters near it, the harder the closer they are
+      if ((q.kr & (1u << 14u)) != 0u && qk != p.kind && gFlesh <= 0.5 && gPhoto <= 0.4) { fr -= ${f(K.flee)} * min(gSwim, 1.0) * (1.0 - x);${W(`mFl = ${f(K.flee)} * min(gSwim, 1.0) * (1.0 - x);`)} }
+      crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
+      if ((q.kr & (1u << 12u)) != 0u) { crowdP += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind); }
+      if (DIAG) {
+        if (x < beta) { overlap += 1.0; }
+        if (qk != p.kind && r < 0.5 * (myR + bitcast<f32>(q.pad))) { deepOther += 1.0; }
+        if (qk != p.kind && (q.kr & (1u << 12u)) == 0u && r < 2.0 * EAT_R) { preyNear += vec2f(select(0.0, 1.0, r < EAT_R), 1.0); }
+      }
+      if (r < LINK_R) { let w = 1.0 - r / LINK_R; pack += w * w; }
+      if (qk == p.kind) {
+        kinVel += unpack2x16float(q.vel);
+        kinN += 1.0;
+        if ((q.kr & (1u << 15u)) != 0u && r < ${f(K.tailSpace)}) { tailNear = true; }
+      }
+      if (r < LINK_R) {
+        // color only blends within a species, so mixed neighborhoods stay visibly mixed
+        if (qk == p.kind) {
+          let w = 1.0 - r / LINK_R;
+          csum += unpack4x8unorm(q.col).rgb * w;
+          wsum += w;
+        }
+        // (a free bond slot may take it up: asked at the pair's end, below, where less is held)
+        join = bonding && !tree && qk == p.kind && j != n1 && j != n2 && (q.kr & ((1u << 13u) | (1u << 15u))) == 0u && ((!keep1 && r < d1) || (!keep2 && r < d2));
+      }
+      if (seekHunt && r < EAT_R && qk != p.kind && (q.kr & (1u << 13u)) == 0u) {
+        // how far its signature is from this cell's: |s - my|^2
+        let far = sdot(q.s0, q.s0) + sdot(q.s1, q.s1) - 2.0 * (sdot(q.s0, sg.x) + sdot(q.s1, sg.y)) + myNorm;
+        if (far > ${f(K.kin)}) {
+          // grazers crop plant cells; flesh-eaters hunt animals (and crop plants reluctantly)
+          let plant = (q.kr & (1u << 12u)) != 0u;
+          let pref = select(gFlesh, ${f(K.grazePref)} * gGlint + ${f(K.plantPref)} * gFlesh, plant);
+          let sc = pref - r;
+          if (pref > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
+          if (pref > DIET_MIN && coarse) { let gt = vec4f(sc) > fsc; fc = pushedU(fc, vec4u(j), gt); fsc = pushedF(fsc, vec4f(sc), gt); }
+        }
+      }
+` : `      fr = select(0.0, a * shape * ${f(K.matterPull)}, x >= beta);${W('mFr0 = fr; mFl = 0.0;')}
+      pull = a * ${f(K.matterPull)};
+      if (qk == STONE || qk == FRAMBOID) {
+        // stone (and a framboid) is solid: it pushes cells out however hard they swim, and shelters those among it
+        if (r < ${f(K.stoneR)}) {
+          stoneF += d * ((r - ${f(K.stoneR)}) / (${f(K.stoneR)} * r));
+          // its push, g(r) = 1/stoneR - 1/r along d, has gradient -(g I + d d' / r^3)
+          let gs = (r - ${f(K.stoneR)}) / (${f(K.stoneR)} * r); let cs = 1.0 / (r2 * r);
+          jS -= vec3f(gs + cs * d.x * d.x, cs * d.x * d.y, gs + cs * d.y * d.y);
+        }
+        if (r < 0.5) { stoneN += 1.0; }
+      } else {
+        if (hungry && qk != SILT && x >= beta) {
+          fr += gHusk * eatEff * ${f(K.forage)} * shape;
+          pull += gHusk * eatEff * ${f(K.forage)};
+        }
+        if (qk == SILT) { nutr += 1.0; }
+        // a cell ready to divide looks for a grain every tick, so in a coarse step a grain counts if it
+        // came within reach at any tick of it: the closest approach of their paths over the step
+        var rc = r;
+        if (qk == SILT && coarse) {
+          let w = unpack2x16float(q.vel) - selfVel;
+          let ww = dot(w, w);
+          rc = length(d + w * select(0.0, clamp(-dot(d, w) / ww, 0.0, sim.dt), ww > 1e-12));
+        }
+        if (qk == SILT && rc < EAT_R) {
+          if (rc < siltD) { siltD2 = siltD; silt2 = silt; siltD = rc; silt = j; }
+          else if (rc < siltD2) { siltD2 = rc; silt2 = j; }
+        } else if (qk != SILT && r < EAT_R && seek) {
+          let dv = gHusk;
+          let sc = dv - r;
+          if (dv > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
+          if (dv > DIET_MIN && coarse) { let gt = vec4f(sc) > fsc; fc = pushedU(fc, vec4u(j), gt); fsc = pushedF(fsc, vec4f(sc), gt); }
+        }
+      }
+`}      if (x >= bk) { dfr = select(-2.0, 2.0, 2.0 * x < 1.0 + bk) * invOMk * invR * pull; }
+      force += d * (fr / r);${W('mPair(j, q, d, r, x < beta, qk == p.kind, mFr0, fr);')}
+      if (coarse) {
+        // the pair force d g(r), g = fr / r, has gradient in this cell's position -(g I + g'/r d d')
+        let gr = fr / r;
+        let c = (dfr * r - fr) / (r2 * r);
+        jF -= vec3f(gr + c * d.x * d.x, c * d.x * d.y, gr + c * d.y * d.y);
+        let w = abs(gr) + abs(c) * r2;
+        vN += unpack2x16float(q.vel) * w;
+        wN += w;
+        wN2 += w * w;
+      }
+${live ? `      if (join && joinable(i, j, select(NONE, n1, keep1), select(NONE, n2, keep2))) {
+        if (!keep1 && r < d1) {
+          if (!keep2) { d2 = d1; n2 = n1; dn2 = dn1; }
+          d1 = r; n1 = j; dn1 = d;
+        } else if (!keep2 && r < d2) { d2 = r; n2 = j; dn2 = d; }
+      }
+` : ''}    }
+    at -= len;
+  }
+`;
   // what the neighborhood holds: scanned, or as senseMain left it
   const found = scan ? /* wgsl */ `  if (tree) {
     var have = 0u;
@@ -987,9 +1139,6 @@ ${scan ? '' : `  // a tree holds its angles (bendOn), and a body bearing tails t
   // here only asks the scan whether a cell is in the way)
   if (tails && n1 != NONE) { budTurn = 0u; budAt = -dn1 / max(d1, 1e-4) * budGap; }
 
-  // (its own drift, for a coarse step's grains)
-  var selfVel = p.vel;
-  if (coarse) { selfVel += flowAt(p.pos) * g.advect; }
   // (the genome's traits the scan reads for every neighbor, in registers: g is a pointer, each g.x a load)
   let gSize = g.size; let gFlesh = g.dFlesh; let gGlint = g.dGlint; let gHusk = g.dHusk; let gSwim = g.swim; let gPhoto = g.photo;
   // The 3x3 neighborhood as eighteen index ranges: each grid cell's living (first in it), then each
@@ -1021,160 +1170,13 @@ ${scan ? '' : `  // a tree holds its angles (bendOn), and a body bearing tails t
   let stride = strideM;
   var st = strideL;
   var at = select(0.0, rnd(&s) * strideL, strideL > 1.0);
-  for (var k = 0u; k < 18u; k++) {
-    if (k == 9u) {
-      let toM = strideL / strideM;
-      overlap *= toM; deepOther *= toM; preyNear *= toM; force *= toM; crowd *= toM; crowdP *= toM; pack *= toM; kinVel *= toM; kinN *= toM; jF *= toM; nIn *= toM;
-      st = strideM;
-      at = select(0.0, rnd(&s) * strideM, strideM > 1.0);
-    }
-    let live = k < 9u;
-    let k9 = i32(k % 9u);
-    let cell = u32(((cc.y + k9 / 3 - 1 + gh) % gh) * gw + (cc.x + k9 % 3 - 1 + gw) % gw);
-    let cs0 = cellStart[cell];
-    let lvk = cellStart[LIVE_AT + cell];
-    let rs0 = select(cs0 + lvk, cs0, live);
-    let len = f32(select(cellStart[cell + 1u] - cs0 - lvk, lvk, live));
-    for (; at < len; at += st) {
-      let j = rs0 + u32(at);
-      let q = sortedLite[j];
-      var d = q.pos - p.pos;
-      d -= world * round(d * invWorld);
-      let r2 = dot(d, d);
-      if (r2 >= R2 || r2 < 1e-12) { continue; }
-      nIn += 1.0;
-      let r = sqrt(r2);
-      let x = r * invR;
-      let qk = q.kr & 1023u;
-      let a = clamp((sdot(sg.z, q.s0) + sdot(sg.w, q.s1)) * ${f(K.affScale)}, -1.0, 1.0);
-      // A tight body's kin keep personal space only down to touching (where their two roles' sizes
-      // meet), so they press membrane to membrane, and keep less of their signature forces beyond it.
-      var bk = beta; var invBk = invBeta; var invOMk = invOM; var sigK = 1.0;
-      // (a body and its tails meet as a tail's cells meet: touching, no pull, alike from either side)
-      let withTail = qk == p.kind && (tail || (q.kr & (1u << 15u)) != 0u);
-      let tightQ = select(tight, 1.0, withTail);
-      if (tightQ > 0.0 && qk == p.kind) {
-        let tq = 0.085 * gSize * (2.0 - 0.12 * f32(role + ((q.kr >> 10u) & 3u)));
-        bk = mix(beta, min(beta, tq * invR), tightQ);
-        invBk = 1.0 / bk;
-        invOMk = 1.0 / (1.0 - bk);
-        sigK = mix(1.0, ${f(K.tissueSig)}, tightQ);
-        // a tree's shape is its bonds': its branches neither draw together nor apart
-        if (tree || withTail) { sigK = 0.0; }
-      }
-      let shape = 1.0 - abs(2.0 * x - 1.0 - bk) * invOMk;
-      var join = false;
-      var fr: f32;
-      // how fr changes with distance (coarse steps' gradient), and the pull that scales shape
-      var dfr = 0.0;
-      var pull = 0.0;
-      if (qk >= FIRST_LIFE) {
-        // its own kind in the way stops it (a tree fills space without overlapping itself); strangers are shoved aside
-        if (budTurn < 3u && qk == p.kind && distance(d, budAt) < 0.7 * budGap) { budBlocked = true; }
-        // a hungry forager lets other species inside its personal space so it can reach them
-        let core = select(1.0, ${f(K.huntCore)}, canHunt && qk != p.kind);
-        if (x < bk) { fr = (x * invBk - 1.0) * core; } else { fr = a * shape * sigK; }${W('mFr0 = fr; mFl = 0.0;')}
-        // hungry foragers are drawn toward the cells their diet favors
-        if ((q.kr & (1u << 12u)) != 0u && r < 0.5) { plantN += 1.0; }
-        if ((q.kr & (1u << 12u)) == 0u && qk != p.kind) { animN += 1.0; }
-        let appetite = select(0.0, select(gFlesh, ${f(K.grazePref)} * gGlint + ${f(K.plantPref)} * gFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)}, canHunt && qk != p.kind);
-        if (x >= bk) { fr += appetite * shape; pull = a + appetite; } else { dfr = core * invBk * invR; }
-        // an animal that is not a hunter swims away from hunters near it, the harder the closer they are
-        if ((q.kr & (1u << 14u)) != 0u && qk != p.kind && gFlesh <= 0.5 && gPhoto <= 0.4) { fr -= ${f(K.flee)} * min(gSwim, 1.0) * (1.0 - x);${W(`mFl = ${f(K.flee)} * min(gSwim, 1.0) * (1.0 - x);`)} }
-        crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
-        if ((q.kr & (1u << 12u)) != 0u) { crowdP += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind); }
-        if (DIAG) {
-          if (x < beta) { overlap += 1.0; }
-          if (qk != p.kind && r < 0.5 * (myR + bitcast<f32>(q.pad))) { deepOther += 1.0; }
-          if (qk != p.kind && (q.kr & (1u << 12u)) == 0u && r < 2.0 * EAT_R) { preyNear += vec2f(select(0.0, 1.0, r < EAT_R), 1.0); }
-        }
-        if (r < LINK_R) { let w = 1.0 - r / LINK_R; pack += w * w; }
-        if (qk == p.kind) {
-          kinVel += unpack2x16float(q.vel);
-          kinN += 1.0;
-          if ((q.kr & (1u << 15u)) != 0u && r < ${f(K.tailSpace)}) { tailNear = true; }
-        }
-        if (r < LINK_R) {
-          // color only blends within a species, so mixed neighborhoods stay visibly mixed
-          if (qk == p.kind) {
-            let w = 1.0 - r / LINK_R;
-            csum += unpack4x8unorm(q.col).rgb * w;
-            wsum += w;
-          }
-          // (a free bond slot may take it up: asked at the pair's end, below, where less is held)
-          join = bonding && !tree && qk == p.kind && j != n1 && j != n2 && (q.kr & ((1u << 13u) | (1u << 15u))) == 0u && ((!keep1 && r < d1) || (!keep2 && r < d2));
-        }
-        if (seekHunt && r < EAT_R && qk != p.kind && (q.kr & (1u << 13u)) == 0u) {
-          // how far its signature is from this cell's: |s - my|^2
-          let far = sdot(q.s0, q.s0) + sdot(q.s1, q.s1) - 2.0 * (sdot(q.s0, sg.x) + sdot(q.s1, sg.y)) + myNorm;
-          if (far > ${f(K.kin)}) {
-            // grazers crop plant cells; flesh-eaters hunt animals (and crop plants reluctantly)
-            let plant = (q.kr & (1u << 12u)) != 0u;
-            let pref = select(gFlesh, ${f(K.grazePref)} * gGlint + ${f(K.plantPref)} * gFlesh, plant);
-            let sc = pref - r;
-            if (pref > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
-            if (pref > DIET_MIN && coarse) { let gt = vec4f(sc) > fsc; fc = pushedU(fc, vec4u(j), gt); fsc = pushedF(fsc, vec4f(sc), gt); }
-          }
-        }
-      } else {
-        fr = select(0.0, a * shape * ${f(K.matterPull)}, x >= beta);${W('mFr0 = fr; mFl = 0.0;')}
-        pull = a * ${f(K.matterPull)};
-        if (qk == STONE || qk == FRAMBOID) {
-          // stone (and a framboid) is solid: it pushes cells out however hard they swim, and shelters those among it
-          if (r < ${f(K.stoneR)}) {
-            stoneF += d * ((r - ${f(K.stoneR)}) / (${f(K.stoneR)} * r));
-            // its push, g(r) = 1/stoneR - 1/r along d, has gradient -(g I + d d' / r^3)
-            let gs = (r - ${f(K.stoneR)}) / (${f(K.stoneR)} * r); let cs = 1.0 / (r2 * r);
-            jS -= vec3f(gs + cs * d.x * d.x, cs * d.x * d.y, gs + cs * d.y * d.y);
-          }
-          if (r < 0.5) { stoneN += 1.0; }
-        } else {
-          if (hungry && qk != SILT && x >= beta) {
-            fr += gHusk * eatEff * ${f(K.forage)} * shape;
-            pull += gHusk * eatEff * ${f(K.forage)};
-          }
-          if (qk == SILT) { nutr += 1.0; }
-          // a cell ready to divide looks for a grain every tick, so in a coarse step a grain counts if it
-          // came within reach at any tick of it: the closest approach of their paths over the step
-          var rc = r;
-          if (qk == SILT && coarse) {
-            let w = unpack2x16float(q.vel) - selfVel;
-            let ww = dot(w, w);
-            rc = length(d + w * select(0.0, clamp(-dot(d, w) / ww, 0.0, sim.dt), ww > 1e-12));
-          }
-          if (qk == SILT && rc < EAT_R) {
-            if (rc < siltD) { siltD2 = siltD; silt2 = silt; siltD = rc; silt = j; }
-            else if (rc < siltD2) { siltD2 = rc; silt2 = j; }
-          } else if (qk != SILT && r < EAT_R && seek) {
-            let dv = gHusk;
-            let sc = dv - r;
-            if (dv > DIET_MIN && sc > foodScore) { foodScore = sc; food = j; }
-            if (dv > DIET_MIN && coarse) { let gt = vec4f(sc) > fsc; fc = pushedU(fc, vec4u(j), gt); fsc = pushedF(fsc, vec4f(sc), gt); }
-          }
-        }
-      }
-      if (x >= bk) { dfr = select(-2.0, 2.0, 2.0 * x < 1.0 + bk) * invOMk * invR * pull; }
-      force += d * (fr / r);${W('mPair(j, q, d, r, x < beta, qk == p.kind, mFr0, fr);')}
-      if (coarse) {
-        // the pair force d g(r), g = fr / r, has gradient in this cell's position -(g I + g'/r d d')
-        let gr = fr / r;
-        let c = (dfr * r - fr) / (r2 * r);
-        jF -= vec3f(gr + c * d.x * d.x, c * d.x * d.y, gr + c * d.y * d.y);
-        let w = abs(gr) + abs(c) * r2;
-        vN += unpack2x16float(q.vel) * w;
-        wN += w;
-        wN2 += w * w;
-      }
-      if (join && joinable(i, j, select(NONE, n1, keep1), select(NONE, n2, keep2))) {
-        if (!keep1 && r < d1) {
-          if (!keep2) { d2 = d1; n2 = n1; dn2 = dn1; }
-          d1 = r; n1 = j; dn1 = d;
-        } else if (!keep2 && r < d2) { d2 = r; n2 = j; dn2 = d; }
-      }
-    }
-    at -= len;
+${ranges(true)}  {
+    let toM = strideL / strideM;
+    overlap *= toM; deepOther *= toM; preyNear *= toM; force *= toM; crowd *= toM; crowdP *= toM; pack *= toM; kinVel *= toM; kinN *= toM; jF *= toM; nIn *= toM;
+    st = strideM;
+    at = select(0.0, rnd(&s) * strideM, strideM > 1.0);
   }
-  overlap *= stride; deepOther *= stride; preyNear *= stride;
+${ranges(false)}  overlap *= stride; deepOther *= stride; preyNear *= stride;
   force *= stride;
   // a cell answers its neighbors as a whole, not each one in full: past socialN within reach the pair
   // forces are averaged, so a crowd drives a cell no harder than a neighborhood does
