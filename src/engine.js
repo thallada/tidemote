@@ -2934,6 +2934,13 @@ class Engine {
       else if (loupeLod) rect(0, loupe.cx, loupe.cy, LOUPE_FIELD * loupe.r / loupe.ppu, LOUPE_FIELD * loupe.r / loupe.ppu);
       if (specLod) rect(1, specimen.cx, specimen.cy, specimen.w / (2 * specimen.ppu), specimen.h / (2 * specimen.ppu));
       u[16] = gw; u[17] = gh; new Float32Array(u.buffer)[18] = time; new Float32Array(u.buffer)[19] = this.simTime % 4096;
+      // half the grid cells search for contacts each frame, alternating (contactGather), while the cells gathered
+      // stay those of the frame before (and the world the same): every one searches the first frame they change
+      const key = `${u.subarray(0, 16).join()},${this.worldGeneration}`;
+      this._gatherOdd = !this._gatherOdd;
+      u[2] = +this._gatherOdd;
+      u[3] = key === this._gatherKey ? 1 : 0;
+      this._gatherKey = key;
       d.queue.writeBuffer(this.b.inbondU, 0, u);
       const pass = enc.beginComputePass({ timestampWrites: tsBegin() });
       for (let k = 0; k < 3; k++) {
@@ -2945,7 +2952,7 @@ class Engine {
       pass.setBindGroup(0, this.organsBG);
       pass.dispatchWorkgroups(Math.ceil((MAXK * ORGANS) / 64));
       pass.end();
-    }
+    } else this._gatherKey = null;
     {
       const clear = this.clearAccum || this.settings.trails <= 0 || !this.lastCam;
       this.clearAccum = false;

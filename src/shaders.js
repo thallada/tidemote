@@ -4487,10 +4487,16 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
   // this grid cell (its particles were sorted into it before this step moved them)
   let at = ((views.first[wg.z].xy + vec2i(wg.xy)) % g + g) % g;
   let center = vec2f(at) + 0.5;
+  // Half the grid cells search for their cells' contacts each frame, by a checkerboard that alternates (first[0].w 1,
+  // first[0].z the frame's parity), the rest reading back last frame's (touch): which cells a cell touches changes over
+  // frames, not within one, and vsPoint places each contact where it is now. The gathering and sorting it takes was
+  // most of this pass (an M1, a 32k world at 40 pixels a unit: 2.7 ms of 4.6). The engine has every cell search when
+  // the grid cells gathered change (Engine._render).
+  let search = views.first[0].w == 0 || ((u32(at.x + at.y) + u32(views.first[0].z)) & 1u) == 0u;
   if (l == 0u) { atomicStore(&nearCount, 0u); atomicStore(&nearMaxSize, 0u); }
   for (var b = l; b < NEAR_EDGES; b += 256u) { atomicStore(&binAt[b], 0u); }
   workgroupBarrier();
-  for (var j = r.x + l; j < r.y; j += 256u) {
+  for (var j = r.x + l; j < select(r.x, r.y, search); j += 256u) {
     let q = parts[j];
     if (q.kind < FIRST_LIFE) { continue; }
     var d = q.pos - center;
@@ -4540,7 +4546,8 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
   // This grid cell's own living cells, listed first, one a thread. A heap's few hundred are scattered
   // through its ten thousand grains: a thread a particle left one thread in 32 searching while the
   // rest waited, round after round (2.6 ms of one heap's view). Past NEAR_N + OWN_MORE, every particle.
-  let listed = own <= NEAR_N + OWN_MORE;
+  // (not searching, none were gathered: every particle, the living kept)
+  let listed = search && own <= NEAR_N + OWN_MORE;
   for (var o = l; o < select(r.y - r.x, own, listed); o += 256u) {
     var i = r.x + o;
     if (listed) { i = select(ownMore[min(o - NEAR_N, OWN_MORE - 1u)], nearKey[min(o, NEAR_N - 1u)] >> 9u, o < NEAR_N); }
@@ -4555,7 +4562,8 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
     // 0.085 world units per unit of size at full detail (pointSize); beyond 1.3 radii, no contact
     let reach = 0.085 * 1.3 * (si + maxSize);
     let home = select(vec2i(0), nearBin(pd), binned);
-    for (var ring = 0; ring < select(1, NEAR_BINS, binned); ring++) {
+    if (!search) { for (var c = 0u; c < TOUCH_N; c++) { best[c] = touch[i * TOUCH_N + c]; } }
+    for (var ring = 0; ring < select(0, select(1, NEAR_BINS, binned), search); ring++) {
       // every bin in this ring is at least ring - 1 bins away
       if (f32(ring - 1) * NEAR_BIN >= key[TOUCH_N - 1u] * reach) { break; }
       for (var dy = -ring; dy <= ring; dy++) {
@@ -4585,7 +4593,7 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
         }
       }
     }
-    for (var c = 0u; c < TOUCH_N; c++) { touch[i * TOUCH_N + c] = best[c]; }
+    if (search) { for (var c = 0u; c < TOUCH_N; c++) { touch[i * TOUCH_N + c] = best[c]; } }
 
     let now = bitcast<f32>(views.grid.z);
     // its slot: the one holding its record; else the first, unless another cell holds that one (seen within half
