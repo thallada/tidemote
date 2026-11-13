@@ -6126,38 +6126,32 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
       let along = dot(own, axis);
       own = (own - axis * along) * exp(-squashed) + axis * along * exp(squashed);
     }
-    // A tissue cell fills out toward the walls it shares with its kin, and only there: facing open water
-    // it keeps its own shape. The fill grows as a neighbor presses closer, so nothing pops.
+    // Its contacts, read once (each was read three times before: the fill, the reach, the planes): the nearest
+    // contact plane at this pixel (its level and softness: the planes only ever cut, and where two meet the crease is
+    // the nearer's alone), and how far a tissue cell fills out toward its kin. A tissue cell fills out toward the
+    // walls it shares with its kin, and only there: facing open water it keeps its own shape. The fill grows as a
+    // neighbor presses closer, so nothing pops.
     var fill = 0.0;
-    if (i.tile.x > 0.0) {
-      let toward = own / max(length(own), 1e-4);
-      for (var c = 0u; c < 6u; c++) {
-        let foot = unpack2x16float(select(i.contact2[c % 3u], i.contact[c % 3u], c < 3u));
-        let t = length(foot);
-        if (t <= 0.0) { break; }
-        if (t >= 4.0) { continue; }
-        let facing = dot(toward, foot / t);
-        fill = max(fill, smoothstep(0.15, 0.75, facing) * smoothstep(1.15, 0.8, t));
-      }
+    var plane = -1e9;
+    var planeSoft = 0.05;
+    var cuts = 0.0;
+    let toward = own / max(length(own), 1e-4);
+    for (var c = 0u; c < 6u; c++) {
+      let foot = unpack2x16float(select(i.contact2[c % 3u], i.contact[c % 3u], c < 3u));
+      let t = length(foot);
+      if (t <= 0.0) { break; }
+      let normal = foot / t;
+      let kin = t < 4.0;
+      let level = dot(i.uv, normal) - select(t - 4.0, t, kin);
+      if (level > plane) { plane = level; planeSoft = select(0.16, 0.05, kin); }
+      cuts += 1.0;
+      if (kin && i.tile.x > 0.0) { fill = max(fill, smoothstep(0.15, 0.75, dot(toward, normal)) * smoothstep(1.15, 0.8, t)); }
     }
     // Without the interior (INTERIOR false) a pixel's light is its coverage alone, and a pixel deep enough inside its
     // own outline is covered whatever its partners and contact planes make of it: the partners only widen the outline
-    // (a smooth union) and the planes (each cut, a max, then a soft bump of at most a quarter of its softness, 0.04)
-    // only as far as they reach. Bounding the planes' reach from their feet (the seam's wander at most 0.09), such a
-    // pixel skips its partners' outlines and the seam's noise.
-    var reach = -1e9;
-    var cuts = 0.0;
-    if (!INTERIOR) {
-      for (var c = 0u; c < 6u; c++) {
-        let foot = unpack2x16float(select(i.contact2[c % 3u], i.contact[c % 3u], c < 3u));
-        var t = length(foot);
-        if (t <= 0.0) { break; }
-        let kin = t < 4.0;
-        t -= select(4.0, 0.0, kin);
-        reach = max(reach, dot(i.uv, foot / length(foot)) - t + 0.09);
-        cuts += 1.0;
-      }
-    }
+    // (a smooth union) and the plane (a cut, a max, then a soft bump of at most a quarter of its softness, 0.04) only
+    // as far as it reaches (the seam's wander at most 0.09): such a pixel skips its partners' outlines and the seam.
+    let reach = plane + 0.09;
     var whole = false;
     for (var j = 0u; j < 4u; j++) {
       var uv = own;
@@ -6233,31 +6227,20 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
     }
     // Flattened against the cells it presses on: a soft intersection with each contact plane. The
     // seam wanders a little, as pressed membranes do; the wander is taken in the world, so the two
-    // cells on either side of a seam agree on it. It is found only for a plane that can reach the
+    // cells on either side of a seam agree on it. It is found only where the nearest plane can reach the
     // pixel (the wander is at most 0.09). It fades in from 12 pixels, where it is under a pixel.
     var pressed = -1.0;
-    var wander = 0.0;
     let wanders = smoothstep(12.0, 24.0, i.geom.x);
-    var wandered = wanders <= 0.0;
-    for (var c = 0u; c < select(6u, 0u, whole); c++) {
-      let foot = unpack2x16float(select(i.contact2[c % 3u], i.contact[c % 3u], c < 3u));
-      var t = length(foot);
-      if (t <= 0.0) { break; }
-      let kin = t < 4.0;
-      let soft = select(0.16, 0.05, kin);
-      let normal = foot / t;
-      t -= select(4.0, 0.0, kin);
-      let level = dot(i.uv, normal) - t;
-      if (level + 0.09 < min(sd - soft, -0.15)) { continue; }
-      if (!wandered) {
+    if (!whole && plane + 0.09 >= min(sd - planeSoft, -0.15)) {
+      var wander = 0.0;
+      if (wanders > 0.0) {
         let seamAt = (p.pos + i.uv * i.geom.x / view.ppu) * (6.0 / view.linkR);
         wander = (0.06 * cellGrain(seamAt, 0u) + 0.03 * cellGrain(seamAt * 2.7, 1u)) * wanders;
-        wandered = true;
       }
-      let plane = level + wander;
-      pressed = max(pressed, plane);
-      let h = max(soft - abs(sd - plane), 0.0) / soft;
-      sd = max(sd, plane) + h * h * soft * 0.25;
+      let cutAt = plane + wander;
+      pressed = max(pressed, cutAt);
+      let h = max(planeSoft - abs(sd - cutAt), 0.0) / planeSoft;
+      sd = max(sd, cutAt) + h * h * planeSoft * 0.25;
     }
     let body = 1.0 - smoothstep(-aa, aa, sd);
     // The outline's outward direction on screen, before any pixel leaves: a soft dome lit from the
