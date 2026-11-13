@@ -6073,6 +6073,8 @@ fn ghostColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
 }
 // A living cell (or a dead one's ghost, fx.y > 0) resolved: its outline fused with its partners and
 // pressed flat against its neighbors, its interior and its hairs and tail.
+// a soft bump for the insides' gaussians, exp(-x²) as near as a cheap polynomial gets (1 at 0, gone past 1.5)
+fn insideBump(x: f32) -> f32 { let t = max(0.0, 1.0 - x * x * 0.4444); return t * t; }
 fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
   let lod = detailLOD(min(i.geom.x, view.pointSize));
   let seed = renderHash(p.id);
@@ -6266,112 +6268,60 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
     // that same normalized light, so there is no bright jump when the nucleus appears.
     var tissue = 1.0;
     var hue = vec3f(1.0);
+    // The insides: a cosmetic layer of light over the cell, kept cheap (an M1 drew a view of tissue at 300 pixels a unit
+    // in 21 ms with the insides of before, value noise and twelve organelles a pixel, 15 without any: docs/performance.md,
+    // 2026-11-13). Soft bumps (insideBump) for gaussians, sines of the cell's seed for noise, four organelles close up.
     if (INTERIOR && inside > 0.0 && body > 0.0) {
-      let a = atan2z(q.y, q.x);
-      let r = length(q);
-      let age = clamp(p.age / max(g.lifespan, 1.0), 0.0, 1.0);
-      let wallWidth = 0.025 + 0.008 * sin(a * 3.0 + seed * 13.0) + 0.03 * sleep;
-      let rim = exp(-sqr((sd + 0.025 + 0.02 * sleep) / (wallWidth + aa)));
-      let innerRim = exp(-sqr((sd + 0.10 + 0.04 * sleep) / (0.07 + aa)));
+      // the wall, bright, and the cortex just inside it, darker
+      let rim = insideBump((sd + 0.025 + 0.02 * sleep) / (0.025 + 0.03 * sleep + aa));
+      let innerRim = insideBump((sd + 0.10 + 0.04 * sleep) / (0.07 + aa));
       var detail = (0.44 + g.calcify * 0.12 + 0.2 * sleep) * rim - 0.21 * innerRim;
-      // cytoplasm is never an even fill: it is mottled, thicker in places (the difference of two
-      // fields, so a cell's light is unchanged on average), and stained here and there by what the
-      // cell has eaten or stored
-      detail += 0.12 * (cellGrain(q * 8.0, p.id) - cellGrain(q * 8.0 + 31.7, p.id + 3u));
-      hue = mix(vec3f(1.0), vec3f(1.25, 1.0, 0.65), inside * smoothstep(0.1, 0.6, cellGrain(q * 3.0 + 5.0, p.id + 13u)));
-      // relief: the dome near the membrane, then each organelle's own bulge or hollow
-      // kept to the membrane's own band, clear of the outline's medial axis in narrow arms
+      // mottled cytoplasm (light unchanged on average) and a warm stain where it stores or digests, each cell its own
+      let ph = seed * vec4f(40.0, 23.0, 61.0, 17.0);
+      detail += 0.06 * (sin(q.x * 9.0 + ph.x) * sin(q.y * 8.0 + ph.y) + sin((q.x - q.y) * 13.0 + ph.z));
+      let stain = sin(q.x * 3.1 + ph.w) * sin(q.y * 2.7 + ph.y) + 0.4 * sin((q.x + q.y) * 4.3 + ph.x);
+      hue = mix(vec3f(1.0), vec3f(1.25, 1.0, 0.65), inside * smoothstep(0.35, 0.95, stain));
+      // relief: the dome near the membrane, then the nucleus's and each organelle's bulge or hollow
       var relief = 0.45 * dot(outward, TO_LIGHT) * (1.0 - smoothstep(0.0, 0.13, -sd));
+      // the nucleus, pinching in two as the cell nears division
       let division = smoothstep(0.55, 1.0, i.neck.w);
       var center = vec2f((s.x - 0.5) * 0.22, (seed - 0.5) * 0.26);
       if (myPlan == 8u) { center = vec2f(-0.43, -0.06); }
       if (myPlan == 3u) { center = vec2f(-0.35, 0.02); }
       if (myPlan == 9u) { center = vec2f(0.2, 0.0); }
       let nq = q - center;
-      let nr = length(vec2f(abs(nq.x) - division * 0.17, nq.y + 0.03 * sin(nq.x * 15.0 + seed))
-        / vec2f(0.17 + division * 0.04, 0.21 - division * 0.055));
-      relief += 0.3 * exp(-sqr((nr - 0.8) / 0.3)) * dot(nq / max(length(nq), 1e-4), lightQ);
-      detail += -0.34 * (1.0 - smoothstep(0.75, 1.0 + aa * 3.0, nr))
-        + 0.22 * exp(-sqr((nr - 1.0) / (0.16 + aa)));
-      let plates = sin(q.x * (8.0 + s.x * 6.0) + sin(q.y * 5.0 + s.y * 3.0));
-      detail += g.calcify * 0.12 * plates * smoothstep(0.2, 0.6, r);
-      if (myPlan == 4u) {
-        let girdle = q.y + 0.10 * sin(q.x * 5.0 + s.y);
-        detail -= 0.30 * exp(-sqr(girdle / (0.035 + aa)));
-      }
-      if (myPlan == 5u) {
-        detail += 0.13 * sin(q.y * 29.0 + q.x * 10.0 + 1.2 * sin(q.x * 4.0)) * fine;
-        detail += 0.40 * exp(-dot(q - vec2f(0.5, -0.12), q - vec2f(0.5, -0.12)) * 350.0);
-      }
-      if (myPlan == 6u || myPlan == 9u) {
-        detail -= 0.25 * exp(-sqr((q.y - 0.18 - 0.12 * sin(q.x * 4.0)) / (0.045 + aa)));
-      }
-      if (myPlan == 7u) {
-        let whorl = sin(atan2z(q.y, q.x) * 2.0 - r * 18.0 + s.y);
-        detail -= 0.24 * exp(-whorl * whorl * 35.0) * smoothstep(0.1, 0.3, r);
-      }
-      if (myPlan == 11u) {
-        let lattice = sin(q.x * 26.0 + q.y * 12.0) * sin(q.y * 23.0 - q.x * 8.0);
-        detail += 0.23 * lattice * fine;
-      }
-      // Fine structure is genuinely skipped at small and mid zoom, not merely faded.
+      let nr = length(vec2f(abs(nq.x) - division * 0.17, nq.y) / vec2f(0.17 + division * 0.04, 0.21 - division * 0.055));
+      relief += 0.3 * insideBump((nr - 0.8) / 0.3) * dot(nq, lightQ) / max(length(nq), 1e-4);
+      detail += -0.34 * (1.0 - smoothstep(0.75, 1.0 + aa * 3.0, nr)) + 0.22 * insideBump((nr - 1.0) / (0.16 + aa));
+      // a calcified cell's plates
+      if (g.calcify > 0.05) { detail += g.calcify * 0.12 * sin(q.x * (8.0 + s.x * 6.0) + sin(q.y * 5.0 + s.y * 3.0)) * smoothstep(0.2, 0.6, length(q)); }
+      // close up: four organelles in the species' own scatter (organDirs), chloroplasts as much as it photosynthesizes,
+      // vacuoles as much as it eats
       if (fine > 0.0) {
-        detail += 0.08 * cellGrain(q * 60.0, p.id) * (0.25 + age) * fine;
-        for (var j = 0u; j < ORGANS; j++) {
-          let h = renderHash(p.id + j * 1999u + 71u);
-          // the species' own scatter direction for this organelle (organDirs, INBOND_WGSL)
-          let dir = unpack2x16snorm(organDir[p.kind * ORGANS + j]);
-          // Irregular scatter is clipped by the tissue for holes, horns and chain cells.
-          var organCenter = dir * (0.22 + h * 0.51);
-          if (myPlan == 3u) {
-            organCenter = vec2f(select(-0.39, 0.39, j % 2u == 0u), 0.0)
-              + dir * (0.12 + h * 0.18);
-          } else if (myPlan == 5u || myPlan == 6u || myPlan == 11u) {
-            let x = (h - 0.5) * 1.45;
-            organCenter = vec2f(x, dir.y * (0.30 - abs(x) * 0.22));
-          } else if (myPlan == 7u) {
-            let t = f32(j % 6u) / 5.0;
-            let chamberAngle = t * 5.3 + s.y * 0.7;
-            organCenter = vec2f(cos(chamberAngle), sin(chamberAngle)) * (0.12 + t * 0.36)
-              + dir * h * 0.14;
-          } else if (myPlan == 8u) {
-            organCenter = vec2f(0.16 + s.x * 0.30, 0.09)
-              + dir * (0.51 + h * 0.07);
-          } else if (myPlan == 9u) {
-            organCenter = vec2f(0.2, 0.0) + dir * h * 0.39;
-          } else if (myPlan == 10u) {
-            let x = (f32(j % 4u) - 1.5) * 0.40;
-            organCenter = vec2f(x, 0.14 * sin(x * 5.0 + s.y * 5.0))
-              + dir * h * 0.13;
-          }
-          let oq = q - organCenter;
-          let photo = smoothstep(f32(j), f32(j) + 1.0, clamp(g.photo, 0.0, 1.0) * 12.0);
-          let eat = (1.0 - g.photo * 0.65) * clamp(g.dGlint + g.dHusk + g.dFlesh, 0.0, 1.0);
-          let stored = smoothstep(h - 0.05, h + 0.05, eat * 0.7);
-          // neither a chloroplast nor a vacuole here, or this pixel is beyond either's reach
-          if ((photo <= 0.0 && stored <= 0.0) || dot(oq, oq) > 0.36 * 0.36) { continue; }
-          let chl = length(oq * vec2f(1.0, 1.5 + h));
-          let oDir = dot(oq / max(length(oq), 1e-4), lightQ);
-          relief += photo * 0.35 * exp(-sqr((chl - 0.05) / 0.03)) * oDir * fine;
-          detail += photo * (-0.35 * (1.0 - smoothstep(0.04, 0.07 + aa, chl))
-            + 0.12 * exp(-sqr((chl - 0.085) / (0.012 + aa)))) * fine;
-          let vr = length(oq + vec2f(0.04, 0.05));
-          // vacuoles are hollows: shadowed on the side toward the light
-          relief -= stored * fine * 0.3 * exp(-sqr((vr - 0.05) / 0.03)) * oDir;
-          detail += stored * fine
-            * (0.18 * exp(-sqr((vr - 0.06 - h * 0.025) / (0.012 + aa)))
-              - 0.10 * (1.0 - smoothstep(0.03, 0.06 + aa, vr)));
+        let photo = clamp(g.photo, 0.0, 1.0);
+        let eat = (1.0 - g.photo * 0.65) * clamp(g.dGlint + g.dHusk + g.dFlesh, 0.0, 1.0);
+        for (var j = 0u; j < 4u; j++) {
+          let h = fract(seed * (7.0 + f32(j) * 13.0));
+          let oq = q - unpack2x16snorm(organDir[p.kind * ORGANS + j]) * (0.22 + h * 0.45);
+          let d2 = dot(oq, oq);
+          if (d2 > 0.11 * 0.11) { continue; }
+          let o = sqrt(d2);
+          let oDir = dot(oq, lightQ) / max(o, 1e-4);
+          let chl = smoothstep(f32(j) * 0.25, f32(j) * 0.25 + 0.25, photo);
+          let vac = smoothstep(h - 0.05, h + 0.05, eat * 0.7) * (1.0 - chl);
+          relief += fine * (0.35 * chl - 0.3 * vac) * insideBump((o - 0.05) / 0.03) * oDir;
+          detail += fine * (chl * (-0.3 * (1.0 - smoothstep(0.04, 0.07 + aa, o)) + 0.12 * insideBump((o - 0.085) / (0.012 + aa)))
+            + vac * (0.18 * insideBump((o - 0.065) / (0.012 + aa)) - 0.10 * (1.0 - smoothstep(0.03, 0.06 + aa, o))));
         }
       }
-      // a dying cell's insides lose their structure
       // a meal just taken: a food vacuole, pinched in at the front, drifting inward as it is digested
       if (i.tile.y < DIGEST_T) {
         let u = i.tile.y / DIGEST_T;
         let vc = q - mix(vec2f(0.5, 0.0), vec2f(-0.05, 0.12 * (seed - 0.5)), 1.0 - (1.0 - u) * (1.0 - u));
         let vr = length(vc) / (0.15 * (1.0 - 0.45 * u));
         let show = smoothstep(0.0, 0.08, i.tile.y) * (1.0 - smoothstep(0.55, 1.0, u));
-        detail += show * (0.3 * exp(-sqr((vr - 1.0) / 0.25)) - 0.15 * (1.0 - smoothstep(0.6, 1.0, vr)));
-        relief -= show * 0.25 * exp(-sqr((vr - 0.9) / 0.3)) * dot(vc / max(length(vc), 1e-4), lightQ);
+        detail += show * (0.3 * insideBump((vr - 1.0) / 0.25) - 0.15 * (1.0 - smoothstep(0.6, 1.0, vr)));
+        relief -= show * 0.25 * insideBump((vr - 0.9) / 0.3) * dot(vc, lightQ) / max(length(vc), 1e-4);
         hue = mix(hue, vec3f(1.3, 1.05, 0.7), show * (1.0 - smoothstep(0.5, 1.0, vr)) * 0.6);
       }
       // its membrane fresh and bright
