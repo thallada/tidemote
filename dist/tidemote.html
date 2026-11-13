@@ -512,6 +512,21 @@ body.dragging-card #bench-open, body.dragging-card .bench-pip, body.dragging-car
 .sys .w-n { width: 7.6em; }
 .sys .w-3 { width: 2.4em; }
 .sys .w-4 { width: 3.2em; }
+/* the readout is a button (main.js, the adapting summary): its hint, and a click opens Settings → Perf. Its labels
+   brighten a step under the pointer, its box a finger tall but drawn no taller. While the page eases anything for
+   speed (view.adapt: .adapting; .fps-held, .res-held for those figures) the eased figures turn the sun's color, Auto's
+   "held" color, and the look is one class in page.html: v-a those figures and a hairline at the strip's end,
+   as the rail's gauges mark theirs (alone where only an effect without a figure is eased); v-b with a hairline under
+   each eased figure; v-c the figures and one hairline under the whole strip */
+button.sys { position: relative; height: 34px; padding: 0; border: 0; background: none; align-items: center; }
+.sys:hover, .sys[aria-describedby] { color: var(--ink-2); }
+.sys b { transition: color .4s ease, text-decoration-color .4s ease; text-decoration: underline 1px transparent; text-underline-offset: 4px; }
+.sys::before, .sys::after { content: ''; position: absolute; background: var(--sun); opacity: 0; transition: opacity .4s ease; }
+.sys::before { right: -7px; top: 50%; width: 1px; height: 12px; margin-top: -7px; }
+.sys::after { left: 0; right: 0; top: 50%; height: 1px; margin-top: 9px; }
+.sys:is(.v-a, .v-b).adapting::before, .sys.v-c.adapting::after { opacity: 1; }
+.sys.fps-held #sys-fps, .sys.res-held #sys-res { color: var(--sun); }
+.sys.v-b.fps-held #sys-fps, .sys.v-b.res-held #sys-res { text-decoration-color: var(--sun); }
 
 /* ------------------------------------------------------------------ world column */
 /* the Lab's census: what the world is made of above, the log filling what is left below */
@@ -634,6 +649,32 @@ body.ui-off :is(#hud, #spec, #lab, #help, #card, #tip, #plate) { visibility: hid
   color: var(--ink); padding: 8px 11px; font-size: 12.5px; line-height: 1.5; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
 }
 .tip kbd { color: var(--sun); margin-left: 8px; }
+/* a hint the page builds (tip.js rich): the readout's adapting summary, a ticked plate. Its heading (in the sun's
+   color while anything is eased, cyan when nothing is) and why, over every setting the page may adapt: its name, a
+   dotted leader, its value, and eased (sun) or fixed (dim) */
+.tip.rich {
+  width: 272px; padding: 9px 12px 8px; border: 0; box-shadow: none; outline: 1px solid var(--line); outline-offset: -1px; --tick: var(--line-2);
+  background:
+    linear-gradient(var(--tick), var(--tick)) left top / 7px 1px no-repeat, linear-gradient(var(--tick), var(--tick)) left top / 1px 7px no-repeat,
+    linear-gradient(var(--tick), var(--tick)) right top / 7px 1px no-repeat, linear-gradient(var(--tick), var(--tick)) right top / 1px 7px no-repeat,
+    linear-gradient(var(--tick), var(--tick)) left bottom / 7px 1px no-repeat, linear-gradient(var(--tick), var(--tick)) left bottom / 1px 7px no-repeat,
+    linear-gradient(var(--tick), var(--tick)) right bottom / 7px 1px no-repeat, linear-gradient(var(--tick), var(--tick)) right bottom / 1px 7px no-repeat,
+    var(--panel-solid);
+}
+.am-h { display: flex; justify-content: space-between; gap: var(--s3); padding-bottom: 7px; font-size: 11px; line-height: 1.2; font-weight: 500; letter-spacing: .24em; text-transform: uppercase; font-stretch: 115%; color: var(--sun);
+  background: radial-gradient(circle, var(--line-2) 1px, transparent 1.4px) left bottom / 6px 3px repeat-x; }
+.am-h.calm { color: var(--cyan); }
+.am-h span + span { color: var(--ink-2); letter-spacing: .14em; white-space: nowrap; }
+.am-g { display: flex; flex-direction: column; padding: 3px 0; }
+.am-g + .am-g { border-top: 1px solid var(--line); }
+.am-r { display: grid; grid-template-columns: auto minmax(8px, 1fr) auto 4.4em; align-items: center; gap: 6px; height: 21px; padding-left: 7px; margin-left: -7px; }
+.am-r i { height: 3px; align-self: end; margin-bottom: 7px; background: radial-gradient(circle, var(--line) 0.8px, transparent 1.1px) left / 4px 3px repeat-x; }
+.am-r b { font-weight: 400; font-size: 12.5px; color: var(--ink); white-space: nowrap; }
+.am-r em { font-style: normal; text-align: right; font-size: 11px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; font-stretch: 112%; }
+.am-r[data-s="held"] { box-shadow: inset 2px 0 0 var(--sun); }
+.am-r[data-s="held"] :is(.lbl, b, em) { color: var(--sun); }
+.am-r[data-s="fixed"] :is(b, em), .am-r[data-s="off"] b { color: var(--ink-3); }
+.am-f { padding-top: 6px; border-top: 1px solid var(--line); color: var(--ink-3); font-size: 11px; letter-spacing: .06em; }
 /* a species' name plate, as the world view labels a picked cell (a chart's hover); .rows: a line chart's values at a moment */
 .plate { position: fixed; z-index: 40; pointer-events: none; display: flex; align-items: baseline; gap: 8px; padding: 2px 5px 3px; background: rgba(6, 9, 10, 0.82); color: rgba(226, 241, 240, 0.95); font-size: 11px; font-weight: 500; letter-spacing: 1.5px; text-transform: uppercase; white-space: nowrap; }
 .plate i { align-self: center; width: 7px; height: 7px; flex: none; }
@@ -1499,7 +1540,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .dock .ico, .act { min-width: 44px; justify-content: center; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .intro, .flash, .hud, .caption, .spec { transition: none; }
+  .intro, .flash, .hud, .caption, .spec, .sys b, .sys::before, .sys::after { transition: none; }
   .calib::before { animation: none; }
 }
 
@@ -1603,7 +1644,8 @@ svg.niche .n-dot { fill: var(--cyan); }
       <button data-i18n="dock.set-open" type="button" class="act" id="set-open" aria-label="Settings" aria-expanded="false" aria-controls="settings" data-hint="Settings · V"><svg><use href="#i-gear"/></svg><span data-i18n="dock.settings-label">Settings</span></button>
       <button data-i18n="dock.lab-open" type="button" class="act primary" id="lab-open" aria-label="Field Lab" aria-expanded="false" aria-controls="lab" data-hint="Field Lab · K"><svg><use href="#i-lab"/></svg><span data-i18n="dock.lab-label">Lab</span></button>
     </div>
-    <div class="sys" id="sys" aria-hidden="true"><span data-i18n="dock.particles"><b id="sys-n" translate="no" class="w-n">–</b> particles</span><span data-i18n="dock.fps"><b id="sys-fps" translate="no" class="w-3">–</b> fps</span><span data-i18n="dock.ms"><b id="sys-ms" translate="no" class="w-4">–</b> ms</span><span data-i18n="dock.res"><b id="sys-res" translate="no" class="w-4">–</b> res</span></div>
+    <!-- the readout, and the adapting summary's button (main.js): its eased figures in the sun's color while the page eases anything for speed -->
+    <button data-i18n="dock.sys" type="button" class="sys v-a" id="sys" aria-label="Performance readout: what the page adapts, and its settings" aria-controls="settings" data-tip="eased"><span data-i18n="dock.particles"><b id="sys-n" translate="no" class="w-n">–</b> particles</span><span data-i18n="dock.fps"><b id="sys-fps" translate="no" class="w-3">–</b> fps</span><span data-i18n="dock.ms"><b id="sys-ms" translate="no" class="w-4">–</b> ms</span><span data-i18n="dock.res"><b id="sys-res" translate="no" class="w-4">–</b> res</span></button>
   </nav>
 
   <!-- settings: what is shown, and what it costs -->
@@ -26774,7 +26816,9 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     let shown = "";
     let via = "";
     let rect = null;
+    const rich = {};
     const textFor = (el2) => {
+      if (rich[el2.dataset.tip]) return { html: rich[el2.dataset.tip]() };
       if (el2.dataset.tip) return GLOSSARY[el2.dataset.tip] ? { text: (el2.dataset.live ? `${el2.dataset.live} ` : "") + GLOSSARY[el2.dataset.tip] } : null;
       if (!el2.dataset.hint) return null;
       const [h, more] = el2.dataset.hint.split("\n");
@@ -26788,8 +26832,10 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       if (owner && owner !== el2) owner.removeAttribute("aria-describedby");
       owner = el2;
       via = how;
-      tip.textContent = t.text;
-      shown = t.text;
+      tip.classList.toggle("rich", !!t.html);
+      if (t.html) tip.innerHTML = t.html;
+      else tip.textContent = t.text;
+      shown = t.html ?? t.text;
       if (t.key) {
         const k = document.createElement("kbd");
         k.textContent = t.key;
@@ -26853,7 +26899,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       if (!owner) return;
       if (owner.isConnected) {
         const t = textFor(owner);
-        if (t && t.text !== shown) show(owner, via);
+        if (t && (t.html ?? t.text) !== shown) show(owner, via);
         return;
       }
       const key = owner.dataset.tip ? `[data-tip="${owner.dataset.tip}"]` : `[data-hint="${CSS.escape(owner.dataset.hint || "")}"]`;
@@ -26872,7 +26918,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         owner.setAttribute("aria-describedby", "tip");
       } else hide();
     }
-    return { hide, check };
+    return { hide, check, rich };
   }
 
   // src/trace.js
@@ -36135,10 +36181,12 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     if (k.full != null) return k.full;
     return (GUESS[id] ?? 0.05) * Math.max(draw || 0, 1);
   }
-  function heldBack(levels, shown = {}, scale = null) {
+  function adaptation(levels, { shown = {}, fixed = {}, scale = null, fps = null } = {}) {
+    const at = (fix, off, held) => fix ? "fixed" : off ? "off" : held ? "held" : "best";
     const out = [];
-    for (const [id, def] of Object.entries(KNOBS)) if (levels[id] != null && shown[id] !== false && levels[id] < def.levels.length - 1) out.push([id, levels[id]]);
-    if (scale != null && scale < 0.995) out.push(["scale", scale]);
+    for (const [id, def] of Object.entries(KNOBS)) if (levels[id] != null) out.push([id, levels[id], at(fixed[id], shown[id] === false, levels[id] < def.levels.length - 1)]);
+    if (scale) out.push(["scale", scale.v, at(!scale.auto, false, scale.v < 0.995)]);
+    if (fps) out.push(["fps", fps.v, at(!fps.auto, false, fps.slow > 1)]);
     return out;
   }
 
@@ -36332,7 +36380,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     // i18n: Settings → Perf, one thing held back: {n} the neighbors a cell weighs each step, fewer than the most
     neighbors: (l) => tr("settings.perf.held.neighbors", "{n} neighbors", { n: KNOBS.neighbors.levels[l] }),
     // i18n: Settings → Perf, one thing held back: the world drawn at {pct} percent of the screen's resolution
-    scale: (v) => tr("settings.perf.held.scale", "{pct}% resolution", { pct: Math.round(v * 100) })
+    scale: (v) => tr("settings.perf.held.scale", "{pct}% resolution", { pct: Math.round(v * 100) }),
+    // i18n: Settings → Perf, one thing held back: the frame rate aimed lower, {n} frames a second
+    fps: (v) => tr("settings.perf.held.fps", "{n} fps", { n: v })
   };
   var EASES = { water: "sea", bloom: "bloom", specks: "specks", haze: "haze", microlook: "microscope", lod: "interiors" };
   var AUTO_VAL = { water: 2, bloom: 1, specks: 1, haze: 1, microlook: 2, lod: 1 };
@@ -36655,7 +36705,13 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       eng.maxScan = on.neighbors ? at("neighbors") : state.perf.scan;
     }
     applyTune();
-    const heldNow = () => heldBack(Object.fromEntries(Object.entries(tune).map(([id, k]) => [id, k.level])), shown(), state.perf.scale === "auto" ? renderScale : null);
+    const adaptNow = () => adaptation(Object.fromEntries(Object.entries(tune).map(([id, k]) => [id, k.level])), {
+      shown: shown(),
+      fixed: Object.fromEntries(Object.keys(tune).map((id) => [id, id === "neighbors" ? state.perf.scan != null : id in pins || !!state.fixed[ROW_OF[id]]])),
+      scale: { v: renderScale, auto: state.perf.scale === "auto" },
+      fps: { v: Math.round(1e3 / frameTarget()), auto: state.perf.fps === "auto", slow: state.speed > 1 ? 1 : perf.slow }
+    });
+    const heldNow = () => adaptNow().filter((r) => r[2] === "held");
     let filmDense = false;
     const density = () => Math.min(devicePixelRatio || 1, 2, state.perf.density === "auto" ? filmDense ? 1.5 : 1 : state.perf.density);
     let dpr = 1;
@@ -38994,12 +39050,25 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const pctOf = (n) => tr("settings.pct", "{n}%", { n }), timesOf = (n) => tr("settings.times", "{n}×", { n });
       const OFF = tr("settings.off", "Off"), NORMAL = tr("settings.normal", "Normal"), AUTO = tr("settings.auto", "Auto");
       const SUBTLE = tr("settings.subtle", "Subtle"), STRONG = tr("settings.strong", "Strong");
+      const NAMES = {
+        microscope: tr("settings.display.microscope", "Microscope"),
+        bloom: tr("settings.display.bloom", "Glow"),
+        sea: tr("settings.display.water", "Surface"),
+        haze: tr("settings.display.heat-shimmer", "Heat haze"),
+        specks: tr("settings.display.specks", "Suspension"),
+        interiors: tr("settings.display.lod", "Cell insides"),
+        // i18n: the readout's adapting summary: the stone's light, which the page may work out again less often
+        stone: tr("dock.adapt.stone", "Stone light"),
+        scale: tr("settings.perf.scale", "Render scale"),
+        fps: tr("settings.perf.fps", "Target fps"),
+        neighbors: tr("settings.perf.neighbors", "Neighbors")
+      };
       const group = (id, text2, rows) => section(id, text2, block("", rows));
       let confirming = false;
       function display() {
         const map = mapOn();
         const filmL = tr("settings.display.film", "Film");
-        return group("picture", tr("settings.display.picture", "Look"), autoRow("microlook", tr("settings.display.microscope", "Microscope"), "O", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], "microlook") + (state.look ? choice("grain", tr("settings.display.grain", "Grain"), "", [[0, OFF], [1, tr("settings.display.grain-fine", "Fine")], [2, tr("settings.display.grain-heavy", "Heavy")]], state.grain, "filmgrain") : "") + autoOnOff("bloom", tr("settings.display.bloom", "Glow"), "Y", "bloom") + choice("trails", tr("settings.display.trails", "Trails"), "T", trailNames.map((n, i) => [i, n]), trailIdx)) + group("water", tr("settings.display.water-group", "Water"), autoRow("water", tr("settings.display.water", "Surface"), "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], "watersurface") + (state.water ? choice("waves", tr("settings.display.waves", "Wave motion"), "", [[0, tr("settings.display.waves-slow", "Slow")], [1, NORMAL], [2, tr("settings.display.waves-lively", "Lively")]], state.waves, "wavemotion") : "") + (K.heat ? autoOnOff("haze", tr("settings.display.heat-shimmer", "Heat haze"), "", "haze") : "") + autoOnOff("specks", tr("settings.display.specks", "Suspension"), "", "specks")) + group("cells", tr("settings.display.cells", "Cells"), autoOnOff("lod", tr("settings.display.lod", "Cell insides"), "", "lod")) + group("overlays", tr("settings.display.overlays", "Overlays"), choice("map", tr("settings.display.map", "Map"), K.heat ? "G E H" : "G H", [["off", OFF], ["light", tr("settings.display.map-light", "Light")], ...K.heat ? [["heat", tr("settings.display.map-heat", "Heat")]] : [], ["tide", tr("settings.display.map-tide", "Tide")]], state.map, "maps") + (map ? rampHtml(map) : "") + onoff("currents", tr("settings.display.currents", "Currents"), "C", state.currents) + choice("songmarks", tr("settings.display.song-marks", "Song marks"), "", [[0, OFF], [1, tr("settings.display.song-marks-picked", "Picked")], [2, tr("settings.display.song-marks-all", "All")]], state.songMarks, "songmarks") + choice("notes", tr("settings.display.annotations", "Annotations"), "", [[1, tr("settings.display.annotations-auto", "Auto camera")], [2, tr("settings.display.annotations-always", "Always")], [0, OFF]], state.notes, "annotations")) + group("view", tr("settings.display.view", "View"), (isCoarse ? "" : onoff("ui", tr("settings.display.interface", "Interface"), "U", state.ui, "interface")) + onoff("closeup", tr("settings.display.closeup", "Live close-up"), "", state.closeup, "closeup") + onoff("auto", tr("settings.display.auto-idle", "Auto when idle"), "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", filmL)} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="${filmL}">${film.state === "idle" ? `<button type="button" class="chip" data-o="film" data-v="now">${tr("settings.display.film-now", "Start filming")}</button>` : `<button type="button" class="chip" data-o="film" data-v="stop">${tr("settings.display.film-stop", "Stop filming")}</button>`}</div></div>` : ""));
+        return group("picture", tr("settings.display.picture", "Look"), autoRow("microlook", NAMES.microscope, "O", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], "microlook") + (state.look ? choice("grain", tr("settings.display.grain", "Grain"), "", [[0, OFF], [1, tr("settings.display.grain-fine", "Fine")], [2, tr("settings.display.grain-heavy", "Heavy")]], state.grain, "filmgrain") : "") + autoOnOff("bloom", NAMES.bloom, "Y", "bloom") + choice("trails", tr("settings.display.trails", "Trails"), "T", trailNames.map((n, i) => [i, n]), trailIdx)) + group("water", tr("settings.display.water-group", "Water"), autoRow("water", NAMES.sea, "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], "watersurface") + (state.water ? choice("waves", tr("settings.display.waves", "Wave motion"), "", [[0, tr("settings.display.waves-slow", "Slow")], [1, NORMAL], [2, tr("settings.display.waves-lively", "Lively")]], state.waves, "wavemotion") : "") + (K.heat ? autoOnOff("haze", NAMES.haze, "", "haze") : "") + autoOnOff("specks", NAMES.specks, "", "specks")) + group("cells", tr("settings.display.cells", "Cells"), autoOnOff("lod", NAMES.interiors, "", "lod")) + group("overlays", tr("settings.display.overlays", "Overlays"), choice("map", tr("settings.display.map", "Map"), K.heat ? "G E H" : "G H", [["off", OFF], ["light", tr("settings.display.map-light", "Light")], ...K.heat ? [["heat", tr("settings.display.map-heat", "Heat")]] : [], ["tide", tr("settings.display.map-tide", "Tide")]], state.map, "maps") + (map ? rampHtml(map) : "") + onoff("currents", tr("settings.display.currents", "Currents"), "C", state.currents) + choice("songmarks", tr("settings.display.song-marks", "Song marks"), "", [[0, OFF], [1, tr("settings.display.song-marks-picked", "Picked")], [2, tr("settings.display.song-marks-all", "All")]], state.songMarks, "songmarks") + choice("notes", tr("settings.display.annotations", "Annotations"), "", [[1, tr("settings.display.annotations-auto", "Auto camera")], [2, tr("settings.display.annotations-always", "Always")], [0, OFF]], state.notes, "annotations")) + group("view", tr("settings.display.view", "View"), (isCoarse ? "" : onoff("ui", tr("settings.display.interface", "Interface"), "U", state.ui, "interface")) + onoff("closeup", tr("settings.display.closeup", "Live close-up"), "", state.closeup, "closeup") + onoff("auto", tr("settings.display.auto-idle", "Auto when idle"), "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", filmL)} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="${filmL}">${film.state === "idle" ? `<button type="button" class="chip" data-o="film" data-v="now">${tr("settings.display.film-now", "Start filming")}</button>` : `<button type="button" class="chip" data-o="film" data-v="stop">${tr("settings.display.film-stop", "Stop filming")}</button>`}</div></div>` : ""));
       }
       function audio_() {
         const m = sound.mix, mix4 = (k) => choice(`mix-${k}`, MIX[k].name, "", MIX[k].choices.map(([label3], i) => [i, label3]), m[k], `audio${k}`);
@@ -39016,7 +39085,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         const dev = Math.min(devicePixelRatio || 1, 2);
         const sizes2 = PARTICLE_SIZES.filter((n) => n <= maxParticles());
         const nowN = pendingN ?? (P.particles || "auto");
-        return group("quality", tr("settings.perf.quality", "Quality"), onoff("adapt", tr("settings.perf.adapt", "Adaptation"), "", P.adapt, "adapt") + `<p class="eased-now" id="perf-held">${heldWords()}</p>`) + group("res", tr("settings.perf.resolution", "Resolution"), choice("scale", tr("settings.perf.scale", "Render scale"), "", [["auto", AUTO], [1, pctOf(100)], [0.75, pctOf(75)], [0.5, pctOf(50)], [0.25, pctOf(25)]], P.scale, "renderscale") + (P.scale === "auto" ? choice("floor", tr("settings.perf.floor", "Auto lowest"), "", [[0.75, pctOf(75)], [0.5, pctOf(50)], [0.35, pctOf(35)], [0.25, pctOf(25)]], P.floor, "autofloor") : "") + choice("density", tr("settings.perf.density", "Pixel density"), "", [["auto", AUTO], [1, timesOf(1)], [1.5, timesOf(1.5), dev < 1.5], [2, timesOf(2), dev < 2]], P.density, "density") + choice("fps", tr("settings.perf.fps", "Target fps"), "", [["auto", AUTO], [30, "30"], [60, "60"], [0, tr("settings.perf.fps-display", "Display")]], P.fps, "targetfps")) + group("world", tr("settings.perf.world", "World"), choice("n", tr("settings.perf.particles", "Particles"), "", [["auto", AUTO], ...sizes2.map((n) => [n, kfmt(n)])], nowN, "particles") + choice("scan", tr("settings.perf.neighbors", "Neighbors"), "", [["auto", AUTO], ...scanChoices().map((n) => [n, String(n)])], P.scan ?? "auto", "neighbors") + (pendingN != null && String(pendingN) !== String(P.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">${pendingN === "auto" ? tr("settings.perf.apply-auto", "Start a new world with a measured count") : tr("settings.perf.apply", "Start a new world with {n, number}", { n: pendingN })}</button></div>` : "") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", tr("settings.perf.profile", "Profile"))}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">${tr("settings.perf.copy-profile", "Copy profile")}</button></div></div>` : ""));
+        return group("quality", tr("settings.perf.quality", "Quality"), onoff("adapt", tr("settings.perf.adapt", "Adaptation"), "", P.adapt, "adapt") + `<p class="eased-now" id="perf-held">${heldWords()}</p>`) + group("res", tr("settings.perf.resolution", "Resolution"), choice("scale", NAMES.scale, "", [["auto", AUTO], [1, pctOf(100)], [0.75, pctOf(75)], [0.5, pctOf(50)], [0.25, pctOf(25)]], P.scale, "renderscale") + (P.scale === "auto" ? choice("floor", tr("settings.perf.floor", "Auto lowest"), "", [[0.75, pctOf(75)], [0.5, pctOf(50)], [0.35, pctOf(35)], [0.25, pctOf(25)]], P.floor, "autofloor") : "") + choice("density", tr("settings.perf.density", "Pixel density"), "", [["auto", AUTO], [1, timesOf(1)], [1.5, timesOf(1.5), dev < 1.5], [2, timesOf(2), dev < 2]], P.density, "density") + choice("fps", NAMES.fps, "", [["auto", AUTO], [30, "30"], [60, "60"], [0, tr("settings.perf.fps-display", "Display")]], P.fps, "targetfps")) + group("world", tr("settings.perf.world", "World"), choice("n", tr("settings.perf.particles", "Particles"), "", [["auto", AUTO], ...sizes2.map((n) => [n, kfmt(n)])], nowN, "particles") + choice("scan", NAMES.neighbors, "", [["auto", AUTO], ...scanChoices().map((n) => [n, String(n)])], P.scan ?? "auto", "neighbors") + (pendingN != null && String(pendingN) !== String(P.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">${pendingN === "auto" ? tr("settings.perf.apply-auto", "Start a new world with a measured count") : tr("settings.perf.apply", "Start a new world with {n, number}", { n: pendingN })}</button></div>` : "") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", tr("settings.perf.profile", "Profile"))}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">${tr("settings.perf.copy-profile", "Copy profile")}</button></div></div>` : ""));
       }
       function climate_() {
         const E = state.events;
@@ -39243,6 +39312,42 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         setText2("ro-world", perf.fps ? perf.worldFps.toFixed(0) : "–");
         setText2("ro-why", state.speed > 1 ? tr("readout.why-fast", "running fast") : WHY_WORDS[perf.why] ?? (perf.why || "–"));
       }
+      const strip = $2("sys");
+      const EASED = tr("dock.adapt.eased", "Eased"), FIXED = tr("dock.adapt.fixed", "Fixed"), ON = tr("settings.on", "On");
+      function adaptValue(id, v, st) {
+        if (st === "off") return OFF;
+        if (id === "scale") return pctOf(Math.round(v * 100));
+        if (id === "fps") return String(v);
+        if (id === "neighbors") return String(eng.maxScan);
+        if (id === "stone") return tr("dock.adapt.every", "Every {s} s", { s: KNOBS.stone.levels[v] });
+        if (id === "sea" && v > 0 && v < 3) return tr("dock.adapt.rate", "{level, select, 1 {¼ rate} other {½ rate}}", { level: v });
+        const row = ROW_OF[id], x = v === 0 ? 0 : rowVal[row]();
+        return row === "microlook" || row === "water" ? [OFF, SUBTLE, NORMAL, STRONG][x] : x ? ON : OFF;
+      }
+      const SUMMED = [["microscope", "bloom", "sea", "haze", "specks", "interiors", "stone"], ["scale", "fps", "neighbors"]];
+      tips.rich.eased = () => {
+        const all = adaptNow(), at = Object.fromEntries(all.map((r) => [r[0], r])), held = all.some((r) => r[2] === "held");
+        const row = (id) => {
+          const [, v, st] = at[id];
+          return `<div class="am-r" data-s="${st}"><span class="lbl">${NAMES[id]}</span><i></i><b>${adaptValue(id, v, st)}</b><em>${st === "held" ? EASED : st === "fixed" ? FIXED : ""}</em></div>`;
+        };
+        return (held ? `<div class="am-h"><span>${tr("dock.adapt.title", "Adapting")}</span><span>${WHY_WORDS[perf.why] ?? ""}</span></div>` : `<div class="am-h calm"><span>${tr("settings.perf.held-none", "Nothing held back")}</span></div>`) + SUMMED.map((ids) => `<div class="am-g">${ids.filter((id) => id !== "haze" || K.heat).map(row).join("")}</div>`).join("") + `<div class="am-f">${tr("dock.adapt.open", "{touch, select, yes {Tap again to open Settings → Perf} other {Click to open Settings → Perf}}", { touch: isCoarse ? "yes" : "no" })}</div>`;
+      };
+      function adapt() {
+        const held = new Set(heldNow().map((r) => r[0]));
+        strip.classList.toggle("adapting", held.size > 0);
+        strip.classList.toggle("fps-held", held.has("fps"));
+        strip.classList.toggle("res-held", held.has("scale"));
+      }
+      let tapped = false;
+      strip.addEventListener("pointerdown", (e) => {
+        tapped = e.pointerType !== "mouse";
+      });
+      strip.addEventListener("click", () => {
+        const tap = tapped;
+        tapped = false;
+        if (!(tap && strip.hasAttribute("aria-describedby"))) toggle(true, "performance");
+      });
       function set(id, v) {
         const s = eng.settings, P = state.perf;
         if (id.startsWith("w-")) {
@@ -39407,7 +39512,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       btn.addEventListener("click", () => toggle());
       $2("brand").addEventListener("click", () => toggle(true, "about"));
       $2("set-close").addEventListener("click", () => toggle(false));
-      return { render, toggle, readout, isOpen: () => !el2.hidden };
+      return { render, toggle, readout, adapt, isOpen: () => !el2.hidden };
     })();
     async function copyProfile() {
       flash(tr("flash.profiling", "Profiling for three seconds"));
@@ -40749,6 +40854,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       }
       updateEventChip();
       renderMaps();
+      view.adapt();
       tips.check();
       setText2("t-rate", state.speed > 1 && !state.paused ? tr("readout.rate", "×{n}", { n: perf.rate < 10 ? perf.rate.toFixed(1) : Math.round(perf.rate) }) : "");
       setText2("sys-n", fmt(eng.count));
