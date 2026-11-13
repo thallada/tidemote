@@ -482,7 +482,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   // ------------------------------------------------------------ perf
   const perf = { samples: [], gpu: 0, fps: 0, frames: 0, worldFps: 0, worldFrames: 0, fpsT: performance.now(), frameDt: [], lastSubmit: 0, rafMs: 0, rafLonger: 0, mainMs: 0, goodWindows: 0, ceiling: 1, ceilingUntil: 0, lastAdjust: performance.now(),
-    stepMs: 0, simS: 0, renderR: 0, presentR: 0, worldAt: 0, stepCredit: 0, ticks: 1, held: false, ticksAt: 0, rate: 1, rateT: performance.now(), rateSim: 0, stepsS: 0, rateSteps: 0,
+    stepMs: 0, simS: 0, renderR: 0, presentR: 0, worldAt: 0, stepCredit: 0, ticks: 1, held: false, fine: 0, ticksAt: 0, rate: 1, rateT: performance.now(), rateSim: 0, stepsS: 0, rateSteps: 0,
     slow: 1, slowCeiling: 0, why: '', raisedAt: 0, hold: 0, raised: null, profAt: performance.now(), calmUntil: 0, lateWindows: 0, judged: 1, log: [], waits: 0 };
   // the frames since the adaptation last judged (their intervals, and how many of them waited on the GPU)
   const clearFrames = () => { perf.frameDt.length = 0; perf.waits = 0; };
@@ -3720,7 +3720,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (now - perf.ticksAt < 1000) return;
     perf.ticksAt = now;
     const s = state.speed;
-    if (!(s > 1) || !stepCost()) { perf.ticks = 1; perf.held = false; return; }
+    // (real time: 1/60 s steps where they fit, fineTicks)
+    if (!(s > 1) || !stepCost()) { perf.ticks = 1; perf.held = false; perf.fine = s === 1 ? fineTicks() : 0; return; }
     if (s === Infinity) {
       // the coarsest step that still fits MAX_STEP_MS of the GPU (a step of m ticks costs about 1 + 0.45 (m - 1) of a
       // 1/60 s one): a slow phone's 6-tick steps make frames like those its driver judges a hung GPU
@@ -4103,8 +4104,21 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // At real time or slower a step covers up to one frame of the rate aimed for, in whole 1/60 s ticks
   // (at most MAX_TICKS): below about 45 fps the world takes coarse steps, which cost far less than the
   // 1/60 s steps they stand for and keep its ecology (docs/fast-forward.md), so a slow device keeps real time.
+  // Only where the frame has no room for those 1/60 s steps (perf.fine, fineTicks): a coarse step settles a crowd's
+  // pushes once for all its ticks, and crowds drawn in 2-tick steps at 30 fps rattled.
   const ticksFor = (ms) => clamp(Math.ceil(ms * 60 / 1000 - 0.1), 1, MAX_TICKS);
-  const stepTicks = () => ticksFor(frameTarget());
+  const stepTicks = () => { const m = ticksFor(frameTarget()); return perf.fine === m ? 1 : m; };
+  // At real time, the ticks of a frame of the rate aimed for if it has room to take them as 1/60 s steps, else 0, by
+  // the GPU's timestamps (the drawing, and the step last measured taken for a 1/60 s one: a coarse step costs 1.1 to
+  // 1.45 times one, docs/performance.md, so from coarse steps the estimate is high and a switch is not undone once the
+  // 1/60 s steps are measured): taken with a quarter of the frame to spare, left at 85% of it, before
+  // frames run late and the adaptation cuts the frame rate. Judged each second (updateTicks); a frame rate changed meanwhile
+  // takes coarse steps until then.
+  function fineTicks() {
+    const m = ticksFor(frameTarget());
+    if (m === 1 || !perf.simS || !perf.renderR) return 0;
+    return perf.renderR + m * perf.simS < frameTarget() * (perf.fine === m ? 0.85 : 0.75) ? m : 0;
+  }
   // render scales the auto resolution steps between (down to the floor chosen in Settings)
   const SCALES = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
   function resetAdapt() {

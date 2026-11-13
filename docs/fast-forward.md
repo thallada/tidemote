@@ -24,6 +24,32 @@ bigger screens). The speeds on offer are those Max reaches. A coarse step costs 
 are about 4x faster. The census runs at most about five times a real second. Settings, Performance shows
 Step ms, Draw ms, Stride (ticks a step) and Now (the speed reached).
 
+At real time a step covers up to a frame of the rate aimed for, so a frame rate Auto lowers to 30, 20 or 15 fps
+would take steps of 2, 3 or 4 ticks. It takes them only when the frame has no room for the 1/60 s steps they stand
+for (`fineTicks`, src/main.js: by the GPU's timestamps, the drawing and that many 1/60 s steps within three quarters
+of the frame, given up past 85%, judged each second). Coarse steps settle a crowd's pushes once for all their ticks,
+and crowds drawn at 30 fps in 2-tick steps rattled (2026-11-12, seen on an M1 whose 32k world fell to 30 fps).
+`tools/jitterlab.mjs` runs one world on from the same moment in 1- and 2-tick steps and samples every living cell
+every 2 ticks, as a 30 Hz screen shows it; a cell's jitter is the RMS of its path's departure from a centered
+5-sample moving average. Three 32k worlds grown 4 minutes, 4 s each (`runs/jitter/w32k-*.log`, local); 1/60 s steps'
+jitter (1e-3 units; a cell's radius is about 85) and 2-tick steps' as a multiple of it, in each world:
+
+| neighbors within 0.2 | position, 1 tick | 2 ticks | velocity, 1 tick | 2 ticks |
+|---|---|---|---|---|
+| 0-2 | 1.0-1.8 | 1.1-1.6x | 26-50 | 1.3-1.9x |
+| 3-7 | 1.1-1.7 | 1.4-1.8x | 43-71 | 1.7-2.1x |
+| 8-15 | 0.9-2.3 | 1.9-2.3x | 47-122 | 1.6-2.2x |
+
+The crowded cells rattle about twice as much in 2-tick steps, in position and in the velocity the drawn heading
+and squash follow. These paths are what the page draws at 30 fps: a coarse step drawn in between (below) is drawn
+one step behind, and at a steady 30 fps barely part way along it, so each frame shows a step's start. At a target of 30
+fps on the RTX 4070 Ti, in a 32k world grown at Max, it now takes two 1/60 s steps a frame where it took one of 2
+ticks: 0.38 ms each against 0.41, the frame's GPU time 1.8 → 2.0 ms. The cost is about one more 1/60 s step a frame:
+on an M1, whose 78k world's step took 3.9 ms (docs/performance.md), a 32k world's should take less, and only a frame
+with a quarter of its time to spare takes it (judged by the step measured, which from coarse steps overstates a 1/60 s
+one: a 2-tick step costs 1.1 to 1.45 times one, so a switch holds once the 1/60 s steps are measured). A frame
+without that room keeps the coarse step, and its crowds rattle as before.
+
 ## Drawn in between
 
 A coarse step moves the world 4-6 ticks at once. Drawn as it stands after each step, at real time (where

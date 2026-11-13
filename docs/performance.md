@@ -609,7 +609,11 @@ The weakest GPU at hand (Android 12, Chrome, 393×786 CSS pixels at 2.75). Chrom
   ticks, so below about 45 fps the world takes coarse steps (docs/fast-forward.md). A 2-tick step
   costs about 1.45 times a 1/60 s one (one neighbor scan, more motion substeps), so 30 fps still cuts
   the simulation's cost by a quarter and the drawing's by half, and a slow device keeps real time:
-  the mature 4M world ran at 0.67× and now runs at 1× at 32 to 36 fps.
+  the mature 4M world ran at 0.67× and now runs at 1× at 32 to 36 fps. Since 2026-11-12 only a frame without room
+  for its ticks as 1/60 s steps takes them coarse (`fineTicks`: the drawing and the 1/60 s steps under three
+  quarters of the frame, by the timestamps), as a coarse step's crowds rattle about twice as much
+  (docs/fast-forward.md, How the page runs a speed); a frame rate cut to save the drawing keeps 1/60 s steps. In a
+  small world the 1.45 is nearer 1.1 (32k on the RTX 4070 Ti: 0.41 ms a 2-tick step, 0.38 a 1/60 s one).
 - **Following a cell (2026-10-12).** Following a predator in the 2.4M heaps world (plan
   `tools/perf/plans/follow.json`) fell from 58 to 15–30 fps on an RTX 4070 Ti at 175 Hz, through
   faults in the pacing, none in the GPU's work (following itself costs about 0.3 ms: `pickMain`,
