@@ -245,6 +245,13 @@ GPU p95 is 1.1-1.4 times its mean):
 | `fsComposite` | 0.48 | 0.20 | 0.18 | 0.71 | 0.57-0.61 |
 | frame (GPU mean) | 1.59 | 0.79 | 0.94 | 1.96 | 1.79-1.94 |
 
+The loupe and the live close-up follow Glow, Suspension and the tuner as the main view does (docs/look.md, The look),
+each with its own bloom chain (`_bloomChain`: six levels down and five up at its size, eleven small passes) and its own
+light. Measured on a 131k world at 2544×1289 (loupe swept at 90 px a unit, ×6; a cell selected at 150, close-up
+323×134), two runs each: the loupe's or the close-up's bloom +0.017 ms a frame (`fsDown`/`fsUp` 0.064 → 0.081), the
+close-up's lit `fsPlain` +0.003, the loupe's light, shadows and share no change within the noise (`fsLoupe` 0.47-0.49
+either way). In all about +0.02 ms a frame on the RTX per view open, about +0.15 ms on an M1.
+
 At ×4 the step is 1.09 ms a frame (four steps; 0.27 each), the frame 2.3. A 6-tick coarse step is 0.38 ms (`lifeMainCoarse`
 0.12, `bodyTick` 0.13). At the Mac's size, a quarter of the pixels (`scale: 0.5`) takes 0.79 → 0.60 ms, all dressing off
 (`effects: 'low'`) 0.59, the look off 0.77; the shallow focus (Darkfield's `dof` 0.9, since 2026-11-12) costs 0.01 ms of the

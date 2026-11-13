@@ -9,8 +9,17 @@ with it, and O turns it off and back to its level) and sets its grain (Grain: Of
 `applyLook` in `src/main.js`. Glow (Y) is the bloom, and so also the halation and veiling flare drawn from its blur.
 Tools set the look with `T.look.set(p, strength)` (tunables over Darkfield's) and `T.look.off()`, and a perf plan's
 scenario with `look: "on"` or `"off"`. The tuner may fade the microscope out where frames run late (Settings → Perf →
-Adaptation; docs/performance.md), in the main view and the loupe only: the close-up reads its own copy of
-the post uniforms with the look whole (`b.postPlain`), so a card's portrait never keeps a faded look.
+Adaptation; docs/performance.md), in every live view: the loupe and the live close-up read the main view's post
+uniforms, so the look, Glow, Suspension and the tuner's knobs ease in all three at once. A card's portrait (the
+close-up not live) reads its own copy (`b.postPlain`) with the look whole and the suspension shown, so it never keeps a
+faded look.
+
+The loupe and the live close-up are the main view's finish at another view: each draws its cells, stone, its own bloom (`_bloomChain`, the main
+view's chain at its size, from its own scene: in pixels, as the main view's, so the loupe at 90 × 6 glows as the main
+view at 540 does) and its own light (`sceneLit`, `litShow` with the living's share from its own living layer,
+`sunShadow` at its own scale). What they still leave out: the main view's trails; in the close-up, the eyepiece (the
+lens's focus, fringes and field stop, the murk seen through it), the water over it (the sea's bend and focus, the heat
+haze, bubbles, ice, the dry floor, duckweed) and the maps, so a specimen reads clearly.
 
 ## Where each part lives
 
@@ -26,7 +35,7 @@ the post uniforms with the look whole (`b.postPlain`), so a card's portrait neve
 The edge effects read the scene four times a pixel or more apart, so they fade in from 25 to 70 pixels per world
 unit (cells several pixels across) and their reach grows with zoom to 3 px; where the optics blur the image they fade
 by how far it is spread (Stone, below: the look's edges). Under a full light or heat map the grade
-is mostly held back so the map reads true (`lookDisplay`); the close-up has no maps, bloom or field stop, so it takes
+is mostly held back so the map reads true (`lookDisplay`); the close-up has no maps or field stop, so it takes
 the scene light, the tone curve and the whole grade. The shallow focus and the iris need the optics (the Microscope on).
 
 Shallow focus (`lensScene`, close up: from `start`, about 80 pixels a unit, full from four times that) blurs what
@@ -223,9 +232,10 @@ the water does (`landLit`, poolOver's dry mud): the ground's gain and the light'
 (`LAND_SUN`) and an amber one under the lamp (`LAND_LAMP`), none where the living shade it, so a Tide's band or the
 lamp passing over an island lights its mud (painted over the scene unlit before, the mud showed no light at all). Before the tone curve the scene only takes the
 light's color: cool in the shade, warm in the sun, amber by the lamp's share. The sea's caustics focus it (`seaFocus`:
-stronger in the sun), the crests' sheen and the suspension's specks take the ground's gain. The loupe has no layer of
-the living of its own, so all of it is lit as the living (its floor glows as the view's). The close-up (specimen
-viewer, card portraits) stays unlit, so a species looks the same wherever it was caught. Stone's cache is lit once, so
+stronger in the sun), the crests' sheen and the suspension's specks take the ground's gain. The loupe and the live
+close-up light their scene as the composite does, the living's share and their shadows from their own layer of the
+living (until 2026-11-12 the loupe lit all of it as the living, without shadows, and the close-up was unlit); a card's
+portrait (the close-up not live, `MicroView.lit` 0) stays unlit, so a species looks the same wherever it was caught. Stone's cache is lit once, so
 the light is applied after it, in the composite, every frame. The light map (Map → Light, G) still draws the light
 itself as a ramp; the faint teal tint it once had in place of all this is gone.
 

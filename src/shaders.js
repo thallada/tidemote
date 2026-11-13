@@ -7122,8 +7122,9 @@ fn mineralSurf(i: SO) -> StoneOut {
 // The uniforms POST_WGSL and MICRO_WGSL share (engine _render fills them).
 const POST_STRUCT = /* wgsl */ `
 struct Post {
-  // (p0: padding)
-  res: vec2f, bloom: f32, p0: f32,
+  // specks: 1 where the suspension shows (Display's Suspension and the tuner's specks: pondMicro in the loupe and the
+  // close-up; the main view's composite is compiled without it otherwise, MICRO_SUSPENSION)
+  res: vec2f, bloom: f32, specks: f32,
   time: f32, season: f32, tideVis: f32, ppu: f32,
   cam: vec2f, world: vec2f,
   simTime: f32, ambient: f32, optics: f32,
@@ -7362,8 +7363,9 @@ override MICRO_SUSPENSION: bool = true;
 override LEAN: bool = false;
 const LOUPE_FIELD = ${LOUPE_FIELD};
 ${POST_STRUCT}struct Loupe { center: vec2f, radius: f32, strength: f32, res: vec2f, ppu: f32, p1: f32 };
-// Prefix of DRAW's View: reuse the inspection cameras, without another buffer.
-struct MicroView { cam: vec2f, world: vec2f, res: vec2f, ppu: f32, pointSize: f32 };
+// Prefix of DRAW's View: reuse the inspection cameras, without another buffer (lit: 1 where the world's light shows,
+// the main view, the loupe and the live close-up; 0 in a card's portrait)
+struct MicroView { cam: vec2f, world: vec2f, res: vec2f, ppu: f32, pointSize: f32, p: array<vec4f, 4>, level: f32, lit: u32 };
 struct Reproj { scale: vec2f, shift: vec2f, k: f32, p0: f32, p1: f32, p2: f32 };
 @group(0) @binding(0) var samp: sampler;
 @group(0) @binding(1) var src: texture_2d<f32>;
@@ -7698,7 +7700,7 @@ fn microGrain(wp: vec2f, spacing: f32, ppu: f32, octave: f32, depth: f32, cycle:
 fn pondMicro(c: vec3f, hdr: vec3f, cam: vec2f, offset: vec2f, renderPPU: f32, ppu: f32, mud: f32, lit: f32) -> vec3f {
   // The main view specializes this away below the reveal threshold, avoiding
   // register/stack overhead from the deep-zoom shader even on software GPUs.
-  if (!MICRO_SUSPENSION) { return c; }
+  if (!MICRO_SUSPENSION || post.specks < 0.5) { return c; }
   // Uniform early-out: no hashes, shapes or time work at ordinary zoom. The
   // fit threshold also keeps the default view unchanged on very small worlds.
   let start = max(80.0, 2.0 * max(post.res.x / post.world.x, post.res.y / post.world.y));
@@ -9295,22 +9297,28 @@ fn litGain(l: Lit, cells: f32) -> f32 {
   let s = 1.0 - l.shadow * (1.0 - cells);
   return g.x * pow(g.y / g.x, l.r * s) * max(0.0, 1.0 + FOCUS_MATTER * l.play * s * (1.0 - cells));
 }
-// How much of the sun the living keep from the ground at uv in the main view (0..SHADOW_K): their layer looked up a
-// little way toward the light, softened (they swim about SHADOW_H units over the bed, so it lies that far off them
-// in world units at every zoom, and is gone where that is under a pixel or two). None out of the sun.
+// How much of the sun the living keep from the ground at uv in a view of ppu pixels a unit, res pixels (0..SHADOW_K):
+// their layer (liveTex) looked up a little way toward the light, softened (they swim about SHADOW_H units over the
+// bed, so it lies that far off them in world units at every zoom, and is gone where that is under a pixel or two).
+// None out of the sun.
 const SHADOW_H = 0.3;
 const SHADOW_K = 0.55;
-fn sunShadow(uv: vec2f, l: Lit) -> f32 {
+fn sunShadow(uv: vec2f, l: Lit, ppu: f32, res: vec2f) -> f32 {
   let sun = clamp(l.r, 0.0, 1.0);
-  let px = SHADOW_H * post.ppu;
+  let px = SHADOW_H * ppu;
   if (sun <= 0.02 || px < 1.0) { return 0.0; }
   let o = TO_LIGHT * px;
   let side = vec2f(-o.y, o.x) * 0.5;
-  let occ = coverAt(uv + o / post.res) + coverAt(uv + (o * 0.7 + side) / post.res) + coverAt(uv + (o * 0.7 - side) / post.res)
-    + coverAt(uv + (o * 1.3 + side) / post.res) + coverAt(uv + (o * 1.3 - side) / post.res);
+  let occ = coverAt(uv + o / res) + coverAt(uv + (o * 0.7 + side) / res) + coverAt(uv + (o * 0.7 - side) / res)
+    + coverAt(uv + (o * 1.3 + side) / res) + coverAt(uv + (o * 1.3 - side) / res);
   return SHADOW_K * sun * occ / 5.0 * smoothstep(1.0, 3.0, px);
 }
 fn coverAt(uv: vec2f) -> f32 { return min(1.0, textureSampleLevel(liveTex, samp, uv, 0.0).a); }
+// The living's share of a pixel's light, from the scene there (all) and the living alone (live): cells drawn small
+// leave no coverage, only their light.
+fn cellShare(all: vec4f, live: vec4f) -> f32 {
+  return clamp(lookL(live.rgb / max(1.0, live.a)) / max(lookL(all.rgb / max(1.0, all.a)), 1e-4), 0.0, 1.0);
+}
 // The toned view (display-linear) in the scene's light: by litGain, after the tone curve so it is not squeezed, the
 // living's colors richer in the sun, rolled off above LIT_KNEE rather than clipped.
 fn litShow(cIn: vec3f, l: Lit, cells: f32) -> vec3f {
@@ -9667,9 +9675,9 @@ struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
   var lit = sceneLit(wp, surf.light);
   hdr = lookScene(hdr, uv, bl, post.ppu, post.res, sunLook(lit), spread);
   hdr = (hdr + bl * post.bloom * (1.0 + SUN_BLOOM * sunLook(lit))) * seaFocus(surf.light, lit) * lit.k;
-  // the living's share of the pixel's light (cells drawn small leave no coverage, only their light), and their shadows
-  let cells = clamp(lookL(live.rgb / max(1.0, live.a)) / max(lookL(all.rgb / max(1.0, all.a)), 1e-4), 0.0, 1.0);
-  lit.shadow = sunShadow(uv, lit);
+  // the living's share of the pixel's light, and their shadows
+  let cells = cellShare(all, live);
+  lit.shadow = sunShadow(uv, lit, post.ppu, post.res);
   var c = sunGrade(litShow(lookTone(hdr), lit, cells), lit);
   c = mapsOver(c, wp, i.pos.xy, water.x);
   let uq = i.uv - 0.5;
@@ -9760,9 +9768,12 @@ fn loupeScene(r: vec2f) -> vec3f {
     // (its taps soft * √2 pixels out, mixed in by 0.6 * soft)
     spread = 0.85 * soft * soft;
   }
-  let lit = sceneLit(wp, surf.light);
-  hdr = lookScene(hdr, r * 0.5 + 0.5, vec3f(0.0), microView.ppu, microView.res, sunLook(lit), spread);
-  hdr *= seaFocus(surf.light, lit) * lit.k;
+  // (the loupe's own bloom, as the main view's: the blur of its own scene)
+  let ru = r * 0.5 + 0.5;
+  let bl = textureSampleLevel(bloomTex, samp, ru, 0.0).rgb;
+  var lit = sceneLit(wp, surf.light);
+  hdr = lookScene(hdr, ru, bl, microView.ppu, microView.res, sunLook(lit), spread);
+  hdr = (hdr + bl * post.bloom * (1.0 + SUN_BLOOM * sunLook(lit))) * seaFocus(surf.light, lit) * lit.k;
   var m = 0.0;
   var ml = vec3f(0.0);
   if (k > 0.0) {
@@ -9771,7 +9782,10 @@ fn loupeScene(r: vec2f) -> vec3f {
     m = murkSeen(ml);
   }
   let behind = 1.0 / (1.0 + 24.0 * max(hdr.r, max(hdr.g, hdr.b)));
-  var c = mapsOver(sunGrade(litShow(lookTone(hdr), lit, 1.0), lit), wp, i.pos.xy, water.x) + vec3f(0.006, 0.006, 0.012) + (murkColor(ml) + floorLit(lit, m) * k) * behind;
+  // the living's share of the pixel's light, and their shadows, from the loupe's own layer of them (as fsComposite)
+  let cells = cellShare(textureSampleLevel(src, samp, ru, 0.0), textureSampleLevel(liveTex, samp, ru, 0.0));
+  lit.shadow = sunShadow(ru, lit, microView.ppu, microView.res);
+  var c = mapsOver(sunGrade(litShow(lookTone(hdr), lit, cells), lit), wp, i.pos.xy, water.x) + vec3f(0.006, 0.006, 0.012) + (murkColor(ml) + floorLit(lit, m) * k) * behind;
   c = pondMicro(c, hdr, microView.cam, r0 * microView.res * 0.5, microView.ppu, loupe.ppu, m, litGain(lit, 0.0));
   // the drought's dry floor and its rain, the frost's ice, the storm's waves, duckweed
   c = poolOver(c, wp, pool, loupe.ppu, k, behind, surf.slope, lit);
@@ -9804,12 +9818,27 @@ fn loupeScene(r: vec2f) -> vec3f {
 }
 
 // The close-up (the specimen viewer, and the cards' portraits it takes), in the look as the main view has it (no
-// maps over it, so the grade is never held back).
+// maps over it, so the grade is never held back). Live (microView.lit), in the world's light as the main view shows
+// it, its bloom its own (bloomTex: the close-up's own blur); a card's portrait unlit and unbloomed, so a species
+// looks the same wherever it was caught.
 @fragment fn fsPlain(i: VO) -> @location(0) vec4f {
   let wp = microView.cam + (i.uv - 0.5) * microView.res / microView.ppu;
-  let hdr = lookScene(scene(i.uv), i.uv, vec3f(0.0), microView.ppu, microView.res, 0.0, 0.0);
-  var c = lookTone(hdr) + vec3f(0.006, 0.005, 0.012);
-  c = pondMicro(c, hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu, 0.0, 1.0);
+  let live = microView.lit == 1u;
+  var lit = sceneLit(wp, 1.0);
+  var bl = vec3f(0.0);
+  if (live) { bl = textureSampleLevel(bloomTex, samp, i.uv, 0.0).rgb; }
+  let sun = select(0.0, sunLook(lit), live);
+  var hdr = lookScene(scene(i.uv), i.uv, bl, microView.ppu, microView.res, sun, 0.0);
+  var c = lookTone(hdr);
+  var gain = 1.0;
+  if (live) {
+    // (as fsComposite: the bloom, the light's color, the living's share of the light and their shadows)
+    hdr = (hdr + bl * post.bloom * (1.0 + SUN_BLOOM * sun)) * lit.k;
+    lit.shadow = sunShadow(i.uv, lit, microView.ppu, microView.res);
+    c = sunGrade(litShow(lookTone(hdr), lit, cellShare(textureSampleLevel(src, samp, i.uv, 0.0), textureSampleLevel(liveTex, samp, i.uv, 0.0))), lit);
+    gain = litGain(lit, 0.0);
+  }
+  c = pondMicro(c + vec3f(0.006, 0.005, 0.012), hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu, 0.0, gain);
   return vec4f(lookGrade(pow(max(c, vec3f(0.0)), vec3f(1.0 / 2.2)), i.pos.xy), 1.0);
 }
 

@@ -77,7 +77,9 @@ export async function studioPortrait(words, g, cells, step = () => {}) {
     pass.draw(4, cells.length); pass.end();
     pass = enc.beginRenderPass({ colorAttachments: [{ view: out.createView(), loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }] });
     pass.setPipeline(plain);
-    pass.setBindGroup(0, group(plain, [[0, d.createSampler({ magFilter: 'linear', minFilter: 'linear' })], [1, lit.createView()], [2, b.post], [6, b.view]]));
+    // (a portrait, unlit: its living (12) are all of it, and it reads no bloom (3))
+    const litV = lit.createView();
+    pass.setBindGroup(0, group(plain, [[0, d.createSampler({ magFilter: 'linear', minFilter: 'linear' })], [1, litV], [2, b.post], [3, litV], [6, b.view], [12, litV]]));
     pass.draw(3); pass.end();
     enc.copyTextureToBuffer({ texture: out }, { buffer: read, bytesPerRow: S * 4 }, [S, S]);
     d.queue.submit([enc.finish()]);

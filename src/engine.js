@@ -916,7 +916,7 @@ class Engine {
         this.carry = { tex: keep, bg: d.createBindGroup({ layout: this.main.reproj.getBindGroupLayout(0), entries: [
           { binding: 0, resource: this.sampler }, { binding: 1, resource: keep.createView() }, { binding: 5, resource: { buffer: this.b.reprojU } }] }) };
       } else keep.destroy();
-      this.bloom.forEach((t) => t.destroy()); this.murkTex.destroy(); this.microTex.destroy();
+      this.murkTex.destroy(); this.microTex.destroy();
     }
     const tex = (tw, th) => d.createTexture({ size: [Math.max(1, tw), Math.max(1, th)], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
     this.accum = [tex(w, h), tex(w, h)];
@@ -938,8 +938,7 @@ class Engine {
     this.cacheBG = d.createBindGroup({ layout: this.pStoneCache.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 6, resource: { buffer: this.b.viewC } },
       { binding: 7, resource: this.stoneView[0] }, { binding: 8, resource: this.stoneView[1] }] });
-    this.bloom = [];
-    for (let i = 0; i < BLOOM_LEVELS; i++) this.bloom.push(tex(w >> (i + 1), h >> (i + 1)));
+    this.bloom = this._bloomChain(this.sceneView, w, h, this.bloom);
     this.murkTex = tex(w >> 2, h >> 2);
     // the eyepiece's field stop and dust for each pixel of the view (opticsMain, worked out again when they change: opticsKey)
     this.opticsTex?.destroy();
@@ -965,23 +964,15 @@ class Engine {
     this.speckBG = this.pSpeck ? this._speckBGOf() : null;
     this.murkBG = d.createBindGroup({ layout: this.pMurk.getBindGroupLayout(0), entries: [{ binding: 2, resource: { buffer: this.b.post } }] });
     this.accumViews = this.accum.map((t) => t.createView());
-    this.bloomViews = this.bloom.map((t) => t.createView());
-    const sbg = (pipe, view) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
-      { binding: 0, resource: this.sampler }, { binding: 1, resource: view }] });
-    this.downBG = [];
-    for (let i = 1; i < BLOOM_LEVELS; i++) this.downBG[i] = sbg(this.pDown, this.bloomViews[i - 1]);
-    this.down0BG = sbg(this.pDown, this.sceneView);
     const litBG = (pipe) => this.accumViews.map((v) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: v },
       { binding: 12, resource: this.liveView },
       { binding: 16, resource: this.stoneCacheView }, { binding: 17, resource: { buffer: this.b.stoneXf } }] }));
     this.litBG = litBG(this.pStoneLit);
     this.litSceneBG = litBG(this.pStoneLitScene);
-    this.upBG = [];
-    for (let i = BLOOM_LEVELS - 1; i > 0; i--) this.upBG.push({ target: i - 1, bg: sbg(this.pUp, this.bloomViews[i]) });
     const compBG = (pipe) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: this.sceneView },
-      { binding: 2, resource: { buffer: this.b.post } }, { binding: 3, resource: this.bloomViews[0] },
+      { binding: 2, resource: { buffer: this.b.post } }, { binding: 3, resource: this.bloom.views[0] },
       { binding: 7, resource: this.orderView }, { binding: 9, resource: this.murkView },
       { binding: 10, resource: this.microView }, { binding: 11, resource: { buffer: this.b.thermal } }, { binding: 12, resource: this.liveView },
       { binding: 13, resource: this.seaView }, { binding: 14, resource: this.seaSampler },
@@ -1003,6 +994,36 @@ class Engine {
     this.b.splat?.destroy();
     this.b.splat = d.createBuffer({ size: w * h * 20, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this._splatBGs();
+  }
+
+  // A view's bloom (src: its scene, w × h): BLOOM_LEVELS targets, each half the last's size, the scene blurred down
+  // them and back up into the first (_drawBloom), which its composite reads. old: the chain it replaces.
+  _bloomChain(src, w, h, old) {
+    const d = this.device;
+    old?.tex.forEach((t) => t.destroy());
+    const tex = Array.from({ length: BLOOM_LEVELS }, (_, i) => d.createTexture({ size: [Math.max(1, w >> (i + 1)), Math.max(1, h >> (i + 1))], format: HDR,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING }));
+    const views = tex.map((t) => t.createView());
+    const bg = (pipe, view) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: this.sampler }, { binding: 1, resource: view }] });
+    return { tex, views, down: views.map((_, i) => bg(this.pDown, i ? views[i - 1] : src)),
+      up: views.slice(1).map((v, i) => ({ target: views[i], bg: bg(this.pUp, v) })).reverse() };
+  }
+
+  // A bloom chain's passes, or with the bloom off its first target cleared (the halation and the veil read it too)
+  _drawBloom(enc, c) {
+    if (!(this._bloom() > 0)) {
+      enc.beginRenderPass({ colorAttachments: [{ view: c.views[0], loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] }).end();
+      return;
+    }
+    c.views.forEach((view, i) => {
+      const pass = enc.beginRenderPass({ colorAttachments: [{ view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
+      pass.setPipeline(this.pDown); pass.setBindGroup(0, c.down[i]); pass.draw(3); pass.end();
+    });
+    for (const u of c.up) {
+      const pass = enc.beginRenderPass({ colorAttachments: [{ view: u.target, loadOp: 'load', storeOp: 'store' }] });
+      pass.setPipeline(this.pUp); pass.setBindGroup(0, u.bg); pass.draw(3); pass.end();
+    }
   }
 
   _splatBGs() {
@@ -1030,14 +1051,15 @@ class Engine {
     this.loupeSceneTex = this.device.createTexture({ size: [L, L], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
     this.loupeSceneView = this.loupeSceneTex.createView();
     this.loupeLitBG = this._litMicroBG(this.loupeView, this.b.viewL, this.loupeStoneView);
+    this.loupeBloom = this._bloomChain(this.loupeSceneView, L, L, this.loupeBloom);
     this.loupeBG = this.pLoupe ? this._loupeBGOf() : null;
   }
 
   _loupeBGOf() {
     return this.device.createBindGroup({ layout: this.pLoupe.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: this.loupeSceneView },
-      { binding: 2, resource: { buffer: this.b.post } }, { binding: 4, resource: { buffer: this.b.loupeU } },
-      { binding: 6, resource: { buffer: this.b.viewL } },
+      { binding: 2, resource: { buffer: this.b.post } }, { binding: 3, resource: this.loupeBloom.views[0] }, { binding: 4, resource: { buffer: this.b.loupeU } },
+      { binding: 6, resource: { buffer: this.b.viewL } }, { binding: 12, resource: this.loupeView[1] },
       { binding: 11, resource: { buffer: this.b.thermal } }, { binding: 13, resource: this.seaView }, { binding: 14, resource: this.seaSampler }] });
   }
 
@@ -1110,13 +1132,15 @@ class Engine {
     this.specSceneTex = this.device.createTexture({ size: [w, h], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
     this.specSceneView = this.specSceneTex.createView();
     this.specLitBG = this._litMicroBG(this.specView, this.b.viewS, this.specStoneView);
+    this.specBloom = this._bloomChain(this.specSceneView, w, h, this.specBloom);
     this.specBG = this.pPlain ? this._specBGOf() : null;
   }
 
   _specBGOf() {
     return this.device.createBindGroup({ layout: this.pPlain.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: this.specSceneView },
-      { binding: 2, resource: { buffer: this.b.postPlain } }, { binding: 6, resource: { buffer: this.b.viewS } }] });
+      { binding: 2, resource: { buffer: this.b.postPlain } }, { binding: 3, resource: this.specBloom.views[0] },
+      { binding: 6, resource: { buffer: this.b.viewS } }, { binding: 12, resource: this.specView[1] }] });
   }
 
   gridFor(n, aspect) {
@@ -2861,7 +2885,9 @@ class Engine {
     }
 
     const pd = this.postData;
-    pd[0] = W; pd[1] = H; pd[2] = this._bloom(); // (pd[3] padding)
+    pd[0] = W; pd[1] = H; pd[2] = this._bloom();
+    // (the suspension in the loupe and the live close-up, as the main view shows it: micro, below)
+    pd[3] = this.settings.specks && this.fx.specks ? 1 : 0;
     pd[4] = time; pd[5] = this.season; pd[6] = this.settings.tide; pd[7] = cam.ppu;
     pd[8] = cam.x; pd[9] = cam.y; pd[10] = this.grid[0]; pd[11] = this.grid[1];
     const clk = this._clock();
@@ -2887,11 +2913,13 @@ class Engine {
     pd.set(this.tool, POST_LAMP + 8);
     pd.set(this._murkCam(cam, W, H), POST_MURK);
     pd.set(clk.edgePh, POST_EDGE);
-    // (the close-up, a card's portrait among its frames, reads its own copy with the look whole: fsPlain)
     pd.set(this.look, POST_LOOK);
-    if (specimen && specimen.target) d.queue.writeBuffer(this.b.postPlain, 0, pd);
+    // (a card's portrait, the close-up not live, reads its own copy: the look whole, the suspension shown; the live
+    // close-up the main view's)
+    if (specimen && specimen.target && !specimen.live) d.queue.writeBuffer(this.b.postPlain, 0, Float32Array.from(pd).fill(1, 3, 4));
     if (this.fxFade.look < 1) pd.set(this.look.map((v) => v * this.fxFade.look), POST_LOOK);
     d.queue.writeBuffer(this.b.post, 0, pd);
+    if (specimen && specimen.target && specimen.live) d.queue.writeBuffer(this.b.postPlain, 0, pd);
     // the water's bend on a coarse grid of the main view, for the page's overlays (read back after the submit)
     this._shiftPending = null;
     if (this._seaOn && pd[94] > 0 && this.cpShiftBG) {
@@ -3031,36 +3059,30 @@ class Engine {
       pass.end();
       this._drawStone(enc, this.loupeStoneView, this.bgStoneL);
       this._lightStone(enc, this.loupeSceneView, this.pStoneLitM, this.loupeLitBG);
+      // (its own bloom, from its own scene, as the main view's)
+      this._drawBloom(enc, this.loupeBloom);
     }
 
     if (specimen && specimen.target && this.closeupReady(specimen.studio)) {
       this._ensureSpecTex(specimen.w, specimen.h);
-      this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId, specLod, culled[2]);
+      // (live, in the world's light as the main view; a card's portrait unlit)
+      const live = !!specimen.live;
+      this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId, specLod, culled[2], 0, live);
       let pass = scenePass(this.specView);
       // (the studio: its own cells alone, on no stone)
       if (specimen.studio) { pass.setPipeline(this.pStudio); pass.setBindGroup(0, this.studioBG); pass.draw(4, this.studioN); }
-      else this._drawScene(pass, this.viewDataS, 2, bare && specimen.live);
+      else this._drawScene(pass, this.viewDataS, 2, bare && live);
       pass.end();
       if (specimen.studio) enc.beginRenderPass({ colorAttachments: this.specStoneView.slice(0, 2).map((view) => ({ view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' })) }).end();
       else this._drawStone(enc, this.specStoneView, this.bgStoneS);
       this._lightStone(enc, this.specSceneView, this.pStoneLitM, this.specLitBG);
+      // (its own bloom, from its own scene, as the main view's; none in a portrait)
+      if (live) this._drawBloom(enc, this.specBloom);
       pass = enc.beginRenderPass({ colorAttachments: [{ view: specimen.target, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }] });
       pass.setPipeline(this.pPlain); pass.setBindGroup(0, this.specBG); pass.draw(3); pass.end();
     }
 
-    if (this._bloom() > 0) {
-      for (let i = 0; i < BLOOM_LEVELS; i++) {
-        const pass = enc.beginRenderPass({ colorAttachments: [{ view: this.bloomViews[i], loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
-        pass.setPipeline(this.pDown); pass.setBindGroup(0, i === 0 ? this.down0BG : this.downBG[i]); pass.draw(3); pass.end();
-      }
-      for (const u of this.upBG) {
-        const pass = enc.beginRenderPass({ colorAttachments: [{ view: this.bloomViews[u.target], loadOp: 'load', storeOp: 'store' }] });
-        pass.setPipeline(this.pUp); pass.setBindGroup(0, u.bg); pass.draw(3); pass.end();
-      }
-    } else {
-      const pass = enc.beginRenderPass({ colorAttachments: [{ view: this.bloomViews[0], loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
-      pass.end();
-    }
+    this._drawBloom(enc, this.bloom);
 
     // (the murk shows only through the optics: none with the microscope off)
     if (pd[14] > 0) {
