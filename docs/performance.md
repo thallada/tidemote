@@ -367,6 +367,73 @@ takes the notes off the main thread, and a smaller window or Render scale 0.85 t
    their usual zoom with a cell selected, and with the auto camera running; then again with Annotations off, then
    Microscope off. Note the display (built-in or external), its scaling and the window's size.
 
+## Zoomed in on the M1: the cells' shading (2026-11-13)
+
+On the M1 (MacBook Pro 13", 1440×757 canvas, `w32k`) a frame at 60 fps fell to 41-45 fps as soon as the view zoomed past
+fit, and stayed there at every zoom: the resolved cells (`fsPointLive` → `pointColor`/`cellColor`) took about 15 ms of a
+21.6 ms GPU frame at 40, 80 and 150 pixels a unit alike (the world paused, uncapped: Chrome with
+`--disable-gpu-vsync --disable-frame-rate-limit`, so the submit rate is the GPU's throughput). Fewer cells drawn larger
+cover the same pixels: the cost is the screen's pixels times the shader, from the zoom where cells pass 2.8 px (at fit
+they are sprites, which is also why the auto particle count, measured at fit, never sees it).
+
+How it was found (the bench's per-pass times overlap on a tiled GPU, `fsDown 27 ms` and the like mean nothing there):
+- Metal System Trace with Dawn's labels (`--enable-dawn-features=use_user_defined_labels_in_backend`, every pass
+  labelled) put 9.4 ms of fragment work a frame in the scene pass at 80 px a unit.
+- Whole-frame A/B on builds with one thing removed: vertex, raster and blending are about 1 ms (the cells drawn with a
+  constant color); half the pixels cost 5× less (fragment-bound); an ideal ellipse around each cell saves only 3 ms and
+  clips horns (not the quads' overdraw); neither the genome and particle loads, dynamic indexing of the flat varyings,
+  loop unrolling, nor a cheaper hash or fewer transcendentals moved it.
+- `xctrace --instrument 'Metal GPU Counters'` over the scene pass: **fragment occupancy 12.6%**, ALU 45% busy, F32 15%,
+  nothing else limiting. Register-bound: every part removed freed registers for every pixel (partners 4.3 ms, contact
+  planes 3.6, the plan's outline 3.0, insides 2.7, tissue fill 1.7), and the partners' code most (occupancy 17.4%),
+  though it runs only for pixels near a neck and tissue (fill over a half) never runs it at all.
+
+The fix: the necks' code only where a neck can show (`NECKS` in DRAW_WGSL; listMain's three lists, `pointAt`):
+- **plain** (`INTERIOR` and `NECKS` false): resolved cells under 12 px, not budding or sparkling. A bond's neck changes
+  the outline by at most a quarter of its blend (0.03 of the radius: a third of a pixel); the seam's wander now fades in
+  from 12 to 24 px instead of starting at once. A bud's neck is drawn whole from the newborn's side (the full list).
+- **bare** (`NECKS` false): tissue's cells with insides (12 px and up), whose fill already breaks the partner loop:
+  the same pixels.
+- **full** as before for the rest; with insides left out the lean pipeline draws the full list and listMain gives the
+  plain one what bare would draw. The quad list grows to `QUAD_HEAD + 2n` words.
+
+Paused, uncapped (GPU ms a frame): fit 10.3 → 8.7, 40 px a unit 21.0 → 15.2, 80 21.6 → 16.4, 150 21.1 → 16.9,
+300 26.4 → 21.3. Running at 1× and 60 fps: 80 px a unit 23.2 → 19.1 ms (42.5 → 50 fps), 40 23.6 → 18.9, 300 27.7 →
+23.5. Screenshots at 40-300 px a unit of `w32k` (tissue) and `slow-mac-world` (bonded pairs) show no difference.
+
+Then the insides, redrawn as a cheap cosmetic layer (asked for: they are light over the cell, nothing the
+simulation reads). They cost 3.5 / 3.9 / 6.7 ms at 80 / 150 / 300 px a unit over the same view drawn without any (the
+tissue given the plain pipeline); now 1.8 / 2.8 / 3.3, no one part over 0.3 ms. Kept: the wall and the cortex inside
+it, the nucleus (pinching in two before division), mottling and a warm stain (sines of the cell's seed in place of
+three value-noise fields, twelve PCG hashes a pixel), a calcified cell's plates, the food vacuole after a meal, and
+close up four organelles in the species' own scatter (organDirs: chloroplasts as it photosynthesizes, vacuoles as it
+eats) in place of twelve; soft polynomial bumps (`insideBump`) for the gaussians. Gone: the fine grain, the plans'
+own markings (girdle, whorl, lattice...), the wall's wobble. A cheaper hash alone gained nothing; dropping the
+transcendentals' unused branches nothing either.
+
+And `contactGather` (2.4-2.9 ms at 40-80 px a unit, measured by running it twice; its own workgroup size changes
+nothing): most of it was gathering and sorting a grid cell's neighbors for the search, the animation records cheap.
+Half the grid cells now search each frame, by an alternating checkerboard, the rest reading last frame's contacts
+(vsPoint places each where it is now); every one searches the first frame the cells gathered change. 40 px a unit
+−1.5 ms, 80 −0.7, 150 −1.1.
+
+Then the outline and its flattening, keeping every shape:
+- **The shape atlas** (`shapeDirty`, `shapeBake`, `shapeAt` in DRAW_WGSL; `Engine._shapes`): each species slot's bodies
+  (bodySD of its plan for each of the four roles) baked once into a 64² tile of a distance field (rgba8snorm, one role a
+  channel, ±1.25 radii; 2048² for 1024 slots, 16 MB), re-baked when a slot's serial changes (16 a frame, all of them for
+  a new world), and read with one filtered sample in place of bodySD's twelve plans, whose branches every cell beside
+  a cell of another plan ran too. A lobose cell's creeping pseudopods turn the lookup. The studio's and the bore's
+  cells, of genomes of their own, keep bodySD (`SHAPE_ATLAS` false). The render test's light against the distant
+  profile holds for every plan at 3-60 px. 40 / 80 / 150 / 300 px a unit: −1.3 / −1.9 / −2.1 / −2.9 ms.
+- **The contacts read once**: the fill, the deep-inside test and the planes each unpacked all six; now one loop finds
+  the nearest plane (and the fill), and only it creases the outline (where two planes meet, the corner is the nearer's
+  alone). −0.8 / −1.2 / −1.5 / −0.7 ms.
+
+Running at 1× and 60 fps after all of it: 59.1-59.7 fps at 40, 80, 150 and 300 px a unit, no frame late (GPU 12.0-14.4
+ms; the step back to 2.5 ms, no longer sharing the GPU with a backlog of fragments), against 35.6-43 fps (23-28 ms)
+before. Measure on the Mac on a 61 W charger: on an 8 W one the battery ran down under load and at 7% macOS slowed
+the GPU about tenfold (a 21 ms frame read 90-100 ms, headless too).
+
 ## Where to look next (left off 2026-11-04, branch mac-perf merged; 2026-11-12 above)
 
 Where an M1's frame stood when this work paused, at 1×, the GPU about 96% busy (Instruments' encoder table; the
