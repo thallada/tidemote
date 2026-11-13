@@ -484,13 +484,31 @@ slower. How it was found (`bench.mjs --android`, `kind: step`, the sim module pa
   (about 15 ns a neighbor read, `contactMain`'s rate).
 - **`shapeBake`** ran its 65,536 invocations every frame to find nothing listed (0.6 ms on the Pixel 3): it is
   dispatched indirectly now, by as many slots as `shapeDirty` listed (`shapeArgs`).
-- **Ecology.** The 32-seed gate reads "same" on every measure (`runs/night/gate-split`; the source changed under
-  its later seeds, so it was run again on the commit).
-- **Next on a phone**: the step's two kernels are near their floor per neighbor read, so more would take fewer
-  reads; `lifeMain`'s bonds are 1.5 of its 3.2 ms (`keepBond` reads each partner whole); `contactGather`,
-  `fsComposite` and `fsPointLive` have not been looked at for the same cliff; the emergency step-down fires on a
-  world's load in a running page (`overload`) and holds every effect off for a minute. Heat: a few minutes of
-  benchmarks took the phone to thermal state 2-3, where every pass ran about 1.5 times slower.
+- **Ecology.** The 32-seed gate reads "same" on every measure on the commit too (`runs/night/gate-final`).
+- **Where the Pixel 3's frame goes after it** (8k, 6360 living, every effect on, half scale: 196 × 351 pixels,
+  30 fps aimed for; ms): the step 13.3 (2 ticks), `fsComposite` 4.9-6.2, the cells' pass 3.5-5.7, the sea 3.6,
+  `contactGather` 3.5 (2.1 at 150 pixels a unit): 31-35 in all, 22-26 fps. A fresh world (370 living) starts at 22
+  fps with everything on at full scale (42 ms) and the tuner settles it at 60 fps, 0.6-0.7 scale, without the haze
+  and the microscope: the composite is what it cannot pay for there.
+- **Tried after, no gain** (each on the phone, several page loads):
+  - `senseMain` skipping grid cells wholly out of the cell's reach (as `contactMain` does): 4.6 ms either way. With
+    its loop never entered it still takes 3.9 of 4.3, with the loop's body dead 2.4: what it holds, again, not its
+    visits.
+  - Helpers given the genome's fields in place of the genome by value (`growAt`, `tailCell`, `cellThermal`,
+    `treeCellAt`): 4.7 either way (the driver takes the copies apart itself).
+  - The composite: no one part is its cost. Without the lens, the look, the shadows, the sensor and the grade 2.8 of
+    4.9 ms; without the overlays (pool, extremes, shade, instrument, maps, specks) 6.4 (slower), without those and
+    the haze 2.9, without all of them 1.3. Cut after the look (a first pass of two) 4.1, the rest alone 1.4: two
+    passes would not pay. The scene's sample at the pixel read once for the lens, the look and the composite (two
+    reads fewer) and the lens's fringes left out under a quarter pixel (two more): 5.4 against 4.9, slower: on
+    this GPU a value held costs more than a texture read again.
+  - `contactGather`: its search about 1.9 of 3.8 ms, its animation records 0.6; no cliff found.
+- **Next on a phone**: tools that show what Adreno's compiler holds (none found: every probe is a page load on the
+  phone); `senseMain`'s body in kernels of its own (bonds, matter, the living), each leaner; `lifeMain`'s bonds
+  (1.5 of its 3.2 ms); the cells' fragment shader, unprobed; and what the tuner prefers on such a device: at 30
+  fps everything fits a young world at 0.7 scale, where it now keeps 60 fps and gives up the haze and the
+  microscope. Heat: a few minutes of benchmarks took the phone to thermal state 2-3 without a fan, where every
+  pass ran about 1.5 times slower.
 
 ## Where to look next (left off 2026-11-04, branch mac-perf merged; 2026-11-12 above)
 
