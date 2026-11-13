@@ -809,9 +809,16 @@ function cellWGSL(K, w, part = 'all') {
   const scan = part !== 'act';
   // what the scan found: as it found it, or (lifeMain) where senseMain left it
   const F = (v) => (scan ? v : SENSE[v]);
-  const head = /* wgsl */ `  let p = sortedFull[i];
+  // (the cell's record and genome through pointers: each p.x and g.x a load, read where used rather than held)
+  const head = /* wgsl */ `  let p = &sortedFull[i];
   let g = &genomes[p.kind];
-  let role = roleOf(p.info);
+${part === 'sense' ? '' : `  // the currents and the pond here, read once for all the cell's uses (first, while it holds little else)
+  let openHere = openFlow(p.pos);
+  let pond = pondWith(p.pos, openHere);
+  let flowHere = flowWith(openHere, pond);
+  // (and whether it is frozen in the ice where it starts, which holds it still: asked once, not every tick)
+  let frozen = inIce(p.pos);
+`}  let role = roleOf(p.info);
   let sg = g.sig[role];
   // its surface signature (x, y) and receptors (z, w), kept packed: sdot reads them as they are
   let myNorm = sdot(sg.x, sg.x) + sdot(sg.y, sg.y);
@@ -858,8 +865,8 @@ function cellWGSL(K, w, part = 'all') {
   // the bonds it keeps: found by the scan's kernel; lifeMain takes them (and those the scan took up) from sense[]
   const bonds = scan ? /* wgsl */ `  if (bonding) {
     let kept = bondsOf(i);
-    n1 = keepBond(i, kept.x, p);
-    n2 = keepBond(i, kept.y, p);
+    n1 = keepBond(i, kept.x, *p);
+    n2 = keepBond(i, kept.y, *p);
 ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
     if (DIAG) {
       if (n1 == NONE && kept.x < sim.count && kept.x != i && sortedFull[kept.x].kind == p.kind) { torn += 1u; }
@@ -901,7 +908,16 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
   // how tightly its bodies hold: the most adhesive species grow tissue, membrane to membrane; the
   // least keep open, strung-out bodies (a tree's cells touch)
   let tight = select(clamp((g.adhesion - ${f(K.tightFrom)}) / ${f(K.tightSpan)}, 0.0, 1.0), 1.0, tree);
-
+  // a beating tree (in a coarse step moved a tick at a time by bodyTick: sub, below)
+  let beating = tree && gr.beat.x > 0.0;
+  let sub = coarse && beating;
+${scan ? '' : `  // a tree holds its angles (bendOn), and a body bearing tails takes its share of the bend at each tail's base
+  // (where the base is the middle): lifeMain reckons them here, while the cell holds little else (added to its
+  // bonds' pull below; mindMain there, its bonds taken up in its scan)
+  var bendF = vec2f(0.0);
+  if (tree && !sub) { bendF = bendOn(i, gr) * ${f(K.growStiff)}; }
+  else if (tails) { bendF = tailBases(i, *p, n1, n2, backN(i)) * ${f(K.growStiff)}; }
+`}
   // warmth: the water here, plus a heat-maker's own (a body insulates its cells)
   let thermo = thermoOf(*g);
   let heat = heatSample(p.pos);
@@ -1183,10 +1199,6 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
   }
   return head + bonds + mid + found + /* wgsl */ `  // (from here its rolls are a stream of their own, the same whichever kernel scanned)
   s = pcg(s0 ^ 0x9e3779b9u);
-  // the currents and the pond here, read once for all the cell's uses
-  let openHere = openFlow(p.pos);
-  let pond = pondWith(p.pos, openHere);
-  let flowHere = flowWith(openHere, pond);
   // whether a bud of a body bearing tails, if it buds now, starts a tail (none of its kind near, room ahead)
   let sprout = tails && budTurn == 0u && !budBlocked && !tailNear && rnd(&s) < g.tail.x * ${f(K.tailOdds)};
 
@@ -1211,8 +1223,6 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
   // (bendT over the arm's length): held explicitly over 6 ticks (~30 rad/s) it flung cells off and the
   // trees regrew them, doubling their births (docs/fast-forward.md). A beating tree is moved instead a tick at a
   // time with its partners (sub: bodyTick, from what this step hands it, handOver).
-  let beating = tree && gr.beat.x > 0.0;
-  let sub = coarse && beating;
   let holdB = coarse && bonding && !sub;
   let bendT = select(0.0, ${f(K.coarseBend * K.growStiff)}, holdB && tree);
   var jB = vec3f(0.0);
@@ -1225,7 +1235,7 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
   var backW = 0.0;
   var backE = 0.0;
   for (var k = 0u; k < nBack; k++) {
-    let nb = backAt(i, k, p, n1, n2);
+    let nb = backAt(i, k, *p, n1, n2);
     if (nb == NONE) { continue; }
     let q = sortedFull[nb];
     var e = q.pos - p.pos;
@@ -1239,11 +1249,12 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
     backV += q.vel * w; backW += w;
     backE += q.energy - p.energy;
   }
-  // a tree holds its angles (bendOn)
+${scan ? `  // a tree holds its angles (bendOn)
   var bendF = vec2f(0.0);
   if (tree && !sub) { bendF = bendOn(i, gr) * ${f(K.growStiff)}; bondF += bendF; }
   // a body bearing tails takes its share of the bend at each tail's base (where the base is the middle)
-  else if (tails) { bendF = tailBases(i, p, n1, n2, nBack) * ${f(K.growStiff)}; bondF += bendF; }
+  else if (tails) { bendF = tailBases(i, *p, n1, n2, nBack) * ${f(K.growStiff)}; bondF += bendF; }` : `  // (the bends, above)
+  if ((tree && !sub) || tails) { bondF += bendF; }`}
   // a tail's base is held to its body by an ordinary bond, as the body holds it (not treeBond)
   let baseOn = tail && n1 != NONE && !treeCellAt(n1);
   let baseB = select(vec2f(0.0), dn1 * ((d1 - rs1) / max(d1, 1e-4)), baseOn);
@@ -1281,7 +1292,7 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
     // (the two it keeps, then those that keep it; then, a cell with a bond, the rest of the body the page traced)
     for (var b = 0u; b < 2u + nBack && !on; b++) {
       var j = select(n2, n1, b == 0u);
-      if (b >= 2u) { j = backAt(i, b - 2u, p, n1, n2); }
+      if (b >= 2u) { j = backAt(i, b - 2u, *p, n1, n2); }
       if (j != NONE && j < sim.count && sortedFull[j].id == rider) { on = true; }
     }
     if (!on && (n1 != NONE || n2 != NONE || nBack > 0u)) { on = ridden(p.id); }
@@ -1428,7 +1439,7 @@ ${w ? `  if (sub) { bondF += bendOn(i, gr) * ${f(K.growStiff)}; mSwim = select(n
     // the needle and the rod in the water part the cells in their way (the bonds the needle's point crosses stay cut)
     let sc = handPush(pos);
     if (any(sc != vec2f(0.0))) { pos += sc; vel += normalize(sc) * max(0.0, 1.0 - dot(vel, normalize(sc))); }
-    if (inIce(p.pos)) { pos = p.pos; vel = vec2f(0.0); }
+    if (frozen) { pos = p.pos; vel = vec2f(0.0); }
   }
   pos = wrapPos(pos);
 
@@ -1970,7 +1981,9 @@ fn heatCell(x: i32, y: i32) -> f32 {
 fn wrapCell(x: i32, y: i32) -> u32 {
   let gw = i32(sim.grid.x);
   let gh = i32(sim.grid.y);
-  return u32(((y % gh) + gh) % gh) * sim.grid.x + u32(((x % gw) + gw) % gw);
+  // (((y % gh) + gh) % gh, with one division)
+  let ry = y % gh; let rx = x % gw;
+  return u32(select(ry, ry + gh, ry < 0)) * sim.grid.x + u32(select(rx, rx + gw, rx < 0));
 }
 // Grains of reef stone in grid cell (x, y): each grain is shared among the four cells around it, in
 // REEF_FIX parts (so up to 1023 grains fit the low 16 bits of stoneGrid).
