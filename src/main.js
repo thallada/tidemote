@@ -2575,7 +2575,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     // what the tuner holds back now, in words (Performance, under Adaptation)
     // i18n: Settings → Perf, under Adaptation, when the page holds nothing back for speed
-    const heldWords = () => { const h = heldNow(); return h.length ? h.map(([id, l]) => HELD[id](l)).join(' · ') : tr('settings.perf.held-none', 'Full Performance'); };
+    const heldWords = () => { const h = heldNow(); return h.length ? h.map(([id, l]) => HELD[id](l)).join(' · ') : tr('settings.perf.held-none', 'Full Quality'); };
     // the neighbor budgets offered: Auto's (the tuner's levels), 1½ and 2 times the default, and one chosen before
     const scanChoices = () => [...new Set([...KNOBS.neighbors.levels, ...[1.5, 2].map((f) => Math.round((K.maxScan * f) / 8) * 8), state.perf.scan ?? K.maxScan])].sort((a, b) => a - b);
     function performance_() {
@@ -2854,7 +2854,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const all = adaptNow(), at = Object.fromEntries(all.map((r) => [r[0], r])), held = all.some((r) => r[2] === 'held');
       const row = (id) => { const [, v, st] = at[id]; return `<div class="am-r" data-s="${st}"><span class="lbl">${NAMES[id]}</span><i></i><b>${adaptValue(id, v, st)}</b><em>${st === 'held' ? EASED : st === 'fixed' ? FIXED : ''}</em></div>`; };
       // i18n: the readout's adapting summary: its heading, then (to its right) why the page adapts, if it says
-      return (held ? `<div class="am-h"><span>${tr('dock.adapt.title', 'Adapting')}</span><span>${WHY_WORDS[perf.why] ?? ''}</span></div>` : `<div class="am-h calm"><span>${tr('settings.perf.held-none', 'Full Performance')}</span></div>`)
+      return (held ? `<div class="am-h"><span>${tr('dock.adapt.title', 'Adapting')}</span><span>${WHY_WORDS[perf.why] ?? ''}</span></div>` : `<div class="am-h calm"><span>${tr('settings.perf.held-none', 'Full Quality')}</span></div>`)
         + SUMMED.map((ids) => `<div class="am-g">${ids.filter((id) => id !== 'haze' || K.heat).map(row).join('')}</div>`).join('')
         // i18n: the readout's adapting summary, at its foot: what a click (or on a touch screen, a second tap) does
         + `<div class="am-f">${tr('dock.adapt.open', '{touch, select, yes {Tap again to open Settings → Perf} other {Click to open Settings → Perf}}', { touch: isCoarse ? 'yes' : 'no' })}</div>`;

@@ -39073,7 +39073,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       }
       const heldWords = () => {
         const h = heldNow();
-        return h.length ? h.map(([id, l]) => HELD[id](l)).join(" · ") : tr("settings.perf.held-none", "Full Performance");
+        return h.length ? h.map(([id, l]) => HELD[id](l)).join(" · ") : tr("settings.perf.held-none", "Full Quality");
       };
       const scanChoices = () => [.../* @__PURE__ */ new Set([...KNOBS.neighbors.levels, ...[1.5, 2].map((f2) => Math.round(K.maxScan * f2 / 8) * 8), state.perf.scan ?? K.maxScan])].sort((a, b) => a - b);
       function performance_() {
@@ -39327,7 +39327,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           const [, v, st] = at[id];
           return `<div class="am-r" data-s="${st}"><span class="lbl">${NAMES[id]}</span><i></i><b>${adaptValue(id, v, st)}</b><em>${st === "held" ? EASED : st === "fixed" ? FIXED : ""}</em></div>`;
         };
-        return (held ? `<div class="am-h"><span>${tr("dock.adapt.title", "Adapting")}</span><span>${WHY_WORDS[perf.why] ?? ""}</span></div>` : `<div class="am-h calm"><span>${tr("settings.perf.held-none", "Full Performance")}</span></div>`) + SUMMED.map((ids) => `<div class="am-g">${ids.filter((id) => id !== "haze" || K.heat).map(row).join("")}</div>`).join("") + `<div class="am-f">${tr("dock.adapt.open", "{touch, select, yes {Tap again to open Settings → Perf} other {Click to open Settings → Perf}}", { touch: isCoarse ? "yes" : "no" })}</div>`;
+        return (held ? `<div class="am-h"><span>${tr("dock.adapt.title", "Adapting")}</span><span>${WHY_WORDS[perf.why] ?? ""}</span></div>` : `<div class="am-h calm"><span>${tr("settings.perf.held-none", "Full Quality")}</span></div>`) + SUMMED.map((ids) => `<div class="am-g">${ids.filter((id) => id !== "haze" || K.heat).map(row).join("")}</div>`).join("") + `<div class="am-f">${tr("dock.adapt.open", "{touch, select, yes {Tap again to open Settings → Perf} other {Click to open Settings → Perf}}", { touch: isCoarse ? "yes" : "no" })}</div>`;
       };
       function adapt() {
         const held = new Set(heldNow().map((r) => r[0]));
