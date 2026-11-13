@@ -518,9 +518,12 @@ slower. How it was found (`bench.mjs --android`, `kind: step`, the sim module pa
   with the microscope off (the tuner's knob), 4.29 with the haze off, 3.10 with both. Kept from running one part at a
   time: the lens 5.4 (slower), the look's edges 4.4, the shadows 5.0, the fringes 5.6. What "off" saves is small beside
   what the code's presence costs (1.3 ms with all of it compiled out).
-- **The composite's smooth fields from a small pass** (emulated: the composite reading a texture in their place):
-  the water's heat and the haze 4.9 → 3.6 ms; those and the scene's light 4.05; those and the water's surface 2.7,
-  every effect kept. Being built (a half-resolution pass before the composite).
+- **The composite's smooth fields from a small pass** (`fsField`, docs/look.md): the water's surface, the haze's
+  shift, the scene's light and the water's heat, at half the resolution into three targets the composite reads where
+  it uses them. Emulated first (the composite reading a texture in their place: the heat and the haze 4.9 → 3.6 ms,
+  with the light 4.05, with the surface 2.7); built, on the Pixel 3 at 80 and 150 pixels a unit: `fsComposite`
+  4.85 → 2.4 ms, `fsField` 0.65, every effect kept (SSIM against the composite of before 0.995-1.0; the haze over
+  boiling water a little smoother seen whole). On the RTX 0.23-0.26 → 0.16-0.21 + 0.02.
 - **Why the cliff** (Mesa's open driver for the same GPU, `src/freedreno/ir3`: `ir3_ra.h`, `ir3.c`,
   `freedreno_devices.py`): an a6xx thread has at most 48 vec4 registers (192 values), past which values spill to
   private memory (`stp`/`ldp`); and an a630 keeps floor(96 / a shader's vec4 registers) × 2 waves of 64 threads

@@ -39,6 +39,18 @@ by how far it is spread (Stone, below: the look's edges). Under a full light or 
 is mostly held back so the map reads true (`lookDisplay`); the close-up has no maps or field stop, so it takes
 the scene light, the tone curve and the whole grade. The shallow focus and the iris need the optics (the Microscope on).
 
+The composite's fields (2026-11-13): what the main view's composite needs at each pixel that changes slowly across the
+view is worked out first, at half its resolution each way (`FIELD_STEP` in src/engine.js), by `fsField` into three
+`rgba16float` targets, and read back between their pixels at the composite's own (undisplaced) position: A the water's
+surface's shift and the heat haze's (`shimmer`), B the light there before its tint (`lightPost`) and the lamp's own,
+the surface's focusing and height, C the surface's slope (the crests' sheen), the water's temperature and the length of
+its slope (all `bubblesNear` asks). The surface is the block that was at the composite's head (`surfaceNear` over the
+sea's field from close up, `surfaceAt` otherwise); the light reaches the composite through `litFrom`, the arithmetic
+of `sceneLit`, which the loupe and the close-up still call, working everything out inline. The bubbles, the pool's
+edge, the ice and the maps stay at full resolution, fed the water from field C. On a phone's GPU a shader's cost
+follows what it holds, run or not (docs/performance.md, The step in two kernels): emulated on a Pixel 3, these out
+of the composite took it from 4.9 to 2.7 ms.
+
 Shallow focus (`lensScene`, close up: from `start`, about 80 pixels a unit, full from four times that) blurs what
 lies off the focal plane, and the sea's waves set how far off that is: the water over a point is deeper under a
 crest and shallower under a trough, which moves the plane seen sharp there. The microscopist keeps the view's middle

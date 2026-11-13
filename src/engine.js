@@ -61,6 +61,8 @@ const QUAD_HEAD = 12;
 // the shape atlas's tiles (texels a side) and tiles a row (SHAPE_TILE, SHAPE_COLS in DRAW_WGSL); the species slots a
 // frame bakes (all of them for a new world)
 const SHAPE_TILE = 64, SHAPE_COLS = 32, SHAPE_CAP = 16;
+// the composite's smooth fields (fsField): a pixel of theirs every FIELD_STEP pixels of the view each way
+const FIELD_STEP = 2;
 export const MAX_STEPS = 512;
 
 // --------------------------------------------------------------------- engine
@@ -543,6 +545,11 @@ class Engine {
       if (this.compBGOf) { this.compLeanBG = this.compBGOf(a); this.compClearLeanBG = this.compBGOf(c); }
       this.pCompLean = a; this.pCompClearLean = c;
     }).catch(() => {});
+    // the composite's smooth fields, drawn before it each frame (fsField: three targets at 1 / FIELD_STEP of the view
+    // each way); in the first wave, so whichever composite draws has them
+    this.pField = rPipe({ layout: 'auto', label: 'fsField', primitive: { topology: 'triangle-list' },
+      vertex: { module: this.postModule, entryPoint: 'vsComp' },
+      fragment: { module: this.postModule, entryPoint: 'fsField', targets: [0, 1, 2].map(() => ({ format: 'rgba16float' })) } });
     this.cpCompPick = cPipe({ layout: 'auto', compute: { module: this.postModule, entryPoint: 'compPick' }, label: 'compPick' });
     b.compArgs = d.createBuffer({ size: 32, usage: U.STORAGE | U.INDIRECT });
     this.pLoupe = defer(rpDesc(this.postModule, 'vsLoupe', 'fsLoupe', 'triangle-list', over, format), false, (p) => { this.pLoupe = p; });
@@ -981,6 +988,14 @@ class Engine {
     this.seaFieldBG = d.createBindGroup({ layout: this.cpSeaField.getBindGroupLayout(0), entries: [
       { binding: 2, resource: { buffer: this.b.post } }, { binding: 13, resource: this.seaView }, { binding: 14, resource: this.seaSampler },
       { binding: 21, resource: this.seaFieldTex[0].createView() }, { binding: 22, resource: this.seaFieldTex[1].createView() }] });
+    // the composite's smooth fields (fsField)
+    this.fieldTex?.forEach((t) => t.destroy());
+    this.fieldTex = [0, 1, 2].map(() => d.createTexture({ size: [Math.ceil(w / FIELD_STEP), Math.ceil(h / FIELD_STEP)], format: 'rgba16float', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING }));
+    this.fieldViews = this.fieldTex.map((t) => t.createView());
+    this.fieldBG = d.createBindGroup({ layout: this.pField.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: this.sampler }, { binding: 2, resource: { buffer: this.b.post } }, { binding: 11, resource: { buffer: this.b.thermal } },
+      { binding: 13, resource: this.seaView }, { binding: 14, resource: this.seaSampler },
+      { binding: 23, resource: this.seaFieldTex[0].createView() }, { binding: 24, resource: this.seaFieldTex[1].createView() }] });
     this.murkView = this.murkTex.createView();
     this.microTex = tex(w, h);
     this.microView = this.microTex.createView();
@@ -1004,7 +1019,7 @@ class Engine {
       { binding: 2, resource: { buffer: this.b.post } }, { binding: 3, resource: this.bloom.views[0] },
       { binding: 7, resource: this.orderView }, { binding: 9, resource: this.murkView },
       { binding: 10, resource: this.microView }, { binding: 11, resource: { buffer: this.b.thermal } }, { binding: 12, resource: this.liveView },
-      { binding: 13, resource: this.seaView }, { binding: 14, resource: this.seaSampler },
+      { binding: 18, resource: this.fieldViews[0] }, { binding: 19, resource: this.fieldViews[1] }, { binding: 28, resource: this.fieldViews[2] },
       { binding: 23, resource: this.seaFieldTex[0].createView() }, { binding: 24, resource: this.seaFieldTex[1].createView() },
       { binding: 26, resource: this.opticsTex.createView() }] });
     this.compBG = this.pComp ? compBG(this.pComp) : null;
@@ -3171,6 +3186,11 @@ class Engine {
       const cp = enc.beginComputePass();
       cp.setPipeline(this.cpSeaField); cp.setBindGroup(0, this.seaFieldBG);
       cp.dispatchWorkgroups(Math.ceil(this.seaFieldTex[0].width / 8), Math.ceil(this.seaFieldTex[0].height / 8)); cp.end();
+    }
+    // the composite's smooth fields (fsField: the water's surface, its heat and haze, the scene's light)
+    {
+      const pass = enc.beginRenderPass({ colorAttachments: this.fieldViews.map((view) => ({ view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' })), timestampWrites: tsBegin() });
+      pass.setPipeline(this.pField); pass.setBindGroup(0, this.fieldBG); pass.draw(3); pass.end();
     }
 
     // The lean composite where nothing it leaves out is there: the pool full, no duckweed, no instrument in the

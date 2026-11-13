@@ -4352,8 +4352,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
         if (share > 0) k.full = ms / share;
       }
       // the haze's and the microscope's cost: the composite's, per pixel in each state of the two as shown once the
-      // microscope's fade has run, with no map over it (rel: index haze + 2 × microscope, against both on)
-      const hz = tune.haze, mc = tune.microscope, comp = (prof.passes.fsComposite || 0) / prof.n;
+      // microscope's fade has run, with no map over it (rel: index haze + 2 × microscope, against both on); its smooth
+      // fields with it (fsField: the haze is worked out there)
+      const hz = tune.haze, mc = tune.microscope, comp = ((prof.passes.fsComposite || 0) + (prof.passes.fsField || 0)) / prof.n;
       if (comp > 0) {
         hz.cost = mc.cost = comp;
         if (state.map === 'off' && performance.now() - Math.max(hz.since || 0, mc.since || 0) > 2500) {
