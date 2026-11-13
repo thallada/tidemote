@@ -6761,7 +6761,8 @@ struct View {
   // lit: 1 where the world's light shows (the main view, the loupe), 0 in views shown unlit (the close-up, the stone cache)
   level: f32, lit: u32,
   // the radius in pixels from which listMain gives a cell the full pipeline, its insides drawn (12; past any cell's
-  // when the tuner leaves insides out, Engine.fx.interiors, a new species' sparkle still drawn full)
+  // when the tuner leaves insides out, Engine.fx.interiors, a new species' sparkle still drawn full); below 0, a view
+  // whose cells are drawn twice without listMain (the loupe's and the live close-up's with insides left out: vsPoint)
   interiorFrom: f32,
   // how much more adhesion than tightFrom makes tissue through and through (K.tightSpan)
   tightSpan: f32,
@@ -7549,6 +7550,9 @@ struct PO {
     return o;
   }
   let sp = spriteOf(p, ii);
+  // (a view drawing its cells twice, Engine._drawScene's split: the lean pipeline each but a new species' sparkling
+  // cells, the full one those alone, as listMain sorts the main view's)
+  if (view.interiorFrom < 0.0 && (sp.anim.novel > 0.0) != INTERIOR) { o.pos = vec4f(2.0, 2.0, 0.0, 1.0); return o; }
   // the kind drawn: a dead cell's ghost is drawn as the cell it was
   let k = sp.kind;
   let alive = p.kind >= FIRST_LIFE;
@@ -9041,8 +9045,9 @@ fn mineralSurf(i: SO) -> StoneOut {
     /* wgsl */
     `
 struct Post {
-  // (p0: padding)
-  res: vec2f, bloom: f32, p0: f32,
+  // specks: 1 where the suspension shows (Display's Suspension and the tuner's specks: pondMicro in the loupe and the
+  // close-up; the main view's composite is compiled without it otherwise, MICRO_SUSPENSION)
+  res: vec2f, bloom: f32, specks: f32,
   time: f32, season: f32, tideVis: f32, ppu: f32,
   cam: vec2f, world: vec2f,
   simTime: f32, ambient: f32, optics: f32,
@@ -9282,8 +9287,9 @@ override MICRO_SUSPENSION: bool = true;
 override LEAN: bool = false;
 const LOUPE_FIELD = ${LOUPE_FIELD};
 ${POST_STRUCT}struct Loupe { center: vec2f, radius: f32, strength: f32, res: vec2f, ppu: f32, p1: f32 };
-// Prefix of DRAW's View: reuse the inspection cameras, without another buffer.
-struct MicroView { cam: vec2f, world: vec2f, res: vec2f, ppu: f32, pointSize: f32 };
+// Prefix of DRAW's View: reuse the inspection cameras, without another buffer (lit: 1 where the world's light shows,
+// the main view, the loupe and the live close-up; 0 in a card's portrait)
+struct MicroView { cam: vec2f, world: vec2f, res: vec2f, ppu: f32, pointSize: f32, p: array<vec4f, 4>, level: f32, lit: u32 };
 struct Reproj { scale: vec2f, shift: vec2f, k: f32, p0: f32, p1: f32, p2: f32 };
 @group(0) @binding(0) var samp: sampler;
 @group(0) @binding(1) var src: texture_2d<f32>;
@@ -9618,7 +9624,7 @@ fn microGrain(wp: vec2f, spacing: f32, ppu: f32, octave: f32, depth: f32, cycle:
 fn pondMicro(c: vec3f, hdr: vec3f, cam: vec2f, offset: vec2f, renderPPU: f32, ppu: f32, mud: f32, lit: f32) -> vec3f {
   // The main view specializes this away below the reveal threshold, avoiding
   // register/stack overhead from the deep-zoom shader even on software GPUs.
-  if (!MICRO_SUSPENSION) { return c; }
+  if (!MICRO_SUSPENSION || post.specks < 0.5) { return c; }
   // Uniform early-out: no hashes, shapes or time work at ordinary zoom. The
   // fit threshold also keeps the default view unchanged on very small worlds.
   let start = max(80.0, 2.0 * max(post.res.x / post.world.x, post.res.y / post.world.y));
@@ -11215,22 +11221,28 @@ fn litGain(l: Lit, cells: f32) -> f32 {
   let s = 1.0 - l.shadow * (1.0 - cells);
   return g.x * pow(g.y / g.x, l.r * s) * max(0.0, 1.0 + FOCUS_MATTER * l.play * s * (1.0 - cells));
 }
-// How much of the sun the living keep from the ground at uv in the main view (0..SHADOW_K): their layer looked up a
-// little way toward the light, softened (they swim about SHADOW_H units over the bed, so it lies that far off them
-// in world units at every zoom, and is gone where that is under a pixel or two). None out of the sun.
+// How much of the sun the living keep from the ground at uv in a view of ppu pixels a unit, res pixels (0..SHADOW_K):
+// their layer (liveTex) looked up a little way toward the light, softened (they swim about SHADOW_H units over the
+// bed, so it lies that far off them in world units at every zoom, and is gone where that is under a pixel or two).
+// None out of the sun.
 const SHADOW_H = 0.3;
 const SHADOW_K = 0.55;
-fn sunShadow(uv: vec2f, l: Lit) -> f32 {
+fn sunShadow(uv: vec2f, l: Lit, ppu: f32, res: vec2f) -> f32 {
   let sun = clamp(l.r, 0.0, 1.0);
-  let px = SHADOW_H * post.ppu;
+  let px = SHADOW_H * ppu;
   if (sun <= 0.02 || px < 1.0) { return 0.0; }
   let o = TO_LIGHT * px;
   let side = vec2f(-o.y, o.x) * 0.5;
-  let occ = coverAt(uv + o / post.res) + coverAt(uv + (o * 0.7 + side) / post.res) + coverAt(uv + (o * 0.7 - side) / post.res)
-    + coverAt(uv + (o * 1.3 + side) / post.res) + coverAt(uv + (o * 1.3 - side) / post.res);
+  let occ = coverAt(uv + o / res) + coverAt(uv + (o * 0.7 + side) / res) + coverAt(uv + (o * 0.7 - side) / res)
+    + coverAt(uv + (o * 1.3 + side) / res) + coverAt(uv + (o * 1.3 - side) / res);
   return SHADOW_K * sun * occ / 5.0 * smoothstep(1.0, 3.0, px);
 }
 fn coverAt(uv: vec2f) -> f32 { return min(1.0, textureSampleLevel(liveTex, samp, uv, 0.0).a); }
+// The living's share of a pixel's light, from the scene there (all) and the living alone (live): cells drawn small
+// leave no coverage, only their light.
+fn cellShare(all: vec4f, live: vec4f) -> f32 {
+  return clamp(lookL(live.rgb / max(1.0, live.a)) / max(lookL(all.rgb / max(1.0, all.a)), 1e-4), 0.0, 1.0);
+}
 // The toned view (display-linear) in the scene's light: by litGain, after the tone curve so it is not squeezed, the
 // living's colors richer in the sun, rolled off above LIT_KNEE rather than clipped.
 fn litShow(cIn: vec3f, l: Lit, cells: f32) -> vec3f {
@@ -11587,9 +11599,9 @@ struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
   var lit = sceneLit(wp, surf.light);
   hdr = lookScene(hdr, uv, bl, post.ppu, post.res, sunLook(lit), spread);
   hdr = (hdr + bl * post.bloom * (1.0 + SUN_BLOOM * sunLook(lit))) * seaFocus(surf.light, lit) * lit.k;
-  // the living's share of the pixel's light (cells drawn small leave no coverage, only their light), and their shadows
-  let cells = clamp(lookL(live.rgb / max(1.0, live.a)) / max(lookL(all.rgb / max(1.0, all.a)), 1e-4), 0.0, 1.0);
-  lit.shadow = sunShadow(uv, lit);
+  // the living's share of the pixel's light, and their shadows
+  let cells = cellShare(all, live);
+  lit.shadow = sunShadow(uv, lit, post.ppu, post.res);
   var c = sunGrade(litShow(lookTone(hdr), lit, cells), lit);
   c = mapsOver(c, wp, i.pos.xy, water.x);
   let uq = i.uv - 0.5;
@@ -11680,9 +11692,12 @@ fn loupeScene(r: vec2f) -> vec3f {
     // (its taps soft * √2 pixels out, mixed in by 0.6 * soft)
     spread = 0.85 * soft * soft;
   }
-  let lit = sceneLit(wp, surf.light);
-  hdr = lookScene(hdr, r * 0.5 + 0.5, vec3f(0.0), microView.ppu, microView.res, sunLook(lit), spread);
-  hdr *= seaFocus(surf.light, lit) * lit.k;
+  // (the loupe's own bloom, as the main view's: the blur of its own scene)
+  let ru = r * 0.5 + 0.5;
+  let bl = textureSampleLevel(bloomTex, samp, ru, 0.0).rgb;
+  var lit = sceneLit(wp, surf.light);
+  hdr = lookScene(hdr, ru, bl, microView.ppu, microView.res, sunLook(lit), spread);
+  hdr = (hdr + bl * post.bloom * (1.0 + SUN_BLOOM * sunLook(lit))) * seaFocus(surf.light, lit) * lit.k;
   var m = 0.0;
   var ml = vec3f(0.0);
   if (k > 0.0) {
@@ -11691,7 +11706,10 @@ fn loupeScene(r: vec2f) -> vec3f {
     m = murkSeen(ml);
   }
   let behind = 1.0 / (1.0 + 24.0 * max(hdr.r, max(hdr.g, hdr.b)));
-  var c = mapsOver(sunGrade(litShow(lookTone(hdr), lit, 1.0), lit), wp, i.pos.xy, water.x) + vec3f(0.006, 0.006, 0.012) + (murkColor(ml) + floorLit(lit, m) * k) * behind;
+  // the living's share of the pixel's light, and their shadows, from the loupe's own layer of them (as fsComposite)
+  let cells = cellShare(textureSampleLevel(src, samp, ru, 0.0), textureSampleLevel(liveTex, samp, ru, 0.0));
+  lit.shadow = sunShadow(ru, lit, microView.ppu, microView.res);
+  var c = mapsOver(sunGrade(litShow(lookTone(hdr), lit, cells), lit), wp, i.pos.xy, water.x) + vec3f(0.006, 0.006, 0.012) + (murkColor(ml) + floorLit(lit, m) * k) * behind;
   c = pondMicro(c, hdr, microView.cam, r0 * microView.res * 0.5, microView.ppu, loupe.ppu, m, litGain(lit, 0.0));
   // the drought's dry floor and its rain, the frost's ice, the storm's waves, duckweed
   c = poolOver(c, wp, pool, loupe.ppu, k, behind, surf.slope, lit);
@@ -11724,12 +11742,27 @@ fn loupeScene(r: vec2f) -> vec3f {
 }
 
 // The close-up (the specimen viewer, and the cards' portraits it takes), in the look as the main view has it (no
-// maps over it, so the grade is never held back).
+// maps over it, so the grade is never held back). Live (microView.lit), in the world's light as the main view shows
+// it, its bloom its own (bloomTex: the close-up's own blur); a card's portrait unlit and unbloomed, so a species
+// looks the same wherever it was caught.
 @fragment fn fsPlain(i: VO) -> @location(0) vec4f {
   let wp = microView.cam + (i.uv - 0.5) * microView.res / microView.ppu;
-  let hdr = lookScene(scene(i.uv), i.uv, vec3f(0.0), microView.ppu, microView.res, 0.0, 0.0);
-  var c = lookTone(hdr) + vec3f(0.006, 0.005, 0.012);
-  c = pondMicro(c, hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu, 0.0, 1.0);
+  let live = microView.lit == 1u;
+  var lit = sceneLit(wp, 1.0);
+  var bl = vec3f(0.0);
+  if (live) { bl = textureSampleLevel(bloomTex, samp, i.uv, 0.0).rgb; }
+  let sun = select(0.0, sunLook(lit), live);
+  var hdr = lookScene(scene(i.uv), i.uv, bl, microView.ppu, microView.res, sun, 0.0);
+  var c = lookTone(hdr);
+  var gain = 1.0;
+  if (live) {
+    // (as fsComposite: the bloom, the light's color, the living's share of the light and their shadows)
+    hdr = (hdr + bl * post.bloom * (1.0 + SUN_BLOOM * sun)) * lit.k;
+    lit.shadow = sunShadow(i.uv, lit, microView.ppu, microView.res);
+    c = sunGrade(litShow(lookTone(hdr), lit, cellShare(textureSampleLevel(src, samp, i.uv, 0.0), textureSampleLevel(liveTex, samp, i.uv, 0.0))), lit);
+    gain = litGain(lit, 0.0);
+  }
+  c = pondMicro(c + vec3f(0.006, 0.005, 0.012), hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu, 0.0, gain);
   return vec4f(lookGrade(pow(max(c, vec3f(0.0)), vec3f(1.0 / 2.2)), i.pos.xy), 1.0);
 }
 
@@ -17171,7 +17204,7 @@ struct SV {
   var SEA_WIND_EASE = 30;
   var FLOOR_MS = 2;
   var REAL_WRAP = 4096;
-  function viewWords(data, K, { cam, W: W2, H: H2, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false }, w) {
+  function viewWords(data, K, { cam, W: W2, H: H2, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false, split = false }, w) {
     const ppu = cam.ppu;
     const pointSize = Math.max(1.1 * dpr, 0.085 * ppu);
     const perArea = K.density / (ppu * ppu);
@@ -17206,7 +17239,7 @@ struct SV {
     v[23] = K.tightFrom;
     v[24] = w.level;
     vu[25] = lit ? 1 : 0;
-    v[26] = w.interiors ? 12 : 1e9;
+    v[26] = split ? -1 : w.interiors ? 12 : 1e9;
     v[27] = K.tightSpan;
     v.set(w.tide, 28);
     v.set(w.tidePh, 44);
@@ -18075,7 +18108,6 @@ ${e.message}` : String(e?.message || e));
             { binding: 5, resource: { buffer: this.b.reprojU } }
           ] }) };
         } else keep.destroy();
-        this.bloom.forEach((t) => t.destroy());
         this.murkTex.destroy();
         this.microTex.destroy();
       }
@@ -18099,8 +18131,7 @@ ${e.message}` : String(e?.message || e));
         { binding: 7, resource: this.stoneView[0] },
         { binding: 8, resource: this.stoneView[1] }
       ] });
-      this.bloom = [];
-      for (let i = 0; i < BLOOM_LEVELS; i++) this.bloom.push(tex(w >> i + 1, h >> i + 1));
+      this.bloom = this._bloomChain(this.sceneView, w, h, this.bloom);
       this.murkTex = tex(w >> 2, h >> 2);
       this.opticsTex?.destroy();
       this.opticsTex = d.createTexture({ size: [w, h], format: "rgba32float", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING });
@@ -18134,14 +18165,6 @@ ${e.message}` : String(e?.message || e));
       this.speckBG = this.pSpeck ? this._speckBGOf() : null;
       this.murkBG = d.createBindGroup({ layout: this.pMurk.getBindGroupLayout(0), entries: [{ binding: 2, resource: { buffer: this.b.post } }] });
       this.accumViews = this.accum.map((t) => t.createView());
-      this.bloomViews = this.bloom.map((t) => t.createView());
-      const sbg = (pipe2, view) => d.createBindGroup({ layout: pipe2.getBindGroupLayout(0), entries: [
-        { binding: 0, resource: this.sampler },
-        { binding: 1, resource: view }
-      ] });
-      this.downBG = [];
-      for (let i = 1; i < BLOOM_LEVELS; i++) this.downBG[i] = sbg(this.pDown, this.bloomViews[i - 1]);
-      this.down0BG = sbg(this.pDown, this.sceneView);
       const litBG = (pipe2) => this.accumViews.map((v) => d.createBindGroup({ layout: pipe2.getBindGroupLayout(0), entries: [
         { binding: 0, resource: this.sampler },
         { binding: 1, resource: v },
@@ -18151,13 +18174,11 @@ ${e.message}` : String(e?.message || e));
       ] }));
       this.litBG = litBG(this.pStoneLit);
       this.litSceneBG = litBG(this.pStoneLitScene);
-      this.upBG = [];
-      for (let i = BLOOM_LEVELS - 1; i > 0; i--) this.upBG.push({ target: i - 1, bg: sbg(this.pUp, this.bloomViews[i]) });
       const compBG = (pipe2) => d.createBindGroup({ layout: pipe2.getBindGroupLayout(0), entries: [
         { binding: 0, resource: this.sampler },
         { binding: 1, resource: this.sceneView },
         { binding: 2, resource: { buffer: this.b.post } },
-        { binding: 3, resource: this.bloomViews[0] },
+        { binding: 3, resource: this.bloom.views[0] },
         { binding: 7, resource: this.orderView },
         { binding: 9, resource: this.murkView },
         { binding: 10, resource: this.microView },
@@ -18195,6 +18216,49 @@ ${e.message}` : String(e?.message || e));
       this.b.splat = d.createBuffer({ size: w * h * 20, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
       this._splatBGs();
     }
+    // A view's bloom (src: its scene, w × h): BLOOM_LEVELS targets, each half the last's size, the scene blurred down
+    // them and back up into the first (_drawBloom), which its composite reads. old: the chain it replaces.
+    _bloomChain(src, w, h, old) {
+      const d = this.device;
+      old?.tex.forEach((t) => t.destroy());
+      const tex = Array.from({ length: BLOOM_LEVELS }, (_, i) => d.createTexture({
+        size: [Math.max(1, w >> i + 1), Math.max(1, h >> i + 1)],
+        format: HDR,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+      }));
+      const views = tex.map((t) => t.createView());
+      const bg = (pipe2, view) => d.createBindGroup({ layout: pipe2.getBindGroupLayout(0), entries: [
+        { binding: 0, resource: this.sampler },
+        { binding: 1, resource: view }
+      ] });
+      return {
+        tex,
+        views,
+        down: views.map((_, i) => bg(this.pDown, i ? views[i - 1] : src)),
+        up: views.slice(1).map((v, i) => ({ target: views[i], bg: bg(this.pUp, v) })).reverse()
+      };
+    }
+    // A bloom chain's passes, or with the bloom off its first target cleared (the halation and the veil read it too)
+    _drawBloom(enc, c) {
+      if (!(this._bloom() > 0)) {
+        enc.beginRenderPass({ colorAttachments: [{ view: c.views[0], loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" }] }).end();
+        return;
+      }
+      c.views.forEach((view, i) => {
+        const pass = enc.beginRenderPass({ colorAttachments: [{ view, loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" }] });
+        pass.setPipeline(this.pDown);
+        pass.setBindGroup(0, c.down[i]);
+        pass.draw(3);
+        pass.end();
+      });
+      for (const u of c.up) {
+        const pass = enc.beginRenderPass({ colorAttachments: [{ view: u.target, loadOp: "load", storeOp: "store" }] });
+        pass.setPipeline(this.pUp);
+        pass.setBindGroup(0, u.bg);
+        pass.draw(3);
+        pass.end();
+      }
+    }
     _splatBGs() {
       const d = this.device, b = this.b;
       if (!b.splat || !b.parts) return;
@@ -18216,6 +18280,7 @@ ${e.message}` : String(e?.message || e));
       this.loupeSceneTex = this.device.createTexture({ size: [L, L], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
       this.loupeSceneView = this.loupeSceneTex.createView();
       this.loupeLitBG = this._litMicroBG(this.loupeView, this.b.viewL, this.loupeStoneView);
+      this.loupeBloom = this._bloomChain(this.loupeSceneView, L, L, this.loupeBloom);
       this.loupeBG = this.pLoupe ? this._loupeBGOf() : null;
     }
     _loupeBGOf() {
@@ -18223,8 +18288,10 @@ ${e.message}` : String(e?.message || e));
         { binding: 0, resource: this.sampler },
         { binding: 1, resource: this.loupeSceneView },
         { binding: 2, resource: { buffer: this.b.post } },
+        { binding: 3, resource: this.loupeBloom.views[0] },
         { binding: 4, resource: { buffer: this.b.loupeU } },
         { binding: 6, resource: { buffer: this.b.viewL } },
+        { binding: 12, resource: this.loupeView[1] },
         { binding: 11, resource: { buffer: this.b.thermal } },
         { binding: 13, resource: this.seaView },
         { binding: 14, resource: this.seaSampler }
@@ -18307,6 +18374,7 @@ ${e.message}` : String(e?.message || e));
       this.specSceneTex = this.device.createTexture({ size: [w, h], format: HDR, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
       this.specSceneView = this.specSceneTex.createView();
       this.specLitBG = this._litMicroBG(this.specView, this.b.viewS, this.specStoneView);
+      this.specBloom = this._bloomChain(this.specSceneView, w, h, this.specBloom);
       this.specBG = this.pPlain ? this._specBGOf() : null;
     }
     _specBGOf() {
@@ -18314,7 +18382,9 @@ ${e.message}` : String(e?.message || e));
         { binding: 0, resource: this.sampler },
         { binding: 1, resource: this.specSceneView },
         { binding: 2, resource: { buffer: this.b.postPlain } },
-        { binding: 6, resource: { buffer: this.b.viewS } }
+        { binding: 3, resource: this.specBloom.views[0] },
+        { binding: 6, resource: { buffer: this.b.viewS } },
+        { binding: 12, resource: this.specView[1] }
       ] });
     }
     gridFor(n, aspect) {
@@ -20040,9 +20110,9 @@ ${e.message}` : String(e?.message || e));
       });
     }
     // detail: resolve cells as they grow on screen (false keeps the distant sprite at every zoom)
-    _writeView(buf, data, cam, W2, H2, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false) {
+    _writeView(buf, data, cam, W2, H2, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false, split = false) {
       const clk = this._clock();
-      viewWords(data, this.K, { cam, W: W2, H: H2, dpr, time, selId, detail, culled, splat, lit }, {
+      viewWords(data, this.K, { cam, W: W2, H: H2, dpr, time, selId, detail, culled, splat, lit, split }, {
         grid: this.grid,
         exposure: this.settings.exposure,
         focus: this.focus,
@@ -20080,11 +20150,13 @@ ${e.message}` : String(e?.message || e));
       pass.end();
     }
     // A view's cells, bonds and matter (k: 0 the main view, 1 the loupe, 2 the close-up; this.main's pipelines, into the
-    // view's scene and living targets). lean: every cell without its insides (the main view's are listed by listMain,
-    // which leaves out those it should: interiorFrom)
-    _drawScene(pass, data, k, lean = false) {
+    // view's scene and living targets). A view written split (viewWords) draws its cells without their insides but a new
+    // species' sparkle: every cell twice, the lean pipeline all but those sparkling, the full one those alone (vsPoint
+    // leaves out the rest), as listMain sorts the main view's (interiorFrom)
+    _drawScene(pass, data, k) {
       const pl = this.main, bg = this.sceneBG[k];
       const v = new Float32Array(data);
+      const split = v[26] < 0;
       const detail = new Uint32Array(data)[20] === 1;
       const culled = new Uint32Array(data)[21] === 1 ? this.cull[k].args : null;
       const quads = v[22] !== 0 ? this.b.quads : null;
@@ -20108,12 +20180,20 @@ ${e.message}` : String(e?.message || e));
           pass.setBindGroup(0, this.smallBG);
           pass.drawIndirect(this.b.smallArgs, 0);
         }
-        const full = !lean && bg.point;
+        const full = !split && bg.point;
+        const draw = () => {
+          if (quads) pass.drawIndirect(quads, 0);
+          else if (culled) pass.drawIndirect(culled, 0);
+          else pass.draw(4, this.count);
+        };
         pass.setPipeline(full ? pl.point : pl.pointLean);
         pass.setBindGroup(0, full ? bg.point : bg.pointLean);
-        if (quads) pass.drawIndirect(quads, 0);
-        else if (culled) pass.drawIndirect(culled, 0);
-        else pass.draw(4, this.count);
+        draw();
+        if (split && bg.point) {
+          pass.setPipeline(pl.point);
+          pass.setBindGroup(0, bg.point);
+          draw();
+        }
         if (quads) {
           pass.setPipeline(pl.pointLean);
           pass.setBindGroup(0, bg.pointLean);
@@ -20281,6 +20361,7 @@ ${e.message}` : String(e?.message || e));
       pd[0] = W2;
       pd[1] = H2;
       pd[2] = this._bloom();
+      pd[3] = this.settings.specks && this.fx.specks ? 1 : 0;
       pd[4] = time;
       pd[5] = this.season;
       pd[6] = this.settings.tide;
@@ -20317,9 +20398,10 @@ ${e.message}` : String(e?.message || e));
       pd.set(this._murkCam(cam, W2, H2), POST_MURK);
       pd.set(clk.edgePh, POST_EDGE);
       pd.set(this.look, POST_LOOK);
-      if (specimen && specimen.target) d.queue.writeBuffer(this.b.postPlain, 0, pd);
+      if (specimen && specimen.target && !specimen.live) d.queue.writeBuffer(this.b.postPlain, 0, Float32Array.from(pd).fill(1, 3, 4));
       if (this.fxFade.look < 1) pd.set(this.look.map((v) => v * this.fxFade.look), POST_LOOK);
       d.queue.writeBuffer(this.b.post, 0, pd);
+      if (specimen && specimen.target && specimen.live) d.queue.writeBuffer(this.b.postPlain, 0, pd);
       this._shiftPending = null;
       if (this._seaOn && pd[94] > 0 && this.cpShiftBG) {
         const slot = this.shiftRead.find((x) => !x.busy);
@@ -20446,52 +20528,37 @@ ${e.message}` : String(e?.message || e));
         const L = Math.max(64, Math.min(1024, Math.ceil(span2 / 32) * 32));
         this._ensureLoupeTex(L);
         const lppu = loupe.ppu * (L / span2);
-        this._writeView(this.b.viewL, this.viewDataL, { x: loupe.cx, y: loupe.cy, ppu: lppu }, L, L, dpr * (L / span2), time, selId, lod, culled[1], 0, true);
+        this._writeView(this.b.viewL, this.viewDataL, { x: loupe.cx, y: loupe.cy, ppu: lppu }, L, L, dpr * (L / span2), time, selId, lod, culled[1], 0, true, bare);
         d.queue.writeBuffer(this.b.loupeU, 0, new Float32Array([loupe.x, loupe.y, loupe.r, 1, W2, H2, loupe.ppu, 0]));
         const pass2 = scenePass(this.loupeView);
-        this._drawScene(pass2, this.viewDataL, 1, bare);
+        this._drawScene(pass2, this.viewDataL, 1);
         pass2.end();
         this._drawStone(enc, this.loupeStoneView, this.bgStoneL);
         this._lightStone(enc, this.loupeSceneView, this.pStoneLitM, this.loupeLitBG);
+        this._drawBloom(enc, this.loupeBloom);
       }
       if (specimen && specimen.target && this.closeupReady(specimen.studio)) {
         this._ensureSpecTex(specimen.w, specimen.h);
-        this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId, specLod, culled[2]);
+        const live = !!specimen.live;
+        this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId, specLod, culled[2], 0, live, bare && live);
         let pass2 = scenePass(this.specView);
         if (specimen.studio) {
           pass2.setPipeline(this.pStudio);
           pass2.setBindGroup(0, this.studioBG);
           pass2.draw(4, this.studioN);
-        } else this._drawScene(pass2, this.viewDataS, 2, bare && specimen.live);
+        } else this._drawScene(pass2, this.viewDataS, 2);
         pass2.end();
         if (specimen.studio) enc.beginRenderPass({ colorAttachments: this.specStoneView.slice(0, 2).map((view) => ({ view, loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" })) }).end();
         else this._drawStone(enc, this.specStoneView, this.bgStoneS);
         this._lightStone(enc, this.specSceneView, this.pStoneLitM, this.specLitBG);
+        if (live) this._drawBloom(enc, this.specBloom);
         pass2 = enc.beginRenderPass({ colorAttachments: [{ view: specimen.target, loadOp: "clear", clearValue: [0, 0, 0, 1], storeOp: "store" }] });
         pass2.setPipeline(this.pPlain);
         pass2.setBindGroup(0, this.specBG);
         pass2.draw(3);
         pass2.end();
       }
-      if (this._bloom() > 0) {
-        for (let i = 0; i < BLOOM_LEVELS; i++) {
-          const pass2 = enc.beginRenderPass({ colorAttachments: [{ view: this.bloomViews[i], loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" }] });
-          pass2.setPipeline(this.pDown);
-          pass2.setBindGroup(0, i === 0 ? this.down0BG : this.downBG[i]);
-          pass2.draw(3);
-          pass2.end();
-        }
-        for (const u of this.upBG) {
-          const pass2 = enc.beginRenderPass({ colorAttachments: [{ view: this.bloomViews[u.target], loadOp: "load", storeOp: "store" }] });
-          pass2.setPipeline(this.pUp);
-          pass2.setBindGroup(0, u.bg);
-          pass2.draw(3);
-          pass2.end();
-        }
-      } else {
-        const pass2 = enc.beginRenderPass({ colorAttachments: [{ view: this.bloomViews[0], loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" }] });
-        pass2.end();
-      }
+      this._drawBloom(enc, this.bloom);
       if (pd[14] > 0) {
         const pass2 = enc.beginRenderPass({ colorAttachments: [{ view: this.murkView, loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" }] });
         pass2.setPipeline(this.pMurk);
@@ -35825,7 +35892,8 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       pass.end();
       pass = enc.beginRenderPass({ colorAttachments: [{ view: out.createView(), loadOp: "clear", clearValue: [0, 0, 0, 1], storeOp: "store" }] });
       pass.setPipeline(plain);
-      pass.setBindGroup(0, group(plain, [[0, d.createSampler({ magFilter: "linear", minFilter: "linear" })], [1, lit.createView()], [2, b.post], [6, b.view]]));
+      const litV = lit.createView();
+      pass.setBindGroup(0, group(plain, [[0, d.createSampler({ magFilter: "linear", minFilter: "linear" })], [1, litV], [2, b.post], [3, litV], [6, b.view], [12, litV]]));
       pass.draw(3);
       pass.end();
       enc.copyTextureToBuffer({ texture: out }, { buffer: read, bytesPerRow: S * 4 }, [S, S]);
@@ -36310,9 +36378,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "4f4d1410d7dfc24a") return;
+      if (localStorage.getItem(key) === "9c7be6d8dc531206") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "4f4d1410d7dfc24a");
+      if (res) localStorage.setItem(key, "9c7be6d8dc531206");
     } catch {
     }
   }
