@@ -8003,6 +8003,7 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32, dh: f32) -> vec
   var blur = rim * 1.5;
   var spread = 0.0;
   var deep = 0.0; // a grain blurred deep in its pile: its order (fsStone's alpha), past which taps are in front of it
+  var bare = 1.0; // how much of the pixel the living leave to what lies beneath them
   let start = max(80.0, 2.0 * max(post.res.x / post.world.x, post.res.y / post.world.y));
   // (with the look's shallow focus, not only toward the rim: whatever lies above or below the plane softens; toward
   // the corners somewhat more, but never so much that the field's outer part is lost)
@@ -8018,7 +8019,8 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32, dh: f32) -> vec
     // the more the deeper, by the grain's cobble's place in the pile (fsStoneLit: stoneTex holds it here)
     let st = vec2f(textureDimensions(stoneTex));
     let sa = textureLoad(stoneTex, vec2i(clamp(uv * st, vec2f(0.0), st - 1.0)), 0).a;
-    if (sa > 1.0 && textureSampleLevel(src, samp, uv, 0.0).a < 0.5) {
+    bare = 1.0 - min(1.0, textureSampleLevel(src, samp, uv, 0.0).a);
+    if (sa > 1.0 && bare > 0.0) {
       let below = 1.0 - clamp((sa - 1.27) / 0.49, 0.0, 1.0); // cobbleZ runs 0.27 to 0.76; a framboid's and the selected grain's lie on top
       let pileBlur = post.look[3].x * smoothstep(0.2, 0.8, below) * smoothstep(start, start * 2.5, post.ppu) * 9.6;
       blur += pileBlur;
@@ -8027,7 +8029,9 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32, dh: f32) -> vec
   }
   if (blur * k > 0.3) {
     // eight taps on a disc, turned at random per pixel; the sensor's grain hides the pattern (twelve for a wide blur,
-    // deep in a pile); deep in a pile, none from a grain lying higher, which is in focus in front of what blurs
+    // deep in a pile); deep in a pile, none from a grain lying higher or from the living, which are in focus in front
+    // of what blurs (gathered, a cell's light spread over the stone round it as a wide speckled fringe), and only the
+    // share of the pixel the living leave bare takes the blur, so a cell's edge over a pile is as it is over water
     let turn = hash12(pos) * TAU;
     let n = select(8, 12, blur * k > 3.0);
     var b = vec3f(0.0);
@@ -8035,13 +8039,14 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32, dh: f32) -> vec
     for (var t = 0; t < n; t++) {
       let a = turn + f32(t) * 2.39996;
       let tq = uv + vec2f(cos(a), sin(a)) * sqrt((f32(t) + 0.5) / f32(n)) * blur * px;
+      let s = textureSampleLevel(src, samp, tq, 0.0);
       var w = 1.0;
-      if (deep > 0.0) { w = select(1.0, 0.0, textureSampleLevel(stoneTex, samp, tq, 0.0).a > deep + 0.02); }
-      b += scene(tq) * w;
+      if (deep > 0.0) { w = select(1.0 - min(1.0, s.a), 0.0, textureSampleLevel(stoneTex, samp, tq, 0.0).a > deep + 0.02); }
+      b += s.rgb / max(1.0, s.a) * w;
       wsum += w;
     }
     if (wsum > 0.0) {
-      let m = smoothstep(0.3, 1.5, blur * k);
+      let m = smoothstep(0.3, 1.5, blur * k) * select(1.0, bare, deep > 0.0);
       c = mix(c, b / wsum, m);
       spread = m * blur * k * post.res.y / 1000.0;
     }

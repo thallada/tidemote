@@ -156,7 +156,10 @@ and the look, and stone was added after them, so it took neither. Now:
   (about 7 px at 800 px tall, at Darkfield's 0.9; 24 times when Darkfield's `dof` was 0.4, set so piles kept their
   blur when it rose, chosen by eye with it at 0.9 too), full from 2.5 times the focus's start (200 px per unit on most screens):
   the grains on top sharp and those under them soft. A wide blur takes twelve taps, none from a grain lying higher
-  (it is in focus, in front). Taken first from height alone and at a quarter of the strength, it did not show (a
+  or from the living (both in focus, in front), and only the share of a pixel the living leave bare takes it: the
+  taps once gathered cells too, which spread each cell's light over the pile round it as a wide speckled fringe in
+  its color (seen on an M1 and on Windows alike, there since the pile blur came in), where over water a cell keeps
+  its thin rim and its bloom. Taken first from height alone and at a quarter of the strength, it did not show (a
   grain's own dome outweighs its place in the pile, so every grain softened alike, slightly); `tools/stonelab.mjs
   --looks nofocus` photographs the same frames with `dof` at 0 to compare.
 - The look's edges (relief, rims, fringe, rainbow rims) are read from the sharp scene, a pixel or a few apart, and laid
