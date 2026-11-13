@@ -3279,7 +3279,12 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
         // the separating speed that would undo bodyHold of the overlap a tick (over a coarse step, as
         // much as its ticks would), half each
         let apartV = dot(qvel - p.vel, n);
-        hold -= n * (0.5 * cs * max(0.0, holdShare * (touch - r) / sim.dt - apartV));
+        let want = holdShare * (touch - r) / sim.dt - apartV;
+        // A step of 2 or 3 ticks cancels only half its share of the pair's closing speed: every cell cancels its
+        // share of each closing speed from the step's start, so a crowd's cells take on each other's motion at
+        // once and motions alternating cell to cell swap sign each step. 1/60 s steps swap them every tick, which
+        // a screen at 30 fps never shows; 2-tick steps it shows (docs/fast-forward.md, How the page runs a speed).
+        hold -= n * (0.5 * cs * select(0.0, want + select(0.0, 0.5 * apartV, sim.ticks > 1u && sim.ticks < 4u), want > 0.0));
         holdN += cs;
         pushK += cs / touch;
       }

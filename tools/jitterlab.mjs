@@ -6,15 +6,20 @@
 // and squash follow, contactGather). Cells are grouped by how many living cells lie within 0.2 of them. Prints the
 // table after each rep: on D3D12 Dawn has crashed (exit 5) on a later rep now and then, so --seed grows other worlds.
 // docs/fast-forward.md, How the page runs a speed.
+// --world FILE loads the grown world from FILE, or grows it and saves it there; --bodies splits each crowd into cells
+// of species that bond and the rest; "close" is the mean count of living cells within 0.1 at the end (packing).
+// A variant may carry tunables of its own ({"name":"x","step":2,"k":{...}}), on top of --k.
 //   tools/gpu-node.sh tools/jitterlab.mjs --n 32768 --warm 240 --secs 4 --reps 1 --variants '[{"name":"m1","step":1},{"name":"m2","step":2}]'
+import fs from 'node:fs';
 import { parseArgs } from 'node:util';
+import { packWorld, unpackWorld } from './lib/world.mjs';
 import { dawnAdapter } from './adapter.mjs';
 
 const { values: v } = parseArgs({ options: {
   n: { type: 'string', default: '32768' }, warm: { type: 'string', default: '240' }, secs: { type: 'string', default: '4' },
   reps: { type: 'string', default: '1' }, seed: { type: 'string', default: '1' }, every: { type: 'string', default: '2' },
   k: { type: 'string', default: '{}' }, variants: { type: 'string', default: '[{"name":"m1","step":1},{"name":"m2","step":2}]' },
-  cpu: { type: 'boolean' },
+  world: { type: 'string' }, bodies: { type: 'boolean' }, cpu: { type: 'boolean' },
 } });
 const { gpu, adapter } = await dawnAdapter({ cpu: v.cpu });
 const device = await adapter.requestDevice({ requiredLimits: { maxStorageBuffersPerShaderStage: 10 } });
@@ -27,37 +32,67 @@ const { createClimate, seasonAt, abioRate } = await import('../src/climate.js');
 const eng = await E.createEngine(device, 'rgba8unorm', { K: JSON.parse(v.k), hasTimestamps: false });
 if (!(await eng.allocate(+v.n))) throw new Error('could not allocate');
 eng.resize(64, 36);
-eng.seed(+v.n, { aspect: 16 / 9, rng });
-eng.censusEvery = 20;
-createClimate(eng, rng);
-eng.onCensus = (c) => { eng.abio = abioRate(c.pop[0]); };
-for (let f = 0; f < Math.round(+v.warm * 60); f++) {
-  eng.season = seasonAt(eng.simTime);
-  while ((eng.frameNo + 1) % eng.censusEvery === 0 && eng.censusStage.every((s) => s.busy)) await new Promise((r) => setTimeout(r, 0));
-  eng.frame({ target: null, simDt: 1 / 60, time: f / 60 });
-  if (f % 60 === 59) await device.queue.onSubmittedWorkDone();
+if (v.world && fs.existsSync(v.world)) {
+  eng.writeState(unpackWorld(fs.readFileSync(v.world)));
+  console.error(`loaded ${v.world} at ${eng.simTime.toFixed(0)} s`);
+} else {
+  eng.seed(+v.n, { aspect: 16 / 9, rng });
+  eng.censusEvery = 20;
+  createClimate(eng, rng);
+  eng.onCensus = (c) => { eng.abio = abioRate(c.pop[0]); };
+  for (let f = 0; f < Math.round(+v.warm * 60); f++) {
+    eng.season = seasonAt(eng.simTime);
+    while ((eng.frameNo + 1) % eng.censusEvery === 0 && eng.censusStage.every((s) => s.busy)) await new Promise((r) => setTimeout(r, 0));
+    eng.frame({ target: null, simDt: 1 / 60, time: f / 60 });
+    if (f % 60 === 59) await device.queue.onSubmittedWorkDone();
+  }
+  console.error(`grown to ${eng.simTime.toFixed(0)} s`);
+  while (eng.censusStage.some((s) => s.busy)) await new Promise((r) => setTimeout(r, 0));
+  if (v.world) fs.writeFileSync(v.world, packWorld(await eng.readState()));
 }
-console.error(`grown to ${eng.simTime.toFixed(0)} s`);
-while (eng.censusStage.some((s) => s.busy)) await new Promise((r) => setTimeout(r, 0));
 eng.onCensus = null;
 eng.censusEvery = 1 << 30;
 const snap = eng.snapshot();
+// an engine per distinct tunables (a variant's k on top of --k), each loaded with the same moment
+const engines = new Map([['{}', eng]]);
+for (const va of JSON.parse(v.variants)) {
+  const key = JSON.stringify(va.k || {});
+  if (engines.has(key)) continue;
+  const e2 = await E.createEngine(device, 'rgba8unorm', { K: { ...JSON.parse(v.k), ...(va.k || {}) }, hasTimestamps: false });
+  if (!(await e2.allocate(+v.n))) throw new Error('could not allocate a variant engine');
+  e2.resize(64, 36);
+  e2.count = eng.count; e2.grid = eng.grid.slice(); e2.censusEvery = 1 << 30;
+  engines.set(key, e2);
+}
 const W = P_BYTES / 4, every = +v.every;
-const BANDS = [[0, 3], [3, 8], [8, 16], [16, 1e9]];
-const bandName = (b) => (b[1] > 1e8 ? `${b[0]}+` : `${b[0]}-${b[1] - 1}`);
+const CROWDS = [[0, 3], [3, 8], [8, 16], [16, 1e9]];
+// --bodies: each crowd split into cells of species that bond (adhesion past adhMin) and those that do not
+const BANDS = v.bodies ? CROWDS.flatMap((b) => [[...b, 0], [...b, 1]]) : CROWDS;
+const bandName = (b) => (b[1] > 1e8 ? `${b[0]}+` : `${b[0]}-${b[1] - 1}`) + (b.length > 2 ? (b[2] ? ' body' : ' free') : '');
+let bonds = null;
+if (v.bodies) {
+  const { G_BYTES, DEFAULT_K } = await import('../src/shaders.js');
+  const st = device.createBuffer({ size: eng.b.genomes.size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+  const enc = device.createCommandEncoder(); enc.copyBufferToBuffer(eng.b.genomes, 0, st, 0, st.size); device.queue.submit([enc.finish()]);
+  await st.mapAsync(GPUMapMode.READ);
+  // (adhesion: the genome's 45th word)
+  const gf = new Float32Array(st.getMappedRange().slice(0)), adhMin = { ...DEFAULT_K, ...JSON.parse(v.k) }.adhMin;
+  bonds = (kind) => gf[kind * (G_BYTES / 4) + 44] > adhMin;
+}
 const results = {};
 const report = (reps) => {
-  console.log(`n ${v.n}, warm ${v.warm} s, ${v.secs} s x ${reps} reps, sampled every ${every} ticks; RMS: jitter (1e-3 units), velocity jitter, path speed and velocity's mismatch with it (1e-3 units/s)`);
-  console.log('variant  crowd     cells   pos-jitter  vel-jitter  path-speed  vel-mismatch');
+  console.log(`n ${v.n}, warm ${v.warm} s, ${v.secs} s x ${reps} reps, sampled every ${every} ticks; RMS: jitter (1e-3 units), velocity jitter, path speed and velocity's mismatch with it (1e-3 units/s); mean neighbors within 0.1 at the end`);
+  console.log('variant  crowd     cells   pos-jitter  vel-jitter  path-speed  vel-mismatch  close');
   for (const [name, acc] of Object.entries(results)) {
     acc.forEach((a, b) => {
       const q = (s) => (a.n ? (1e3 * Math.sqrt(s / a.n)).toFixed(2) : '-').padStart(12);
-      console.log(`${name.padEnd(8)} ${bandName(BANDS[b]).padEnd(6)} ${String(Math.round(a.cells / reps)).padStart(8)} ${q(a.pos)}${q(a.vel)}${q(a.speed)}${q(a.mis)}`);
+      console.log(`${name.padEnd(8)} ${bandName(BANDS[b]).padEnd(v.bodies ? 11 : 6)} ${String(Math.round(a.cells / reps)).padStart(8)} ${q(a.pos)}${q(a.vel)}${q(a.speed)}${q(a.mis)}${(a.cells ? a.close / a.cells : 0).toFixed(2).padStart(7)}`);
     });
   }
 };
 for (let r = 0; r < +v.reps; r++) {
   for (const va of JSON.parse(v.variants)) {
+    const eng = engines.get(JSON.stringify(va.k || {}));
     eng.restore(snap);
     eng.seedValue = (snap.cpu.seedValue ^ Math.imul(r + 1, 2654435761)) >>> 0;
     const n = Math.round((+v.secs * 60) / every), per = every / va.step, S = n + 1;
@@ -92,23 +127,31 @@ for (let r = 0; r < +v.reps; r++) {
       }
     };
     put(0);
-    // living neighbors within 0.2 of each at the start (a hash grid of 0.2)
-    const R = 0.2, nx = Math.ceil(gw / R), ny = Math.ceil(gh / R), cells = new Map(), crowd = new Int32Array(C);
-    const key = (x, y) => (((Math.floor(x / R) % nx) + nx) % nx) * ny + (((Math.floor(y / R) % ny) + ny) % ny);
-    start.forEach((p, c) => { const k = key(p[0], p[1]); (cells.get(k) || cells.set(k, []).get(k)).push(c); });
-    start.forEach((p, c) => {
-      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (const d of cells.get(key(p[0] + dx * R, p[1] + dy * R)) || []) {
-        let ex = start[d][0] - p[0], ey = start[d][1] - p[1]; ex -= gw * Math.round(ex / gw); ey -= gh * Math.round(ey / gh);
-        if (d !== c && ex * ex + ey * ey < R * R) crowd[c]++;
-      }
-    });
+    // living neighbors within R of each point (a hash grid of R; null points neither count nor are counted)
+    const within = (pts, R) => {
+      const nx = Math.ceil(gw / R), ny = Math.ceil(gh / R), cells = new Map(), out = new Int32Array(pts.length);
+      const key = (x, y) => (((Math.floor(x / R) % nx) + nx) % nx) * ny + (((Math.floor(y / R) % ny) + ny) % ny);
+      pts.forEach((p, c) => { if (p) { const k = key(p[0], p[1]); (cells.get(k) || cells.set(k, []).get(k)).push(c); } });
+      pts.forEach((p, c) => {
+        if (!p) return;
+        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (const d of cells.get(key(p[0] + dx * R, p[1] + dy * R)) || []) {
+          let ex = pts[d][0] - p[0], ey = pts[d][1] - p[1]; ex -= gw * Math.round(ex / gw); ey -= gh * Math.round(ey / gh);
+          if (d !== c && ex * ex + ey * ey < R * R) out[c]++;
+        }
+      });
+      return out;
+    };
+    // how crowded each is at the start (within 0.2), and how closely packed at the end (within 0.1: about touching)
+    const crowd = within(start, 0.2);
     for (let s = 1; s < S; s++) { q = sample(s); put(s); }
-    const acc = (results[va.name] ||= BANDS.map(() => ({ cells: 0, pos: 0, vel: 0, speed: 0, mis: 0, n: 0 })));
+    const close = within(Array.from({ length: C }, (_, c) => (Number.isNaN(path[(c * S + S - 1) * 4]) ? null : [path[(c * S + S - 1) * 4], path[(c * S + S - 1) * 4 + 1]])), 0.1);
+    const acc = (results[va.name] ||= BANDS.map(() => ({ cells: 0, pos: 0, vel: 0, speed: 0, mis: 0, n: 0, close: 0 })));
     const h = every / 60, at = (c, s, k) => path[(c * S + s) * 4 + k];
     for (let c = 0; c < C; c++) {
       if (Number.isNaN(at(c, S - 1, 0))) continue;
-      const a = acc[BANDS.findIndex(([lo, hi]) => crowd[c] >= lo && crowd[c] < hi)];
+      const a = acc[BANDS.findIndex(([lo, hi, b]) => crowd[c] >= lo && crowd[c] < hi && (!bonds || +bonds(kinds[c]) === b))];
       a.cells++;
+      a.close += close[c];
       for (let i = 2; i < S - 2; i++) {
         for (const [k, name] of [[0, 'pos'], [1, 'pos'], [2, 'vel'], [3, 'vel']]) {
           const sm = (at(c, i - 2, k) + at(c, i - 1, k) + at(c, i, k) + at(c, i + 1, k) + at(c, i + 2, k)) / 5;

@@ -48,7 +48,68 @@ ticks: 0.38 ms each against 0.41, the frame's GPU time 1.8 → 2.0 ms. The cost 
 on an M1, whose 78k world's step took 3.9 ms (docs/performance.md), a 32k world's should take less, and only a frame
 with a quarter of its time to spare takes it (judged by the step measured, which from coarse steps overstates a 1/60 s
 one: a 2-tick step costs 1.1 to 1.45 times one, so a switch holds once the 1/60 s steps are measured). A frame
-without that room keeps the coarse step, and its crowds rattle as before.
+without that room keeps the coarse step, whose crowds rattle less since 2026-11-13 (below), but still more.
+
+### What rattles (2026-11-13)
+
+Found with `tools/jitterlab.mjs` on saved worlds (`--world FILE` grows a world once and loads it after; `--bodies`
+splits each crowd into cells of species that bond and the rest; a variant may carry tunables of its own, here
+temporary switches that changed a coarse step only; the last column counts neighbors within 0.1 at the end, about
+touching, for packing). In one world (seed 3) crowded cells of species that do not bond rattled most: 1.03 → 2.31
+(3-7 neighbors) and 1.00 → 3.08 (8-15) from 1/60 s to 2-tick steps, those of bodies 0.80 → 1.09 and 0.57 → 1.08.
+
+- **Contact's hold.** With contactMain's hold or its push off in coarse steps only, crowded free cells fell to the
+  same floor (2.31 → 1.59-1.60, 3.08 → 1.80-1.88), all three parts off left the same (1.62, 1.75), and the viscosity
+  off took their velocity jitter to that floor too (their paths ran faster).
+  How implicit the push is (`pushTheta` 0, 0.25, 1), the viscosity's two-body form against the 1/60 s rule and the
+  stiffness correction off moved nothing beyond noise. The hold sets each overlap's closing speed from the step's
+  start to the separation it wants, half to each cell, and every cell does so at once (a Jacobi projection): a cell
+  between two others takes on both their motions and they take on its, so a motion alternating cell to cell swaps
+  sign every step (in a chain of contacts its eigenvalue is about -1, damped only by drag). 1/60 s steps swap it
+  every tick, which a screen at 30 fps never shows (sampled every second tick it is a still offset); 2-tick steps
+  swap it every 2 ticks, and 30 fps shows each swap. A toy crowd (contactMain's rules and drag alone, numpy, 300
+  cells) showed it as well: 2.8x the 1/60 s jitter at 2 ticks, 1.1x with the hold halved.
+- **The fix.** In steps of 2 and 3 ticks a cell cancels only half its share of a pair's closing speed and asks the
+  separation it wants in full (relaxation 1/2 on the velocity it takes from its neighbors). Halving the whole hold
+  (dividing by `holdN` rather than `holdN / 2`), or no hold at all, took the same jitter but packed bodies tighter
+  (touching neighbors 0.18 against 0.11 for 2-tick steps and 0.06 for 1/60 s; with the hold's target 1.5x on top,
+  0.13); normalizing the hold along its own direction (to relax only cells between others) took two fifths as much.
+  Steps of 4 ticks and more are unchanged (their crowds are another regime: 4-8x the 1/60 s jitter at 6 ticks,
+  sampled every 6; halving their hold took a fifth off it).
+- **The rest is the pair forces.** Halving the stiffness correction's whole response (its forces and its momentum
+  sharing alike) took the remaining jitter to 1/60 s levels in two worlds, but slowed cells 6-24% (their paths, not
+  only their rattle); halving only its momentum sharing changed nothing (world 3). So what is left comes from the
+  pair forces held over the step, and is not fixed.
+
+Pos jitter (1e-3 units) for 1/60 s steps, 2-tick steps before and after, sampled every 2 ticks, 4 s from the same
+moment of three 32k worlds grown 4 minutes (`runs/jit/`, local):
+
+| neighbors within 0.2 | world 3: 1 tick | 2, before | 2, after | world 5: 1 | 2, before | 2, after | world 7: 1 | 2, before | 2, after |
+|---|---|---|---|---|---|---|---|---|---|
+| 0-2 | 0.97 | 1.13 | 1.10 | 1.40 | 1.70 | 1.64 | 0.48 | 0.65 | 0.64 |
+| 3-7 | 0.92 | 1.78 | 1.37 | 1.44 | 2.46 | 2.08 | 0.70 | 1.16 | 1.03 |
+| 8-15 | 0.71 | 1.86 | 1.32 | 1.35 | 2.54 | 2.33 | 1.22 | 2.71 | 2.52 |
+
+Velocity jitter falls alike (world 3: 35 → 85 → 61 and 35 → 93 → 65 at 3-7 and 8-15 neighbors). The excess over
+1/60 s steps falls by about half in world 3 and by 13-37% in worlds 5 and 7, where more of it is the pair forces'.
+
+Matched forks (`tools/fork.mjs`, 30 s, `K.diag`; worlds of seeds 2, 3 and 4 grown 10 minutes, 8 forks each): births,
+deaths by cause, kills, grazing and scavenging move within noise between the old and new 2-tick steps (and 3-tick in
+seed 4's). Packing (`pack`) against 1/60 s steps:
+
+| guild | 2 ticks, before | 2 ticks, after | 3 ticks, before (seed 4) | 3 ticks, after (seed 4) |
+|---|---|---|---|---|
+| producers | +2.8 to +6.1% | +6.1 to +7.3% | +4.2% | +6.9% |
+| grazers | -0.8 to +1.0% | +3.7 to +6.3% | -5.0% | +5.2% |
+| predators | +0.3 to +2.0% | +2.8 to +3.9% | -1.7% | +4.4% |
+| scavengers | -0.9 to +2.3% | +3.7 to +5.8% | -4.3% | +1.5% |
+
+So crowds sit 3-7% tighter than in 1/60 s steps, 3-5 points more than before. In the same forks (seeds 2 and 3) the
+relaxation at 6 ticks moved the rates within noise too and packing both ways (grazers -9 and -12% → -3 and +1%, scavengers -12 and
++11% → -6 and +22%); it is left out, with nothing yet run long at 6 ticks. The 2-tick step costs the same (`tools/perf/stepbench.mjs --ticks 2` on a
+32k world, old and new in turn twice: 0.33 / 0.31 and 0.344 / 0.349 ms, contactMain 0.059 / 0.057 and 0.066 /
+0.064 ms, with another ensemble on the GPU). Bodies alone swim as before (`tools/swimlab.mjs --step 2`: a beating
+12-cell filament 0.395 against 0.399 units a second, its bonds alike, none torn).
 
 ## Drawn in between
 
