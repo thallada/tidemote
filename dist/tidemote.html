@@ -42764,7 +42764,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           perf.lerpTicks = Math.round(step.dt * 60);
         }
         const lerpOn = !state.paused && state.phase === "running" && perf.lerpTicks > 1 && (state.speed === Infinity ? fastMode : !perf.held);
-        eng.lerp = lerpOn ? clamp6(state.speed === Infinity ? perf.stepCredit : clock2.owed / perf.lerpDt, 0, 1) : null;
+        eng.lerp = !lerpOn ? null : state.speed === 1 ? 0.5 : clamp6(state.speed === Infinity ? perf.stepCredit : clock2.owed / perf.lerpDt, 0, 1);
         viewSimTime = eng.simTime + (state.paused ? 0 : step.steps * step.dt) - (eng.lerp != null ? (1 - eng.lerp) * perf.lerpDt : 0);
         if (state.phase === "running" && !state.paused) climate.tick(step.steps * step.dt);
         autoCamera(now, dt);
