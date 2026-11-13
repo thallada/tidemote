@@ -43,7 +43,7 @@ export const KNOBS = {
   // the other's level as shown), learned on the device per pixel (rel), guessed from the RTX until then.
   haze: { levels: [false, true], passes: null, share: (from, to, k) => comp(k, +to + 2 * other(k)) / comp(k, +from + 2 * other(k)), loss: [0.05] },
   microscope: { levels: [false, true], passes: null, share: (from, to, k) => comp(k, other(k) + 2 * +to) / comp(k, other(k) + 2 * +from), loss: [1.2] },
-  // Cells' insides in the main view (Engine.fx.interiors): left out, every cell takes the lean pipeline, its outline,
+  // Cells' insides in the main view, the loupe and the live close-up (Engine.fx.interiors): left out, every cell takes the lean pipeline, its outline,
   // walls and tissue kept (1 - SSIM 0.007-0.012 at 150 and 400 pixels a unit; weighed above that, the insides being
   // what a close look is for). Its cost is the cells' pass, learned at each level at a like zoom (ratio), none
   // where cells are drawn too small for insides.
