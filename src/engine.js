@@ -3028,8 +3028,10 @@ class Engine {
       if (specLod) rect(1, specimen.cx, specimen.cy, specimen.w / (2 * specimen.ppu), specimen.h / (2 * specimen.ppu));
       u[16] = gw; u[17] = gh; new Float32Array(u.buffer)[18] = time; new Float32Array(u.buffer)[19] = this.simTime % 4096;
       // half the grid cells search for contacts each frame, alternating (contactGather), while the cells gathered
-      // stay those of the frame before (and the world the same): every one searches the first frame they change
-      const key = `${u.subarray(0, 16).join()},${this.worldGeneration}`;
+      // stay those of the frame before and the world has not stepped since (a step sorts the particles anew, and
+      // the contacts kept are by sorted place: read back after one they were other cells', and a mat's cells
+      // flickered between their tiles and their own shapes): every one searches the first frame they change
+      const key = `${u.subarray(0, 16).join()},${this.worldGeneration},${this.frameNo}`;
       this._gatherOdd = !this._gatherOdd;
       u[2] = +this._gatherOdd;
       u[3] = key === this._gatherKey ? 1 : 0;
