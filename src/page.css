@@ -459,18 +459,14 @@ body.dragging-card #bench-open, body.dragging-card .bench-pip, body.dragging-car
 /* the readout is a button (main.js, the adapting summary): its hint, and a click opens Settings → Perf. Its labels
    brighten a step under the pointer, its box a finger tall but drawn no taller. While the page eases anything for
    speed (view.adapt: .adapting; .fps-held, .res-held for those figures) the eased figures turn the sun's color, Auto's
-   "held" color, and the look is one class in page.html: v-a those figures and a hairline at the strip's end,
-   as the rail's gauges mark theirs (alone where only an effect without a figure is eased); v-b with a hairline under
-   each eased figure; v-c the figures and one hairline under the whole strip */
+   "held" color, and a hairline stands at the strip's end, as the rail's gauges mark theirs (alone where only an effect
+   without a figure is eased) */
 button.sys { position: relative; height: 34px; padding: 0; border: 0; background: none; align-items: center; }
 .sys:hover, .sys[aria-describedby] { color: var(--ink-2); }
-.sys b { transition: color .4s ease, text-decoration-color .4s ease; text-decoration: underline 1px transparent; text-underline-offset: 4px; }
-.sys::before, .sys::after { content: ''; position: absolute; background: var(--sun); opacity: 0; transition: opacity .4s ease; }
-.sys::before { right: -7px; top: 50%; width: 1px; height: 12px; margin-top: -7px; }
-.sys::after { left: 0; right: 0; top: 50%; height: 1px; margin-top: 9px; }
-.sys:is(.v-a, .v-b).adapting::before, .sys.v-c.adapting::after { opacity: 1; }
+.sys b { transition: color .4s ease; }
+.sys::before { content: ''; position: absolute; right: -7px; top: 50%; width: 1px; height: 12px; margin-top: -7px; background: var(--sun); opacity: 0; transition: opacity .4s ease; }
+.sys.adapting::before { opacity: 1; }
 .sys.fps-held #sys-fps, .sys.res-held #sys-res { color: var(--sun); }
-.sys.v-b.fps-held #sys-fps, .sys.v-b.res-held #sys-res { text-decoration-color: var(--sun); }
 
 /* ------------------------------------------------------------------ world column */
 /* the Lab's census: what the world is made of above, the log filling what is left below */

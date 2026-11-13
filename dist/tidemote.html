@@ -515,18 +515,14 @@ body.dragging-card #bench-open, body.dragging-card .bench-pip, body.dragging-car
 /* the readout is a button (main.js, the adapting summary): its hint, and a click opens Settings → Perf. Its labels
    brighten a step under the pointer, its box a finger tall but drawn no taller. While the page eases anything for
    speed (view.adapt: .adapting; .fps-held, .res-held for those figures) the eased figures turn the sun's color, Auto's
-   "held" color, and the look is one class in page.html: v-a those figures and a hairline at the strip's end,
-   as the rail's gauges mark theirs (alone where only an effect without a figure is eased); v-b with a hairline under
-   each eased figure; v-c the figures and one hairline under the whole strip */
+   "held" color, and a hairline stands at the strip's end, as the rail's gauges mark theirs (alone where only an effect
+   without a figure is eased) */
 button.sys { position: relative; height: 34px; padding: 0; border: 0; background: none; align-items: center; }
 .sys:hover, .sys[aria-describedby] { color: var(--ink-2); }
-.sys b { transition: color .4s ease, text-decoration-color .4s ease; text-decoration: underline 1px transparent; text-underline-offset: 4px; }
-.sys::before, .sys::after { content: ''; position: absolute; background: var(--sun); opacity: 0; transition: opacity .4s ease; }
-.sys::before { right: -7px; top: 50%; width: 1px; height: 12px; margin-top: -7px; }
-.sys::after { left: 0; right: 0; top: 50%; height: 1px; margin-top: 9px; }
-.sys:is(.v-a, .v-b).adapting::before, .sys.v-c.adapting::after { opacity: 1; }
+.sys b { transition: color .4s ease; }
+.sys::before { content: ''; position: absolute; right: -7px; top: 50%; width: 1px; height: 12px; margin-top: -7px; background: var(--sun); opacity: 0; transition: opacity .4s ease; }
+.sys.adapting::before { opacity: 1; }
 .sys.fps-held #sys-fps, .sys.res-held #sys-res { color: var(--sun); }
-.sys.v-b.fps-held #sys-fps, .sys.v-b.res-held #sys-res { text-decoration-color: var(--sun); }
 
 /* ------------------------------------------------------------------ world column */
 /* the Lab's census: what the world is made of above, the log filling what is left below */
@@ -1645,7 +1641,7 @@ svg.niche .n-dot { fill: var(--cyan); }
       <button data-i18n="dock.lab-open" type="button" class="act primary" id="lab-open" aria-label="Field Lab" aria-expanded="false" aria-controls="lab" data-hint="Field Lab · K"><svg><use href="#i-lab"/></svg><span data-i18n="dock.lab-label">Lab</span></button>
     </div>
     <!-- the readout, and the adapting summary's button (main.js): its eased figures in the sun's color while the page eases anything for speed -->
-    <button data-i18n="dock.sys" type="button" class="sys v-a" id="sys" aria-label="Performance readout: what the page adapts, and its settings" aria-controls="settings" data-tip="eased"><span data-i18n="dock.particles"><b id="sys-n" translate="no" class="w-n">–</b> particles</span><span data-i18n="dock.fps"><b id="sys-fps" translate="no" class="w-3">–</b> fps</span><span data-i18n="dock.ms"><b id="sys-ms" translate="no" class="w-4">–</b> ms</span><span data-i18n="dock.res"><b id="sys-res" translate="no" class="w-4">–</b> res</span></button>
+    <button data-i18n="dock.sys" type="button" class="sys" id="sys" aria-label="Performance readout: what the page adapts, and its settings" aria-controls="settings" data-tip="eased"><span data-i18n="dock.particles"><b id="sys-n" translate="no" class="w-n">–</b> particles</span><span data-i18n="dock.fps"><b id="sys-fps" translate="no" class="w-3">–</b> fps</span><span data-i18n="dock.ms"><b id="sys-ms" translate="no" class="w-4">–</b> ms</span><span data-i18n="dock.res"><b id="sys-res" translate="no" class="w-4">–</b> res</span></button>
   </nav>
 
   <!-- settings: what is shown, and what it costs -->
@@ -39077,7 +39073,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       }
       const heldWords = () => {
         const h = heldNow();
-        return h.length ? h.map(([id, l]) => HELD[id](l)).join(" · ") : tr("settings.perf.held-none", "Nothing held back");
+        return h.length ? h.map(([id, l]) => HELD[id](l)).join(" · ") : tr("settings.perf.held-none", "Full Performance");
       };
       const scanChoices = () => [.../* @__PURE__ */ new Set([...KNOBS.neighbors.levels, ...[1.5, 2].map((f2) => Math.round(K.maxScan * f2 / 8) * 8), state.perf.scan ?? K.maxScan])].sort((a, b) => a - b);
       function performance_() {
@@ -39331,7 +39327,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           const [, v, st] = at[id];
           return `<div class="am-r" data-s="${st}"><span class="lbl">${NAMES[id]}</span><i></i><b>${adaptValue(id, v, st)}</b><em>${st === "held" ? EASED : st === "fixed" ? FIXED : ""}</em></div>`;
         };
-        return (held ? `<div class="am-h"><span>${tr("dock.adapt.title", "Adapting")}</span><span>${WHY_WORDS[perf.why] ?? ""}</span></div>` : `<div class="am-h calm"><span>${tr("settings.perf.held-none", "Nothing held back")}</span></div>`) + SUMMED.map((ids) => `<div class="am-g">${ids.filter((id) => id !== "haze" || K.heat).map(row).join("")}</div>`).join("") + `<div class="am-f">${tr("dock.adapt.open", "{touch, select, yes {Tap again to open Settings → Perf} other {Click to open Settings → Perf}}", { touch: isCoarse ? "yes" : "no" })}</div>`;
+        return (held ? `<div class="am-h"><span>${tr("dock.adapt.title", "Adapting")}</span><span>${WHY_WORDS[perf.why] ?? ""}</span></div>` : `<div class="am-h calm"><span>${tr("settings.perf.held-none", "Full Performance")}</span></div>`) + SUMMED.map((ids) => `<div class="am-g">${ids.filter((id) => id !== "haze" || K.heat).map(row).join("")}</div>`).join("") + `<div class="am-f">${tr("dock.adapt.open", "{touch, select, yes {Tap again to open Settings → Perf} other {Click to open Settings → Perf}}", { touch: isCoarse ? "yes" : "no" })}</div>`;
       };
       function adapt() {
         const held = new Set(heldNow().map((r) => r[0]));
