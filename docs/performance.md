@@ -177,10 +177,10 @@ Chrome reports its adapter's vendor (`img-tec`) but neither architecture nor des
   Neighbors', Auto while left at the default): render scale and eight knobs (the sea's turns, bloom, the specks, the
   stone's relighting, the heat haze, the microscope, cells' insides, the neighbors), moved one step at a time every two
   seconds by what each step costs this device and what it shows. Every effect has one control, in Display, saying what
-  the viewer wants; the tuner only ever eases an effect the viewer has on (`shown` in `src/main.js`: a knob whose effect
-  is off sits at its best and is never counted as saving anything), and Adaptation off leaves every knob at its best. What it
-  holds back right now (`heldBack`, pure and tested) is listed under Adaptation and marked with a dot on each Display row
-  it eases. Tools still pin knobs (`T.setTune`, `T.setEffects`, a bench plan's `tune` and
+  the viewer wants; the tuner only ever eases an effect whose Display row is on Auto (`tuneAuto` in `src/main.js`: a
+  knob whose effect is off, or set to a value of the viewer's, sits at its best and is never counted as saving
+  anything), and Adaptation off leaves every knob at its best. What it holds back right now (`heldBack`, pure and
+  tested) is listed under Adaptation, and each Display row on Auto underlines the value it holds now (Off while eased). Tools still pin knobs (`T.setTune`, `T.setEffects`, a bench plan's `tune` and
   `effects`), never saved. The heat haze (barely seen: 1 - SSIM 0.001-0.006) and the microscope (the optics, their murk
   and the look: 0.10-0.13, the composite about halved) were once one Finish ladder; as two knobs they keep its steps'
   losses (0.05 and 1.2), so the haze still goes long before the microscope and the microscope comes back first, and
@@ -444,7 +444,11 @@ The weakest GPU at hand (Android 12, Chrome, 393×786 CSS pixels at 2.75). Chrom
   the pixels for little visible gain), except while a film rolls, whose frames are the screen's size; a level that just proved too slow is
   not retried for 30 s. Settings → Perf shows the rate aimed for and why, and each Auto choice
   (render scale, pixel density, particles) shows what it is using now, with the matching fixed choice
-  underlined. A fixed pixel density never changes; prefs saved before v3 holding the old default 1.5
+  underlined. The Display rows the tuner eases (Microscope, Glow, Water surface, Heat haze, Suspension, Cell insides)
+  offer Auto the same way, their default: Auto draws the effect at Normal (or on) and lets Adaptation ease it, the
+  value it holds now underlined (Off while eased); any other value is the viewer's and is never eased. With
+  Adaptation off, Auto holds every one at its best. Prefs saved before then read a value other than Auto's as chosen
+  (an effect turned off stays off), the rest as Auto. A fixed pixel density never changes; prefs saved before v3 holding the old default 1.5
   open as Auto.
 - **Coarse steps at low frame rates.** At real time a step covers up to a frame's worth of whole
   ticks, so below about 45 fps the world takes coarse steps (docs/fast-forward.md). A 2-tick step

@@ -1,7 +1,7 @@
 // The auto-tuner: which of the frame's costs to give up when frames run late, and which to win back when there is
 // room (main.js adaptQuality asks every two seconds, judge says when; its emergency step-down, overload, acts at
 // once). Each knob is a ladder of settings, cheapest first, and while Settings → Performance → Adaptation is on (and
-// the viewer shows the effect it eases, in Display) the tuner moves it one step at a time:
+// the Display row of the effect it eases is on Auto) the tuner moves it one step at a time:
 // down, the step that saves the most GPU time for the least that is lost to the eye; up, the one that brings back the
 // most for the time it costs, if it fits (or, frames on time a while, tried anyway: probe). What a knob costs is
 // measured where it can be (the GPU's timestamps, pass by
@@ -180,10 +180,10 @@ function fullCost(id, k, draw) {
 }
 
 /**
- * What the tuner holds back right now, the one source for Settings → Performance's line and the marks on Display's
- * rows: each knob below its best whose effect is shown ([id, level index], in KNOBS' order), then the render scale
- * while Auto has it under 1 (['scale', scale]). levels: { id: index }; shown: { id: false } for an effect the viewer
- * has off, never counted; scale: the render scale on Auto, else null.
+ * What the tuner holds back right now, as Settings → Performance's line says it: each knob below its best whose
+ * effect is shown ([id, level index], in KNOBS' order), then the render scale while Auto has it under 1 (['scale',
+ * scale]). levels: { id: index }; shown: { id: false } for an effect the viewer has off, never counted; scale: the
+ * render scale on Auto, else null.
  */
 export function heldBack(levels, shown = {}, scale = null) {
   const out = [];

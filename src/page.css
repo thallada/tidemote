@@ -633,9 +633,6 @@ canvas.chart { cursor: crosshair; }
 /* a touch screen has no keys to show */
 @media (pointer: coarse) { .opt kbd { display: none; } }
 .opts .ramp { margin-left: calc(9.6em + var(--s3)); }
-/* a Display row the page is easing right now (Performance → Adaptation): a quiet dot, its place always kept */
-.opt .eased { display: inline-block; width: 5px; height: 5px; margin: 0 0 1px var(--s1); border-radius: 50%; background: var(--sun); opacity: .75; vertical-align: middle; visibility: hidden; }
-.opt .eased.on { visibility: visible; }
 /* what the page holds back now (under Adaptation): three lines, room for all of it, whatever they say */
 .opts .eased-now { margin: 0; height: 48px; font-size: 12px; line-height: 16px; color: var(--ink-2); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 .vol-row { display: flex; align-items: center; gap: var(--s3); height: 32px; }
