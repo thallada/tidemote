@@ -27,6 +27,9 @@ const paths = await packager({
   buildVersion: arg('build-version'),
   appBundleId: 'io.github.thallada.tidemote',
   appCategoryType: 'public.app-category.simulation-games',
+  // icon/icon.ico on Windows, icon/icon.icns on macOS (the extension follows the platform); Linux takes
+  // its icon from the window (main.js). scripts/icon.mjs renders them from icon/icon.svg.
+  icon: fileURLToPath(new URL('../icon/icon', import.meta.url)),
   overwrite: true,
   // steamworks.js's native addon and the Steam API library load from real files, not the archive
   asar: { unpack: '**/node_modules/steamworks.js/dist/**' },

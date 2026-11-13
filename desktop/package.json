@@ -11,10 +11,12 @@
   "scripts": {
     "stage": "node scripts/stage.mjs",
     "start": "node scripts/stage.mjs && electron .",
-    "package": "node scripts/stage.mjs && node scripts/package.mjs"
+    "package": "node scripts/stage.mjs && node scripts/package.mjs",
+    "icon": "node scripts/icon.mjs"
   },
   "devDependencies": {
     "@electron/packager": "20.3.0",
+    "@resvg/resvg-js": "2.6.2",
     "electron": "45.1.0"
   },
   "dependencies": {

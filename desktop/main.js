@@ -59,6 +59,8 @@ const open = () => {
   const win = new BrowserWindow({
     width: 1600, height: 900, minWidth: 640, minHeight: 400,
     show: false, backgroundColor: '#06090a', title: 'Tidemote', // i18n-ignore (the product's name; the page's title follows)
+    // the taskbar's and title bar's on Windows and Linux (macOS's dock takes the bundle's .icns)
+    icon: join(HERE, 'icon', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
     webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, preload: join(HERE, 'preload.cjs') },
   });
   win.once('ready-to-show', () => win.show());

@@ -197,7 +197,13 @@ Playwright's own launch attaches DevTools early and changes the cache's keys).
   rates, GPU time, the step and every pass, in both the 1M and 4M worlds. The desktop app neither gains
   nor loses anything over the browser. One load in three of the 4M world, in either, runs a step half
   as slow again (`matterMain` 1.8 → 6.8 ms, `lifeMain` 6 → 7.7), whatever the climate: not yet traced.
-- Not yet: an icon (see Releasing on Steam below for everything else open).
+- The icon (2026-11-12): the page's favicon, two waves on the dark tile, drawn as an app icon in
+  `desktop/icon/icon.svg`. `npm run icon` in `desktop/` renders `icon.png` (512, the window's on
+  Linux), `icon.ico` (16 to 256, the executable's and the window's on Windows) and `icon.icns` (16 to
+  1024, the Mac bundle's) from it; all four are committed, so builds need no renderer. The packager
+  embeds the `.ico`/`.icns` (`icon` in `scripts/package.mjs`), `main.js` hands the window its own.
+  Steam's library and client art is still to make (Releasing on Steam below, with everything else
+  open).
 
 ## Releasing on Steam: what is left, in order
 
@@ -227,8 +233,9 @@ still open on our side. Valve's own pages are the authority for their rules and 
    first, then on the default branch from Steamworks. Neither the scripts nor a script that runs
    them are in the repo yet.
 5. **What the app still lacks** (our work, before the build review):
-   - An icon: the window and executable icon (`.ico` for Windows, `.png` for Linux; Electron
-     Packager's `--icon`), plus Steam's library and client icons.
+   - Steam's library and client art (capsules, the library's hero and logo, the client's icon, for
+     which `desktop/icon/icon.ico` can serve; Steamworks → Store Assets and Library Assets). The
+     window and executable icon is done (Status).
    - Linux, for the Steam Deck: a native Linux package (Vulkan switches already set, see Switches),
      run on a real Deck (AMD, RADV): controls without a mouse (trackpads, touch, the on-screen
      keyboard for naming), text legible at 1280×800, the frame rate the page picks there. Steam Deck

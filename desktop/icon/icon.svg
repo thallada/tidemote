@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- The page's favicon (src/page.html) as an app icon: the same dark tile and two waves, inset on the
+       canvas as app icons are, the strokes a little heavier to read at 16 px. scripts/icon.mjs renders
+       icon.png, icon.ico and icon.icns from it. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0c1416"/>
+      <stop offset="1" stop-color="#06090a"/>
+    </linearGradient>
+  </defs>
+  <rect x="80" y="80" width="864" height="864" rx="192" fill="url(#tile)"/>
+  <rect x="86" y="86" width="852" height="852" rx="186" fill="none" stroke="#7fd6df" stroke-opacity=".16" stroke-width="12"/>
+  <g transform="translate(80 71) scale(36)" fill="none" stroke="#7fd6df" stroke-width="2.4" stroke-linecap="round">
+    <path d="M4 15c2.67-5 5.33-5 8 0s5.33 5 8 0"/>
+    <path d="M4 9.5c2.67-5 5.33-5 8 0s5.33 5 8 0" opacity=".45"/>
+  </g>
+</svg>
