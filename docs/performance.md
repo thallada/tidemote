@@ -634,8 +634,10 @@ two page loads each, thermal state 0-1 (`runs/night/cad0`-`cad3`):
   time and on the others 22% (at 150 pixels a unit 24-55%, a wrong and a missing contact a cell), so walls flattened
   and fused against the wrong neighbors every other frame; and of the newborns in view only 58% were drawn budding from
   their mother (their first sight's contacts someone else's). After: 98.8% and 99.4%, newborns budding 98%; a quarter
-  of the grid cells searching a frame 97-100% (at 150). Now the contacts are kept beside the cell's record (row for row with the sway table, by
-  id), and after each step `touchCarry` carries the rows of the cells gathered through its sort (`aux`, as
+  of the grid cells searching a frame 97-100% (at 150). (Main meanwhile had every cell search on any frame the world
+  stepped, 3916aa0: correct, at the full search's cost, 4.9 / 2.67 ms on the Pixel 3; the 3.4 / 1.75 measured before
+  were the half-rate search's, wrong contacts and all.) Now the contacts are kept beside the cell's record (row for
+  row with the sway table, by id), and after each step `touchCarry` carries the rows of the cells gathered through its sort (`aux`, as
   `scatterMain` carries bonds; 0.03-0.1 ms a step on the Pixel 3); a grid cell holding a cell with no contacts from
   the last gathering (a newborn, one come into view) searches anyway; and a cell that lost a bite's or a birth's worth
   of energy on a frame its grid cell did not search is judged on its next, which does (its energy as last seen kept):
