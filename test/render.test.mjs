@@ -66,6 +66,8 @@ test('LOD preserves light, bonded outlines merge, and all detail views validate'
     device.queue.writeBuffer(eng.b.intent, 0, intent);
     eng._writeView(eng.b.view, eng.viewData, { x: 5, y: 5, ppu }, 256, 256, 1, 2, 0xffffffff);
     const enc = device.createCommandEncoder();
+    // (the shapes baked afresh: this test changes a genome's plan without its serial, which the world never does)
+    eng._shapeGen = -1; eng._shapes(enc);
     enc.copyBufferToBuffer(eng.b.frameCtr, 20, eng.b.bridgeDraw, 4, 4);
     const pass = enc.beginRenderPass({ colorAttachments: [{ view: texture.createView(), loadOp: 'clear', storeOp: 'store' }]
       .concat(distantProfile ? [] : [{ view: live.createView(), loadOp: 'clear', storeOp: 'store' }]) });

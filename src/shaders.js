@@ -5055,11 +5055,11 @@ fn facetSD(q: vec2f, radius: f32, sides: f32, rounding: f32) -> f32 {
   let a = atan2z(q.y, q.x);
   return length(q) - radius * polygonRadius(a + 0.15 * sin(a * 3.0 + 1.7), sides, rounding);
 }
-fn loboseSD(q: vec2f, s: vec2f) -> f32 {
+fn loboseSD(q: vec2f, s: vec2f, time: f32) -> f32 {
   let a = atan2z(q.y, q.x);
   let lobes = 3.0 + floor(s.x * 3.0);
   // lobes are pseudopods: they creep round the cell as it flows
-  let edge = 0.73 + 0.11 * sin(a * lobes + s.y * TAU + view.time * 0.23) + 0.07 * cos(a * 3.0 + 0.5);
+  let edge = 0.73 + 0.11 * sin(a * lobes + s.y * TAU + time * 0.23) + 0.07 * cos(a * 3.0 + 0.5);
   return facetSD(q, edge, 7.0 + floor(s.y * 3.0), 0.22);
 }
 fn radiateSD(q: vec2f, s: vec2f, filose: bool) -> f32 {
@@ -5137,7 +5137,9 @@ fn latticeSD(q: vec2f, s: vec2f) -> f32 {
   let v = vec2f(q.x, q.y + 0.12 * sin(q.x * 4.0 + s.y * 3.0));
   return (abs(v.x) * 0.72 + abs(v.y) * 1.35 - 0.75) / 1.5;
 }
-fn bodySD(q: vec2f, shape: u32, s: vec2f) -> f32 {
+// a species' variation within its plans (PO.morph, bodySD's s)
+fn morphOf(g: Genome) -> vec2f { return vec2f(renderHash(g.serial ^ g.sig[0].y), renderHash(g.serial ^ g.sig[1].x ^ 917u)); }
+fn bodySD(q: vec2f, shape: u32, s: vec2f, time: f32) -> f32 {
   switch (shape) {
     case 1u: { return radiateSD(q, s, true); }
     case 2u: { return radiateSD(q, s, false); }
@@ -5150,8 +5152,77 @@ fn bodySD(q: vec2f, shape: u32, s: vec2f) -> f32 {
     case 9u: { return bellSD(q, s); }
     case 10u: { return chainSD(q, s); }
     case 11u: { return latticeSD(q, s); }
-    default: { return loboseSD(q, s); }
+    default: { return loboseSD(q, s, time); }
   }
+}
+// The shape atlas: every species' bodies (bodySD of its plan for each of the four roles, choosePlan) baked once into a
+// tile of a distance field, SHAPE_TILE texels across q's ±SHAPE_R, one role a channel (rgba8snorm, the distance in
+// radii), and read back with one filtered sample (shapeAt) in place of bodySD's twelve plans: on an M1 a view of cells
+// spent most of its fragments on the outline, and cells of different plans beside each other ran every plan's code
+// (docs/performance.md, 2026-11-13). shapeDirty finds the species slots whose serial differs from the one baked
+// (shapeBaked) and lists them (at most cap a frame; the rest wait), shapeBake bakes them, and shapePlans keeps each
+// tile's four plans (a byte each) for shapeAt to find the channel of a plan. A lobose cell's pseudopods creep round
+// it by turning the lookup (loboseSD's lobes at time 0, turned on by the time). The studio's and the bore's cells,
+// of genomes of their own, keep bodySD (SHAPE_ATLAS false).
+override SHAPE_ATLAS: bool = true;
+const SHAPE_TILE = 64u;
+const SHAPE_COLS = 32u;
+const SHAPE_R = 1.25;
+@group(0) @binding(21) var shapeTex: texture_2d<f32>;
+@group(0) @binding(22) var shapeSamp: sampler;
+@group(0) @binding(23) var shapePlans: texture_2d<u32>;
+@group(0) @binding(24) var shapeOut: texture_storage_2d<rgba8snorm, write>;
+@group(0) @binding(25) var shapePlanOut: texture_storage_2d<r32uint, write>;
+// [listed, cap, then the slots listed]
+@group(0) @binding(26) var<storage, read_write> shapeList: array<atomic<u32>>;
+@group(0) @binding(27) var<storage, read_write> shapeBaked: array<u32>;
+@compute @workgroup_size(64)
+fn shapeDirty(@builtin(global_invocation_id) gid: vec3u) {
+  let k = gid.x;
+  if (k >= arrayLength(&genomes) || k >= arrayLength(&shapeBaked)) { return; }
+  let serial = genomes[k].serial;
+  if (serial == shapeBaked[k]) { return; }
+  let n = atomicAdd(&shapeList[0], 1u);
+  if (n < atomicLoad(&shapeList[1])) { atomicStore(&shapeList[2u + n], k); shapeBaked[k] = serial; }
+}
+@compute @workgroup_size(8, 8)
+fn shapeBake(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) lid: vec3u) {
+  if (wg.z >= min(atomicLoad(&shapeList[0]), atomicLoad(&shapeList[1]))) { return; }
+  let k = atomicLoad(&shapeList[2u + wg.z]);
+  let g = genomes[k];
+  let s = morphOf(g);
+  let x = wg.xy * 8u + lid.xy;
+  let q = ((vec2f(x) + 0.5) / f32(SHAPE_TILE) * 2.0 - 1.0) * SHAPE_R;
+  var sd = vec4f(0.0);
+  var plans = 0u;
+  for (var r = 0u; r < 4u; r++) {
+    let plan = choosePlan(g, r);
+    sd[r] = bodySD(q, plan, s, 0.0);
+    plans |= plan << (8u * r);
+  }
+  let tile = vec2u(k % SHAPE_COLS, k / SHAPE_COLS);
+  textureStore(shapeOut, tile * SHAPE_TILE + x, clamp(sd, vec4f(-1.0), vec4f(1.0)));
+  if (all(x == vec2u(0u))) { textureStore(shapePlanOut, tile, vec4u(plans, 0u, 0u, 0u)); }
+}
+// bodySD(q, plan, s, view.time) of a cell of kind, from its tile: past the tile's edge, the edge's plus the way out
+fn shapeAt(q: vec2f, kind: u32, plan: u32, s: vec2f) -> f32 {
+  var p = q;
+  if (plan == 0u || plan > 11u) {
+    let turn = view.time * 0.23 / (3.0 + floor(s.x * 3.0));
+    let cs = vec2f(cos(turn), sin(turn));
+    p = vec2f(q.x * cs.x - q.y * cs.y, q.x * cs.y + q.y * cs.x);
+  }
+  let edge = SHAPE_R * (1.0 - 1.0 / f32(SHAPE_TILE));
+  let inTile = clamp(p, vec2f(-edge), vec2f(edge));
+  let tile = vec2u(kind % SHAPE_COLS, kind / SHAPE_COLS);
+  let at = (vec2f(tile * SHAPE_TILE) + (inTile / SHAPE_R * 0.5 + 0.5) * f32(SHAPE_TILE)) / f32(SHAPE_TILE * SHAPE_COLS);
+  let v = textureSampleLevel(shapeTex, shapeSamp, at, 0.0);
+  let plans = textureLoad(shapePlans, tile, 0).x;
+  var sd = v.x;
+  if (((plans >> 8u) & 255u) == plan) { sd = v.y; }
+  if (((plans >> 16u) & 255u) == plan) { sd = v.z; }
+  if (((plans >> 24u) & 255u) == plan) { sd = v.w; }
+  return sd + length(p - inTile);
 }
 // The same local frame and warp are used for a cell and its bond partners.
 // sd is in units of that cell's radius; only q survives into the interior.
@@ -5167,7 +5238,7 @@ fn bendShift(x: f32, bend: f32) -> f32 { return bend * abs(x) * min(abs(x), 1.0)
 // rest: how still it lies (a cyst, or a dead cell: its outline stops flowing) and how far it has curled
 // up into a cyst (rounding into a disc of the same area).
 fn cellOutline(uv: vec2f, dir: vec2f, radius: f32, seed: f32,
-    shape: u32, traits: vec4f, s: vec2f, pace: f32, bend: f32, rest: vec2f) -> CellOutline {
+    shape: u32, kind: u32, traits: vec4f, s: vec2f, pace: f32, bend: f32, rest: vec2f) -> CellOutline {
   let pc = max(pace, 0.0);
   let aspect = bodyAspect(s, traits.x, pc);
   var motion = localPoint(uv, dir) * vec2f(1.0 / aspect, aspect);
@@ -5189,7 +5260,8 @@ fn cellOutline(uv: vec2f, dir: vec2f, radius: f32, seed: f32,
   let fl = fineLOD(radius);
   var teeth = 0.0;
   if (fl > 0.0) { teeth = traits.w * fl * 0.02 * pow(max(0.0, cos(a * 17.0 + seed * 11.0)), 6.0); }
-  var sd = bodySD(q, shape, s);
+  var sd = 0.0;
+  if (SHAPE_ATLAS) { sd = shapeAt(q, kind, shape, s); } else { sd = bodySD(q, shape, s, view.time); }
   if (rest.y > 0.0) { sd = mix(sd, length(q) - sqrt(bodyArea(shape, s)), 0.9 * smoothstep(0.0, 1.0, rest.y)); }
   return CellOutline(sd - ripple - teeth * (1.0 - rest.y), q);
 }
@@ -5746,7 +5818,7 @@ struct PO {
     shape = choosePlan(g, select(roleOf(p.info), gh.role, ghost));
     // the plan, and in the bits above it the kind it is drawn as
     o.shape = shape | (k << 8u);
-    let species = vec2f(renderHash(g.serial ^ g.sig[0].y), renderHash(g.serial ^ g.sig[1].x ^ 917u));
+    let species = morphOf(g);
     o.morph = species;
     o.jelly.y = pace;
     o.geom.y = bodyArea(shape, species);
@@ -5899,7 +5971,7 @@ fn soloCell(p: Particle, ii: u32) -> PO {
   o.col = unpack4x8unorm(p.col).rgb * (0.35 + 0.65 * clamp(p.energy / max(g.reproE, 0.01), 0.0, 1.4)) * view.pointGain;
   o.shape = plan | (p.kind << 8u);
   o.index = ii;
-  let species = vec2f(renderHash(g.serial ^ g.sig[0].y), renderHash(g.serial ^ g.sig[1].x ^ 917u));
+  let species = morphOf(g);
   o.morph = species;
   o.geom = vec4f(soloPx(g, p.info), bodyArea(plan, species), dirz(p.vel));
   o.jelly = vec3f(1.0, 0.0, 0.0);
@@ -6188,7 +6260,7 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
         cellSeed = select(unpack2x16unorm(i.bondSeeds.x)[min(j - 1u, 1u)], f32(i.bondSeeds.y >> 16u) / 65535.0, j == 3u);
         plan = flags;
       }
-      let outline = cellOutline(uv, dir, radius, cellSeed, plan,
+      let outline = cellOutline(uv, dir, radius, cellSeed, plan, kind,
         vec4f(g.swim, g.pulse, g.calcify, g.dFlesh), s, pace, bend, vec2f(still, sleep));
       if (j == 0u) {
         var osd = outline.sd;
