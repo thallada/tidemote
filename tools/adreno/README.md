@@ -46,3 +46,12 @@ left out; the overrides go to both stages), and its line is the fragment shader'
 
     tools/adreno/regs.sh POST_WGSL fsComposite@vsComp fsComposite@vsComp:LEAN=1
     tools/adreno/regs.sh DRAW_WGSL fsPointLive@vsPoint/2 fsPointLive@vsPoint/2:INTERIOR=0:NECKS=0
+
+## Where a shader holds it (optional)
+
+`ir3-peak.patch` (here) adds a debug print to Mesa's pressure pass: `git apply` it in the Mesa tree, `ninja -C build`.
+`IR3_PEAK=240 RAW=1 tools/adreno/regs.sh sim lifeMain` then prints `BLK n max m` for each block whose pressure reaches
+240 half-registers (30 vec4), and at each new record of the widest moment `PEAK`, every value live there (`LIVE`, its
+size in half-registers and the instruction that made it): loop phis, loads held, addresses (an a630 load takes no
+immediate offset, so each field read is a register while it waits), constants. Cutting code with `PATCH` and
+watching which blocks fall tells which source they are.
