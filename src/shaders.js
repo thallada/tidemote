@@ -4841,8 +4841,8 @@ struct View {
   // the pool (docs/catastrophes.md): its water level, to show cells stranded
   // lit: 1 where the world's light shows (the main view, the loupe), 0 in views shown unlit (the close-up, the stone cache)
   level: f32, lit: u32,
-  // the radius in pixels from which listMain gives a cell the full pipeline, its insides drawn (12; past any cell's
-  // when the tuner leaves insides out, Engine.fx.interiors, a new species' sparkle still drawn full); below 0, a view
+  // the radius in pixels from which listMain gives a cell a pipeline that draws its insides (12; past any cell's when
+  // the tuner leaves insides out, Engine.fx.interiors, a new species' sparkle still drawn full); below 0, a view
   // whose cells are drawn twice without listMain (the loupe's and the live close-up's with insides left out: vsPoint)
   interiorFrom: f32,
   // how much more adhesion than tightFrom makes tissue through and through (K.tightSpan)
@@ -4909,15 +4909,31 @@ fn cullIndex(ii: u32) -> u32 {
   return segs[lo].x + ii - segs[lo].y;
 }
 // the particle a point's instance draws, and the cell a bond's instance draws (living, unless culled)
-// false: the point pipeline for cells drawn too small for their insides (under interiorLOD's 12 pixels) and not
-// sparkling as a new species, which listMain lists from the quad list's end: without the code for either, its
-// registers leave more pixels in flight (an M1, cells about 10 pixels across: 0.5 ms of the scene's 4.9)
+// false: the point pipelines for cells drawn too small for their insides (under interiorLOD's 12 pixels) and not
+// sparkling as a new species (listMain's plain list), and for every cell with insides left out (the lean one): without
+// the code for either, its registers leave more pixels in flight (an M1, cells about 10 pixels across: 0.5 ms of the
+// scene's 4.9)
 override INTERIOR: bool = true;
-// (the quad list: the full pipeline's draw arguments, the lean one's, then the full one's particles from the start
-// and the lean one's from the end, which only listMain fills: until the main view's full pipeline lands, the lean
-// one draws its cells unlisted, as the full one would)
+// false: the point pipelines without the fused necks to bond partners and buds (vsPoint gathers none). On an M1 the
+// partners' code alone held the scene's fragments to 12.6% occupancy, whether or not a cell had partners: a 32k world
+// at 80 pixels a unit drew its cells in about 15 ms with it, 9.5 without (docs/performance.md, 2026-11-13). listMain
+// gives them the cells that draw no neck, or none wider than a pixel: those under 12 pixels (a bond's neck changes the
+// outline by at most a quarter of its blend, 0.03 of the radius), and tissue's (fill, tile.x over a half, meets its
+// partners at shared walls, never a neck); never a newborn budding (a bud's neck is drawn whole from its side).
+override NECKS: bool = true;
+// the quad list of listMain's three lists (pointAt): their draw arguments (the full pipeline's, the plain one's, the
+// bare one's: with insides, without necks), then the full one's particles from the start of a block of n and the bare
+// one's from its end, then the plain one's in a second block of n; splatMain's list is the full one's, from word 8.
+// Until the main view's full and bare pipelines land, the lean one draws its cells unlisted, as the full one would;
+// with insides left out it draws the full list, and listMain gives the plain one what the bare one would draw.
+const QUAD_HEAD = 12u;
 fn pointAt(ii: u32) -> u32 {
-  if (!INTERIOR && view.splat < 0.0) { return quadR[arrayLength(&quadR) - 1u - ii]; }
+  if (view.splat < 0.0) {
+    let n = (arrayLength(&quadR) - QUAD_HEAD) / 2u;
+    if (NECKS) { return quadR[QUAD_HEAD + ii]; }
+    if (INTERIOR) { return quadR[QUAD_HEAD + n - 1u - ii]; }
+    return quadR[QUAD_HEAD + n + ii];
+  }
   if (view.splat != 0.0) { return quadR[8u + ii]; }
   if (view.culled == 1u) { return cullIndex(ii); }
   return ii;
@@ -5507,15 +5523,18 @@ var<workgroup> smallN: atomic<u32>;
 var<workgroup> smallBase: u32;
 var<workgroup> leanN: atomic<u32>;
 var<workgroup> leanBase: u32;
+var<workgroup> bareN: atomic<u32>;
+var<workgroup> bareBase: u32;
 @compute @workgroup_size(256)
 fn listMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) l: u32) {
-  if (l == 0u) { atomicStore(&quadN, 0u); atomicStore(&smallN, 0u); atomicStore(&leanN, 0u); }
+  if (l == 0u) { atomicStore(&quadN, 0u); atomicStore(&smallN, 0u); atomicStore(&leanN, 0u); atomicStore(&bareN, 0u); }
   workgroupBarrier();
   // (every particle, or a culled view's: those of the grid rows in view)
   let culled = view.culled == 1u;
   var i = gid.x;
   var big = NONE;
   var lean = NONE;
+  var bare = NONE;
   var small = NONE;
   var ra = vec4f(0.0);
   var rb = vec4u(0u);
@@ -5532,11 +5551,25 @@ fn listMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
           ra = vec4f(d, sp.px * footprint, footprint);
           rb = vec4u(bitcast<vec3u>(sp.col), (sp.shape & 255u) | select(0u, 256u, p.kind >= FIRST_LIFE));
           small = atomicAdd(&smallN, 1u);
-        } else if (sp.px < view.interiorFrom && sp.anim.novel <= 0.0) {
-          // (as cellColor's interiorLOD and pointColor's sparkle find it: the lean pipeline, INTERIOR false)
-          lean = atomicAdd(&leanN, 1u);
-        } else {
+        } else if (sp.anim.born) {
+          // (a newborn budding draws the neck to its mother, whole: the full pipeline)
           big = atomicAdd(&quadN, 1u);
+        } else {
+          // no neck to draw: matter, or tissue (cellColor's tile.x over a half, as vsPoint finds it among its kin)
+          var neckless = p.kind < FIRST_LIFE;
+          if (!neckless) {
+            let g = genomes[p.kind];
+            neckless = g.adhesion > ${f(DEFAULT_K.adhMin)} && (g.adhesion - view.tightFrom) / view.tightSpan > 0.5;
+          }
+          // insides from interiorLOD's 12 pixels (and a new species' sparkle); below, the plain pipeline, no neck
+          // wider than a pixel (NECKS); with insides left out (interiorFrom past every cell) tissue's too
+          if (sp.px >= view.interiorFrom || sp.anim.novel > 0.0) {
+            if (neckless) { bare = atomicAdd(&bareN, 1u); } else { big = atomicAdd(&quadN, 1u); }
+          } else if (sp.px < 12.0 || neckless) {
+            lean = atomicAdd(&leanN, 1u);
+          } else {
+            big = atomicAdd(&quadN, 1u);
+          }
         }
       }
     }
@@ -5545,13 +5578,17 @@ fn listMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
   if (l == 0u) {
     quadBase = atomicAdd(&quadW[1], atomicLoad(&quadN));
     leanBase = atomicAdd(&quadW[5], atomicLoad(&leanN));
+    bareBase = atomicAdd(&quadW[9], atomicLoad(&bareN));
     smallBase = atomicAdd(&smallArgs[1], atomicLoad(&smallN));
   }
   let qb = workgroupUniformLoad(&quadBase);
   let lb = workgroupUniformLoad(&leanBase);
+  let bb = workgroupUniformLoad(&bareBase);
   let sb = workgroupUniformLoad(&smallBase);
-  if (big != NONE) { atomicStore(&quadW[8u + qb + big], i); }
-  if (lean != NONE) { atomicStore(&quadW[arrayLength(&quadW) - 1u - (lb + lean)], i); }
+  let n = (arrayLength(&quadW) - QUAD_HEAD) / 2u;
+  if (big != NONE) { atomicStore(&quadW[QUAD_HEAD + qb + big], i); }
+  if (bare != NONE) { atomicStore(&quadW[QUAD_HEAD + n - 1u - (bb + bare)], i); }
+  if (lean != NONE) { atomicStore(&quadW[QUAD_HEAD + n + lb + lean], i); }
   if (small != NONE) { smallW[2u * (sb + small)] = bitcast<vec4u>(ra); smallW[2u * (sb + small) + 1u] = rb; }
 }
 struct SmallPO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) col: vec3f, @location(2) @interpolate(flat) shape: u32 };
@@ -5722,7 +5759,7 @@ struct PO {
       var used = 0u;
       var picked = vec2u(NONE);
       // (only from 6 px, where fsPoint starts drawing the fused neck)
-      for (var c = 0u; c < 6u && used < 3u && px >= 6.0; c++) {
+      for (var c = 0u; c < 6u && used < 3u && px >= 6.0 && NECKS; c++) {
         var index = NONE;
         if (c < 2u) { index = select(it.z, it.w, c == 1u); }
         else if (c - 2u < inN) { index = bondsIn[ii * 5u + c - 1u]; }
@@ -5746,7 +5783,7 @@ struct PO {
       // A newborn and the cell it buds from are joined by a wide neck that pinches off as it grows:
       // the newborn to the nearest of its kind it touches, as contactGather placed it, and a cell to any
       // newborn of its kind touching it.
-      for (var c = 0u; c < 6u && used < 3u && px >= 6.0; c++) {
+      for (var c = 0u; c < 6u && used < 3u && px >= 6.0 && NECKS; c++) {
         let index = touch[ii * 6u + c];
         if (index == NONE) { break; }
         if (index >= arrayLength(&parts) || index == picked.x || index == picked.y) { continue; }
@@ -6121,6 +6158,7 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
       var ratio = 1.0;
       var flags = 0u;
       if (j > 0u) {
+        if (!NECKS) { break; }
         if (!INTERIOR && j == 1u) { whole = max(membraneSD, reach) + 0.04 * cuts < -aa; }
         if (whole) { break; }
         // a tile of tissue meets its partners at a shared wall, not a neck
@@ -6186,10 +6224,11 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
     // Flattened against the cells it presses on: a soft intersection with each contact plane. The
     // seam wanders a little, as pressed membranes do; the wander is taken in the world, so the two
     // cells on either side of a seam agree on it. It is found only for a plane that can reach the
-    // pixel (the wander is at most 0.09).
+    // pixel (the wander is at most 0.09). It fades in from 12 pixels, where it is under a pixel.
     var pressed = -1.0;
     var wander = 0.0;
-    var wandered = false;
+    let wanders = smoothstep(12.0, 24.0, i.geom.x);
+    var wandered = wanders <= 0.0;
     for (var c = 0u; c < select(6u, 0u, whole); c++) {
       let foot = unpack2x16float(select(i.contact2[c % 3u], i.contact[c % 3u], c < 3u));
       var t = length(foot);
@@ -6202,7 +6241,7 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
       if (level + 0.09 < min(sd - soft, -0.15)) { continue; }
       if (!wandered) {
         let seamAt = (p.pos + i.uv * i.geom.x / view.ppu) * (6.0 / view.linkR);
-        wander = 0.06 * cellGrain(seamAt, 0u) + 0.03 * cellGrain(seamAt * 2.7, 1u);
+        wander = (0.06 * cellGrain(seamAt, 0u) + 0.03 * cellGrain(seamAt * 2.7, 1u)) * wanders;
         wandered = true;
       }
       let plane = level + wander;

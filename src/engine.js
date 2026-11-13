@@ -56,6 +56,8 @@ const mix = (a, b, t) => a + (b - a) * t;
 const SIM_STRIDE = 1024;
 // the largest sprite radius, in pixels, splatted rather than drawn as a quad (splatMain)
 const SPLAT_PX = 1.6;
+// the words before listMain's lists in the quad list: its three draws' arguments (QUAD_HEAD in DRAW_WGSL)
+const QUAD_HEAD = 12;
 export const MAX_STEPS = 512;
 
 // --------------------------------------------------------------------- engine
@@ -568,8 +570,12 @@ class Engine {
       point: defer(rpLiveDesc(this.drawModule, 'vsPoint', 'fsPointLive', 'triangle-strip', trail, true), false, (p) => { this.main.point = p; }),
       splat: rpLive(this.drawModule, 'vsFade', 'fsSplat', 'triangle-list', trail, true),
       small: rpLive(this.drawModule, 'vsPointSmall', 'fsPointSmall', 'triangle-strip', trail, true),
-      // cells too small for their insides, not sparkling (listMain lists them; INTERIOR in DRAW_WGSL)
+      // the cells listMain finds with insides and no neck to draw (tissue; NECKS in DRAW_WGSL)
+      pointBare: defer(rpLiveDesc(this.drawModule, 'vsPoint', 'fsPointLive', 'triangle-strip', trail, true, { NECKS: 0 }), false, (p) => { this.main.pointBare = p; }),
+      // cells without their insides: until the full pipelines land, and with insides left out (fx.interiors)
       pointLean: rpLive(this.drawModule, 'vsPoint', 'fsPointLive', 'triangle-strip', trail, true, { INTERIOR: 0 }),
+      // the cells listMain finds too small for insides or necks, not budding or sparkling (INTERIOR, NECKS)
+      pointPlain: rpLive(this.drawModule, 'vsPoint', 'fsPointLive', 'triangle-strip', trail, true, { INTERIOR: 0, NECKS: 0 }),
       line: rpLive(this.drawModule, 'vsLine', 'fsLine', 'line-list', trail, false),
       bridge: defer(rpLiveDesc(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', trail, false), false, (p) => { this.main.bridge = p; }),
       reproj: rpLive(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined, false),
@@ -678,6 +684,7 @@ class Engine {
     if (mk) {
       const views = [b.view, b.viewL, b.viewS];
       if (this.main.point && !this.sceneBG[0].point) this.sceneBG.forEach((s, k) => { s.point = mk.pointBG(views[k], k, this.main.point); });
+      if (this.main.pointBare && !this.sceneBG[0].pointBare) this.sceneBG.forEach((s, k) => { s.pointBare = mk.pointBG(views[k], k, this.main.pointBare); });
       if (this.main.bridge && !this.sceneBG[0].bridge) this.sceneBG.forEach((s, k) => { s.bridge = mk.lineBG(this.main.bridge, views[k], k, true); });
       if (this.main.tube && !this.tubeBG) this.tubeBG = mk.bufs(this.main.tube, [[0, b.view], [1, b.tubeParts], [2, b.tubeGenomes], [10, b.tubeOrgans]]);
       if (this.pStudio && !this.studioBG) this.studioBG = mk.bufs(this.pStudio, [[0, b.viewS], [1, b.studioParts], [2, b.studioGenomes], [10, b.studioOrgans]]);
@@ -744,7 +751,7 @@ class Engine {
     b.ledger = d.createBuffer({ size: (META_CLAIM + n + SPL_WORDS + HAND_WORDS + NOTE_WORDS + 2 * MAX_CELLS + 4 + 2 * TILES) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
     // the particles too large to splat (splatMain): the points' draw arguments, then their indices
-    b.quads = d.createBuffer({ size: (8 + n) * 4, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
+    b.quads = d.createBuffer({ size: (QUAD_HEAD + 2 * n) * 4, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
     // the sprites drawn small without splatting (listMain): their draw arguments, and their records (8 words each)
     b.smallArgs = d.createBuffer({ size: 16, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
     b.small = d.createBuffer({ size: n * 32, usage: U.STORAGE });
@@ -815,7 +822,7 @@ class Engine {
       { binding: 3, resource: { buffer: b.intent } }, { binding: 4, resource: { buffer: b.livingList } }, { binding: 5, resource: { buffer: b.focus } },
       ...(sway ? [{ binding: 9, resource: { buffer: b.sway } }] : []), { binding: 11, resource: { buffer: b.thermal } }, { binding: 12, resource: { buffer: this.cull[k].segs } }] });
     // each view's scene pass (the main view's, the loupe's, the close-up's: this.main's pipelines, at view k)
-    this.sceneBG = [b.view, b.viewL, b.viewS].map((view, k) => ({ point: null, pointLean: pointBG(view, k, this.main.pointLean), line: lineBG(this.main.line, view, k), bridge: null }));
+    this.sceneBG = [b.view, b.viewL, b.viewS].map((view, k) => ({ point: null, pointBare: null, pointLean: pointBG(view, k, this.main.pointLean), pointPlain: pointBG(view, k, this.main.pointPlain), line: lineBG(this.main.line, view, k), bridge: null }));
     const bufs = (pipe, list) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: list.map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
     this.tubeOrgansBG = bufs(this.cpOrgans, [[7, b.tubeGenomes], [9, b.tubeOrgans]]);
     this.studioOrgansBG = bufs(this.cpOrgans, [[7, b.studioGenomes], [9, b.studioOrgans]]);
@@ -2698,9 +2705,10 @@ class Engine {
   }
 
   // A view's cells, bonds and matter (k: 0 the main view, 1 the loupe, 2 the close-up; this.main's pipelines, into the
-  // view's scene and living targets). A view written split (viewWords) draws its cells without their insides but a new
-  // species' sparkle: every cell twice, the lean pipeline all but those sparkling, the full one those alone (vsPoint
-  // leaves out the rest), as listMain sorts the main view's (interiorFrom)
+  // view's scene and living targets). The main view's cells are listed by listMain (pointAt): with insides (full, or
+  // lean when left out), with insides and no neck (bare), or plain. A view written split (viewWords) draws its cells
+  // without their insides but a new species' sparkle: every cell twice, the lean pipeline all but those sparkling, the
+  // full one those alone (vsPoint leaves out the rest), as listMain sorts the main view's (interiorFrom)
   _drawScene(pass, data, k) {
     const pl = this.main, bg = this.sceneBG[k];
     const v = new Float32Array(data);
@@ -2733,7 +2741,11 @@ class Engine {
       pass.setBindGroup(0, full ? bg.point : bg.pointLean);
       draw();
       if (split && bg.point) { pass.setPipeline(pl.point); pass.setBindGroup(0, bg.point); draw(); }
-      if (quads) { pass.setPipeline(pl.pointLean); pass.setBindGroup(0, bg.pointLean); pass.drawIndirect(quads, 16); }
+      // (listed only once the bare pipeline has landed; its list empty with insides left out)
+      if (quads && v[22] < 0) {
+        pass.setPipeline(pl.pointPlain); pass.setBindGroup(0, bg.pointPlain); pass.drawIndirect(quads, 16);
+        pass.setPipeline(pl.pointBare); pass.setBindGroup(0, bg.pointBare); pass.drawIndirect(quads, 32);
+      }
     }
   }
 
@@ -2863,13 +2875,12 @@ class Engine {
     const ps = Math.max(1.1 * dpr, 0.085 * cam.ppu);
     const splat = !plain && !culled[0] && this.settings.nodes && ps <= SPLAT_PX && this.count >= W * H / 4 ? SPLAT_PX : 0;
     // otherwise each sprite in view is sized once and those drawn small take a slim pipeline (listMain); not until the
-    // full point pipeline has landed (_compileLate): the lean one drawing in its place would draw the full one's count
-    // from the lean list's end, stale indices of earlier frames that changed as the view moved (cells popping in and
-    // out) and none of the cells resolved past interiorLOD
-    const listed = !plain && !splat && this.settings.nodes && !!this.sceneBG[0].point;
+    // full and bare point pipelines have landed (_compileLate): the lean one drawing in their place would draw the
+    // full one's count of a list it does not read, and none of the cells resolved past interiorLOD
+    const listed = !plain && !splat && this.settings.nodes && !!this.sceneBG[0].point && !!this.sceneBG[0].pointBare;
     this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId, lod, culled[0], listed ? -1 : splat, true);
     if (listed) {
-      d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0, 4, 0, 0, 0]));
+      d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0]));
       d.queue.writeBuffer(this.b.smallArgs, 0, new Uint32Array([4, 0, 0, 0]));
       const pass = enc.beginComputePass({ timestampWrites: tsBegin() });
       pass.setPipeline(this.cpList); pass.setBindGroup(0, this.listBG);
