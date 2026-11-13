@@ -646,9 +646,13 @@ canvas.chart { cursor: crosshair; }
 
 /* ------------------------------------------------------------------ settings, help */
 .settings {
-  position: absolute; right: calc(var(--gut) + var(--safe-r)); bottom: calc(var(--bot) + 10px); width: 430px;
-  padding: var(--s2) 14px var(--s3); z-index: 6; max-height: calc(100% - var(--top) - var(--bot) - 20px); overflow-y: auto;
+  position: absolute; right: calc(var(--gut) + var(--safe-r)); bottom: calc(var(--bot) + 10px); width: 430px; --pad: 14px;
+  padding: var(--s2) var(--pad) 0; z-index: 6; max-height: calc(100% - var(--top) - var(--bot) - 20px);
+  display: flex; flex-direction: column;
 }
+/* the heading and the tabs stay put; the options scroll beneath them, out to the panel's edge */
+.settings > .sec-h { flex: none; }
+.settings > .scroll { margin: 0 calc(-1 * var(--pad)); padding: 0 var(--pad) var(--s3); }
 .settings .sec-h { gap: 0 var(--s3); flex-wrap: wrap; }
 .settings .sec-h h2 { white-space: nowrap; margin-right: auto; }
 /* the tabs on a row of their own under the title */
@@ -1310,7 +1314,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .spec-id h2 { font-size: 19px; margin: 2px 0; }
   .viewer { height: clamp(104px, calc(22vh - 10px), 176px); }
   .btn { height: 30px; }
-  .settings { width: 400px; padding: var(--s2) 12px var(--s3); }
+  .settings { width: 400px; --pad: 12px; }
 }
 @media (max-width: 980px) {
   .dock .tools { display: none; }
@@ -1614,26 +1618,29 @@ svg.niche .n-dot { fill: var(--cyan); }
         <button data-i18n="settings.about" type="button" role="tab" data-tab="about" aria-selected="false" tabindex="-1">About</button>
       </div>
       <button data-i18n="settings.set-close" type="button" class="ghost" id="set-close" aria-label="Close settings"><svg><use href="#i-close"/></svg></button></div>
-    <div class="readout" id="readout" hidden aria-live="off">
-      <!-- how fast: frames, steps, simulated time -->
-      <div><b id="ro-fps" translate="no">–</b><span data-i18n="readout.fps">fps</span></div>
-      <div><b id="ro-world" translate="no">–</b><span data-i18n="readout.world" class="term" data-tip="worldfps" tabindex="0">World</span></div>
-      <div><b id="ro-steps" translate="no">–</b><span data-i18n="readout.steps-s" class="term" data-tip="stepsps" tabindex="0">Steps/s</span></div>
-      <div><b id="ro-rate" translate="no">–</b><span data-i18n="readout.now" class="term" data-tip="simrate" tabindex="0">Now</span></div>
-      <!-- what a step and a frame cost -->
-      <div><b id="ro-ceil" translate="no">–</b><span data-i18n="readout.stride" class="term" data-tip="stride" tabindex="0">Stride</span></div>
-      <div><b id="ro-step" translate="no">–</b><span data-i18n="readout.step-ms" class="term" data-tip="stepms" tabindex="0">Step ms</span></div>
-      <div><b id="ro-draw" translate="no">–</b><span data-i18n="readout.draw-ms" class="term" data-tip="drawms" tabindex="0">Draw ms</span></div>
-      <div><b id="ro-ms" translate="no">–</b><span data-i18n="readout.gpu-ms">GPU ms</span></div>
-      <!-- how the world is drawn -->
-      <div><b id="ro-res" translate="no">–</b><span data-i18n="readout.render" class="term" data-tip="renderres" tabindex="0">Render</span></div>
-      <div><b id="ro-dens" translate="no">–</b><span data-i18n="readout.density" class="term" data-tip="density" tabindex="0">Density</span></div>
-      <div class="w2"><b id="ro-px" translate="no">–</b><span data-i18n="readout.scene-px">Scene px</span></div>
-      <div><b id="ro-n" translate="no">–</b><span data-i18n="readout.particles">Particles</span></div>
-      <div><b id="ro-audio" translate="no">–</b><span data-i18n="readout.audio" class="term" data-tip="audioload" tabindex="0">Audio</span></div>
-      <div class="w2"><b id="ro-why">–</b><span data-i18n="readout.adapting" class="term" data-tip="adapting" tabindex="0">Adapting</span></div>
+    <!-- (under the heading and the tabs, which stay put, the tab's options scroll) -->
+    <div class="scroll" id="set-body">
+      <div class="readout" id="readout" hidden aria-live="off">
+        <!-- how fast: frames, steps, simulated time -->
+        <div><b id="ro-fps" translate="no">–</b><span data-i18n="readout.fps">fps</span></div>
+        <div><b id="ro-world" translate="no">–</b><span data-i18n="readout.world" class="term" data-tip="worldfps" tabindex="0">World</span></div>
+        <div><b id="ro-steps" translate="no">–</b><span data-i18n="readout.steps-s" class="term" data-tip="stepsps" tabindex="0">Steps/s</span></div>
+        <div><b id="ro-rate" translate="no">–</b><span data-i18n="readout.now" class="term" data-tip="simrate" tabindex="0">Now</span></div>
+        <!-- what a step and a frame cost -->
+        <div><b id="ro-ceil" translate="no">–</b><span data-i18n="readout.stride" class="term" data-tip="stride" tabindex="0">Stride</span></div>
+        <div><b id="ro-step" translate="no">–</b><span data-i18n="readout.step-ms" class="term" data-tip="stepms" tabindex="0">Step ms</span></div>
+        <div><b id="ro-draw" translate="no">–</b><span data-i18n="readout.draw-ms" class="term" data-tip="drawms" tabindex="0">Draw ms</span></div>
+        <div><b id="ro-ms" translate="no">–</b><span data-i18n="readout.gpu-ms">GPU ms</span></div>
+        <!-- how the world is drawn -->
+        <div><b id="ro-res" translate="no">–</b><span data-i18n="readout.render" class="term" data-tip="renderres" tabindex="0">Render</span></div>
+        <div><b id="ro-dens" translate="no">–</b><span data-i18n="readout.density" class="term" data-tip="density" tabindex="0">Density</span></div>
+        <div class="w2"><b id="ro-px" translate="no">–</b><span data-i18n="readout.scene-px">Scene px</span></div>
+        <div><b id="ro-n" translate="no">–</b><span data-i18n="readout.particles">Particles</span></div>
+        <div><b id="ro-audio" translate="no">–</b><span data-i18n="readout.audio" class="term" data-tip="audioload" tabindex="0">Audio</span></div>
+        <div class="w2"><b id="ro-why">–</b><span data-i18n="readout.adapting" class="term" data-tip="adapting" tabindex="0">Adapting</span></div>
+      </div>
+      <div class="opts" id="opts"></div>
     </div>
-    <div class="opts" id="opts"></div>
     <input type="file" id="w-file" accept=".tidemote" hidden>
   </div>
 
@@ -39359,6 +39366,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         }
       });
       tabs.forEach((b) => b.addEventListener("click", () => {
+        if (tab !== b.dataset.tab) $2("set-body").scrollTop = 0;
         tab = b.dataset.tab;
         confirming = false;
         ask2 = null;
@@ -39373,6 +39381,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         n.focus();
       });
       function toggle(on = el2.hidden, to) {
+        const other2 = to && tab !== to;
         if (to) {
           on = el2.hidden || tab !== to;
           if (on) {
@@ -39388,6 +39397,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           if (phone()) lab.close();
           saves = null;
           render();
+          if (other2) $2("set-body").scrollTop = 0;
         } else {
           pendingN = null;
           confirming = false;
