@@ -1,0 +1,60 @@
+--- a/src/freedreno/ir3/ir3_spill.c
++++ b/src/freedreno/ir3/ir3_spill.c
+@@ -128,6 +128,8 @@
+    bool spilling;
+ 
+    bool merged_regs;
++
++   unsigned peak_seen, blk_max;
+ };
+ 
+ static void
+@@ -1013,6 +1015,26 @@
+    set_src_val(src, &interval->dst);
+ }
+ 
++
++/* IR3_PEAK=T (debug): log each new pressure record of at least T half-registers, with what is live there */
++static void
++peak_log(struct ra_spill_ctx *ctx, struct ir3_instruction *instr)
++{
++   static int thr = -2;
++   if (thr == -2) { const char *e = getenv("IR3_PEAK"); thr = e ? atoi(e) : -1; }
++   if (ctx->cur_pressure.full > ctx->blk_max) ctx->blk_max = ctx->cur_pressure.full;
++   if (thr < 0 || ctx->cur_pressure.full < (unsigned)thr || ctx->cur_pressure.full <= ctx->peak_seen) return;
++   ctx->peak_seen = ctx->cur_pressure.full;
++   mesa_logi("PEAK %u block %u instr %u", ctx->cur_pressure.full, instr->block->index, instr->serialno);
++   ir3_print_instr(instr);
++   rb_tree_foreach (struct ra_spill_interval, iv, &ctx->reg_ctx.intervals, interval.node) {
++      struct ir3_register *r = iv->interval.reg;
++      mesa_logi("LIVE size %u", reg_size(r));
++      ir3_print_instr(r->instr);
++   }
++   mesa_logi("PEAKEND");
++}
++
+ static void
+ update_max_pressure(struct ra_spill_ctx *ctx)
+ {
+@@ -1102,6 +1124,9 @@
+    else
+       update_max_pressure(ctx);
+ 
++   if (!ctx->spilling)
++      peak_log(ctx, instr);
++
+    /* We have to remove sources before rewriting them so that we can lookup the
+     * interval to remove before the source itself is changed.
+     */
+@@ -1929,6 +1954,11 @@
+       }
+    }
+ 
++   if (!ctx->spilling && getenv("IR3_PEAK") && ctx->blk_max >= (unsigned)atoi(getenv("IR3_PEAK"))) {
++      struct ir3_instruction *first = list_first_entry(&block->instr_list, struct ir3_instruction, node);
++      mesa_logi("BLK %u max %u first %u", block->index, ctx->blk_max, list_is_empty(&block->instr_list) ? 0 : first->serialno);
++   }
++   ctx->blk_max = 0;
+    if (ctx->spilling) {
+       record_live_outs(ctx, block);
+       ctx->blocks[block->index].visited = true;

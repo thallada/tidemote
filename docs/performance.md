@@ -536,23 +536,60 @@ slower. How it was found (`bench.mjs --android`, `kind: step`, the sim module pa
   for which side of a line a shader is on and roughly how far. It agrees with the phone where the phone was
   measured (vec4 registers wanted at the widest moment, of 48; waves of threads resident):
 
-  | kernel | widest | waves | on the Pixel 3 |
-  |---|---|---|---|
-  | `lifeMain` before the split | 61.5 (366 spills) | 4 | 44 ms |
-  | `contactMain` | 14.4 | 12 | 0.8 |
-  | `matterMain` | 23.2 | 8 | 0.8 |
-  | `senseMain` | 29.2 | 6 | 4.2 |
-  | `lifeMain` | 46.6 | 4 | 3.2 |
-  | `senseMain`, coarse | 35.8 | 4 | 5.9 |
-  | `lifeMain`, coarse | 51.8 | 4 | 3.8 |
-  | `contactGather` | 21.1 | 8 | 3.5 |
+  | kernel | widest | waves | on the Pixel 3 | widest now | waves now |
+  |---|---|---|---|---|---|
+  | `lifeMain` before the split | 61.5 (366 spills) | 4 | 44 ms | | |
+  | `contactMain` | 14.4 | 12 | 0.8 | 14.4 | 12 |
+  | `matterMain` | 23.2 | 8 | 0.8 | 22.8 | 8 |
+  | `senseMain` | 29.2 | 6 | 4.2 | 26.4 | 6 |
+  | `lifeMain` | 46.6 | 4 | 3.2 | 30.4 | 6 |
+  | `senseMain`, coarse | 35.8 | 4 | 5.9 | 31.4 | 6 |
+  | `lifeMain`, coarse | 51.8 | 4 | 3.8 | 31.9 | 6 |
+  | `contactGather` | 21.1 | 8 | 3.5 | 21.1 | 8 |
+  | `fsComposite` (36 spills) | | | 4.9 | 61.0 | 4 |
+  | `fsComposite`, `LEAN` | | | | 17.5 | 10 |
+  | `fsPointLive` | | | 4.6 at 150 px | 30.8 | 6 |
+  | `fsPointLive`, no insides or necks | | | | 22.5 | 8 |
 
-  So `lifeMain` is a hair under the cap and its coarse form over it, and the lines to get under are 32 (6 waves)
-  and 24 (8). No one part of `lifeMain` holds its widest moment (cut out: the trees' forces and the pond 42.6 each,
-  everything else 45-46.6; its motion alone 41.6, its energy and events alone 36; what `senseMain` left read where
-  used, not at its start, 44.1). The phone's own SPIR-V comes from Chrome's
+  ("on the Pixel 3": ms as measured before the "now" columns; "now": 2026-11-13, below.) Then `lifeMain` was a
+  hair under the cap and its coarse form over it. No one part of it held its widest moment (cut out: the trees'
+  forces and the pond 42.6 each, everything else 45-46.6; its motion alone 41.6, its energy and events alone 36;
+  what `senseMain` left read where used, not at its start, 44.1). The phone's own SPIR-V comes from Chrome's
   `--enable-dawn-features=dump_shaders` (to the page's console). Qualcomm's compiled shaders themselves:
   freedreno's `libwrap` around a native Vulkan runner, read with `cffdump` (a day or two; not done).
+- **The four kernels under 32 (2026-11-13)**, each change exact (the same arithmetic, draws and order), found with
+  the tool's widest moment and a debug print of what is live there (below):
+  - `mutateInto` copied the parent's genome into a local (some sixty values, the signature as a dynamically indexed
+    array) inside the coarse tick loop: it writes the new genome field by field from the parent's in storage now.
+    `lifeMain`, coarse, 51.8 -> 43.6 with the next.
+  - `lifeMain` reads what `senseMain` left where it uses it (`SENSE` in `cellWGSL`), not into variables at its
+    start; its record through a pointer.
+  - Whatever reads the grid's fields runs at the kernel's head, while little is held: the water's warmth, the pond
+    and the currents (sixteen cells and their divisions), whether the cell starts in the ice (it was asked inside
+    the motion loop, holding four cells' addresses from the warmth's reading on), and in `lifeMain` a tree's bends,
+    its muscles (`beatPull`, four bonds unrolled) and the light's slope (the tide's four waves), each once a widest
+    moment of its own. `lifeMain` 43.9 -> 31.2.
+  - The scan is two loops, the nine living ranges then the nine matter ranges (the living sort first in each grid
+    cell, so a range holds one kind): each holds only its own kind's sums, and finds its range's grid cell with
+    selects, not a signed division (whose checks of the divisor it held throughout). `senseMain`, coarse,
+    36.0 -> 31.4.
+  - `lifeMain`'s coarse energy loop: the motion's result stored before it (not held through it), the upkeep's
+    factors reckoned once, the signature and a child's body cost read where used, and whether the cell ends in
+    the ice asked after the motion (the death's news asked it at the end, holding the grid's divisors throughout).
+    34.4 -> 31.9.
+  - Where it is still held: `senseMain` (26.4; 24 is the next line) at its living loop, some 40 sums carried
+    across the pairs (the bonds taken up, the kin's motion and color, the crowd, four best foods in a coarse step)
+    beside the genome's traits and the signature, which the compiler keeps unpacked (dot4I8Packed has no a630
+    instruction); `lifeMain` coarse at `mutateInto` in its tick loop, where every field's address is a register
+    (an a630 load takes no immediate offset) and the compiler hoists the parent's out of the loop. Mesa's
+    view only: the phone's own compiler may differ, measure there.
+  - Matched forks against the commit before (`tools/fork.mjs`'s `runForks` with the old tree's engine as a
+    variant: 32k, 16 pairs of 30 s, `diag` 1): at 1 and 6 ticks births, deaths, kills and bites within a percent,
+    no more rates apart than chance flags (5 of 68 and 1 of 66 at 95%: the commonest scavenges, +1.0 ± 0.9%, the
+    rest rare events).
+  - Tools: `regs.sh` takes fragment shaders (`fsComposite@vsComp`, `fsPointLive@vsPoint/2`) and counts spills
+    Mesa prints typed; with `tools/adreno/ir3-peak.patch` applied to Mesa, `IR3_PEAK` prints each block's pressure
+    and the values live at the widest moment (tools/adreno/README.md).
 - **Next on a phone**: that tooling; the composite's field pass; the cells' fragment shader (its partners' loop);
   `lifeMain`'s bonds (1.5 of its 3.2 ms). Heat: a few minutes of benchmarks took the phone to thermal state 2-3
   without a fan, where every pass ran about 1.5 times slower.
