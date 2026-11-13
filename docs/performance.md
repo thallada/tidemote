@@ -583,10 +583,13 @@ slower. How it was found (`bench.mjs --android`, `kind: step`, the sim module pa
     instruction); `lifeMain` coarse at `mutateInto` in its tick loop, where every field's address is a register
     (an a630 load takes no immediate offset) and the compiler hoists the parent's out of the loop. Mesa's
     view only: the phone's own compiler may differ, measure there.
-  - Matched forks against the commit before (`tools/fork.mjs`'s `runForks` with the old tree's engine as a
+  - Matched forks against before (2e564fc; `tools/fork.mjs`'s `runForks` with the old tree's engine as a
     variant: 32k, 16 pairs of 30 s, `diag` 1): at 1 and 6 ticks births, deaths, kills and bites within a percent,
     no more rates apart than chance flags (5 of 68 and 1 of 66 at 95%: the commonest scavenges, +1.0 ± 0.9%, the
     rest rare events).
+    On the RTX 4070 Ti (`sim.mjs --n 8192 --minutes 2 --profile`, a young world of 2k living, ms a step, now
+    against before, 2e564fc): `senseMain` 0.066 / 0.078, `lifeMain` 0.016 / 0.022; at 6 ticks
+    `senseMainCoarse` 0.079 / 0.087, `lifeMainCoarse` 0.022 / 0.030: no slower.
   - Tools: `regs.sh` takes fragment shaders (`fsComposite@vsComp`, `fsPointLive@vsPoint/2`) and counts spills
     Mesa prints typed; with `tools/adreno/ir3-peak.patch` applied to Mesa, `IR3_PEAK` prints each block's pressure
     and the values live at the widest moment (tools/adreno/README.md).
