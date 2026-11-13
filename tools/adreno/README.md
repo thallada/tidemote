@@ -41,4 +41,8 @@ packages.) `MESA_BUILD` names a build elsewhere.
   slope before the cliff. Lines to get under: 32 (6 waves), 24 (8), 19 (10), 16 (12), 12 (16).
 - `RAW=1` prints the disassembly; `PATCH`, `SHADERS` and `SIMOPTS` are in regs.mjs's head.
 
-Fragment shaders are not compiled yet (render pipelines need their targets and vertex stage spelled out).
+A fragment shader is named with its vertex stage, `ENTRY@VERTEX[/TARGETS]` (TARGETS rgba16float color targets, 1 if
+left out; the overrides go to both stages), and its line is the fragment shader's alone:
+
+    tools/adreno/regs.sh POST_WGSL fsComposite@vsComp fsComposite@vsComp:LEAN=1
+    tools/adreno/regs.sh DRAW_WGSL fsPointLive@vsPoint/2 fsPointLive@vsPoint/2:INTERIOR=0:NECKS=0

@@ -1,6 +1,9 @@
-// What a compute kernel of the page's WGSL holds on an Adreno 630, by Mesa's compiler for it (turnip, on a pretended
-// a630): run through tools/adreno/regs.sh, which sets Mesa up and sums what it prints. docs/performance.md, Tools.
+// What a compute kernel or a fragment shader of the page's WGSL holds on an Adreno 630, by Mesa's compiler for it
+// (turnip, on a pretended a630): run through tools/adreno/regs.sh, which sets Mesa up and sums what it prints.
+// docs/performance.md, Tools.
 //   tools/adreno/regs.sh sim senseMain lifeMain senseMain:COARSE=1     (MODULE ENTRY[:OVERRIDE=VALUE]...)
+//   tools/adreno/regs.sh POST_WGSL fsComposite@vsComp:LEAN=1 DRAW_WGSL... (a fragment ENTRY@VERTEX[/TARGETS]: drawn into
+//   TARGETS (1) rgba16float targets, the overrides given to both stages)
 // MODULE: sim (simWGSL of DEFAULT_K) or an exported WGSL string of src/shaders.js (INBOND_WGSL, DRAW_WGSL, ...).
 // SHADERS=path/to/another/shaders.js compiles that source tree's (an older commit's worktree); PATCH='[[from, to], ...]'
 // replaces text in the WGSL first ([from, to, with]: from `from` through `to`), for trying a change without an edit.
@@ -22,9 +25,17 @@ for (const [a, b, c] of JSON.parse(process.env.PATCH || '[]')) {
 }
 const module = device.createShaderModule({ code });
 for (const spec of eps) {
-  const [entryPoint, ...cs] = spec.split(':');
+  const [head, ...cs] = spec.split(':');
+  const [entryPoint, stage] = head.split('@');
   const constants = Object.fromEntries(cs.map((c) => c.split('=')).map(([k, v]) => [k, +v]));
   console.error(`=== ${mod} ${spec}`);
-  try { await device.createComputePipelineAsync({ layout: 'auto', compute: { module, entryPoint, constants } }); } catch (e) { console.error('ERR', String(e.message).slice(0, 600)); }
+  try {
+    if (!stage) await device.createComputePipelineAsync({ layout: 'auto', compute: { module, entryPoint, constants } });
+    else {
+      const [vs, n = 1] = stage.split('/');
+      await device.createRenderPipelineAsync({ layout: 'auto', primitive: { topology: 'triangle-list' }, vertex: { module, entryPoint: vs, constants },
+        fragment: { module, entryPoint, constants, targets: Array.from({ length: +n }, () => ({ format: 'rgba16float' })) } });
+    }
+  } catch (e) { console.error('ERR', String(e.message).slice(0, 600)); }
 }
 process.exit(0);
