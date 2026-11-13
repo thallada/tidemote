@@ -186,7 +186,8 @@ Chrome reports its adapter's vendor (`img-tec`) but neither architecture nor des
   losses (0.05 and 1.2), so the haze still goes long before the microscope and the microscope comes back first, and
   their cost is the composite's per pixel in each of the four states of the two (`COMP_GUESS` until learned). Cell
   insides: every cell in the main view drawn by the lean point pipeline (0.007-0.012 up close), and in the loupe and
-  the live close-up, which draw the world as the main view does (the cost learned from the main view's pass alone);
+  the live close-up, which draw the world as the main view does, a new species' sparkle still drawn full (the cost
+  learned from the main view's pass alone);
   the neighbors 112, 88 or 64 (no ecological difference at 64 in 8k worlds, at 88 in 16k ones, `runs/lowend`). The
   haze's and the microscope's, the insides' and the neighbors' costs sit inside passes shared with others (the
   composite, the cells' pass, the step), so each is learned from that pass at each of its levels. `test/tuner.test.js` runs the tuner window after window
@@ -250,7 +251,8 @@ each with its own bloom chain (`_bloomChain`: six levels down and five up at its
 light. Measured on a 131k world at 2544×1289 (loupe swept at 90 px a unit, ×6; a cell selected at 150, close-up
 323×134), two runs each: the loupe's or the close-up's bloom +0.017 ms a frame (`fsDown`/`fsUp` 0.064 → 0.081), the
 close-up's lit `fsPlain` +0.003, the loupe's light, shadows and share no change within the noise (`fsLoupe` 0.47-0.49
-either way). In all about +0.02 ms a frame on the RTX per view open, about +0.15 ms on an M1.
+either way); with insides left out, drawing their cells twice (the full pipeline for a new species' sparkle alone)
++0.001 on their cells' pass. In all about +0.02 ms a frame on the RTX per view open, about +0.15 ms on an M1.
 
 At ×4 the step is 1.09 ms a frame (four steps; 0.27 each), the frame 2.3. A 6-tick coarse step is 0.38 ms (`lifeMainCoarse`
 0.12, `bodyTick` 0.13). At the Mac's size, a quarter of the pixels (`scale: 0.5`) takes 0.79 → 0.60 ms, all dressing off

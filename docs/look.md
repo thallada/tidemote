@@ -14,7 +14,8 @@ uniforms, so the look, Glow, Suspension and the tuner's knobs ease in all three 
 close-up not live) reads its own copy (`b.postPlain`) with the look whole and the suspension shown, so it never keeps a
 faded look.
 
-The loupe and the live close-up are the main view's finish at another view: each draws its cells, stone, its own bloom (`_bloomChain`, the main
+The loupe and the live close-up are the main view's finish at another view: each draws its cells (with a new
+species' sparkle where insides are left out: `_drawScene`'s split), stone, its own bloom (`_bloomChain`, the main
 view's chain at its size, from its own scene: in pixels, as the main view's, so the loupe at 90 × 6 glows as the main
 view at 540 does) and its own light (`sceneLit`, `litShow` with the living's share from its own living layer,
 `sunShadow` at its own scale). What they still leave out: the main view's trails; in the close-up, the eyepiece (the

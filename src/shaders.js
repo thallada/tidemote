@@ -4842,7 +4842,8 @@ struct View {
   // lit: 1 where the world's light shows (the main view, the loupe), 0 in views shown unlit (the close-up, the stone cache)
   level: f32, lit: u32,
   // the radius in pixels from which listMain gives a cell the full pipeline, its insides drawn (12; past any cell's
-  // when the tuner leaves insides out, Engine.fx.interiors, a new species' sparkle still drawn full)
+  // when the tuner leaves insides out, Engine.fx.interiors, a new species' sparkle still drawn full); below 0, a view
+  // whose cells are drawn twice without listMain (the loupe's and the live close-up's with insides left out: vsPoint)
   interiorFrom: f32,
   // how much more adhesion than tightFrom makes tissue through and through (K.tightSpan)
   tightSpan: f32,
@@ -5630,6 +5631,9 @@ struct PO {
     return o;
   }
   let sp = spriteOf(p, ii);
+  // (a view drawing its cells twice, Engine._drawScene's split: the lean pipeline each but a new species' sparkling
+  // cells, the full one those alone, as listMain sorts the main view's)
+  if (view.interiorFrom < 0.0 && (sp.anim.novel > 0.0) != INTERIOR) { o.pos = vec4f(2.0, 2.0, 0.0, 1.0); return o; }
   // the kind drawn: a dead cell's ghost is drawn as the cell it was
   let k = sp.kind;
   let alive = p.kind >= FIRST_LIFE;

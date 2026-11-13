@@ -92,10 +92,10 @@ const FLOOR_MS = 2;
 const REAL_WRAP = 4096;
 
 // The draw's view uniforms (struct View in DRAW_WGSL) into data (VIEW_BYTES): the view (cam, its size in pixels W × H,
-// dpr, the real time, the selected cell, whether cells show their insides, culled, splat, lit) and the world it shows
+// dpr, the real time, the selected cell, whether cells show their insides, culled, splat, lit, split) and the world it shows
 // (w: its grid, the exposure, the focus, the pool's level, interiors, the tide and its phases, the season, the open
 // water's light, the sky, the simulated clock, the hand's lamp). Engine._writeView, and the card page's studio.
-export function viewWords(data, K, { cam, W, H, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false }, w) {
+export function viewWords(data, K, { cam, W, H, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false, split = false }, w) {
   const ppu = cam.ppu;
   // a cell keeps one world size at every zoom, so zooming in only resolves it
   const pointSize = Math.max(1.1 * dpr, 0.085 * ppu);
@@ -119,8 +119,9 @@ export function viewWords(data, K, { cam, W, H, dpr, time, selId, detail = true,
   v[24] = w.level;
   // the world's light, as the composite shows it, for silt's sparkle (sunAt); none in views shown unlit
   vu[25] = lit ? 1 : 0;
-  // the radius from which listMain gives cells their insides (none when the tuner leaves them out)
-  v[26] = w.interiors ? 12 : 1e9;
+  // the radius from which listMain gives cells their insides (none when the tuner leaves them out); split: below 0, a
+  // view without listMain whose cells are drawn without their insides but a new species' sparkle (_drawScene)
+  v[26] = split ? -1 : w.interiors ? 12 : 1e9;
   v[27] = K.tightSpan;
   v.set(w.tide, 28); v.set(w.tidePh, 44);
   v[48] = w.season; v[49] = w.ambient; v[50] = w.sky; v[51] = w.t;
@@ -2667,9 +2668,9 @@ class Engine {
   }
 
   // detail: resolve cells as they grow on screen (false keeps the distant sprite at every zoom)
-  _writeView(buf, data, cam, W, H, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false) {
+  _writeView(buf, data, cam, W, H, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false, split = false) {
     const clk = this._clock();
-    viewWords(data, this.K, { cam, W, H, dpr, time, selId, detail, culled, splat, lit }, {
+    viewWords(data, this.K, { cam, W, H, dpr, time, selId, detail, culled, splat, lit, split }, {
       grid: this.grid, exposure: this.settings.exposure, focus: this.focus, level: this.K.pond ? this.level : 1,
       interiors: this.fx.interiors, tide: this.tide, tidePh: clk.tidePh, season: this.season, ambient: this.ambient,
       sky: this.K.pond ? this.sky : 1, t: clk.t, hand: this.hand });
@@ -2697,11 +2698,13 @@ class Engine {
   }
 
   // A view's cells, bonds and matter (k: 0 the main view, 1 the loupe, 2 the close-up; this.main's pipelines, into the
-  // view's scene and living targets). lean: every cell without its insides (the main view's are listed by listMain,
-  // which leaves out those it should: interiorFrom)
-  _drawScene(pass, data, k, lean = false) {
+  // view's scene and living targets). A view written split (viewWords) draws its cells without their insides but a new
+  // species' sparkle: every cell twice, the lean pipeline all but those sparkling, the full one those alone (vsPoint
+  // leaves out the rest), as listMain sorts the main view's (interiorFrom)
+  _drawScene(pass, data, k) {
     const pl = this.main, bg = this.sceneBG[k];
     const v = new Float32Array(data);
+    const split = v[26] < 0;
     const detail = new Uint32Array(data)[20] === 1;
     // culled: only the particles of the grid rows in view (cullRows wrote the draws' arguments)
     const culled = new Uint32Array(data)[21] === 1 ? this.cull[k].args : null;
@@ -2724,10 +2727,12 @@ class Engine {
     if (this.settings.nodes) {
       if (v[22] < 0) { pass.setPipeline(pl.small); pass.setBindGroup(0, this.smallBG); pass.drawIndirect(this.b.smallArgs, 0); }
       // (until the full point pipeline lands, cells are drawn lean: without their insides)
-      const full = !lean && bg.point;
+      const full = !split && bg.point;
+      const draw = () => { if (quads) pass.drawIndirect(quads, 0); else if (culled) pass.drawIndirect(culled, 0); else pass.draw(4, this.count); };
       pass.setPipeline(full ? pl.point : pl.pointLean);
       pass.setBindGroup(0, full ? bg.point : bg.pointLean);
-      if (quads) pass.drawIndirect(quads, 0); else if (culled) pass.drawIndirect(culled, 0); else pass.draw(4, this.count);
+      draw();
+      if (split && bg.point) { pass.setPipeline(pl.point); pass.setBindGroup(0, bg.point); draw(); }
       if (quads) { pass.setPipeline(pl.pointLean); pass.setBindGroup(0, bg.pointLean); pass.drawIndirect(quads, 16); }
     }
   }
@@ -3052,10 +3057,10 @@ class Engine {
       const L = Math.max(64, Math.min(1024, Math.ceil(span / 32) * 32));
       this._ensureLoupeTex(L);
       const lppu = loupe.ppu * (L / span);
-      this._writeView(this.b.viewL, this.viewDataL, { x: loupe.cx, y: loupe.cy, ppu: lppu }, L, L, dpr * (L / span), time, selId, lod, culled[1], 0, true);
+      this._writeView(this.b.viewL, this.viewDataL, { x: loupe.cx, y: loupe.cy, ppu: lppu }, L, L, dpr * (L / span), time, selId, lod, culled[1], 0, true, bare);
       d.queue.writeBuffer(this.b.loupeU, 0, new Float32Array([loupe.x, loupe.y, loupe.r, 1, W, H, loupe.ppu, 0]));
       const pass = scenePass(this.loupeView);
-      this._drawScene(pass, this.viewDataL, 1, bare);
+      this._drawScene(pass, this.viewDataL, 1);
       pass.end();
       this._drawStone(enc, this.loupeStoneView, this.bgStoneL);
       this._lightStone(enc, this.loupeSceneView, this.pStoneLitM, this.loupeLitBG);
@@ -3067,11 +3072,11 @@ class Engine {
       this._ensureSpecTex(specimen.w, specimen.h);
       // (live, in the world's light as the main view; a card's portrait unlit)
       const live = !!specimen.live;
-      this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId, specLod, culled[2], 0, live);
+      this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId, specLod, culled[2], 0, live, bare && live);
       let pass = scenePass(this.specView);
       // (the studio: its own cells alone, on no stone)
       if (specimen.studio) { pass.setPipeline(this.pStudio); pass.setBindGroup(0, this.studioBG); pass.draw(4, this.studioN); }
-      else this._drawScene(pass, this.viewDataS, 2, bare && live);
+      else this._drawScene(pass, this.viewDataS, 2);
       pass.end();
       if (specimen.studio) enc.beginRenderPass({ colorAttachments: this.specStoneView.slice(0, 2).map((view) => ({ view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' })) }).end();
       else this._drawStone(enc, this.specStoneView, this.bgStoneS);
