@@ -917,6 +917,11 @@ ${scan ? '' : `  // a tree holds its angles (bendOn), and a body bearing tails t
   var bendF = vec2f(0.0);
   if (tree && !sub) { bendF = bendOn(i, gr) * ${f(K.growStiff)}; }
   else if (tails) { bendF = tailBases(i, *p, n1, n2, backN(i)) * ${f(K.growStiff)}; }
+  // (and so a beating tree's muscles, beatPull, and the light's slope for phototaxis, below)
+  var beatDv = vec2f(0.0);
+  if (beating && !sub) { beatDv = beatPull(i, gr, g.size); }
+  var lightUp = vec2f(0.0);
+  if (g.tail.z != 0.0) { lightUp = lightSlope(p.pos); }
 `}
   // warmth: the water here, plus a heat-maker's own (a body insulates its cells)
   let thermo = thermoOf(*g);
@@ -1275,7 +1280,7 @@ ${scan ? `  // a tree holds its angles (bendOn)
   // phototaxis: a cell with the gene pushes itself up the light's slope (down it, if the gene is negative),
   // by a motility of its own rather than its swimming, so a drifting producer can follow the bands
   if (g.tail.z != 0.0 && !stranded) {
-    let lt = lightSlope(p.pos) * (g.tail.z * ${f(K.phototaxis)} * min(th.perf, 1.0));${W('mPhoto = lt;')}
+    let lt = ${scan ? 'lightSlope(p.pos)' : 'lightUp'} * (g.tail.z * ${f(K.phototaxis)} * min(th.perf, 1.0));${W('mPhoto = lt;')}
     taxis += lt;
   }
   // the hand's ride (docs/hand.md): a ridden cell's will, a velocity the viewer steers it at (hand.more.zw, world
@@ -1355,9 +1360,9 @@ ${scan ? '' : '  if (coarse) { vN = sGet2(so + 25u); wN = sGet(so + 27u); wN2 = 
     if (arm != NONE) { let a = treeRel(i, arm); across = vec2f(-a.y, a.x) / max(length(a), 1e-6); frX = pow(0.5, h * ${f(K.sideDrag)} / drag); }
   }
   // a tree's muscles and tissue (beatPull)
-  var beatDv = vec2f(0.0);
+${scan ? `  var beatDv = vec2f(0.0);
   if (beating && !sub) { beatDv = beatPull(i, gr, g.size); }
-  var vB1 = vec2f(0.0);
+` : ''}  var vB1 = vec2f(0.0);
   var vB2 = vec2f(0.0);
   if (n1 != NONE) { vB1 = sortedFull[n1].vel; }
   if (n2 != NONE) { vB2 = sortedFull[n2].vel; }
