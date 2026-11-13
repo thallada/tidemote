@@ -58,6 +58,9 @@ const SIM_STRIDE = 1024;
 const SPLAT_PX = 1.6;
 // the words before listMain's lists in the quad list: its three draws' arguments (QUAD_HEAD in DRAW_WGSL)
 const QUAD_HEAD = 12;
+// the shape atlas's tiles (texels a side) and tiles a row (SHAPE_TILE, SHAPE_COLS in DRAW_WGSL); the species slots a
+// frame bakes (all of them for a new world)
+const SHAPE_TILE = 64, SHAPE_COLS = 32, SHAPE_CAP = 16;
 export const MAX_STEPS = 512;
 
 // --------------------------------------------------------------------- engine
@@ -391,6 +394,14 @@ class Engine {
     this.cpInbond = ['inbondReset', 'inbondGather', 'contactGather'].map((entryPoint) => cPipe({ layout: 'auto', compute: { module: inbond, entryPoint }, label: entryPoint }));
     this.cpOrgans = cPipe({ layout: 'auto', compute: { module: inbond, entryPoint: 'organDirs' }, label: 'organDirs' });
     b.organDir = d.createBuffer({ size: MAXK * ORGANS * 4, usage: U.STORAGE });
+    // the shape atlas (DRAW_WGSL): each species slot's bodies baked into a tile of SHAPE_TILE² texels, SHAPE_COLS
+    // tiles a row (16 MB); the slots to bake each frame and the serial each was baked for
+    this.shapeTex = d.createTexture({ size: [SHAPE_TILE * SHAPE_COLS, SHAPE_TILE * Math.ceil(MAXK / SHAPE_COLS)], format: 'rgba8snorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING, label: 'shapes' });
+    this.shapePlansTex = d.createTexture({ size: [SHAPE_COLS, Math.ceil(MAXK / SHAPE_COLS)], format: 'r32uint', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING, label: 'shapePlans' });
+    this.shapeSampler = d.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+    b.shapeList = d.createBuffer({ size: (2 + MAXK) * 4, usage: U.STORAGE | U.COPY_DST });
+    b.shapeBaked = d.createBuffer({ size: MAXK * 4, usage: U.STORAGE | U.COPY_DST });
+    this._shapeGen = -1;
     // the pipette's bore drawn as cells (setTube): its own parts, genomes and organelle directions
     b.tubeParts = d.createBuffer({ size: TUBE_N * P_BYTES, usage: U.STORAGE | U.COPY_DST });
     b.tubeGenomes = d.createBuffer({ size: (FIRST_LIFE + TUBE_K) * G_BYTES, usage: U.STORAGE | U.COPY_DST });
@@ -578,10 +589,12 @@ class Engine {
       line: rpLive(this.drawModule, 'vsLine', 'fsLine', 'line-list', trail, false),
       bridge: defer(rpLiveDesc(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', trail, false), false, (p) => { this.main.bridge = p; }),
       reproj: rpLive(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined, false),
-      tube: defer(rpLiveDesc(this.drawModule, 'vsTube', 'fsTubeLive', 'triangle-strip', trail, true), false, (p) => { this.main.tube = p; }),
+      tube: defer(rpLiveDesc(this.drawModule, 'vsTube', 'fsTubeLive', 'triangle-strip', trail, true, { SHAPE_ATLAS: 0 }), false, (p) => { this.main.tube = p; }),
     };
     // the studio's cells alone (a portrait), in the close-up's pass, leaving its living target clear
-    this.pStudio = defer({ ...rpLiveDesc(this.drawModule, 'vsStudio', 'fsPoint', 'triangle-strip', additive, false), label: 'fsPoint' }, false, (p) => { this.pStudio = p; });
+    this.pStudio = defer({ ...rpLiveDesc(this.drawModule, 'vsStudio', 'fsPoint', 'triangle-strip', additive, false, { SHAPE_ATLAS: 0 }), label: 'fsPoint' }, false, (p) => { this.pStudio = p; });
+    this.cpShapeDirty = cPipe({ layout: 'auto', compute: { module: this.drawModule, entryPoint: 'shapeDirty' }, label: 'shapeDirty' });
+    this.cpShapeBake = cPipe({ layout: 'auto', compute: { module: this.drawModule, entryPoint: 'shapeBake' }, label: 'shapeBake' });
     // Max and coarse speeds: the last drawn world, carried with the camera onto the display frames between draws
     b.holdU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
     this.pHold = rp(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined, format);
@@ -685,8 +698,8 @@ class Engine {
       if (this.main.point && !this.sceneBG[0].point) this.sceneBG.forEach((s, k) => { s.point = mk.pointBG(views[k], k, this.main.point); });
       if (this.main.pointBare && !this.sceneBG[0].pointBare) this.sceneBG.forEach((s, k) => { s.pointBare = mk.pointBG(views[k], k, this.main.pointBare); });
       if (this.main.bridge && !this.sceneBG[0].bridge) this.sceneBG.forEach((s, k) => { s.bridge = mk.lineBG(this.main.bridge, views[k], k, true); });
-      if (this.main.tube && !this.tubeBG) this.tubeBG = mk.bufs(this.main.tube, [[0, b.view], [1, b.tubeParts], [2, b.tubeGenomes], [10, b.tubeOrgans]]);
-      if (this.pStudio && !this.studioBG) this.studioBG = mk.bufs(this.pStudio, [[0, b.viewS], [1, b.studioParts], [2, b.studioGenomes], [10, b.studioOrgans]]);
+      if (this.main.tube && !this.tubeBG) this.tubeBG = mk.bufs(this.main.tube, [[0, b.view], [1, b.tubeParts], [2, b.tubeGenomes], [10, b.tubeOrgans]], this._shapeEntries());
+      if (this.pStudio && !this.studioBG) this.studioBG = mk.bufs(this.pStudio, [[0, b.viewS], [1, b.studioParts], [2, b.studioGenomes], [10, b.studioOrgans]], this._shapeEntries());
     }
   }
 
@@ -802,7 +815,12 @@ class Engine {
       { binding: 5, resource: { buffer: b.focus } }, { binding: 6, resource: { buffer: b.bondsIn } },
       { binding: 8, resource: { buffer: b.touch } }, { binding: 9, resource: { buffer: b.sway } },
       { binding: 10, resource: { buffer: b.organDir } }, { binding: 11, resource: { buffer: b.thermal } }, { binding: 12, resource: { buffer: this.cull[k].segs } },
-      { binding: 16, resource: { buffer: b.quads } }] });
+      { binding: 16, resource: { buffer: b.quads } }, ...this._shapeEntries()] });
+    this.shapeDirtyBG = d.createBindGroup({ layout: this.cpShapeDirty.getBindGroupLayout(0), entries: [
+      { binding: 2, resource: { buffer: b.genomes } }, { binding: 26, resource: { buffer: b.shapeList } }, { binding: 27, resource: { buffer: b.shapeBaked } }] });
+    this.shapeBakeBG = d.createBindGroup({ layout: this.cpShapeBake.getBindGroupLayout(0), entries: [
+      { binding: 2, resource: { buffer: b.genomes } }, { binding: 26, resource: { buffer: b.shapeList } },
+      { binding: 24, resource: this.shapeTex.createView() }, { binding: 25, resource: this.shapePlansTex.createView() }] });
     this.organsBG = d.createBindGroup({ layout: this.cpOrgans.getBindGroupLayout(0), entries: [
       { binding: 7, resource: { buffer: b.genomes } }, { binding: 9, resource: { buffer: b.organDir } }] });
     const stoneEntries = (view, band) => [[0, view], [1, b.parts], [5, b.focus], [7, b.stoneList], [17, band]]
@@ -822,7 +840,7 @@ class Engine {
       ...(sway ? [{ binding: 9, resource: { buffer: b.sway } }] : []), { binding: 11, resource: { buffer: b.thermal } }, { binding: 12, resource: { buffer: this.cull[k].segs } }] });
     // each view's scene pass (the main view's, the loupe's, the close-up's: this.main's pipelines, at view k)
     this.sceneBG = [b.view, b.viewL, b.viewS].map((view, k) => ({ point: null, pointBare: null, pointLean: pointBG(view, k, this.main.pointLean), pointPlain: pointBG(view, k, this.main.pointPlain), line: lineBG(this.main.line, view, k), bridge: null }));
-    const bufs = (pipe, list) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: list.map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
+    const bufs = (pipe, list, more = []) => d.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [...list.map(([binding, buffer]) => ({ binding, resource: { buffer } })), ...more] });
     this.tubeOrgansBG = bufs(this.cpOrgans, [[7, b.tubeGenomes], [9, b.tubeOrgans]]);
     this.studioOrgansBG = bufs(this.cpOrgans, [[7, b.studioGenomes], [9, b.studioOrgans]]);
     // the pipelines that may land late (_rebindLate makes theirs, now for those landed, the rest as they land)
@@ -2649,6 +2667,26 @@ class Engine {
     }).catch(() => { st.busy = false; });
   }
 
+  // the shape atlas's bindings in every pipeline that draws cells (DRAW_WGSL)
+  _shapeEntries() {
+    return [{ binding: 21, resource: this.shapeTex.createView() }, { binding: 22, resource: this.shapeSampler },
+      { binding: 23, resource: this.shapePlansTex.createView() }];
+  }
+
+  // Bakes the shapes of the species slots whose genome changed since they were baked (shapeDirty, shapeBake): a few
+  // a frame, every one for a new world
+  _shapes(enc) {
+    const d = this.device, b = this.b;
+    const fresh = this._shapeGen !== this.worldGeneration;
+    if (fresh) { this._shapeGen = this.worldGeneration; enc.clearBuffer(b.shapeBaked); }
+    const cap = fresh ? MAXK : SHAPE_CAP;
+    d.queue.writeBuffer(b.shapeList, 0, new Uint32Array([0, cap]));
+    const pass = enc.beginComputePass();
+    pass.setPipeline(this.cpShapeDirty); pass.setBindGroup(0, this.shapeDirtyBG); pass.dispatchWorkgroups(Math.ceil(MAXK / 64));
+    pass.setPipeline(this.cpShapeBake); pass.setBindGroup(0, this.shapeBakeBG); pass.dispatchWorkgroups(SHAPE_TILE / 8, SHAPE_TILE / 8, cap);
+    pass.end();
+  }
+
   // detail: resolve cells as they grow on screen (false keeps the distant sprite at every zoom)
   _writeView(buf, data, cam, W, H, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false) {
     const clk = this._clock();
@@ -2837,6 +2875,7 @@ class Engine {
       pass.end();
     }
     this._sea(enc);
+    this._shapes(enc);
     // the main view, the loupe and the live close-up may skip resolving cells (settings.lod); a portrait (a card's,
     // a mini-card's) always resolves
     const lod = this.settings.lod, loupeLod = !!loupe && lod, specLod = !!specimen && (lod || !specimen.live);

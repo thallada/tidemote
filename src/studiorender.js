@@ -36,7 +36,8 @@ export async function studioPortrait(words, g, cells, step = () => {}) {
       d.createComputePipelineAsync({ layout: 'auto', compute: { module: mod(INBOND_WGSL, 'inbond'), entryPoint: 'organDirs' } }),
       d.createRenderPipelineAsync({ layout: 'auto', primitive: { topology: 'triangle-strip' },
         vertex: { module: draw, entryPoint: 'vsStudio' },
-        fragment: { module: draw, entryPoint: 'fsPoint', targets: [{ format: HDR, blend: { color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' } } }] } }),
+        // (its own genomes, so its own outlines: bodySD, not the main view's shape atlas, which it binds empty)
+        fragment: { module: draw, entryPoint: 'fsPoint', constants: { SHAPE_ATLAS: 0 }, targets: [{ format: HDR, blend: { color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' } } }] } }),
       d.createRenderPipelineAsync({ layout: 'auto', primitive: { topology: 'triangle-list' },
         vertex: { module: post, entryPoint: 'vsFull' }, fragment: { module: post, entryPoint: 'fsPlain', targets: [{ format: 'rgba8unorm' }] } }),
     ]);
@@ -73,7 +74,9 @@ export async function studioPortrait(words, g, cells, step = () => {}) {
     cp.setPipeline(organs); cp.setBindGroup(0, group(organs, [[7, b.genomes], [9, b.organs]]));
     cp.dispatchWorkgroups(Math.ceil(((FIRST_LIFE + 1) * ORGANS) / 64)); cp.end();
     let pass = enc.beginRenderPass({ colorAttachments: [{ view: lit.createView(), loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
-    pass.setPipeline(cellsP); pass.setBindGroup(0, group(cellsP, [[0, b.view], [1, b.parts], [2, b.genomes], [10, b.organs]]));
+    const none = (format) => d.createTexture({ size: [1, 1], format, usage: T.TEXTURE_BINDING }).createView();
+    pass.setPipeline(cellsP); pass.setBindGroup(0, group(cellsP, [[0, b.view], [1, b.parts], [2, b.genomes], [10, b.organs],
+      [21, none('rgba8snorm')], [22, d.createSampler()], [23, none('r32uint')]]));
     pass.draw(4, cells.length); pass.end();
     pass = enc.beginRenderPass({ colorAttachments: [{ view: out.createView(), loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }] });
     pass.setPipeline(plain);
