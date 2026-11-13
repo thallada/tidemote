@@ -8019,8 +8019,12 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32, dh: f32) -> vec
     // the more the deeper, by the grain's cobble's place in the pile (fsStoneLit: stoneTex holds it here)
     let st = vec2f(textureDimensions(stoneTex));
     let sa = textureLoad(stoneTex, vec2i(clamp(uv * st, vec2f(0.0), st - 1.0)), 0).a;
-    bare = 1.0 - min(1.0, textureSampleLevel(src, samp, uv, 0.0).a);
-    if (sa > 1.0 && bare > 0.0) {
+    // (the living's share from their own layer: the scene's alpha holds silt, husks and sprites too, which were
+    // left sharp by it, their outlines crisp round a blurred grain)
+    let cover = textureSampleLevel(src, samp, uv, 0.0).a;
+    let lv = textureSampleLevel(liveTex, samp, uv, 0.0).a;
+    bare = 1.0 - min(1.0, lv);
+    if (sa > 1.0 && bare > 0.0 && cover - lv < 0.5) {
       let below = 1.0 - clamp((sa - 1.27) / 0.49, 0.0, 1.0); // cobbleZ runs 0.27 to 0.76; a framboid's and the selected grain's lie on top
       let pileBlur = post.look[3].x * smoothstep(0.2, 0.8, below) * smoothstep(start, start * 2.5, post.ppu) * 9.6;
       blur += pileBlur;
@@ -8041,7 +8045,7 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32, dh: f32) -> vec
       let tq = uv + vec2f(cos(a), sin(a)) * sqrt((f32(t) + 0.5) / f32(n)) * blur * px;
       let s = textureSampleLevel(src, samp, tq, 0.0);
       var w = 1.0;
-      if (deep > 0.0) { w = select(1.0 - min(1.0, s.a), 0.0, textureSampleLevel(stoneTex, samp, tq, 0.0).a > deep + 0.02); }
+      if (deep > 0.0) { w = select(1.0 - coverAt(tq), 0.0, textureSampleLevel(stoneTex, samp, tq, 0.0).a > deep + 0.02); }
       b += s.rgb / max(1.0, s.a) * w;
       wsum += w;
     }
