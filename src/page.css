@@ -590,9 +590,13 @@ canvas.chart { cursor: crosshair; }
 
 /* ------------------------------------------------------------------ settings, help */
 .settings {
-  position: absolute; right: calc(var(--gut) + var(--safe-r)); bottom: calc(var(--bot) + 10px); width: 430px;
-  padding: var(--s2) 14px var(--s3); z-index: 6; max-height: calc(100% - var(--top) - var(--bot) - 20px); overflow-y: auto;
+  position: absolute; right: calc(var(--gut) + var(--safe-r)); bottom: calc(var(--bot) + 10px); width: 430px; --pad: 14px;
+  padding: var(--s2) var(--pad) 0; z-index: 6; max-height: calc(100% - var(--top) - var(--bot) - 20px);
+  display: flex; flex-direction: column;
 }
+/* the heading and the tabs stay put; the options scroll beneath them, out to the panel's edge */
+.settings > .sec-h { flex: none; }
+.settings > .scroll { margin: 0 calc(-1 * var(--pad)); padding: 0 var(--pad) var(--s3); }
 .settings .sec-h { gap: 0 var(--s3); flex-wrap: wrap; }
 .settings .sec-h h2 { white-space: nowrap; margin-right: auto; }
 /* the tabs on a row of their own under the title */
@@ -1254,7 +1258,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .spec-id h2 { font-size: 19px; margin: 2px 0; }
   .viewer { height: clamp(104px, calc(22vh - 10px), 176px); }
   .btn { height: 30px; }
-  .settings { width: 400px; padding: var(--s2) 12px var(--s3); }
+  .settings { width: 400px; --pad: 12px; }
 }
 @media (max-width: 980px) {
   .dock .tools { display: none; }

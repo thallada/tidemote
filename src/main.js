@@ -2863,7 +2863,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (e.target.id === 'set-vol') { if (!sound.on) toggleSound(); sound.setVolume(Number(e.target.value) / 100); }
     });
     opts.addEventListener('keydown', (e) => { if (e.target.id === 'w-name' && e.key === 'Enter') { e.preventDefault(); worldAct('w-save'); } });
-    tabs.forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; confirming = false; ask = null; render(); }));
+    // (another tab opens at its top)
+    tabs.forEach((b) => b.addEventListener('click', () => { if (tab !== b.dataset.tab) $('set-body').scrollTop = 0; tab = b.dataset.tab; confirming = false; ask = null; render(); }));
     $('set-tabs').addEventListener('keydown', (e) => {
       if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
       const i = tabs.findIndex((b) => b.dataset.tab === tab);
@@ -2872,10 +2873,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     });
     // open on a tab (the wordmark opens About), or close if that tab is already showing
     function toggle(on = el.hidden, to) {
+      const other = to && tab !== to;
       if (to) { on = el.hidden || tab !== to; if (on) { tab = to; confirming = false; ask = null; } }
       el.hidden = !on;
       btn.setAttribute('aria-expanded', String(on));
-      if (on) { $('help').hidden = true; if (phone()) lab.close(); saves = null; render(); } else { pendingN = null; confirming = false; ask = null; }
+      if (on) { $('help').hidden = true; if (phone()) lab.close(); saves = null; render(); if (other) $('set-body').scrollTop = 0; } else { pendingN = null; confirming = false; ask = null; }
     }
     btn.addEventListener('click', () => toggle());
     $('brand').addEventListener('click', () => toggle(true, 'about'));
