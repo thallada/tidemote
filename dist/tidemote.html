@@ -6408,10 +6408,16 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
   // this grid cell (its particles were sorted into it before this step moved them)
   let at = ((views.first[wg.z].xy + vec2i(wg.xy)) % g + g) % g;
   let center = vec2f(at) + 0.5;
+  // Half the grid cells search for their cells' contacts each frame, by a checkerboard that alternates (first[0].w 1,
+  // first[0].z the frame's parity), the rest reading back last frame's (touch): which cells a cell touches changes over
+  // frames, not within one, and vsPoint places each contact where it is now. The gathering and sorting it takes was
+  // most of this pass (an M1, a 32k world at 40 pixels a unit: 2.7 ms of 4.6). The engine has every cell search when
+  // the grid cells gathered change (Engine._render).
+  let search = views.first[0].w == 0 || ((u32(at.x + at.y) + u32(views.first[0].z)) & 1u) == 0u;
   if (l == 0u) { atomicStore(&nearCount, 0u); atomicStore(&nearMaxSize, 0u); }
   for (var b = l; b < NEAR_EDGES; b += 256u) { atomicStore(&binAt[b], 0u); }
   workgroupBarrier();
-  for (var j = r.x + l; j < r.y; j += 256u) {
+  for (var j = r.x + l; j < select(r.x, r.y, search); j += 256u) {
     let q = parts[j];
     if (q.kind < FIRST_LIFE) { continue; }
     var d = q.pos - center;
@@ -6461,7 +6467,8 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
   // This grid cell's own living cells, listed first, one a thread. A heap's few hundred are scattered
   // through its ten thousand grains: a thread a particle left one thread in 32 searching while the
   // rest waited, round after round (2.6 ms of one heap's view). Past NEAR_N + OWN_MORE, every particle.
-  let listed = own <= NEAR_N + OWN_MORE;
+  // (not searching, none were gathered: every particle, the living kept)
+  let listed = search && own <= NEAR_N + OWN_MORE;
   for (var o = l; o < select(r.y - r.x, own, listed); o += 256u) {
     var i = r.x + o;
     if (listed) { i = select(ownMore[min(o - NEAR_N, OWN_MORE - 1u)], nearKey[min(o, NEAR_N - 1u)] >> 9u, o < NEAR_N); }
@@ -6476,7 +6483,8 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
     // 0.085 world units per unit of size at full detail (pointSize); beyond 1.3 radii, no contact
     let reach = 0.085 * 1.3 * (si + maxSize);
     let home = select(vec2i(0), nearBin(pd), binned);
-    for (var ring = 0; ring < select(1, NEAR_BINS, binned); ring++) {
+    if (!search) { for (var c = 0u; c < TOUCH_N; c++) { best[c] = touch[i * TOUCH_N + c]; } }
+    for (var ring = 0; ring < select(0, select(1, NEAR_BINS, binned), search); ring++) {
       // every bin in this ring is at least ring - 1 bins away
       if (f32(ring - 1) * NEAR_BIN >= key[TOUCH_N - 1u] * reach) { break; }
       for (var dy = -ring; dy <= ring; dy++) {
@@ -6506,7 +6514,7 @@ fn contactGather(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_ind
         }
       }
     }
-    for (var c = 0u; c < TOUCH_N; c++) { touch[i * TOUCH_N + c] = best[c]; }
+    if (search) { for (var c = 0u; c < TOUCH_N; c++) { touch[i * TOUCH_N + c] = best[c]; } }
 
     let now = bitcast<f32>(views.grid.z);
     // its slot: the one holding its record; else the first, unless another cell holds that one (seen within half
@@ -6760,8 +6768,8 @@ struct View {
   // the pool (docs/catastrophes.md): its water level, to show cells stranded
   // lit: 1 where the world's light shows (the main view, the loupe), 0 in views shown unlit (the close-up, the stone cache)
   level: f32, lit: u32,
-  // the radius in pixels from which listMain gives a cell the full pipeline, its insides drawn (12; past any cell's
-  // when the tuner leaves insides out, Engine.fx.interiors, a new species' sparkle still drawn full)
+  // the radius in pixels from which listMain gives a cell a pipeline that draws its insides (12; past any cell's when
+  // the tuner leaves insides out, Engine.fx.interiors, a new species' sparkle still drawn full)
   interiorFrom: f32,
   // how much more adhesion than tightFrom makes tissue through and through (K.tightSpan)
   tightSpan: f32,
@@ -6827,15 +6835,31 @@ fn cullIndex(ii: u32) -> u32 {
   return segs[lo].x + ii - segs[lo].y;
 }
 // the particle a point's instance draws, and the cell a bond's instance draws (living, unless culled)
-// false: the point pipeline for cells drawn too small for their insides (under interiorLOD's 12 pixels) and not
-// sparkling as a new species, which listMain lists from the quad list's end: without the code for either, its
-// registers leave more pixels in flight (an M1, cells about 10 pixels across: 0.5 ms of the scene's 4.9)
+// false: the point pipelines for cells drawn too small for their insides (under interiorLOD's 12 pixels) and not
+// sparkling as a new species (listMain's plain list), and for every cell with insides left out (the lean one): without
+// the code for either, its registers leave more pixels in flight (an M1, cells about 10 pixels across: 0.5 ms of the
+// scene's 4.9)
 override INTERIOR: bool = true;
-// (the quad list: the full pipeline's draw arguments, the lean one's, then the full one's particles from the start
-// and the lean one's from the end, which only listMain fills: until the main view's full pipeline lands, the lean
-// one draws its cells unlisted, as the full one would)
+// false: the point pipelines without the fused necks to bond partners and buds (vsPoint gathers none). On an M1 the
+// partners' code alone held the scene's fragments to 12.6% occupancy, whether or not a cell had partners: a 32k world
+// at 80 pixels a unit drew its cells in about 15 ms with it, 9.5 without (docs/performance.md, 2026-11-13). listMain
+// gives them the cells that draw no neck, or none wider than a pixel: those under 12 pixels (a bond's neck changes the
+// outline by at most a quarter of its blend, 0.03 of the radius), and tissue's (fill, tile.x over a half, meets its
+// partners at shared walls, never a neck); never a newborn budding (a bud's neck is drawn whole from its side).
+override NECKS: bool = true;
+// the quad list of listMain's three lists (pointAt): their draw arguments (the full pipeline's, the plain one's, the
+// bare one's: with insides, without necks), then the full one's particles from the start of a block of n and the bare
+// one's from its end, then the plain one's in a second block of n; splatMain's list is the full one's, from word 8.
+// Until the main view's full and bare pipelines land, the lean one draws its cells unlisted, as the full one would;
+// with insides left out it draws the full list, and listMain gives the plain one what the bare one would draw.
+const QUAD_HEAD = 12u;
 fn pointAt(ii: u32) -> u32 {
-  if (!INTERIOR && view.splat < 0.0) { return quadR[arrayLength(&quadR) - 1u - ii]; }
+  if (view.splat < 0.0) {
+    let n = (arrayLength(&quadR) - QUAD_HEAD) / 2u;
+    if (NECKS) { return quadR[QUAD_HEAD + ii]; }
+    if (INTERIOR) { return quadR[QUAD_HEAD + n - 1u - ii]; }
+    return quadR[QUAD_HEAD + n + ii];
+  }
   if (view.splat != 0.0) { return quadR[8u + ii]; }
   if (view.culled == 1u) { return cullIndex(ii); }
   return ii;
@@ -6949,11 +6973,11 @@ fn facetSD(q: vec2f, radius: f32, sides: f32, rounding: f32) -> f32 {
   let a = atan2z(q.y, q.x);
   return length(q) - radius * polygonRadius(a + 0.15 * sin(a * 3.0 + 1.7), sides, rounding);
 }
-fn loboseSD(q: vec2f, s: vec2f) -> f32 {
+fn loboseSD(q: vec2f, s: vec2f, time: f32) -> f32 {
   let a = atan2z(q.y, q.x);
   let lobes = 3.0 + floor(s.x * 3.0);
   // lobes are pseudopods: they creep round the cell as it flows
-  let edge = 0.73 + 0.11 * sin(a * lobes + s.y * TAU + view.time * 0.23) + 0.07 * cos(a * 3.0 + 0.5);
+  let edge = 0.73 + 0.11 * sin(a * lobes + s.y * TAU + time * 0.23) + 0.07 * cos(a * 3.0 + 0.5);
   return facetSD(q, edge, 7.0 + floor(s.y * 3.0), 0.22);
 }
 fn radiateSD(q: vec2f, s: vec2f, filose: bool) -> f32 {
@@ -7031,7 +7055,9 @@ fn latticeSD(q: vec2f, s: vec2f) -> f32 {
   let v = vec2f(q.x, q.y + 0.12 * sin(q.x * 4.0 + s.y * 3.0));
   return (abs(v.x) * 0.72 + abs(v.y) * 1.35 - 0.75) / 1.5;
 }
-fn bodySD(q: vec2f, shape: u32, s: vec2f) -> f32 {
+// a species' variation within its plans (PO.morph, bodySD's s)
+fn morphOf(g: Genome) -> vec2f { return vec2f(renderHash(g.serial ^ g.sig[0].y), renderHash(g.serial ^ g.sig[1].x ^ 917u)); }
+fn bodySD(q: vec2f, shape: u32, s: vec2f, time: f32) -> f32 {
   switch (shape) {
     case 1u: { return radiateSD(q, s, true); }
     case 2u: { return radiateSD(q, s, false); }
@@ -7044,8 +7070,77 @@ fn bodySD(q: vec2f, shape: u32, s: vec2f) -> f32 {
     case 9u: { return bellSD(q, s); }
     case 10u: { return chainSD(q, s); }
     case 11u: { return latticeSD(q, s); }
-    default: { return loboseSD(q, s); }
+    default: { return loboseSD(q, s, time); }
   }
+}
+// The shape atlas: every species' bodies (bodySD of its plan for each of the four roles, choosePlan) baked once into a
+// tile of a distance field, SHAPE_TILE texels across q's ±SHAPE_R, one role a channel (rgba8snorm, the distance in
+// radii), and read back with one filtered sample (shapeAt) in place of bodySD's twelve plans: on an M1 a view of cells
+// spent most of its fragments on the outline, and cells of different plans beside each other ran every plan's code
+// (docs/performance.md, 2026-11-13). shapeDirty finds the species slots whose serial differs from the one baked
+// (shapeBaked) and lists them (at most cap a frame; the rest wait), shapeBake bakes them, and shapePlans keeps each
+// tile's four plans (a byte each) for shapeAt to find the channel of a plan. A lobose cell's pseudopods creep round
+// it by turning the lookup (loboseSD's lobes at time 0, turned on by the time). The studio's and the bore's cells,
+// of genomes of their own, keep bodySD (SHAPE_ATLAS false).
+override SHAPE_ATLAS: bool = true;
+const SHAPE_TILE = 64u;
+const SHAPE_COLS = 32u;
+const SHAPE_R = 1.25;
+@group(0) @binding(21) var shapeTex: texture_2d<f32>;
+@group(0) @binding(22) var shapeSamp: sampler;
+@group(0) @binding(23) var shapePlans: texture_2d<u32>;
+@group(0) @binding(24) var shapeOut: texture_storage_2d<rgba8snorm, write>;
+@group(0) @binding(25) var shapePlanOut: texture_storage_2d<r32uint, write>;
+// [listed, cap, then the slots listed]
+@group(0) @binding(26) var<storage, read_write> shapeList: array<atomic<u32>>;
+@group(0) @binding(27) var<storage, read_write> shapeBaked: array<u32>;
+@compute @workgroup_size(64)
+fn shapeDirty(@builtin(global_invocation_id) gid: vec3u) {
+  let k = gid.x;
+  if (k >= arrayLength(&genomes) || k >= arrayLength(&shapeBaked)) { return; }
+  let serial = genomes[k].serial;
+  if (serial == shapeBaked[k]) { return; }
+  let n = atomicAdd(&shapeList[0], 1u);
+  if (n < atomicLoad(&shapeList[1])) { atomicStore(&shapeList[2u + n], k); shapeBaked[k] = serial; }
+}
+@compute @workgroup_size(8, 8)
+fn shapeBake(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) lid: vec3u) {
+  if (wg.z >= min(atomicLoad(&shapeList[0]), atomicLoad(&shapeList[1]))) { return; }
+  let k = atomicLoad(&shapeList[2u + wg.z]);
+  let g = genomes[k];
+  let s = morphOf(g);
+  let x = wg.xy * 8u + lid.xy;
+  let q = ((vec2f(x) + 0.5) / f32(SHAPE_TILE) * 2.0 - 1.0) * SHAPE_R;
+  var sd = vec4f(0.0);
+  var plans = 0u;
+  for (var r = 0u; r < 4u; r++) {
+    let plan = choosePlan(g, r);
+    sd[r] = bodySD(q, plan, s, 0.0);
+    plans |= plan << (8u * r);
+  }
+  let tile = vec2u(k % SHAPE_COLS, k / SHAPE_COLS);
+  textureStore(shapeOut, tile * SHAPE_TILE + x, clamp(sd, vec4f(-1.0), vec4f(1.0)));
+  if (all(x == vec2u(0u))) { textureStore(shapePlanOut, tile, vec4u(plans, 0u, 0u, 0u)); }
+}
+// bodySD(q, plan, s, view.time) of a cell of kind, from its tile: past the tile's edge, the edge's plus the way out
+fn shapeAt(q: vec2f, kind: u32, plan: u32, s: vec2f) -> f32 {
+  var p = q;
+  if (plan == 0u || plan > 11u) {
+    let turn = view.time * 0.23 / (3.0 + floor(s.x * 3.0));
+    let cs = vec2f(cos(turn), sin(turn));
+    p = vec2f(q.x * cs.x - q.y * cs.y, q.x * cs.y + q.y * cs.x);
+  }
+  let edge = SHAPE_R * (1.0 - 1.0 / f32(SHAPE_TILE));
+  let inTile = clamp(p, vec2f(-edge), vec2f(edge));
+  let tile = vec2u(kind % SHAPE_COLS, kind / SHAPE_COLS);
+  let at = (vec2f(tile * SHAPE_TILE) + (inTile / SHAPE_R * 0.5 + 0.5) * f32(SHAPE_TILE)) / f32(SHAPE_TILE * SHAPE_COLS);
+  let v = textureSampleLevel(shapeTex, shapeSamp, at, 0.0);
+  let plans = textureLoad(shapePlans, tile, 0).x;
+  var sd = v.x;
+  if (((plans >> 8u) & 255u) == plan) { sd = v.y; }
+  if (((plans >> 16u) & 255u) == plan) { sd = v.z; }
+  if (((plans >> 24u) & 255u) == plan) { sd = v.w; }
+  return sd + length(p - inTile);
 }
 // The same local frame and warp are used for a cell and its bond partners.
 // sd is in units of that cell's radius; only q survives into the interior.
@@ -7061,7 +7156,7 @@ fn bendShift(x: f32, bend: f32) -> f32 { return bend * abs(x) * min(abs(x), 1.0)
 // rest: how still it lies (a cyst, or a dead cell: its outline stops flowing) and how far it has curled
 // up into a cyst (rounding into a disc of the same area).
 fn cellOutline(uv: vec2f, dir: vec2f, radius: f32, seed: f32,
-    shape: u32, traits: vec4f, s: vec2f, pace: f32, bend: f32, rest: vec2f) -> CellOutline {
+    shape: u32, kind: u32, traits: vec4f, s: vec2f, pace: f32, bend: f32, rest: vec2f) -> CellOutline {
   let pc = max(pace, 0.0);
   let aspect = bodyAspect(s, traits.x, pc);
   var motion = localPoint(uv, dir) * vec2f(1.0 / aspect, aspect);
@@ -7083,7 +7178,8 @@ fn cellOutline(uv: vec2f, dir: vec2f, radius: f32, seed: f32,
   let fl = fineLOD(radius);
   var teeth = 0.0;
   if (fl > 0.0) { teeth = traits.w * fl * 0.02 * pow(max(0.0, cos(a * 17.0 + seed * 11.0)), 6.0); }
-  var sd = bodySD(q, shape, s);
+  var sd = 0.0;
+  if (SHAPE_ATLAS) { sd = shapeAt(q, kind, shape, s); } else { sd = bodySD(q, shape, s, view.time); }
   if (rest.y > 0.0) { sd = mix(sd, length(q) - sqrt(bodyArea(shape, s)), 0.9 * smoothstep(0.0, 1.0, rest.y)); }
   return CellOutline(sd - ripple - teeth * (1.0 - rest.y), q);
 }
@@ -7425,15 +7521,18 @@ var<workgroup> smallN: atomic<u32>;
 var<workgroup> smallBase: u32;
 var<workgroup> leanN: atomic<u32>;
 var<workgroup> leanBase: u32;
+var<workgroup> bareN: atomic<u32>;
+var<workgroup> bareBase: u32;
 @compute @workgroup_size(256)
 fn listMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) l: u32) {
-  if (l == 0u) { atomicStore(&quadN, 0u); atomicStore(&smallN, 0u); atomicStore(&leanN, 0u); }
+  if (l == 0u) { atomicStore(&quadN, 0u); atomicStore(&smallN, 0u); atomicStore(&leanN, 0u); atomicStore(&bareN, 0u); }
   workgroupBarrier();
   // (every particle, or a culled view's: those of the grid rows in view)
   let culled = view.culled == 1u;
   var i = gid.x;
   var big = NONE;
   var lean = NONE;
+  var bare = NONE;
   var small = NONE;
   var ra = vec4f(0.0);
   var rb = vec4u(0u);
@@ -7450,11 +7549,25 @@ fn listMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
           ra = vec4f(d, sp.px * footprint, footprint);
           rb = vec4u(bitcast<vec3u>(sp.col), (sp.shape & 255u) | select(0u, 256u, p.kind >= FIRST_LIFE));
           small = atomicAdd(&smallN, 1u);
-        } else if (sp.px < view.interiorFrom && sp.anim.novel <= 0.0) {
-          // (as cellColor's interiorLOD and pointColor's sparkle find it: the lean pipeline, INTERIOR false)
-          lean = atomicAdd(&leanN, 1u);
-        } else {
+        } else if (sp.anim.born) {
+          // (a newborn budding draws the neck to its mother, whole: the full pipeline)
           big = atomicAdd(&quadN, 1u);
+        } else {
+          // no neck to draw: matter, or tissue (cellColor's tile.x over a half, as vsPoint finds it among its kin)
+          var neckless = p.kind < FIRST_LIFE;
+          if (!neckless) {
+            let g = genomes[p.kind];
+            neckless = g.adhesion > ${f(DEFAULT_K.adhMin)} && (g.adhesion - view.tightFrom) / view.tightSpan > 0.5;
+          }
+          // insides from interiorLOD's 12 pixels (and a new species' sparkle); below, the plain pipeline, no neck
+          // wider than a pixel (NECKS); with insides left out (interiorFrom past every cell) tissue's too
+          if (sp.px >= view.interiorFrom || sp.anim.novel > 0.0) {
+            if (neckless) { bare = atomicAdd(&bareN, 1u); } else { big = atomicAdd(&quadN, 1u); }
+          } else if (sp.px < 12.0 || neckless) {
+            lean = atomicAdd(&leanN, 1u);
+          } else {
+            big = atomicAdd(&quadN, 1u);
+          }
         }
       }
     }
@@ -7463,13 +7576,17 @@ fn listMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
   if (l == 0u) {
     quadBase = atomicAdd(&quadW[1], atomicLoad(&quadN));
     leanBase = atomicAdd(&quadW[5], atomicLoad(&leanN));
+    bareBase = atomicAdd(&quadW[9], atomicLoad(&bareN));
     smallBase = atomicAdd(&smallArgs[1], atomicLoad(&smallN));
   }
   let qb = workgroupUniformLoad(&quadBase);
   let lb = workgroupUniformLoad(&leanBase);
+  let bb = workgroupUniformLoad(&bareBase);
   let sb = workgroupUniformLoad(&smallBase);
-  if (big != NONE) { atomicStore(&quadW[8u + qb + big], i); }
-  if (lean != NONE) { atomicStore(&quadW[arrayLength(&quadW) - 1u - (lb + lean)], i); }
+  let n = (arrayLength(&quadW) - QUAD_HEAD) / 2u;
+  if (big != NONE) { atomicStore(&quadW[QUAD_HEAD + qb + big], i); }
+  if (bare != NONE) { atomicStore(&quadW[QUAD_HEAD + n - 1u - (bb + bare)], i); }
+  if (lean != NONE) { atomicStore(&quadW[QUAD_HEAD + n + lb + lean], i); }
   if (small != NONE) { smallW[2u * (sb + small)] = bitcast<vec4u>(ra); smallW[2u * (sb + small) + 1u] = rb; }
 }
 struct SmallPO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) col: vec3f, @location(2) @interpolate(flat) shape: u32 };
@@ -7616,7 +7733,7 @@ struct PO {
     shape = choosePlan(g, select(roleOf(p.info), gh.role, ghost));
     // the plan, and in the bits above it the kind it is drawn as
     o.shape = shape | (k << 8u);
-    let species = vec2f(renderHash(g.serial ^ g.sig[0].y), renderHash(g.serial ^ g.sig[1].x ^ 917u));
+    let species = morphOf(g);
     o.morph = species;
     o.jelly.y = pace;
     o.geom.y = bodyArea(shape, species);
@@ -7637,7 +7754,7 @@ struct PO {
       var used = 0u;
       var picked = vec2u(NONE);
       // (only from 6 px, where fsPoint starts drawing the fused neck)
-      for (var c = 0u; c < 6u && used < 3u && px >= 6.0; c++) {
+      for (var c = 0u; c < 6u && used < 3u && px >= 6.0 && NECKS; c++) {
         var index = NONE;
         if (c < 2u) { index = select(it.z, it.w, c == 1u); }
         else if (c - 2u < inN) { index = bondsIn[ii * 5u + c - 1u]; }
@@ -7661,7 +7778,7 @@ struct PO {
       // A newborn and the cell it buds from are joined by a wide neck that pinches off as it grows:
       // the newborn to the nearest of its kind it touches, as contactGather placed it, and a cell to any
       // newborn of its kind touching it.
-      for (var c = 0u; c < 6u && used < 3u && px >= 6.0; c++) {
+      for (var c = 0u; c < 6u && used < 3u && px >= 6.0 && NECKS; c++) {
         let index = touch[ii * 6u + c];
         if (index == NONE) { break; }
         if (index >= arrayLength(&parts) || index == picked.x || index == picked.y) { continue; }
@@ -7769,7 +7886,7 @@ fn soloCell(p: Particle, ii: u32) -> PO {
   o.col = unpack4x8unorm(p.col).rgb * (0.35 + 0.65 * clamp(p.energy / max(g.reproE, 0.01), 0.0, 1.4)) * view.pointGain;
   o.shape = plan | (p.kind << 8u);
   o.index = ii;
-  let species = vec2f(renderHash(g.serial ^ g.sig[0].y), renderHash(g.serial ^ g.sig[1].x ^ 917u));
+  let species = morphOf(g);
   o.morph = species;
   o.geom = vec4f(soloPx(g, p.info), bodyArea(plan, species), dirz(p.vel));
   o.jelly = vec3f(1.0, 0.0, 0.0);
@@ -7955,6 +8072,8 @@ fn ghostColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
 }
 // A living cell (or a dead one's ghost, fx.y > 0) resolved: its outline fused with its partners and
 // pressed flat against its neighbors, its interior and its hairs and tail.
+// a soft bump for the insides' gaussians, exp(-x²) as near as a cheap polynomial gets (1 at 0, gone past 1.5)
+fn insideBump(x: f32) -> f32 { let t = max(0.0, 1.0 - x * x * 0.4444); return t * t; }
 fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
   let lod = detailLOD(min(i.geom.x, view.pointSize));
   let seed = renderHash(p.id);
@@ -7994,38 +8113,32 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
       let along = dot(own, axis);
       own = (own - axis * along) * exp(-squashed) + axis * along * exp(squashed);
     }
-    // A tissue cell fills out toward the walls it shares with its kin, and only there: facing open water
-    // it keeps its own shape. The fill grows as a neighbor presses closer, so nothing pops.
+    // Its contacts, read once (each was read three times before: the fill, the reach, the planes): the nearest
+    // contact plane at this pixel (its level and softness: the planes only ever cut, and where two meet the crease is
+    // the nearer's alone), and how far a tissue cell fills out toward its kin. A tissue cell fills out toward the
+    // walls it shares with its kin, and only there: facing open water it keeps its own shape. The fill grows as a
+    // neighbor presses closer, so nothing pops.
     var fill = 0.0;
-    if (i.tile.x > 0.0) {
-      let toward = own / max(length(own), 1e-4);
-      for (var c = 0u; c < 6u; c++) {
-        let foot = unpack2x16float(select(i.contact2[c % 3u], i.contact[c % 3u], c < 3u));
-        let t = length(foot);
-        if (t <= 0.0) { break; }
-        if (t >= 4.0) { continue; }
-        let facing = dot(toward, foot / t);
-        fill = max(fill, smoothstep(0.15, 0.75, facing) * smoothstep(1.15, 0.8, t));
-      }
+    var plane = -1e9;
+    var planeSoft = 0.05;
+    var cuts = 0.0;
+    let toward = own / max(length(own), 1e-4);
+    for (var c = 0u; c < 6u; c++) {
+      let foot = unpack2x16float(select(i.contact2[c % 3u], i.contact[c % 3u], c < 3u));
+      let t = length(foot);
+      if (t <= 0.0) { break; }
+      let normal = foot / t;
+      let kin = t < 4.0;
+      let level = dot(i.uv, normal) - select(t - 4.0, t, kin);
+      if (level > plane) { plane = level; planeSoft = select(0.16, 0.05, kin); }
+      cuts += 1.0;
+      if (kin && i.tile.x > 0.0) { fill = max(fill, smoothstep(0.15, 0.75, dot(toward, normal)) * smoothstep(1.15, 0.8, t)); }
     }
     // Without the interior (INTERIOR false) a pixel's light is its coverage alone, and a pixel deep enough inside its
     // own outline is covered whatever its partners and contact planes make of it: the partners only widen the outline
-    // (a smooth union) and the planes (each cut, a max, then a soft bump of at most a quarter of its softness, 0.04)
-    // only as far as they reach. Bounding the planes' reach from their feet (the seam's wander at most 0.09), such a
-    // pixel skips its partners' outlines and the seam's noise.
-    var reach = -1e9;
-    var cuts = 0.0;
-    if (!INTERIOR) {
-      for (var c = 0u; c < 6u; c++) {
-        let foot = unpack2x16float(select(i.contact2[c % 3u], i.contact[c % 3u], c < 3u));
-        var t = length(foot);
-        if (t <= 0.0) { break; }
-        let kin = t < 4.0;
-        t -= select(4.0, 0.0, kin);
-        reach = max(reach, dot(i.uv, foot / length(foot)) - t + 0.09);
-        cuts += 1.0;
-      }
-    }
+    // (a smooth union) and the plane (a cut, a max, then a soft bump of at most a quarter of its softness, 0.04) only
+    // as far as it reaches (the seam's wander at most 0.09): such a pixel skips its partners' outlines and the seam.
+    let reach = plane + 0.09;
     var whole = false;
     for (var j = 0u; j < 4u; j++) {
       var uv = own;
@@ -8036,6 +8149,7 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
       var ratio = 1.0;
       var flags = 0u;
       if (j > 0u) {
+        if (!NECKS) { break; }
         if (!INTERIOR && j == 1u) { whole = max(membraneSD, reach) + 0.04 * cuts < -aa; }
         if (whole) { break; }
         // a tile of tissue meets its partners at a shared wall, not a neck
@@ -8061,7 +8175,7 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
         cellSeed = select(unpack2x16unorm(i.bondSeeds.x)[min(j - 1u, 1u)], f32(i.bondSeeds.y >> 16u) / 65535.0, j == 3u);
         plan = flags;
       }
-      let outline = cellOutline(uv, dir, radius, cellSeed, plan,
+      let outline = cellOutline(uv, dir, radius, cellSeed, plan, kind,
         vec4f(g.swim, g.pulse, g.calcify, g.dFlesh), s, pace, bend, vec2f(still, sleep));
       if (j == 0u) {
         var osd = outline.sd;
@@ -8100,30 +8214,20 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
     }
     // Flattened against the cells it presses on: a soft intersection with each contact plane. The
     // seam wanders a little, as pressed membranes do; the wander is taken in the world, so the two
-    // cells on either side of a seam agree on it. It is found only for a plane that can reach the
-    // pixel (the wander is at most 0.09).
+    // cells on either side of a seam agree on it. It is found only where the nearest plane can reach the
+    // pixel (the wander is at most 0.09). It fades in from 12 pixels, where it is under a pixel.
     var pressed = -1.0;
-    var wander = 0.0;
-    var wandered = false;
-    for (var c = 0u; c < select(6u, 0u, whole); c++) {
-      let foot = unpack2x16float(select(i.contact2[c % 3u], i.contact[c % 3u], c < 3u));
-      var t = length(foot);
-      if (t <= 0.0) { break; }
-      let kin = t < 4.0;
-      let soft = select(0.16, 0.05, kin);
-      let normal = foot / t;
-      t -= select(4.0, 0.0, kin);
-      let level = dot(i.uv, normal) - t;
-      if (level + 0.09 < min(sd - soft, -0.15)) { continue; }
-      if (!wandered) {
+    let wanders = smoothstep(12.0, 24.0, i.geom.x);
+    if (!whole && plane + 0.09 >= min(sd - planeSoft, -0.15)) {
+      var wander = 0.0;
+      if (wanders > 0.0) {
         let seamAt = (p.pos + i.uv * i.geom.x / view.ppu) * (6.0 / view.linkR);
-        wander = 0.06 * cellGrain(seamAt, 0u) + 0.03 * cellGrain(seamAt * 2.7, 1u);
-        wandered = true;
+        wander = (0.06 * cellGrain(seamAt, 0u) + 0.03 * cellGrain(seamAt * 2.7, 1u)) * wanders;
       }
-      let plane = level + wander;
-      pressed = max(pressed, plane);
-      let h = max(soft - abs(sd - plane), 0.0) / soft;
-      sd = max(sd, plane) + h * h * soft * 0.25;
+      let cutAt = plane + wander;
+      pressed = max(pressed, cutAt);
+      let h = max(planeSoft - abs(sd - cutAt), 0.0) / planeSoft;
+      sd = max(sd, cutAt) + h * h * planeSoft * 0.25;
     }
     let body = 1.0 - smoothstep(-aa, aa, sd);
     // The outline's outward direction on screen, before any pixel leaves: a soft dome lit from the
@@ -8146,112 +8250,60 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
     // that same normalized light, so there is no bright jump when the nucleus appears.
     var tissue = 1.0;
     var hue = vec3f(1.0);
+    // The insides: a cosmetic layer of light over the cell, kept cheap (an M1 drew a view of tissue at 300 pixels a unit
+    // in 21 ms with the insides of before, value noise and twelve organelles a pixel, 15 without any: docs/performance.md,
+    // 2026-11-13). Soft bumps (insideBump) for gaussians, sines of the cell's seed for noise, four organelles close up.
     if (INTERIOR && inside > 0.0 && body > 0.0) {
-      let a = atan2z(q.y, q.x);
-      let r = length(q);
-      let age = clamp(p.age / max(g.lifespan, 1.0), 0.0, 1.0);
-      let wallWidth = 0.025 + 0.008 * sin(a * 3.0 + seed * 13.0) + 0.03 * sleep;
-      let rim = exp(-sqr((sd + 0.025 + 0.02 * sleep) / (wallWidth + aa)));
-      let innerRim = exp(-sqr((sd + 0.10 + 0.04 * sleep) / (0.07 + aa)));
+      // the wall, bright, and the cortex just inside it, darker
+      let rim = insideBump((sd + 0.025 + 0.02 * sleep) / (0.025 + 0.03 * sleep + aa));
+      let innerRim = insideBump((sd + 0.10 + 0.04 * sleep) / (0.07 + aa));
       var detail = (0.44 + g.calcify * 0.12 + 0.2 * sleep) * rim - 0.21 * innerRim;
-      // cytoplasm is never an even fill: it is mottled, thicker in places (the difference of two
-      // fields, so a cell's light is unchanged on average), and stained here and there by what the
-      // cell has eaten or stored
-      detail += 0.12 * (cellGrain(q * 8.0, p.id) - cellGrain(q * 8.0 + 31.7, p.id + 3u));
-      hue = mix(vec3f(1.0), vec3f(1.25, 1.0, 0.65), inside * smoothstep(0.1, 0.6, cellGrain(q * 3.0 + 5.0, p.id + 13u)));
-      // relief: the dome near the membrane, then each organelle's own bulge or hollow
-      // kept to the membrane's own band, clear of the outline's medial axis in narrow arms
+      // mottled cytoplasm (light unchanged on average) and a warm stain where it stores or digests, each cell its own
+      let ph = seed * vec4f(40.0, 23.0, 61.0, 17.0);
+      detail += 0.06 * (sin(q.x * 9.0 + ph.x) * sin(q.y * 8.0 + ph.y) + sin((q.x - q.y) * 13.0 + ph.z));
+      let stain = sin(q.x * 3.1 + ph.w) * sin(q.y * 2.7 + ph.y) + 0.4 * sin((q.x + q.y) * 4.3 + ph.x);
+      hue = mix(vec3f(1.0), vec3f(1.25, 1.0, 0.65), inside * smoothstep(0.35, 0.95, stain));
+      // relief: the dome near the membrane, then the nucleus's and each organelle's bulge or hollow
       var relief = 0.45 * dot(outward, TO_LIGHT) * (1.0 - smoothstep(0.0, 0.13, -sd));
+      // the nucleus, pinching in two as the cell nears division
       let division = smoothstep(0.55, 1.0, i.neck.w);
       var center = vec2f((s.x - 0.5) * 0.22, (seed - 0.5) * 0.26);
       if (myPlan == 8u) { center = vec2f(-0.43, -0.06); }
       if (myPlan == 3u) { center = vec2f(-0.35, 0.02); }
       if (myPlan == 9u) { center = vec2f(0.2, 0.0); }
       let nq = q - center;
-      let nr = length(vec2f(abs(nq.x) - division * 0.17, nq.y + 0.03 * sin(nq.x * 15.0 + seed))
-        / vec2f(0.17 + division * 0.04, 0.21 - division * 0.055));
-      relief += 0.3 * exp(-sqr((nr - 0.8) / 0.3)) * dot(nq / max(length(nq), 1e-4), lightQ);
-      detail += -0.34 * (1.0 - smoothstep(0.75, 1.0 + aa * 3.0, nr))
-        + 0.22 * exp(-sqr((nr - 1.0) / (0.16 + aa)));
-      let plates = sin(q.x * (8.0 + s.x * 6.0) + sin(q.y * 5.0 + s.y * 3.0));
-      detail += g.calcify * 0.12 * plates * smoothstep(0.2, 0.6, r);
-      if (myPlan == 4u) {
-        let girdle = q.y + 0.10 * sin(q.x * 5.0 + s.y);
-        detail -= 0.30 * exp(-sqr(girdle / (0.035 + aa)));
-      }
-      if (myPlan == 5u) {
-        detail += 0.13 * sin(q.y * 29.0 + q.x * 10.0 + 1.2 * sin(q.x * 4.0)) * fine;
-        detail += 0.40 * exp(-dot(q - vec2f(0.5, -0.12), q - vec2f(0.5, -0.12)) * 350.0);
-      }
-      if (myPlan == 6u || myPlan == 9u) {
-        detail -= 0.25 * exp(-sqr((q.y - 0.18 - 0.12 * sin(q.x * 4.0)) / (0.045 + aa)));
-      }
-      if (myPlan == 7u) {
-        let whorl = sin(atan2z(q.y, q.x) * 2.0 - r * 18.0 + s.y);
-        detail -= 0.24 * exp(-whorl * whorl * 35.0) * smoothstep(0.1, 0.3, r);
-      }
-      if (myPlan == 11u) {
-        let lattice = sin(q.x * 26.0 + q.y * 12.0) * sin(q.y * 23.0 - q.x * 8.0);
-        detail += 0.23 * lattice * fine;
-      }
-      // Fine structure is genuinely skipped at small and mid zoom, not merely faded.
+      let nr = length(vec2f(abs(nq.x) - division * 0.17, nq.y) / vec2f(0.17 + division * 0.04, 0.21 - division * 0.055));
+      relief += 0.3 * insideBump((nr - 0.8) / 0.3) * dot(nq, lightQ) / max(length(nq), 1e-4);
+      detail += -0.34 * (1.0 - smoothstep(0.75, 1.0 + aa * 3.0, nr)) + 0.22 * insideBump((nr - 1.0) / (0.16 + aa));
+      // a calcified cell's plates
+      if (g.calcify > 0.05) { detail += g.calcify * 0.12 * sin(q.x * (8.0 + s.x * 6.0) + sin(q.y * 5.0 + s.y * 3.0)) * smoothstep(0.2, 0.6, length(q)); }
+      // close up: four organelles in the species' own scatter (organDirs), chloroplasts as much as it photosynthesizes,
+      // vacuoles as much as it eats
       if (fine > 0.0) {
-        detail += 0.08 * cellGrain(q * 60.0, p.id) * (0.25 + age) * fine;
-        for (var j = 0u; j < ORGANS; j++) {
-          let h = renderHash(p.id + j * 1999u + 71u);
-          // the species' own scatter direction for this organelle (organDirs, INBOND_WGSL)
-          let dir = unpack2x16snorm(organDir[p.kind * ORGANS + j]);
-          // Irregular scatter is clipped by the tissue for holes, horns and chain cells.
-          var organCenter = dir * (0.22 + h * 0.51);
-          if (myPlan == 3u) {
-            organCenter = vec2f(select(-0.39, 0.39, j % 2u == 0u), 0.0)
-              + dir * (0.12 + h * 0.18);
-          } else if (myPlan == 5u || myPlan == 6u || myPlan == 11u) {
-            let x = (h - 0.5) * 1.45;
-            organCenter = vec2f(x, dir.y * (0.30 - abs(x) * 0.22));
-          } else if (myPlan == 7u) {
-            let t = f32(j % 6u) / 5.0;
-            let chamberAngle = t * 5.3 + s.y * 0.7;
-            organCenter = vec2f(cos(chamberAngle), sin(chamberAngle)) * (0.12 + t * 0.36)
-              + dir * h * 0.14;
-          } else if (myPlan == 8u) {
-            organCenter = vec2f(0.16 + s.x * 0.30, 0.09)
-              + dir * (0.51 + h * 0.07);
-          } else if (myPlan == 9u) {
-            organCenter = vec2f(0.2, 0.0) + dir * h * 0.39;
-          } else if (myPlan == 10u) {
-            let x = (f32(j % 4u) - 1.5) * 0.40;
-            organCenter = vec2f(x, 0.14 * sin(x * 5.0 + s.y * 5.0))
-              + dir * h * 0.13;
-          }
-          let oq = q - organCenter;
-          let photo = smoothstep(f32(j), f32(j) + 1.0, clamp(g.photo, 0.0, 1.0) * 12.0);
-          let eat = (1.0 - g.photo * 0.65) * clamp(g.dGlint + g.dHusk + g.dFlesh, 0.0, 1.0);
-          let stored = smoothstep(h - 0.05, h + 0.05, eat * 0.7);
-          // neither a chloroplast nor a vacuole here, or this pixel is beyond either's reach
-          if ((photo <= 0.0 && stored <= 0.0) || dot(oq, oq) > 0.36 * 0.36) { continue; }
-          let chl = length(oq * vec2f(1.0, 1.5 + h));
-          let oDir = dot(oq / max(length(oq), 1e-4), lightQ);
-          relief += photo * 0.35 * exp(-sqr((chl - 0.05) / 0.03)) * oDir * fine;
-          detail += photo * (-0.35 * (1.0 - smoothstep(0.04, 0.07 + aa, chl))
-            + 0.12 * exp(-sqr((chl - 0.085) / (0.012 + aa)))) * fine;
-          let vr = length(oq + vec2f(0.04, 0.05));
-          // vacuoles are hollows: shadowed on the side toward the light
-          relief -= stored * fine * 0.3 * exp(-sqr((vr - 0.05) / 0.03)) * oDir;
-          detail += stored * fine
-            * (0.18 * exp(-sqr((vr - 0.06 - h * 0.025) / (0.012 + aa)))
-              - 0.10 * (1.0 - smoothstep(0.03, 0.06 + aa, vr)));
+        let photo = clamp(g.photo, 0.0, 1.0);
+        let eat = (1.0 - g.photo * 0.65) * clamp(g.dGlint + g.dHusk + g.dFlesh, 0.0, 1.0);
+        for (var j = 0u; j < 4u; j++) {
+          let h = fract(seed * (7.0 + f32(j) * 13.0));
+          let oq = q - unpack2x16snorm(organDir[p.kind * ORGANS + j]) * (0.22 + h * 0.45);
+          let d2 = dot(oq, oq);
+          if (d2 > 0.11 * 0.11) { continue; }
+          let o = sqrt(d2);
+          let oDir = dot(oq, lightQ) / max(o, 1e-4);
+          let chl = smoothstep(f32(j) * 0.25, f32(j) * 0.25 + 0.25, photo);
+          let vac = smoothstep(h - 0.05, h + 0.05, eat * 0.7) * (1.0 - chl);
+          relief += fine * (0.35 * chl - 0.3 * vac) * insideBump((o - 0.05) / 0.03) * oDir;
+          detail += fine * (chl * (-0.3 * (1.0 - smoothstep(0.04, 0.07 + aa, o)) + 0.12 * insideBump((o - 0.085) / (0.012 + aa)))
+            + vac * (0.18 * insideBump((o - 0.065) / (0.012 + aa)) - 0.10 * (1.0 - smoothstep(0.03, 0.06 + aa, o))));
         }
       }
-      // a dying cell's insides lose their structure
       // a meal just taken: a food vacuole, pinched in at the front, drifting inward as it is digested
       if (i.tile.y < DIGEST_T) {
         let u = i.tile.y / DIGEST_T;
         let vc = q - mix(vec2f(0.5, 0.0), vec2f(-0.05, 0.12 * (seed - 0.5)), 1.0 - (1.0 - u) * (1.0 - u));
         let vr = length(vc) / (0.15 * (1.0 - 0.45 * u));
         let show = smoothstep(0.0, 0.08, i.tile.y) * (1.0 - smoothstep(0.55, 1.0, u));
-        detail += show * (0.3 * exp(-sqr((vr - 1.0) / 0.25)) - 0.15 * (1.0 - smoothstep(0.6, 1.0, vr)));
-        relief -= show * 0.25 * exp(-sqr((vr - 0.9) / 0.3)) * dot(vc / max(length(vc), 1e-4), lightQ);
+        detail += show * (0.3 * insideBump((vr - 1.0) / 0.25) - 0.15 * (1.0 - smoothstep(0.6, 1.0, vr)));
+        relief -= show * 0.25 * insideBump((vr - 0.9) / 0.3) * dot(vc, lightQ) / max(length(vc), 1e-4);
         hue = mix(hue, vec3f(1.3, 1.05, 0.7), show * (1.0 - smoothstep(0.5, 1.0, vr)) * 0.6);
       }
       // its membrane fresh and bright
@@ -17154,6 +17206,10 @@ struct SV {
   var mix3 = (a, b, t) => a + (b - a) * t;
   var SIM_STRIDE = 1024;
   var SPLAT_PX = 1.6;
+  var QUAD_HEAD = 12;
+  var SHAPE_TILE = 64;
+  var SHAPE_COLS = 32;
+  var SHAPE_CAP = 16;
   var MAX_STEPS = 512;
   async function createEngine(device, format, { hasTimestamps = false, K = {}, onProgress = null, late = false } = {}) {
     const unknown = Object.keys(K).filter((k) => !(k in DEFAULT_K));
@@ -17428,6 +17484,12 @@ struct SV {
       this.cpInbond = ["inbondReset", "inbondGather", "contactGather"].map((entryPoint) => cPipe({ layout: "auto", compute: { module: inbond, entryPoint }, label: entryPoint }));
       this.cpOrgans = cPipe({ layout: "auto", compute: { module: inbond, entryPoint: "organDirs" }, label: "organDirs" });
       b.organDir = d.createBuffer({ size: MAXK * ORGANS * 4, usage: U.STORAGE });
+      this.shapeTex = d.createTexture({ size: [SHAPE_TILE * SHAPE_COLS, SHAPE_TILE * Math.ceil(MAXK / SHAPE_COLS)], format: "rgba8snorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING, label: "shapes" });
+      this.shapePlansTex = d.createTexture({ size: [SHAPE_COLS, Math.ceil(MAXK / SHAPE_COLS)], format: "r32uint", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING, label: "shapePlans" });
+      this.shapeSampler = d.createSampler({ magFilter: "linear", minFilter: "linear" });
+      b.shapeList = d.createBuffer({ size: (2 + MAXK) * 4, usage: U.STORAGE | U.COPY_DST });
+      b.shapeBaked = d.createBuffer({ size: MAXK * 4, usage: U.STORAGE | U.COPY_DST });
+      this._shapeGen = -1;
       b.tubeParts = d.createBuffer({ size: TUBE_N * P_BYTES, usage: U.STORAGE | U.COPY_DST });
       b.tubeGenomes = d.createBuffer({ size: (FIRST_LIFE + TUBE_K) * G_BYTES, usage: U.STORAGE | U.COPY_DST });
       b.tubeOrgans = d.createBuffer({ size: (FIRST_LIFE + TUBE_K) * ORGANS * 4, usage: U.STORAGE });
@@ -17606,20 +17668,28 @@ struct SV {
         }),
         splat: rpLive(this.drawModule, "vsFade", "fsSplat", "triangle-list", trail, true),
         small: rpLive(this.drawModule, "vsPointSmall", "fsPointSmall", "triangle-strip", trail, true),
-        // cells too small for their insides, not sparkling (listMain lists them; INTERIOR in DRAW_WGSL)
+        // the cells listMain finds with insides and no neck to draw (tissue; NECKS in DRAW_WGSL)
+        pointBare: defer(rpLiveDesc(this.drawModule, "vsPoint", "fsPointLive", "triangle-strip", trail, true, { NECKS: 0 }), false, (p2) => {
+          this.main.pointBare = p2;
+        }),
+        // cells without their insides: until the full pipelines land, and with insides left out (fx.interiors)
         pointLean: rpLive(this.drawModule, "vsPoint", "fsPointLive", "triangle-strip", trail, true, { INTERIOR: 0 }),
+        // the cells listMain finds too small for insides or necks, not budding or sparkling (INTERIOR, NECKS)
+        pointPlain: rpLive(this.drawModule, "vsPoint", "fsPointLive", "triangle-strip", trail, true, { INTERIOR: 0, NECKS: 0 }),
         line: rpLive(this.drawModule, "vsLine", "fsLine", "line-list", trail, false),
         bridge: defer(rpLiveDesc(this.drawModule, "vsBridge", "fsBridge", "triangle-strip", trail, false), false, (p2) => {
           this.main.bridge = p2;
         }),
         reproj: rpLive(this.postModule, "vsFull", "fsReproj", "triangle-list", void 0, false),
-        tube: defer(rpLiveDesc(this.drawModule, "vsTube", "fsTubeLive", "triangle-strip", trail, true), false, (p2) => {
+        tube: defer(rpLiveDesc(this.drawModule, "vsTube", "fsTubeLive", "triangle-strip", trail, true, { SHAPE_ATLAS: 0 }), false, (p2) => {
           this.main.tube = p2;
         })
       };
-      this.pStudio = defer({ ...rpLiveDesc(this.drawModule, "vsStudio", "fsPoint", "triangle-strip", additive, false), label: "fsPoint" }, false, (p2) => {
+      this.pStudio = defer({ ...rpLiveDesc(this.drawModule, "vsStudio", "fsPoint", "triangle-strip", additive, false, { SHAPE_ATLAS: 0 }), label: "fsPoint" }, false, (p2) => {
         this.pStudio = p2;
       });
+      this.cpShapeDirty = cPipe({ layout: "auto", compute: { module: this.drawModule, entryPoint: "shapeDirty" }, label: "shapeDirty" });
+      this.cpShapeBake = cPipe({ layout: "auto", compute: { module: this.drawModule, entryPoint: "shapeBake" }, label: "shapeBake" });
       b.holdU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
       this.pHold = rp(this.postModule, "vsFull", "fsReproj", "triangle-list", void 0, format);
       const glassMod = shader({ code: GLASS_WGSL, label: "glass" });
@@ -17751,11 +17821,14 @@ ${e.message}` : String(e?.message || e));
         if (this.main.point && !this.sceneBG[0].point) this.sceneBG.forEach((s, k) => {
           s.point = mk.pointBG(views[k], k, this.main.point);
         });
+        if (this.main.pointBare && !this.sceneBG[0].pointBare) this.sceneBG.forEach((s, k) => {
+          s.pointBare = mk.pointBG(views[k], k, this.main.pointBare);
+        });
         if (this.main.bridge && !this.sceneBG[0].bridge) this.sceneBG.forEach((s, k) => {
           s.bridge = mk.lineBG(this.main.bridge, views[k], k, true);
         });
-        if (this.main.tube && !this.tubeBG) this.tubeBG = mk.bufs(this.main.tube, [[0, b.view], [1, b.tubeParts], [2, b.tubeGenomes], [10, b.tubeOrgans]]);
-        if (this.pStudio && !this.studioBG) this.studioBG = mk.bufs(this.pStudio, [[0, b.viewS], [1, b.studioParts], [2, b.studioGenomes], [10, b.studioOrgans]]);
+        if (this.main.tube && !this.tubeBG) this.tubeBG = mk.bufs(this.main.tube, [[0, b.view], [1, b.tubeParts], [2, b.tubeGenomes], [10, b.tubeOrgans]], this._shapeEntries());
+        if (this.pStudio && !this.studioBG) this.studioBG = mk.bufs(this.pStudio, [[0, b.viewS], [1, b.studioParts], [2, b.studioGenomes], [10, b.studioOrgans]], this._shapeEntries());
       }
     }
     /** Clear the bond table, bodyTick's marks with it (scatterMain fills the bonds afresh each step). */
@@ -17814,7 +17887,7 @@ ${e.message}` : String(e?.message || e));
       b.stoneList = d.createBuffer({ size: n * 4, usage: U.STORAGE });
       b.ledger = d.createBuffer({ size: (META_CLAIM + n + SPL_WORDS + HAND_WORDS + NOTE_WORDS + 2 * MAX_CELLS + 4 + 2 * TILES) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
       b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
-      b.quads = d.createBuffer({ size: (8 + n) * 4, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
+      b.quads = d.createBuffer({ size: (QUAD_HEAD + 2 * n) * 4, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
       b.smallArgs = d.createBuffer({ size: 16, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
       b.small = d.createBuffer({ size: n * 32, usage: U.STORAGE });
       const res = {
@@ -17921,7 +17994,19 @@ ${e.message}` : String(e?.message || e));
         { binding: 10, resource: { buffer: b.organDir } },
         { binding: 11, resource: { buffer: b.thermal } },
         { binding: 12, resource: { buffer: this.cull[k].segs } },
-        { binding: 16, resource: { buffer: b.quads } }
+        { binding: 16, resource: { buffer: b.quads } },
+        ...this._shapeEntries()
+      ] });
+      this.shapeDirtyBG = d.createBindGroup({ layout: this.cpShapeDirty.getBindGroupLayout(0), entries: [
+        { binding: 2, resource: { buffer: b.genomes } },
+        { binding: 26, resource: { buffer: b.shapeList } },
+        { binding: 27, resource: { buffer: b.shapeBaked } }
+      ] });
+      this.shapeBakeBG = d.createBindGroup({ layout: this.cpShapeBake.getBindGroupLayout(0), entries: [
+        { binding: 2, resource: { buffer: b.genomes } },
+        { binding: 26, resource: { buffer: b.shapeList } },
+        { binding: 24, resource: this.shapeTex.createView() },
+        { binding: 25, resource: this.shapePlansTex.createView() }
       ] });
       this.organsBG = d.createBindGroup({ layout: this.cpOrgans.getBindGroupLayout(0), entries: [
         { binding: 7, resource: { buffer: b.genomes } },
@@ -17952,8 +18037,8 @@ ${e.message}` : String(e?.message || e));
         { binding: 11, resource: { buffer: b.thermal } },
         { binding: 12, resource: { buffer: this.cull[k].segs } }
       ] });
-      this.sceneBG = [b.view, b.viewL, b.viewS].map((view, k) => ({ point: null, pointLean: pointBG(view, k, this.main.pointLean), line: lineBG(this.main.line, view, k), bridge: null }));
-      const bufs = (pipe2, list) => d.createBindGroup({ layout: pipe2.getBindGroupLayout(0), entries: list.map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
+      this.sceneBG = [b.view, b.viewL, b.viewS].map((view, k) => ({ point: null, pointBare: null, pointLean: pointBG(view, k, this.main.pointLean), pointPlain: pointBG(view, k, this.main.pointPlain), line: lineBG(this.main.line, view, k), bridge: null }));
+      const bufs = (pipe2, list, more = []) => d.createBindGroup({ layout: pipe2.getBindGroupLayout(0), entries: [...list.map(([binding, buffer]) => ({ binding, resource: { buffer } })), ...more] });
       this.tubeOrgansBG = bufs(this.cpOrgans, [[7, b.tubeGenomes], [9, b.tubeOrgans]]);
       this.studioOrgansBG = bufs(this.cpOrgans, [[7, b.studioGenomes], [9, b.studioOrgans]]);
       this._mk = { pointBG, lineBG, bufs };
@@ -20039,6 +20124,34 @@ ${e.message}` : String(e?.message || e));
         st.busy = false;
       });
     }
+    // the shape atlas's bindings in every pipeline that draws cells (DRAW_WGSL)
+    _shapeEntries() {
+      return [
+        { binding: 21, resource: this.shapeTex.createView() },
+        { binding: 22, resource: this.shapeSampler },
+        { binding: 23, resource: this.shapePlansTex.createView() }
+      ];
+    }
+    // Bakes the shapes of the species slots whose genome changed since they were baked (shapeDirty, shapeBake): a few
+    // a frame, every one for a new world
+    _shapes(enc) {
+      const d = this.device, b = this.b;
+      const fresh = this._shapeGen !== this.worldGeneration;
+      if (fresh) {
+        this._shapeGen = this.worldGeneration;
+        enc.clearBuffer(b.shapeBaked);
+      }
+      const cap2 = fresh ? MAXK : SHAPE_CAP;
+      d.queue.writeBuffer(b.shapeList, 0, new Uint32Array([0, cap2]));
+      const pass = enc.beginComputePass();
+      pass.setPipeline(this.cpShapeDirty);
+      pass.setBindGroup(0, this.shapeDirtyBG);
+      pass.dispatchWorkgroups(Math.ceil(MAXK / 64));
+      pass.setPipeline(this.cpShapeBake);
+      pass.setBindGroup(0, this.shapeBakeBG);
+      pass.dispatchWorkgroups(SHAPE_TILE / 8, SHAPE_TILE / 8, cap2);
+      pass.end();
+    }
     // detail: resolve cells as they grow on screen (false keeps the distant sprite at every zoom)
     _writeView(buf, data, cam, W2, H2, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false) {
       const clk = this._clock();
@@ -20080,8 +20193,8 @@ ${e.message}` : String(e?.message || e));
       pass.end();
     }
     // A view's cells, bonds and matter (k: 0 the main view, 1 the loupe, 2 the close-up; this.main's pipelines, into the
-    // view's scene and living targets). lean: every cell without its insides (the main view's are listed by listMain,
-    // which leaves out those it should: interiorFrom)
+    // view's scene and living targets). lean: every cell without its insides. The main view's are listed by listMain
+    // (pointAt): with insides (full, or lean when left out), with insides and no neck (bare), or plain.
     _drawScene(pass, data, k, lean = false) {
       const pl = this.main, bg = this.sceneBG[k];
       const v = new Float32Array(data);
@@ -20114,10 +20227,15 @@ ${e.message}` : String(e?.message || e));
         if (quads) pass.drawIndirect(quads, 0);
         else if (culled) pass.drawIndirect(culled, 0);
         else pass.draw(4, this.count);
-        if (quads) {
-          pass.setPipeline(pl.pointLean);
-          pass.setBindGroup(0, bg.pointLean);
+        if (quads && v[22] < 0) {
+          pass.setPipeline(pl.pointPlain);
+          pass.setBindGroup(0, bg.pointPlain);
           pass.drawIndirect(quads, 16);
+          if (!lean) {
+            pass.setPipeline(pl.pointBare);
+            pass.setBindGroup(0, bg.pointBare);
+            pass.drawIndirect(quads, 32);
+          }
         }
       }
     }
@@ -20250,13 +20368,14 @@ ${e.message}` : String(e?.message || e));
         pass2.end();
       }
       this._sea(enc);
+      this._shapes(enc);
       const lod = this.settings.lod, loupeLod = !!loupe && lod, specLod = !!specimen && (lod || !specimen.live);
       const ps = Math.max(1.1 * dpr, 0.085 * cam.ppu);
       const splat = !plain && !culled[0] && this.settings.nodes && ps <= SPLAT_PX && this.count >= W2 * H2 / 4 ? SPLAT_PX : 0;
-      const listed = !plain && !splat && this.settings.nodes && !!this.sceneBG[0].point;
+      const listed = !plain && !splat && this.settings.nodes && !!this.sceneBG[0].point && !!this.sceneBG[0].pointBare;
       this._writeView(this.b.view, this.viewData, cam, W2, H2, dpr, time, selId, lod, culled[0], listed ? -1 : splat, true);
       if (listed) {
-        d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0, 4, 0, 0, 0]));
+        d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0]));
         d.queue.writeBuffer(this.b.smallArgs, 0, new Uint32Array([4, 0, 0, 0]));
         const pass2 = enc.beginComputePass({ timestampWrites: tsBegin() });
         pass2.setPipeline(this.cpList);
@@ -20351,6 +20470,11 @@ ${e.message}` : String(e?.message || e));
         u[17] = gh;
         new Float32Array(u.buffer)[18] = time;
         new Float32Array(u.buffer)[19] = this.simTime % 4096;
+        const key = `${u.subarray(0, 16).join()},${this.worldGeneration}`;
+        this._gatherOdd = !this._gatherOdd;
+        u[2] = +this._gatherOdd;
+        u[3] = key === this._gatherKey ? 1 : 0;
+        this._gatherKey = key;
         d.queue.writeBuffer(this.b.inbondU, 0, u);
         const pass2 = enc.beginComputePass({ timestampWrites: tsBegin() });
         for (let k = 0; k < 3; k++) {
@@ -20362,7 +20486,7 @@ ${e.message}` : String(e?.message || e));
         pass2.setBindGroup(0, this.organsBG);
         pass2.dispatchWorkgroups(Math.ceil(MAXK * ORGANS / 64));
         pass2.end();
-      }
+      } else this._gatherKey = null;
       {
         const clear = this.clearAccum || this.settings.trails <= 0 || !this.lastCam;
         this.clearAccum = false;
@@ -35758,7 +35882,8 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
           layout: "auto",
           primitive: { topology: "triangle-strip" },
           vertex: { module: draw, entryPoint: "vsStudio" },
-          fragment: { module: draw, entryPoint: "fsPoint", targets: [{ format: HDR, blend: { color: { srcFactor: "one", dstFactor: "one", operation: "add" }, alpha: { srcFactor: "one", dstFactor: "one", operation: "add" } } }] }
+          // (its own genomes, so its own outlines: bodySD, not the main view's shape atlas, which it binds empty)
+          fragment: { module: draw, entryPoint: "fsPoint", constants: { SHAPE_ATLAS: 0 }, targets: [{ format: HDR, blend: { color: { srcFactor: "one", dstFactor: "one", operation: "add" }, alpha: { srcFactor: "one", dstFactor: "one", operation: "add" } } }] }
         }),
         d.createRenderPipelineAsync({
           layout: "auto",
@@ -35819,8 +35944,17 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       cp.dispatchWorkgroups(Math.ceil((FIRST_LIFE + 1) * ORGANS / 64));
       cp.end();
       let pass = enc.beginRenderPass({ colorAttachments: [{ view: lit.createView(), loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" }] });
+      const none = (format) => d.createTexture({ size: [1, 1], format, usage: T2.TEXTURE_BINDING }).createView();
       pass.setPipeline(cellsP);
-      pass.setBindGroup(0, group(cellsP, [[0, b.view], [1, b.parts], [2, b.genomes], [10, b.organs]]));
+      pass.setBindGroup(0, group(cellsP, [
+        [0, b.view],
+        [1, b.parts],
+        [2, b.genomes],
+        [10, b.organs],
+        [21, none("rgba8snorm")],
+        [22, d.createSampler()],
+        [23, none("r32uint")]
+      ]));
       pass.draw(4, cells.length);
       pass.end();
       pass = enc.beginRenderPass({ colorAttachments: [{ view: out.createView(), loadOp: "clear", clearValue: [0, 0, 0, 1], storeOp: "store" }] });
@@ -36310,9 +36444,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "4f4d1410d7dfc24a") return;
+      if (localStorage.getItem(key) === "93083e8d6d2d4a7f") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "4f4d1410d7dfc24a");
+      if (res) localStorage.setItem(key, "93083e8d6d2d4a7f");
     } catch {
     }
   }
