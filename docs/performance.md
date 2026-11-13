@@ -119,7 +119,7 @@ under plain node), on a 78k world (`slow-mac-world.tidemote`, 32k living) in a 1
   planes' seams (1.0 ms).
 - **`lifeMain` reads its genome through a pointer** (`let g = &genomes[p.kind]`): `genomes` is read_write in the
   sim, so a copy had every field the kernel uses loaded at its start and held; read where used, 5% faster (2.86 →
-  2.72 ms, coarse 4.23 → 3.99). Only on Apple's GPUs (`genomePtr`, simWGSL): on an RTX 4070 Ti in Chrome on D3D12
+  2.72 ms, coarse 4.23 → 3.99). Then only on Apple's GPUs (`genomePtr`, simWGSL; everywhere since the step's two kernels, 2026-11-13, below): on an RTX 4070 Ti in Chrome on D3D12
   the pointer made `lifeMain` 15-20% slower (step scenarios, a 1M world: 1.94 → 2.33 ms; 4M: 6.10 → 6.58; 6-tick
   coarse steps the same), so other GPUs keep the copy. The neighbor scan is three quarters of the kernel (2.4 of 3 ms
   skipped at run time); the mutation path and the hand's and stranding's paths are not where its registers peak.
@@ -442,6 +442,55 @@ Running at 1× and 60 fps after all of it: 59.1-59.7 fps at 40, 80, 150 and 300 
 ms; the step back to 2.5 ms, no longer sharing the GPU with a backlog of fragments), against 35.6-43 fps (23-28 ms)
 before. Measure on the Mac on a 61 W charger: on an 8 W one the battery ran down under load and at 7% macOS slowed
 the GPU about tenfold (a 21 ms frame read 90-100 ms, headless too).
+
+## The step in two kernels: a Pixel 3's registers (2026-11-13)
+
+On a Pixel 3 (Adreno 630) a grown 8k world (`p8`: 6360 of 8192 living) stepped in 46.6 ms, `lifeMain` 44.4 of it:
+7 µs a living cell, some 1250 times an RTX 4070 Ti's, where `contactMain` and `matterMain` are about 50 times
+slower. How it was found (`bench.mjs --android`, `kind: step`, the sim module patched from an init script):
+
+- **Not the work.** With the neighbor scan's loop never entered the kernel still took 38 ms, and with its body
+  skipped 34. Removing code that seldom or never runs changed it most: the light's slope for phototaxis (a few
+  cosines) 44 → 28 ms, `joinable` (asked in the scan) 44 → 25, the genome read through a pointer 44 → 35; savings
+  did not add up, and a kernel cut short after its scan was no faster than the whole.
+- **The register file.** `contactMain` given more accumulators to carry through its loop (the same arithmetic into
+  one accumulator as the control) took 0.85 ms with none, 1.4 with 8 vec4, 1.8 with 16, 3.6 with 24, 4.3 with 32 and
+  16.4 with 40: a slope as fewer cells fit the GPU at once, then a cliff where its registers (about 190 values)
+  run out. `lifeMain` sat past the cliff. A kernel's widest moment sets it, whatever runs: so does code never run.
+- **Two kernels** (`cellWGSL`'s parts): `senseMain` keeps a cell's bonds and scans its neighborhood, leaving what
+  it finds in `sense[]` (`senseWords`: 34 words a particle, 136 bytes); `lifeMain` does the rest from there. The
+  genome is read through a pointer everywhere, the six traits the scan reads for every neighbor held in registers;
+  `joinable` is asked at the pair's end, where less is held; the currents and the pond are read only where used;
+  a coarse step's four best foods are kept in vectors, not arrays (`pushedU`, `pushedF`: `senseMainCoarse` 10.9 →
+  5.9 ms); the two loops over the partners that keep a cell are one. The rolls after the scan are a stream of
+  their own (`s0`), the same in `mindMain`, which still runs both parts as one kernel for its one cell.
+- **Results** (ms; the Pixel 3 cool, thermal state 0-1):
+
+| | before | after |
+|---|---|---|
+| Pixel 3, `p8`, a 1/60 s step | 46.6 (`lifeMain` 44.4) | 9.3-9.5 (`senseMain` 4.2, `lifeMain` 3.2) |
+| Pixel 3, `p8`, a 2-tick step | - | 13.1 (`senseMainCoarse` 5.9, `lifeMainCoarse` 3.8, `bodyTick` 1.3) |
+| RTX 4070 Ti, 32k (25k living) | 0.276 (0.145) | 0.24 (0.081 + 0.030) |
+| RTX 4070 Ti, 262k (197k living) | 1.139 (0.695) | 0.953 (0.376 + 0.156) |
+
+  The page on the Pixel 3, adapting (`runs/night/r2`, a one-off): 29-32 fps at 80 and 150 pixels a unit at half
+  scale with cells' insides and the suspension kept (the sea too at 150), against 13.6 fps at a quarter scale with
+  everything eased before. The step is still most of its frame (12-14 ms of 24), then `contactGather` (3.8 at 80),
+  the composite (3.3 at half scale) and the sea (2.2-3.7).
+- **The sense kernel sat on a second edge**: the same build ran it in 4.6 or 8.2 ms from one page load to the next
+  (the same within a load, however often the world or the pipeline was made again), until the currents and the
+  pond (read for a coarse step's grains only) left its head: then 4.2-4.7 every load. With the matter's branch,
+  bonds, joining, hunting, budding and warmth all cut it still takes 3.7: it is now at what its visits cost
+  (about 15 ns a neighbor read, `contactMain`'s rate).
+- **`shapeBake`** ran its 65,536 invocations every frame to find nothing listed (0.6 ms on the Pixel 3): it is
+  dispatched indirectly now, by as many slots as `shapeDirty` listed (`shapeArgs`).
+- **Ecology.** The 32-seed gate reads "same" on every measure (`runs/night/gate-split`; the source changed under
+  its later seeds, so it was run again on the commit).
+- **Next on a phone**: the step's two kernels are near their floor per neighbor read, so more would take fewer
+  reads; `lifeMain`'s bonds are 1.5 of its 3.2 ms (`keepBond` reads each partner whole); `contactGather`,
+  `fsComposite` and `fsPointLive` have not been looked at for the same cliff; the emergency step-down fires on a
+  world's load in a running page (`overload`) and holds every effect off for a minute. Heat: a few minutes of
+  benchmarks took the phone to thermal state 2-3, where every pass ran about 1.5 times slower.
 
 ## Where to look next (left off 2026-11-04, branch mac-perf merged; 2026-11-12 above)
 

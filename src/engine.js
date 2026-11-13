@@ -1,5 +1,5 @@
 import {
-  simWGSL, SIM_CLOCK, EDGE_SWAY_W, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, LERP_WGSL, POST_WGSL, GLASS_WGSL, SEA_WGSL, ICE_SHOW_WGSL, ICE_SHOWN, ICE_SHOWN_ANY, SHIFT_W, SHIFT_H, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
+  simWGSL, senseWords, SIM_CLOCK, EDGE_SWAY_W, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, LERP_WGSL, POST_WGSL, GLASS_WGSL, SEA_WGSL, ICE_SHOW_WGSL, ICE_SHOWN, ICE_SHOWN_ANY, SHIFT_W, SHIFT_H, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
   MAXK, FIRST_LIFE, MAX_CELLS, THERMAL_WORDS, TILES, HEAT_WG, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, NOTE_WORDS, NOTE_WGSL, NOTE_HEAD, NOTE_REC, PIPE_MAX, PIPE_TAKE, PIPE_TAKE_W, PIPE_SP, PIPE_IDS, H_TAKEN, H_CUTS, H_RIDE, RIDE_MAX, H_IN, H_SP, H_CELLS, H_IDS, H_LINKS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES, TUBE_N, TUBE_K, STUDIO_N,
 } from './shaders.js';
 import {
@@ -83,7 +83,7 @@ export async function createEngine(device, format, { hasTimestamps = false, K = 
 // in parallel). Their rough compile costs there, in units of about 100 ms, weigh the progress shown.
 // The longest to compile, and not needed to start a world: coarse steps (fast speeds, low frame rates)
 // and the replay of a watched cell's decision.
-const COARSE_PIPES = ['lifeMainCoarse', 'bodyTick', 'bodyArgs'];
+const COARSE_PIPES = ['senseMainCoarse', 'lifeMainCoarse', 'bodyTick', 'bodyArgs'];
 const LATE = new Set([...COARSE_PIPES, 'mindMain', 'mindMainCoarse', 'rangeMain']);
 const COMPILE_COST = { lifeMain: 26, fsPoint: 15, 'fsPointLive+live': 13, fsComposite: 11, fsLoupe: 8, matterMain: 5 };
 
@@ -357,15 +357,14 @@ class Engine {
     };
     const dp4a = !!globalThis.navigator?.gpu?.wgslLanguageFeatures?.has('packed_4x8_integer_dot_product');
     // Apple's GPUs run lifeMain, register-bound, a quarter faster in workgroups of 256 than of 128 (an M1,
-    // 2026-11-04: 3.8 → 2.9 ms in a 78k world; 64 and 32 between; docs/performance.md, Apple), and 5% faster
-    // reading the cell's genome through a pointer where used (2.86 → 2.72 ms); elsewhere the copy is faster
-    // (an RTX 4070 Ti in Chrome on D3D12, a 1M world: 1.94 ms against 2.33 through the pointer)
+    // 2026-11-04: 3.8 → 2.9 ms in a 78k world; 64 and 32 between; docs/performance.md, Apple), measured on the single
+    // kernel senseMain and lifeMain were then
     const apple = d.adapterInfo?.vendor === 'apple';
     const lifeWG = apple ? 256 : 128;
     // every module made here, for compileErrors
     const shader = (desc) => { const m = d.createShaderModule(desc); this.modules.push(m); return m; };
     this.modules = [];
-    this.simModule = shader({ code: simWGSL(K, { dp4a, lifeWG, genomePtr: apple }), label: 'sim' });
+    this.simModule = shader({ code: simWGSL(K, { dp4a, lifeWG }), label: 'sim' });
     this.pickModule = shader({ code: PICK_WGSL, label: 'pick' });
     this.listenModule = shader({ code: LISTEN_WGSL, label: 'listen' });
     this.watchModule = shader({ code: WATCH_WGSL, label: 'watch' });
@@ -401,6 +400,7 @@ class Engine {
     this.shapePlansTex = d.createTexture({ size: [SHAPE_COLS, Math.ceil(MAXK / SHAPE_COLS)], format: 'r32uint', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING, label: 'shapePlans' });
     this.shapeSampler = d.createSampler({ magFilter: 'linear', minFilter: 'linear' });
     b.shapeList = d.createBuffer({ size: (2 + MAXK) * 4, usage: U.STORAGE | U.COPY_DST });
+    b.shapeArgs = d.createBuffer({ size: 12, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
     b.shapeBaked = d.createBuffer({ size: MAXK * 4, usage: U.STORAGE | U.COPY_DST });
     this._shapeGen = -1;
     // the pipette's bore drawn as cells (setTube): its own parts, genomes and organelle directions
@@ -426,7 +426,8 @@ class Engine {
       censusMain: [11, 12, 13],
       rangeMain: [0, 1, 11],
       matterMain: [0, 1, 2, 9, 10, 11, 13, 16, 18, 22],
-      lifeMain: [0, 1, 2, 3, 6, 9, 10, 11, 12, 15, 18],
+      senseMain: [0, 2, 3, 6, 10, 11, 12, 15, 18, 24],
+      lifeMain: [0, 1, 2, 9, 10, 11, 12, 15, 18, 24],
       heatMain: [0, 11, 18, 19, 22],
       mindMain: [0, 2, 3, 6, 10, 11, 15, 17, 18],
     };
@@ -443,6 +444,7 @@ class Engine {
     this.cpDefs.injectCells = [0, 1, 9, 11];
     this.cpDefs.injectBonds = [9, 11];
     // coarse steps run their own lifeMain and mindMain (COARSE in simWGSL)
+    this.cpDefs.senseMainCoarse = this.cpDefs.senseMain;
     this.cpDefs.lifeMainCoarse = this.cpDefs.lifeMain;
     this.cpDefs.mindMainCoarse = this.cpDefs.mindMain;
     this.cp = {};
@@ -732,7 +734,7 @@ class Engine {
   async allocate(n) {
     const d = this.device;
     const b = this.b;
-    const names = ['parts', 'sortedFull', 'sortedLite', 'aux', 'intent', 'bondsNow', 'bondsIn', 'touch', 'sway', 'stoneList', 'ledger', 'livingList', 'quads', 'small', 'smallArgs', 'lerpEnd', 'subL'];
+    const names = ['parts', 'sortedFull', 'sortedLite', 'aux', 'intent', 'bondsNow', 'sense', 'bondsIn', 'touch', 'sway', 'stoneList', 'ledger', 'livingList', 'quads', 'small', 'smallArgs', 'lerpEnd', 'subL'];
     for (const k of names) { b[k]?.destroy(); b[k] = null; }
     this.capacity = 0;
     this.count = 0;
@@ -749,6 +751,7 @@ class Engine {
     b.intent = d.createBuffer({ size: n * 16, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
     // (BW words a cell, then SW and a mark for the substeps: shaders.js)
     b.bondsNow = d.createBuffer({ size: n * (9 + 18 + 1) * 4, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
+    b.sense = d.createBuffer({ size: n * senseWords(this.K) * 4, usage: U.STORAGE });
     b.subL?.destroy();
     b.subL = d.createBuffer({ size: (1 + n) * 4, usage: U.STORAGE | U.COPY_DST });
     b.bondsIn = d.createBuffer({ size: n * 20, usage: U.STORAGE });
@@ -774,7 +777,7 @@ class Engine {
       8: { buffer: b.aux }, 9: { buffer: b.intent }, 10: { buffer: b.genomes }, 11: { buffer: b.ledger },
       12: { buffer: b.livingList }, 13: { buffer: b.frameCtr }, 14: { buffer: b.stoneGrid },
       15: { buffer: b.bondsNow }, 20: { buffer: b.bondsNow }, 16: { buffer: b.stoneList }, 17: { buffer: b.mind }, 18: { buffer: b.thermal }, 19: { buffer: b.heatNext },
-      22: { buffer: b.stoneGrid }, 23: { buffer: b.genomes },
+      22: { buffer: b.stoneGrid }, 23: { buffer: b.genomes }, 24: { buffer: b.sense },
       25: { buffer: b.subU, offset: 0, size: 16 }, 26: { buffer: b.subL }, 27: { buffer: b.subArgs },
     };
     this._cpRes = res;
@@ -818,7 +821,7 @@ class Engine {
       { binding: 10, resource: { buffer: b.organDir } }, { binding: 11, resource: { buffer: b.thermal } }, { binding: 12, resource: { buffer: this.cull[k].segs } },
       { binding: 16, resource: { buffer: b.quads } }, ...this._shapeEntries()] });
     this.shapeDirtyBG = d.createBindGroup({ layout: this.cpShapeDirty.getBindGroupLayout(0), entries: [
-      { binding: 2, resource: { buffer: b.genomes } }, { binding: 26, resource: { buffer: b.shapeList } }, { binding: 27, resource: { buffer: b.shapeBaked } }] });
+      { binding: 2, resource: { buffer: b.genomes } }, { binding: 26, resource: { buffer: b.shapeList } }, { binding: 27, resource: { buffer: b.shapeBaked } }, { binding: 28, resource: { buffer: b.shapeArgs } }] });
     this.shapeBakeBG = d.createBindGroup({ layout: this.cpShapeBake.getBindGroupLayout(0), entries: [
       { binding: 2, resource: { buffer: b.genomes } }, { binding: 26, resource: { buffer: b.shapeList } },
       { binding: 24, resource: this.shapeTex.createView() }, { binding: 25, resource: this.shapePlansTex.createView() }] });
@@ -1699,6 +1702,7 @@ class Engine {
     run('matterMain', wg);
     run('contactMain', null);
     run('bondBackMain', null);
+    run(this.ticks > 1 ? 'senseMainCoarse' : 'senseMain', null);
     run(this.ticks > 1 ? 'lifeMainCoarse' : 'lifeMain', null);
     if (this.ticks > 1) {
       // the substeps (timed as one pass): the first over every living cell, listing those lifeMain handed over
@@ -2706,9 +2710,10 @@ class Engine {
     if (fresh) { this._shapeGen = this.worldGeneration; enc.clearBuffer(b.shapeBaked); }
     const cap = fresh ? MAXK : SHAPE_CAP;
     d.queue.writeBuffer(b.shapeList, 0, new Uint32Array([0, cap]));
+    d.queue.writeBuffer(b.shapeArgs, 0, new Uint32Array([SHAPE_TILE / 8, SHAPE_TILE / 8, 0]));
     const pass = enc.beginComputePass();
     pass.setPipeline(this.cpShapeDirty); pass.setBindGroup(0, this.shapeDirtyBG); pass.dispatchWorkgroups(Math.ceil(MAXK / 64));
-    pass.setPipeline(this.cpShapeBake); pass.setBindGroup(0, this.shapeBakeBG); pass.dispatchWorkgroups(SHAPE_TILE / 8, SHAPE_TILE / 8, cap);
+    pass.setPipeline(this.cpShapeBake); pass.setBindGroup(0, this.shapeBakeBG); pass.dispatchWorkgroupsIndirect(b.shapeArgs, 0);
     pass.end();
   }
 

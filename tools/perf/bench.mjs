@@ -190,6 +190,9 @@ async function stepBench(page, sc) {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     state.paused = true;
     await sleep(200);
+    const med = (a) => { const s = [...a].sort((x, y) => x - y); return +s[s.length >> 1].toFixed(4); };
+    // (a coarse step's pipelines compile after the first frames)
+    while ((sc.ticks || 1) > 1 && !['senseMainCoarse', 'lifeMainCoarse', 'bodyTick', 'bodyArgs'].every((n) => !eng.cp[n] || eng.cp[n].bg)) await sleep(250);
     const keep = eng.snapshot(), per = {}, dt = (sc.ticks || 1) / 60;
     for (let i = 0; i < 3; i++) await eng.profileStep(dt);
     for (let r = 0; r < (sc.reps || 30); r++) {
@@ -199,9 +202,8 @@ async function stepBench(page, sc) {
     eng.restore(keep);
     for (const b of Object.values(keep.gpu)) b.destroy();
     state.paused = false;
-    const med = (a) => { const s = [...a].sort((x, y) => x - y); return +s[s.length >> 1].toFixed(4); };
     const dispatch = Object.fromEntries(Object.entries(per).map(([k, a]) => [k, med(a)]));
-    return { name: sc.name, count: eng.count, living: T.life().counts[3], level: eng.level, frost: eng.frost, total: +Object.values(dispatch).reduce((a, b) => a + b, 0).toFixed(3), dispatch };
+    return { name: sc.name, count: eng.count, scan: eng.maxScan, living: T.life().counts[3], level: eng.level, frost: eng.frost, total: +Object.values(dispatch).reduce((a, b) => a + b, 0).toFixed(3), dispatch };
   }, sc);
 }
 
