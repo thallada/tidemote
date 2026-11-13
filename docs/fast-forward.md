@@ -111,6 +111,43 @@ relaxation at 6 ticks moved the rates within noise too and packing both ways (gr
 0.064 ms, with another ensemble on the GPU). Bodies alone swim as before (`tools/swimlab.mjs --step 2`: a beating
 12-cell filament 0.395 against 0.399 units a second, its bonds alike, none torn).
 
+**Drawn at the step's middle.** Most of what is left swaps sign from step to step, so it is hidden where it is drawn:
+at real time each frame is drawn at its last step's middle (`eng.lerp` 0.5, the mean of the step's start and end),
+where a motion x, -x, x... draws as none. By the clock (`clock.owed / perf.lerpDt`) a frame fell anywhere along its
+step as the display's clock drifted against the steps, and at the step's end on a device that falls behind (the clock
+then owes a whole step every frame: a Pixel 3's 8k world at 30 fps ran 0.75 of real time). The lerp passes already
+ran on every such frame, so nothing is added, and nothing else changes: everything that reads the world after
+`lerpApply` (picks, tracking, the watched cells, notes, the contacts' records, the loupe and the close-up, the
+selection's marker, the ridden cell's camera) reads the drawn positions stamped with the moment drawn (`shownTime`,
+`viewSimTime`); the listening scan, the mind's replay and the auto camera's survey are copied before it from the
+step's end, as before (half a step from the drawn world now, up to a whole one before). A frame drawn after a step the
+clock gained or lost (a late frame, or a drift of a whole step) moves by that step, which the clock's blend smoothed
+on a display that keeps up. Fast speeds are left as they were: their frames fall anywhere along their steps (at
+Fast by the budget, at a chosen speed by the clock) and a fixed middle would draw uneven motion. Held speeds and Max
+draw no blend.
+
+Drawn jitter (`jitterlab.mjs --mid`: each step's middle as drawn, from the same runs; sampled every 2, 3, 4 or 6
+ticks, a frame a step; positions, 1e-3 units), 1/60 s steps → coarse steps drawn at their ends → at their middles:
+
+| neighbors | world 3, 2 ticks | world 5, 2 ticks | world 7, 2 ticks | world 3, 3 ticks | world 5, 3 ticks | world 7, 3 ticks |
+|---|---|---|---|---|---|---|
+| 0-2 | 0.96 → 1.10 → 1.01 | 1.41 → 1.64 → 1.43 | 0.49 → 0.64 → 0.53 | 1.95 → 2.36 → 2.12 | 2.58 → 3.24 → 2.69 | 0.82 → 1.23 → 1.00 |
+| 3-7 | 0.92 → 1.37 → 1.04 | 1.43 → 2.09 → 1.57 | 0.71 → 1.04 → 0.79 | 1.62 → 3.54 → 2.20 | 2.34 → 4.73 → 2.98 | 1.12 → 2.16 → 1.46 |
+| 8-15 | 0.71 → 1.34 → 0.89 | 1.27 → 2.29 → 1.59 | 1.39 → 2.51 → 1.70 | 1.03 → 3.75 → 1.95 | 1.74 → 4.65 → 2.81 | 1.75 → 4.82 → 2.91 |
+
+At 2 ticks 70-80% of the excess over 1/60 s steps goes, at 3 ticks 60-75%. At 4 and 6 ticks (15 and 10 fps at real
+time, where the rule applies too) about half: 3-7 neighbors 2.49 → 8.38 → 5.01 and 4.67 → 15.17 → 9.64 in world 3,
+3.25 → 10.52 → 6.09 and 5.14 → 17.61 → 10.70 in world 5. The paths' speed drawn at the middles is the same or
+nearer 1/60 s steps' (world 3, 2 ticks, 3-7 neighbors: 138 / 142 / 140e-3 units a second). The velocity the heading
+and squash follow is the step's end, not blended: blended it would drop to 1/60 s levels too (world 3: 35 / 61 /
+34), but the drawing already eases it over 0.08 s (`contactGather`), which takes most of an alternation out at 30 fps.
+Bodies drawn at the middles keep their shape (`swimlab.mjs --dump`, a beating 12-cell filament at 2 ticks: mean bond
+0.1609 at the ends, 0.1597 at the middles; its tip's sway 0.0737 and 0.0729; a branched tree alike), half a step
+(1/60 s at 2 ticks) later than at a step's end and half a step sooner than at its start. The lerp passes cost 0.005 +
+0.002 ms on a 32k world and 0.29 + 0.09 ms on a 1M one on the RTX 4070 Ti (`runs/mid/lerpbench.mjs`, local), and
+0.065 + 0.037 ms on the Pixel 3's 8k world (its frame's GPU time 34.6-34.8 ms with the old rule and the new alike,
+34.1-35.4 ms with no blend at all, `runs/night/mid2`).
+
 ## Drawn in between
 
 A coarse step moves the world 4-6 ticks at once. Drawn as it stands after each step, at real time (where
@@ -120,9 +157,9 @@ and Fast) it is drawn one step behind, part way along the last step: `LERP_WGSL`
 frame's picks and drawing, `lerpRestore` before anything else runs or reads the world). A step leaves each
 particle's start in `sortedFull[i]` and its end in `parts[i]` (lifeMain writes one from the other slot for
 slot), so the blend needs only the ends kept aside (`lerpEnd`, 8 bytes a particle); a particle whose id
-differs (born in the step) or that jumped half a unit is drawn where it is. How far along: the share of the
-next step the clock already owes (`clock.owed`), at Fast the share of the next step the frame's budget has
-earned (`perf.stepCredit`).
+differs (born in the step) or that jumped half a unit is drawn where it is. How far along: at real time half
+way (What rattles, above), at a chosen fast speed the share of the next step the clock already owes (`clock.owed`),
+at Fast the share of the next step the frame's budget has earned (`perf.stepCredit`).
 
 What the viewer sees is up to one step behind (67-100 ms at real time), so everything that marks or finds a
 cell works on what is drawn: picks, tracking and the watched cells run after `lerpApply` and are stamped

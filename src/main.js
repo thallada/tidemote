@@ -5524,10 +5524,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
       // Coarse steps drawn every frame are drawn in between (LERP_WGSL): one step behind, part way along the
       // last step, as far as the time owed to the clock has reached into the next one, or at Fast (paced by
       // the GPU, not the clock) the share of the next step the frame's budget has already earned.
+      // At real time a step covers a frame, and each frame is drawn at its last step's middle instead: a crowd's
+      // motion that swaps sign each step draws as none (docs/fast-forward.md, What rattles). (By the clock it fell
+      // anywhere along the step as the display's clock drifted against the steps, and at the end on a device that
+      // falls behind, which owes a whole step every frame.)
       if (step.steps > 0) { perf.lerpDt = step.dt; perf.lerpTicks = Math.round(step.dt * 60); }
       const lerpOn = !state.paused && state.phase === 'running' && perf.lerpTicks > 1
         && (state.speed === Infinity ? fastMode : !perf.held);
-      eng.lerp = lerpOn ? clamp(state.speed === Infinity ? perf.stepCredit : clock.owed / perf.lerpDt, 0, 1) : null;
+      eng.lerp = !lerpOn ? null : state.speed === 1 ? 0.5 : clamp(state.speed === Infinity ? perf.stepCredit : clock.owed / perf.lerpDt, 0, 1);
       // (the moment the frame shows: behind the steps' end when drawn in between)
       viewSimTime = eng.simTime + (state.paused ? 0 : step.steps * step.dt) - (eng.lerp != null ? (1 - eng.lerp) * perf.lerpDt : 0);
       if (state.phase === 'running' && !state.paused) climate.tick(step.steps * step.dt);

@@ -7,7 +7,7 @@
 // table after each rep: on D3D12 Dawn has crashed (exit 5) on a later rep now and then, so --seed grows other worlds.
 // docs/fast-forward.md, How the page runs a speed.
 // --world FILE loads the grown world from FILE, or grows it and saves it there; --bodies splits each crowd into cells
-// of species that bond and the rest; "close" is the mean count of living cells within 0.1 at the end (packing).
+// of species that bond and the rest; --mid adds each variant drawn half way along its steps; "close" is the mean count of living cells within 0.1 at the end (packing).
 // A variant may carry tunables of its own ({"name":"x","step":2,"k":{...}}), on top of --k.
 //   tools/gpu-node.sh tools/jitterlab.mjs --n 32768 --warm 240 --secs 4 --reps 1 --variants '[{"name":"m1","step":1},{"name":"m2","step":2}]'
 import fs from 'node:fs';
@@ -19,7 +19,7 @@ const { values: v } = parseArgs({ options: {
   n: { type: 'string', default: '32768' }, warm: { type: 'string', default: '240' }, secs: { type: 'string', default: '4' },
   reps: { type: 'string', default: '1' }, seed: { type: 'string', default: '1' }, every: { type: 'string', default: '2' },
   k: { type: 'string', default: '{}' }, variants: { type: 'string', default: '[{"name":"m1","step":1},{"name":"m2","step":2}]' },
-  world: { type: 'string' }, bodies: { type: 'boolean' }, cpu: { type: 'boolean' },
+  world: { type: 'string' }, bodies: { type: 'boolean' }, mid: { type: 'boolean' }, cpu: { type: 'boolean' },
 } });
 const { gpu, adapter } = await dawnAdapter({ cpu: v.cpu });
 const device = await adapter.requestDevice({ requiredLimits: { maxStorageBuffersPerShaderStage: 10 } });
@@ -145,25 +145,32 @@ for (let r = 0; r < +v.reps; r++) {
     const crowd = within(start, 0.2);
     for (let s = 1; s < S; s++) { q = sample(s); put(s); }
     const close = within(Array.from({ length: C }, (_, c) => (Number.isNaN(path[(c * S + S - 1) * 4]) ? null : [path[(c * S + S - 1) * 4], path[(c * S + S - 1) * 4 + 1]])), 0.1);
-    const acc = (results[va.name] ||= BANDS.map(() => ({ cells: 0, pos: 0, vel: 0, speed: 0, mis: 0, n: 0, close: 0 })));
-    const h = every / 60, at = (c, s, k) => path[(c * S + s) * 4 + k];
-    for (let c = 0; c < C; c++) {
-      if (Number.isNaN(at(c, S - 1, 0))) continue;
-      const a = acc[BANDS.findIndex(([lo, hi, b]) => crowd[c] >= lo && crowd[c] < hi && (!bonds || +bonds(kinds[c]) === b))];
-      a.cells++;
-      a.close += close[c];
-      for (let i = 2; i < S - 2; i++) {
-        for (const [k, name] of [[0, 'pos'], [1, 'pos'], [2, 'vel'], [3, 'vel']]) {
-          const sm = (at(c, i - 2, k) + at(c, i - 1, k) + at(c, i, k) + at(c, i + 1, k) + at(c, i + 2, k)) / 5;
-          a[name] += (at(c, i, k) - sm) ** 2;
+    // a path's statistics under a name: at(c, s, k) its samples from s = lo on
+    const tally = (name, at, lo) => {
+      const acc = (results[name] ||= BANDS.map(() => ({ cells: 0, pos: 0, vel: 0, speed: 0, mis: 0, n: 0, close: 0 })));
+      for (let c = 0; c < C; c++) {
+        if (Number.isNaN(at(c, S - 1, 0))) continue;
+        const a = acc[BANDS.findIndex(([lo, hi, b]) => crowd[c] >= lo && crowd[c] < hi && (!bonds || +bonds(kinds[c]) === b))];
+        a.cells++;
+        a.close += close[c];
+        for (let i = lo + 2; i < S - 2; i++) {
+          for (const [k, name] of [[0, 'pos'], [1, 'pos'], [2, 'vel'], [3, 'vel']]) {
+            const sm = (at(c, i - 2, k) + at(c, i - 1, k) + at(c, i, k) + at(c, i + 1, k) + at(c, i + 2, k)) / 5;
+            a[name] += (at(c, i, k) - sm) ** 2;
+          }
+          // the speed its path shows, and how far its velocity is from that (central differences)
+          const fx = (at(c, i + 1, 0) - at(c, i - 1, 0)) / (2 * h), fy = (at(c, i + 1, 1) - at(c, i - 1, 1)) / (2 * h);
+          a.speed += fx * fx + fy * fy;
+          a.mis += (at(c, i, 2) - fx) ** 2 + (at(c, i, 3) - fy) ** 2;
+          a.n++;
         }
-        // the speed its path shows, and how far its velocity is from that (central differences)
-        const fx = (at(c, i + 1, 0) - at(c, i - 1, 0)) / (2 * h), fy = (at(c, i + 1, 1) - at(c, i - 1, 1)) / (2 * h);
-        a.speed += fx * fx + fy * fy;
-        a.mis += (at(c, i, 2) - fx) ** 2 + (at(c, i, 3) - fy) ** 2;
-        a.n++;
       }
-    }
+    };
+    const h = every / 60, at = (c, s, k) => path[(c * S + s) * 4 + k];
+    tally(va.name, at, 0);
+    // --mid: the path drawn at the middle of each sample's last step (the mean of it and the sample before; for a
+    // variant that takes one step a sample, what the page draws with the world shown half way along each step)
+    if (v.mid) tally(`${va.name}-mid`, (c, s, k) => 0.5 * (at(c, s - 1, k) + at(c, s, k)), 1);
   }
   console.error(`rep ${r + 1} done`);
   report(r + 1);
