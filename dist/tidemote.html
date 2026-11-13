@@ -689,9 +689,6 @@ canvas.chart { cursor: crosshair; }
 /* a touch screen has no keys to show */
 @media (pointer: coarse) { .opt kbd { display: none; } }
 .opts .ramp { margin-left: calc(9.6em + var(--s3)); }
-/* a Display row the page is easing right now (Performance → Adaptation): a quiet dot, its place always kept */
-.opt .eased { display: inline-block; width: 5px; height: 5px; margin: 0 0 1px var(--s1); border-radius: 50%; background: var(--sun); opacity: .75; vertical-align: middle; visibility: hidden; }
-.opt .eased.on { visibility: visible; }
 /* what the page holds back now (under Adaptation): three lines, room for all of it, whatever they say */
 .opts .eased-now { margin: 0; height: 48px; font-size: 12px; line-height: 16px; color: var(--ink-2); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 .vol-row { display: flex; align-items: center; gap: var(--s3); height: 32px; }
@@ -21928,7 +21925,7 @@ ${e.message}` : String(e?.message || e));
     water: tr("gloss.water", "The water’s background temperature, set by the climate: it walks from era to era between 4° and 28°, swings ±2.5° with the season, and now and then a heat wave or cold snap passes. Life warms its own water above this: every cell’s spent energy becomes heat, so crowds, bodies and reefs sit in warm patches."),
     tidemap: tr("gloss.tidemap", "The light the Tide brings, right now: dark where it is dim, through violet to pale blue where the bands are brightest. Thin lines trace the bands’ shape at every season, so they still show at low tide, and a dashed line shows where the bands will be in 20 seconds, so you can see where the producers’ light is heading. Tap the Tide gauge (on phones, the era name) to open it."),
     maps: tr("gloss.maps", "One map over the view at a time. Light colors every point by the light a photosynthesizing cell would get there; Heat is a thermal camera, deep blue to teal to amber to white over a span from 2° below the background water to 10° above it, with a line every 2°; Tide shows the light the Tide brings and where its bands are heading. Its key (G, E, H) or gauge opens it, and again closes it."),
-    haze: tr("gloss.haze", "Warm water bends light like the air over a hot road, so plumes, colony halos and fronts waver. Off, the view holds still over warm water (boiling water still roils)."),
+    haze: tr("gloss.haze", "Warm water bends light like the air over a hot road, so plumes, colony halos and fronts waver. Off, the view holds still over warm water (boiling water still roils). Auto draws it, and Adaptation may turn it off while frames run late (what Auto holds now is underlined)."),
     thermal: tr("gloss.thermal", "How well a cell works at its temperature: a rate that scales its photosynthesis, digestion and swimming. It is at its best within half a tolerance of the species’ optimum (higher the narrower its tolerance), then falls slowly on the cold side and steeply on the warm side. Away from its optimum a cell also pays extra upkeep for the stress."),
     optimum: tr("gloss.optimum", "The temperature a species works best at (a gene, 0–45°). It drifts by mutation, so lineages can follow the climate or find a warm or cold refuge. A spark of life founds a species suited to the water it sparked in."),
     tolerance: tr("gloss.tolerance", "How far from its optimum a species still works (a gene, ±2–15°). Narrow specialists work up to 25% better at their optimum than broad generalists, but a few degrees away they falter."),
@@ -22033,12 +22030,12 @@ ${e.message}` : String(e?.message || e));
     autoidle: tr("gloss.autoidle", "Left alone for a minute (three with a panel open), the camera starts filming the world on its own. Drag, scroll or tap to take it back."),
     renderscale: tr("gloss.renderscale", "The share of the screen’s resolution the world is drawn at. Auto lowers it while frames run late and raises it again when there is room, and shows the scale it is using now (the choice it matches underlined, or the scale beside Auto); it may go as low as Auto lowest, and in an emergency lower still, to 25%. A fixed value never changes."),
     autofloor: tr("gloss.autofloor", "The lowest render scale Auto may drop to."),
-    adapt: tr("gloss.adapt", "On, when frames run late the page eases what costs this device most for the least you would notice, and brings it back when there is room: the water’s waves worked out less often, the glow, the suspension, the stone relit less often, the heat haze, the microscope, cells’ insides. It eases only what Display shows, marks each Display setting it is easing with a dot, and lists them here. Off, everything Display shows is drawn in full (render scale and frame rate still follow their own settings)."),
+    adapt: tr("gloss.adapt", "On, when frames run late the page eases what costs this device most for the least you would notice, and brings it back when there is room: the water’s waves worked out less often, the glow, the suspension, the stone relit less often, the heat haze, the microscope, cells’ insides. It eases only the Display settings left on Auto (what each holds now underlined) and lists here what it holds back; a value you choose in Display stays as chosen. Off, everything Display shows is drawn in full (render scale and frame rate still follow their own settings)."),
     density: tr("gloss.density", "The most device pixels drawn per CSS pixel. High-density (Retina) screens look sharper at 2× but cost up to four times the pixels of 1×. Readouts and outlines stay sharp either way. Auto draws at 1× (while a film rolls, up to 1.5×, so its frames are not stretched up). It shows the density it is using now. A fixed value never changes."),
     targetfps: tr("gloss.targetfps", "Frames per second aimed for, as a whole number of the screen’s refreshes so frames stay evenly spaced (60 on a 144 Hz screen is every second refresh, 72 fps). 30 halves the GPU’s work and saves battery; Display follows the screen’s refresh rate (120 on many phones and Macs), which costs the most. Simulated time keeps pace with real time at any rate. Auto aims for 60 and, when the device can’t keep up, lowers the rate itself (to 30, 20 or 15; shown beside Auto); a rate chosen is held even then."),
-    bloom: tr("gloss.bloom", "A soft glow around bright cells, and with it the microscope’s warm halation and the lamp’s veiling flare, which spread that glow. Several extra full-screen passes."),
-    lod: tr("gloss.lod", "Zoomed in, cells resolve into membranes, organelles and fused bodies, and bonds into soft strands. Off, every cell stays the glowing point it is from afar, at any zoom: far cheaper, so the page can run more particles. The loupe and the live close-up show the points too; species cards keep their insides."),
-    specks: tr("gloss.specks", "The fine suspension that drifts between cells when zoomed far in. Drawn speck by speck; off saves a compute pass and a full-screen pass."),
+    bloom: tr("gloss.bloom", "A soft glow around bright cells, and with it the microscope’s warm halation and the lamp’s veiling flare, which spread that glow. Several extra full-screen passes. Auto draws it, and Adaptation may turn it off while frames run late (what Auto holds now is underlined)."),
+    lod: tr("gloss.lod", "Zoomed in, cells resolve into membranes, organelles and fused bodies, and bonds into soft strands. Off, every cell stays the glowing point it is from afar, at any zoom: far cheaper, so the page can run more particles. The loupe and the live close-up show the points too; species cards keep their insides. Auto draws them, and Adaptation may leave them out while frames run late (what Auto holds now is underlined)."),
+    specks: tr("gloss.specks", "The fine suspension that drifts between cells when zoomed far in. Drawn speck by speck; off saves a compute pass and a full-screen pass. Auto draws it, and Adaptation may turn it off while frames run late (what Auto holds now is underlined)."),
     closeup: tr("gloss.closeup", "The live close-up in the specimen panel: a second, small view of the world drawn every frame."),
     particles: tr("gloss.particles", "Every grain, husk and cell is one particle; their number is fixed for a world’s whole life. Auto measures the GPU and picks the most it can run smoothly, and shows the count it picked for this world. Changing it starts a new world."),
     neighbors: tr("gloss.neighbors", "In a crowd, the most nearby particles a cell weighs each step. It samples them evenly and counts each for the ones it skips, so crowding and pushes stay right on average; it only picks food and bond partners from those it saw. The cells it touches (bodies parting, a crowd’s drag) are sampled in proportion. Fewer runs faster in dense colonies and makes no difference in open water. Auto weighs 112 and gives up to 88 or 64 only on a device where the step costs much (no difference to the ecology was found down to 64); the count it uses is underlined. Takes effect at once."),
@@ -22052,8 +22049,8 @@ ${e.message}` : String(e?.message || e));
     register: tr("gloss.register", "How high the species sings. Free-floating photosynths and scavengers sing high, hunters low."),
     tempo: tr("gloss.tempo", "How quickly its song moves, from how fast and how hungrily it lives."),
     audioload: tr("gloss.audioload", "How much of its time the soundtrack’s audio thread spends rendering. Near 100% it would crackle, so above about 50% fewer notes may sound at once and the oldest fade out early."),
-    watersurface: tr("gloss.watersurface", "The surface of the water far above the cells, out of focus: as its waves pass they gently bend the view and sweep soft bands of light across what lies beneath, more in a storm. Subtle tones it down, Strong turns it up, Off holds the view still."),
-    microlook: tr("gloss.microlook", "The view as a darkfield microscope shows living cells: black water, outlines glowing as light catches their edges and touched with rainbow, a soft focus away from the middle and a little grain, seen through the eyepiece’s lens (colors parting toward the edges, a round field stop darkening the corners, dust drifting out of focus). Subtle tones it down, Strong turns it up, Off shows the cells plainly, without the lens. O turns it off and back on. Its warm glow about whatever is bright is Glow’s."),
+    watersurface: tr("gloss.watersurface", "The surface of the water far above the cells, out of focus: as its waves pass they gently bend the view and sweep soft bands of light across what lies beneath, more in a storm. Subtle tones it down, Strong turns it up, Off holds the view still. Auto is Normal, and Adaptation may work its waves out less often, or turn it off, while frames run late (what Auto holds now is underlined)."),
+    microlook: tr("gloss.microlook", "The view as a darkfield microscope shows living cells: black water, outlines glowing as light catches their edges and touched with rainbow, a soft focus away from the middle and a little grain, seen through the eyepiece’s lens (colors parting toward the edges, a round field stop darkening the corners, dust drifting out of focus). Subtle tones it down, Strong turns it up, Off shows the cells plainly, without the lens. Auto is Normal, and Adaptation may turn it off while frames run late (what Auto holds now is underlined). O turns it off and back on. Its warm glow about whatever is bright is Glow’s."),
     filmgrain: tr("gloss.filmgrain", "A fine flicker of grain over the picture, as on film, strongest in the midtones. Fine is barely seen, Heavy is an old reel; Off is clean."),
     wavemotion: tr("gloss.wavemotion", "How quickly the water’s waves move. Slow suits a calm view; Lively, a restless one. Sped-up worlds move them faster too, but less than the cells."),
     audiomusic: tr("gloss.audiomusic", "The composed music under everything: the piano, strings and vibraphone that follow the era and the species that reign. Off leaves only the life and the water."),
@@ -22402,7 +22399,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     if (u) return u;
     scratch = scratch || document.createElement("canvas");
     scratch.width = scratch.height = 52;
-    paintGlyph(scratch.getContext("2d"), 52, shape, col);
+    paintGlyph(scratch.getContext("2d", { willReadFrequently: true }), 52, shape, col);
     u = scratch.toDataURL();
     if (urls.size > 600) urls.clear();
     urls.set(k, u);
@@ -34658,6 +34655,18 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
   var GB = 1e9;
   var FILM_CAP = { disk: 8 * GB, memory: 1 * GB, memorySmall: 0.3 * GB };
   var OPFS_PREFIX = "tidemote-film-";
+  var STRETCH = [
+    [50, "ultra-condensed"],
+    [62.5, "extra-condensed"],
+    [75, "condensed"],
+    [87.5, "semi-condensed"],
+    [100, "normal"],
+    // i18n-ignore (CSS)
+    [112.5, "semi-expanded"],
+    [125, "expanded"],
+    [150, "extra-expanded"],
+    [200, "ultra-expanded"]
+  ];
   function filmFormat() {
     const MR = globalThis.MediaRecorder;
     if (!MR || !globalThis.HTMLCanvasElement?.prototype.captureStream) return null;
@@ -34876,36 +34885,68 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       const a = r[0], b = r[r.length - 1];
       return b[0] > a[0] ? (b[1] - a[1]) * 1e3 / (b[0] - a[0]) : 0;
     }
-    function drawCaption(ctx, w, h) {
+    function drawCaption(ctx, w) {
       if (!caption) return;
       st.capA += ((caption.classList.contains("on") ? 1 : 0) - st.capA) * 0.08;
-      const part = (cls) => caption.querySelector(`.${cls}`)?.textContent || "";
-      const eye = part("cap-eye"), main = part("cap-main"), sub = part("cap-sub");
-      if (st.capA < 0.02 || !main) return;
-      const s = h / 1080, F = 'Saira, Bahnschrift, "Segoe UI", system-ui, sans-serif';
-      ctx.save();
+      if (st.capA < 0.02 || !captionPicture(w / innerWidth)) return;
       ctx.globalAlpha = st.capA;
-      ctx.textAlign = "center";
-      const y = h - 96 * s;
-      const g = ctx.createLinearGradient(0, y - 90 * s, 0, h);
-      g.addColorStop(0, "rgba(0,0,0,0)");
-      g.addColorStop(1, "rgba(0,0,0,0.55)");
-      ctx.fillStyle = g;
-      ctx.fillRect(0, y - 90 * s, w, h - y + 90 * s);
-      ctx.fillStyle = "#7fd6df";
-      ctx.font = `500 ${Math.round(18 * s)}px ${F}`;
-      ctx.fillText(eye, w / 2, y - 44 * s);
-      ctx.fillStyle = "rgba(150,222,230,0.55)";
-      ctx.fillRect(w / 2 - 24 * s, y - 34 * s, 48 * s, Math.max(1, s));
-      ctx.fillStyle = "#e2f1f0";
-      ctx.font = `400 ${Math.round(32 * s)}px ${F}`;
-      ctx.fillText(main, w / 2, y);
-      if (sub) {
-        ctx.fillStyle = "#a3bdbe";
-        ctx.font = `400 ${Math.round(20 * s)}px ${F}`;
-        ctx.fillText(sub, w / 2, y + 32 * s);
+      ctx.drawImage(capPic.cv, capPic.x, capPic.y);
+      ctx.globalAlpha = 1;
+    }
+    const capPic = { key: "", ok: false, cv: null, x: 0, y: 0 };
+    function captionPicture(k) {
+      const key = `${caption.innerHTML}|${caption.style.left}|${innerWidth}x${innerHeight}|${k}`;
+      if (key === capPic.key) return capPic.ok;
+      capPic.key = key;
+      const r = caption.getBoundingClientRect(), cs = getComputedStyle(caption);
+      capPic.ok = !!(caption.textContent && r.width);
+      if (!capPic.ok) return false;
+      capPic.x = r.left * k;
+      capPic.y = (r.top - new DOMMatrix(cs.transform).m42) * k;
+      const cv = capPic.cv = capPic.cv || document.createElement("canvas");
+      cv.width = Math.ceil(r.width * k);
+      cv.height = Math.ceil(r.height * k);
+      const c = cv.getContext("2d");
+      c.scale(k, k);
+      const W2 = r.width, H2 = r.height;
+      c.fillStyle = cs.backgroundColor;
+      c.fillRect(0, 0, W2, H2);
+      c.fillStyle = cs.getPropertyValue("--tick");
+      for (const [x, y, sx, sy] of [[0, 0, 1, 1], [W2, 0, -1, 1], [0, H2, 1, -1], [W2, H2, -1, -1]]) {
+        c.fillRect(x, y, 5 * sx, sy);
+        c.fillRect(x, y, sx, 5 * sy);
       }
-      ctx.restore();
+      const rule = caption.querySelector(".cap-rule");
+      if (rule) {
+        const q = rule.getBoundingClientRect(), [dx, dy] = getComputedStyle(rule).backgroundSize.split(" ").map(parseFloat);
+        c.fillStyle = cs.getPropertyValue("--line-2");
+        for (let x = q.left - r.left + dx / 2; x < q.right - r.left; x += dx) {
+          c.beginPath();
+          c.arc(x, q.top - r.top + dy / 2, 1.2, 0, 2 * Math.PI);
+          c.fill();
+        }
+      }
+      const walk = document.createTreeWalker(caption, NodeFilter.SHOW_TEXT), range = document.createRange();
+      for (let t; t = walk.nextNode(); ) {
+        const s = getComputedStyle(t.parentElement), p2 = parseFloat(s.fontStretch);
+        c.font = `${s.fontWeight} ${s.fontSize} ${s.fontFamily}`;
+        c.fontStretch = STRETCH.reduce((a, b) => Math.abs(b[0] - p2) < Math.abs(a[0] - p2) ? b : a)[1];
+        c.fillStyle = s.color;
+        c.textAlign = "center";
+        const asc = c.measureText(t.data).fontBoundingBoxAscent, ls = parseFloat(s.letterSpacing) || 0;
+        for (const m of t.data.matchAll(/\S/gu)) {
+          range.setStart(t, m.index);
+          range.setEnd(t, m.index + m[0].length);
+          const q = range.getBoundingClientRect();
+          c.fillText(m[0], q.left - r.left + (q.width - ls) / 2, q.top - r.top + asc);
+        }
+        if (s.textDecorationLine.includes("underline")) {
+          range.selectNodeContents(t);
+          c.fillStyle = s.textDecorationColor;
+          for (const q of range.getClientRects()) c.fillRect(q.left - r.left, q.top - r.top + asc + parseFloat(s.textUnderlineOffset || 0), q.width, parseFloat(s.textDecorationThickness) || 1);
+        }
+      }
+      return true;
     }
     function frame() {
       if (st.state !== "recording" || !st.ctx) return;
@@ -34915,7 +34956,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       const ctx = st.ctx, { width: w, height: h } = st.cv;
       ctx.drawImage(canvas2, 0, 0, w, h);
       if (overlay2 && overlay2.width) ctx.drawImage(overlay2, 0, 0, w, h);
-      drawCaption(ctx, w, h);
+      drawCaption(ctx, w);
       const s = h / 1080;
       ctx.save();
       ctx.font = `500 ${Math.round(15 * s)}px Saira, system-ui, sans-serif`;
@@ -35962,6 +36003,14 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
   var NB_GUESS = { 64: 0.75, 88: 0.85, 112: 1 };
   var nbRel = (k, n) => Math.max(0.05, k?.rel?.[KNOBS.neighbors.levels.indexOf(n)] ?? NB_GUESS[n] ?? 1);
   var ROOM = 0.85;
+  var LATE2 = 1.125;
+  var ON_TIME = 1.03;
+  function judge(w, dts, T2, { climbed = false, cheap = false, stressed = false, waited = 0 } = {}) {
+    const m = dts.reduce((a, b) => a + b, 0) / Math.max(1, dts.length), slipped = m > ON_TIME * T2 && !cheap;
+    const late = m > LATE2 * T2 || slipped && waited > 0.03 ? w.late + 1 : 0;
+    const good = late || slipped || stressed ? 0 : w.good + 1;
+    return { m, late, good, behind: late >= 2 || climbed && slipped, room: good >= 3 };
+  }
   var SCALE_LOSS = 12;
   var scaleLoss = (from, to) => SCALE_LOSS * (from - to) * (1 + 2 * (1 - to));
   function costOf(passes) {
@@ -36003,6 +36052,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     opts.sort((a, b) => b.gain / b.loss - a.gain / a.loss);
     const fit3 = opts.find((o) => s.gpu + o.loss < ROOM * s.T);
     if (fit3) return { id: fit3.id, to: fit3.to };
+    if (s.probe) return { id: opts[0].id, to: opts[0].to, probe: true };
     const best = opts[0], need = s.gpu + best.loss - ROOM * s.T;
     const down = decide({ ...s, behind: true, knobs: Object.fromEntries(Object.entries(s.knobs).filter(([id]) => id !== best.id)), scale: null, rebalance: true });
     if (!down || down.save < 0.25 * need || best.gain / best.loss < 1.5 * (down.loss / down.save)) return null;
@@ -36215,6 +36265,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     scale: (v) => tr("settings.perf.held.scale", "{pct}% resolution", { pct: Math.round(v * 100) })
   };
   var EASES = { water: "sea", bloom: "bloom", specks: "specks", haze: "haze", microlook: "microscope", lod: "interiors" };
+  var AUTO_VAL = { water: 2, bloom: 1, specks: 1, haze: 1, microlook: 2, lod: 1 };
+  var ROW_OF = Object.fromEntries(Object.entries(EASES).map(([row, knob]) => [knob, row]));
   var NONE6 = 4294967295;
   var TAU4 = Math.PI * 2;
   var genomeOfWords = (w) => {
@@ -36481,7 +36533,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     document.body.classList.toggle("no-closeup", !state.closeup);
     const persist = () => {
       const s = eng.settings;
-      savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+      savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, fixed: state.fixed, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
       document.body.classList.toggle("no-closeup", !state.closeup);
     };
     let lookLast = state.look || 2;
@@ -36506,6 +36558,12 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       t.pace = [0.5, 1, 1.7][state.waves];
     };
     applyWater();
+    const rowVal = { water: () => state.water, bloom: () => +(eng.settings.bloom > 0), specks: () => +eng.settings.specks, haze: () => +state.haze, microlook: () => state.look, lod: () => +eng.settings.lod };
+    state.fixed = prefs.fixed ?? Object.fromEntries(Object.keys(EASES).filter((id) => rowVal[id]() !== AUTO_VAL[id]).map((id) => [id, true]));
+    const fixRow = (id, on) => {
+      if (on) state.fixed[id] = true;
+      else delete state.fixed[id];
+    };
     let renderScale = state.perf.scale === "auto" ? 1 : state.perf.scale;
     const tune = Object.fromEntries(Object.entries(KNOBS).map(([id, k]) => [id, { level: k.levels.length - 1, cost: null, full: null, hold: 0 }]));
     const shown = () => ({
@@ -36518,7 +36576,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       neighbors: state.perf.scan == null
     });
     const pins = {};
-    const tuneAuto = (id, on = shown()) => id === "neighbors" ? on.neighbors : !(id in pins) && state.perf.adapt && on[id] !== false;
+    const tuneAuto = (id, on = shown()) => id === "neighbors" ? on.neighbors : !(id in pins) && state.perf.adapt && on[id] !== false && !state.fixed[ROW_OF[id]];
     function applyTune() {
       const on = shown();
       for (const id of Object.keys(tune)) if (id !== "neighbors" && !tuneAuto(id, on)) tune[id].level = pins[id] ?? KNOBS[id].levels.length - 1;
@@ -36651,7 +36709,15 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       hold: 0,
       raised: null,
       profAt: performance.now(),
-      calmUntil: 0
+      calmUntil: 0,
+      lateWindows: 0,
+      judged: 1,
+      log: [],
+      waits: 0
+    };
+    const clearFrames = () => {
+      perf.frameDt.length = 0;
+      perf.waits = 0;
     };
     let calibWait = null;
     const frameWaiters = [];
@@ -36678,7 +36744,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     let overN = 0;
     function overload(ms) {
       const T2 = frameTarget();
-      if (!(ms > Math.max(50, 3 * T2)) || state.phase !== "running" || state.speed > 1 || performance.now() < perf.calmUntil) {
+      if (!(ms > Math.max(50, 3 * T2)) || perf.fps > 500 / T2 || state.phase !== "running" || state.speed > 1 || performance.now() < perf.calmUntil) {
         overN = 0;
         return;
       }
@@ -36714,10 +36780,12 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       perf.why = "GPU overloaded";
       perf.goodWindows = 0;
       perf.lastAdjust = now;
-      perf.frameDt.length = 0;
+      clearFrames();
       perf.hold = 6e4;
       perf.ceiling = renderScale;
       perf.ceilingUntil = now + perf.hold;
+      perf.judged = ms / T2;
+      tuneLog(now, "overload", renderScale);
     }
     const waitFrames = (n) => new Promise((res) => frameWaiters.push({ n, res }));
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -38821,13 +38889,13 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const el2 = $2("settings"), opts = $2("opts"), btn = $2("set-open"), tabs = [...el2.querySelectorAll("#set-tabs [data-tab]")];
       let tab = "display";
       let pendingN = null;
-      const eased = (id) => EASES[id] ? `<i class="eased${heldNow().some(([k]) => k === EASES[id]) ? " on" : ""}" data-eased="${EASES[id]}" role="img" aria-label="${EASED}" data-hint="${EASED}"></i>` : "";
-      const choice = (id, title, key, items, cur, tip) => {
+      const choice = (id, title, key, items, cur, tip, cols = 0) => {
         const now = String(cur) === "auto" ? autoNow(id) : null;
         const label3 = (v, l) => v === "auto" && now ? `${l} <span class="auto-now" data-auto="${id}">${now.text}</span>` : l;
-        return `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${eased(id)}${key ? ` <kbd>${key}</kbd>` : ""}</span><div class="row segs${items.length > 7 ? " many" : ""}" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip${now && String(v) === now.pick ? " auto-pick" : ""}" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? " disabled" : ""}>${label3(v, l)}</button>`).join("")}</div></div>`;
+        return `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ""}</span><div class="row segs${cols ? ` many" style="--cols: ${cols}` : items.length > 7 ? " many" : ""}" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip${now && String(v) === now.pick ? " auto-pick" : ""}" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? " disabled" : ""}>${label3(v, l)}</button>`).join("")}</div></div>`;
       };
       function autoNow(id) {
+        if (EASES[id]) return { text: "", pick: String(tune[EASES[id]].level === 0 ? 0 : rowVal[id]()) };
         if (id === "fps") {
           const f2 = Math.round(1e3 / frameTarget());
           return { text: String(f2), pick: String([30, 60].find((v) => Math.abs(v - f2) <= 3) ?? "") };
@@ -38850,16 +38918,17 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         }
       };
       const onoff = (id, title, key, on, tip) => choice(id, title, key, [[1, tr("settings.on", "On")], [0, tr("settings.off", "Off")]], on ? 1 : 0, tip);
+      const autoRow = (id, title, key, items, tip) => choice(id, title, key, [["auto", AUTO], ...items], state.fixed[id] ? rowVal[id]() : "auto", tip, items.length > 3 ? 3 : 0);
+      const autoOnOff = (id, title, key, tip) => autoRow(id, title, key, [[1, tr("settings.on", "On")], [0, OFF]], tip);
       const pctOf = (n) => tr("settings.pct", "{n}%", { n }), timesOf = (n) => tr("settings.times", "{n}×", { n });
       const OFF = tr("settings.off", "Off"), NORMAL = tr("settings.normal", "Normal"), AUTO = tr("settings.auto", "Auto");
       const SUBTLE = tr("settings.subtle", "Subtle"), STRONG = tr("settings.strong", "Strong");
-      const EASED = tr("settings.display.eased", "Eased for speed right now");
       const group = (id, text2, rows) => section(id, text2, block("", rows));
       let confirming = false;
       function display() {
-        const s = eng.settings, map = mapOn();
+        const map = mapOn();
         const filmL = tr("settings.display.film", "Film");
-        return group("picture", tr("settings.display.picture", "Look"), choice("microlook", tr("settings.display.microscope", "Microscope"), "O", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], state.look, "microlook") + (state.look ? choice("grain", tr("settings.display.grain", "Grain"), "", [[0, OFF], [1, tr("settings.display.grain-fine", "Fine")], [2, tr("settings.display.grain-heavy", "Heavy")]], state.grain, "filmgrain") : "") + onoff("bloom", tr("settings.display.bloom", "Glow"), "Y", s.bloom > 0, "bloom") + choice("trails", tr("settings.display.trails", "Trails"), "T", trailNames.map((n, i) => [i, n]), trailIdx)) + group("water", tr("settings.display.water-group", "Water"), choice("water", tr("settings.display.water", "Surface"), "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], state.water, "watersurface") + (state.water ? choice("waves", tr("settings.display.waves", "Wave motion"), "", [[0, tr("settings.display.waves-slow", "Slow")], [1, NORMAL], [2, tr("settings.display.waves-lively", "Lively")]], state.waves, "wavemotion") : "") + (K.heat ? onoff("haze", tr("settings.display.heat-shimmer", "Heat haze"), "", state.haze, "haze") : "") + onoff("specks", tr("settings.display.specks", "Suspension"), "", s.specks, "specks")) + group("cells", tr("settings.display.cells", "Cells"), onoff("lod", tr("settings.display.lod", "Cell insides"), "", s.lod, "lod")) + group("overlays", tr("settings.display.overlays", "Overlays"), choice("map", tr("settings.display.map", "Map"), K.heat ? "G E H" : "G H", [["off", OFF], ["light", tr("settings.display.map-light", "Light")], ...K.heat ? [["heat", tr("settings.display.map-heat", "Heat")]] : [], ["tide", tr("settings.display.map-tide", "Tide")]], state.map, "maps") + (map ? rampHtml(map) : "") + onoff("currents", tr("settings.display.currents", "Currents"), "C", state.currents) + choice("songmarks", tr("settings.display.song-marks", "Song marks"), "", [[0, OFF], [1, tr("settings.display.song-marks-picked", "Picked")], [2, tr("settings.display.song-marks-all", "All")]], state.songMarks, "songmarks") + choice("notes", tr("settings.display.annotations", "Annotations"), "", [[1, tr("settings.display.annotations-auto", "Auto camera")], [2, tr("settings.display.annotations-always", "Always")], [0, OFF]], state.notes, "annotations")) + group("view", tr("settings.display.view", "View"), (isCoarse ? "" : onoff("ui", tr("settings.display.interface", "Interface"), "U", state.ui, "interface")) + onoff("closeup", tr("settings.display.closeup", "Live close-up"), "", state.closeup, "closeup") + onoff("auto", tr("settings.display.auto-idle", "Auto when idle"), "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", filmL)} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="${filmL}">${film.state === "idle" ? `<button type="button" class="chip" data-o="film" data-v="now">${tr("settings.display.film-now", "Start filming")}</button>` : `<button type="button" class="chip" data-o="film" data-v="stop">${tr("settings.display.film-stop", "Stop filming")}</button>`}</div></div>` : ""));
+        return group("picture", tr("settings.display.picture", "Look"), autoRow("microlook", tr("settings.display.microscope", "Microscope"), "O", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], "microlook") + (state.look ? choice("grain", tr("settings.display.grain", "Grain"), "", [[0, OFF], [1, tr("settings.display.grain-fine", "Fine")], [2, tr("settings.display.grain-heavy", "Heavy")]], state.grain, "filmgrain") : "") + autoOnOff("bloom", tr("settings.display.bloom", "Glow"), "Y", "bloom") + choice("trails", tr("settings.display.trails", "Trails"), "T", trailNames.map((n, i) => [i, n]), trailIdx)) + group("water", tr("settings.display.water-group", "Water"), autoRow("water", tr("settings.display.water", "Surface"), "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], "watersurface") + (state.water ? choice("waves", tr("settings.display.waves", "Wave motion"), "", [[0, tr("settings.display.waves-slow", "Slow")], [1, NORMAL], [2, tr("settings.display.waves-lively", "Lively")]], state.waves, "wavemotion") : "") + (K.heat ? autoOnOff("haze", tr("settings.display.heat-shimmer", "Heat haze"), "", "haze") : "") + autoOnOff("specks", tr("settings.display.specks", "Suspension"), "", "specks")) + group("cells", tr("settings.display.cells", "Cells"), autoOnOff("lod", tr("settings.display.lod", "Cell insides"), "", "lod")) + group("overlays", tr("settings.display.overlays", "Overlays"), choice("map", tr("settings.display.map", "Map"), K.heat ? "G E H" : "G H", [["off", OFF], ["light", tr("settings.display.map-light", "Light")], ...K.heat ? [["heat", tr("settings.display.map-heat", "Heat")]] : [], ["tide", tr("settings.display.map-tide", "Tide")]], state.map, "maps") + (map ? rampHtml(map) : "") + onoff("currents", tr("settings.display.currents", "Currents"), "C", state.currents) + choice("songmarks", tr("settings.display.song-marks", "Song marks"), "", [[0, OFF], [1, tr("settings.display.song-marks-picked", "Picked")], [2, tr("settings.display.song-marks-all", "All")]], state.songMarks, "songmarks") + choice("notes", tr("settings.display.annotations", "Annotations"), "", [[1, tr("settings.display.annotations-auto", "Auto camera")], [2, tr("settings.display.annotations-always", "Always")], [0, OFF]], state.notes, "annotations")) + group("view", tr("settings.display.view", "View"), (isCoarse ? "" : onoff("ui", tr("settings.display.interface", "Interface"), "U", state.ui, "interface")) + onoff("closeup", tr("settings.display.closeup", "Live close-up"), "", state.closeup, "closeup") + onoff("auto", tr("settings.display.auto-idle", "Auto when idle"), "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", filmL)} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="${filmL}">${film.state === "idle" ? `<button type="button" class="chip" data-o="film" data-v="now">${tr("settings.display.film-now", "Start filming")}</button>` : `<button type="button" class="chip" data-o="film" data-v="stop">${tr("settings.display.film-stop", "Stop filming")}</button>`}</div></div>` : ""));
       }
       function audio_() {
         const m = sound.mix, mix4 = (k) => choice(`mix-${k}`, MIX[k].name, "", MIX[k].choices.map(([label3], i) => [i, label3]), m[k], `audio${k}`);
@@ -39037,6 +39106,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           state.look = 2;
           state.grain = 1;
           applyLook();
+          state.fixed = {};
           state.auto = true;
           renderAuto(director.active);
         } else if (tab === "audio") {
@@ -39073,15 +39143,14 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         readout(true);
       }
       let roAt = 0;
-      const WHY_WORDS = { "GPU overloaded": tr("readout.why-overloaded", "GPU overloaded"), "under pressure": tr("readout.why-pressure", "under pressure"), "GPU busy": tr("readout.why-busy", "GPU busy"), "frames late": tr("readout.why-late", "frames late"), "browser pace": tr("readout.why-pace", "browser pace") };
+      const WHY_WORDS = { "GPU overloaded": tr("readout.why-overloaded", "GPU overloaded"), "frames late": tr("readout.why-late", "frames late"), "browser pace": tr("readout.why-pace", "browser pace") };
       function readout(force) {
         if (el2.hidden || tab !== "performance" && tab !== "display") return;
         const now = performance.now();
         if (!force && now - roAt < 500) return;
         roAt = now;
         if (tab === "display") {
-          const held = new Set(heldNow().map(([id]) => id));
-          for (const m of opts.querySelectorAll("[data-eased]")) m.classList.toggle("on", held.has(m.dataset.eased));
+          autoLive();
           return;
         }
         setText2("perf-held", heldWords());
@@ -39108,6 +39177,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         if (id.startsWith("w-")) {
           worldAct(id, v);
           return;
+        }
+        if (EASES[id]) {
+          fixRow(id, v !== "auto");
+          if (v === "auto") v = AUTO_VAL[id];
         }
         if (id === "trails") {
           trailIdx = +v;
@@ -39319,6 +39392,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         fps: +perf.fps.toFixed(1),
         aim: Math.round(1e3 / frameTarget()),
         why: perf.why,
+        adapt: perf.log,
         audio: sound.load,
         world,
         frameMs: per(gpu),
@@ -40047,6 +40121,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         view.render();
       } else if (k === "y" || k === "Y") {
         eng.settings.bloom = eng.settings.bloom > 0 ? 0 : 0.012;
+        fixRow("bloom", !eng.settings.bloom);
         flash(eng.settings.bloom ? tr("flash.bloom-on", "Glow on") : tr("flash.bloom-off", "Glow off"));
         displayChanged();
       } else if (k === "b" || k === "B") bench.toggle();
@@ -40058,6 +40133,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         }
       } else if (k === "o" || k === "O") {
         state.look = state.look ? 0 : lookLast;
+        fixRow("microlook", state.look !== AUTO_VAL.microlook);
         applyLook();
         flash(state.look ? tr("flash.optics-on", "Microscope on") : tr("flash.optics-off", "Microscope off"));
         displayChanged();
@@ -40187,7 +40263,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       perf.ticksAt = 0;
       perf.stepCredit = 0;
       clock2.owed = 0;
-      perf.frameDt.length = 0;
+      clearFrames();
       perf.lastAdjust = performance.now();
       renderTime();
     }
@@ -40619,8 +40695,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const stepTicks = () => ticksFor(frameTarget());
     const SCALES = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
     function resetAdapt() {
-      perf.frameDt.length = 0;
+      clearFrames();
       perf.goodWindows = 0;
+      perf.lateWindows = 0;
       perf.ceiling = 1;
       perf.ceilingUntil = 0;
       perf.lastAdjust = performance.now();
@@ -40643,52 +40720,54 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const stressed = () => pressure === "serious" || pressure === "critical";
     function adaptQuality(now) {
       if (state.phase !== "running" || state.speed > 1) {
-        perf.frameDt.length = 0;
+        clearFrames();
         return;
       }
       if (now - perf.lastAdjust < 2e3 || perf.frameDt.length < 6) return;
       if (now < perf.calmUntil) {
-        perf.frameDt.length = 0;
+        clearFrames();
         perf.lastAdjust = now;
         return;
       }
-      const m = perf.frameDt.reduce((a, b) => a + b, 0) / perf.frameDt.length;
-      perf.frameDt.length = 0;
-      perf.lastAdjust = now;
       const T2 = frameTarget(), auto = state.perf.scale === "auto", autoD = state.perf.density === "auto", autoF = state.perf.fps === "auto";
+      const cheap = perf.gpu + perf.mainMs * frameEvery() < T2 / 4;
+      const j = judge({ late: perf.lateWindows, good: perf.goodWindows }, perf.frameDt, T2, { climbed: !!perf.raised && now - perf.raisedAt < 6e3, cheap, stressed: stressed(), waited: perf.waits / perf.frameDt.length });
+      const m = j.m;
+      clearFrames();
+      perf.lastAdjust = now;
+      perf.lateWindows = j.late;
+      perf.goodWindows = j.good;
+      perf.judged = m / T2;
       const floor = auto ? Math.max(state.perf.floor, filmScale()) : renderScale;
-      const busy = perf.gpu > T2 * (hasTS ? 0.92 : 1);
-      const behind = m > T2 * 1.125 || busy || stressed();
       const simBound = hasTS && !state.paused && perf.simS > 2 * perf.renderR;
-      if (behind) {
-        perf.why = stressed() ? "under pressure" : busy ? "GPU busy" : "frames late";
-        perf.goodWindows = 0;
+      if (j.behind) {
+        perf.why = "frames late";
         perf.hold = now - perf.raisedAt < 6e3 ? Math.min(24e4, (perf.hold || 3e4) * 2) : 3e4;
         perf.ceilingUntil = now + perf.hold;
-        const pace = perf.rafMed > 1.8 * displayMs() && perf.gpu + perf.mainMs < 0.3 * perf.rafMed && !busy && !stressed();
+        if (perf.raised && now - perf.raisedAt < 6e3) {
+          undoClimb(now);
+          return;
+        }
+        const pace = perf.rafMed > 1.8 * displayMs() && perf.gpu + perf.mainMs < 0.3 * perf.rafMed;
         if (pace) perf.why = "browser pace";
         if (pace) {
           if (autoF && perf.slow < 4) {
             perf.slowCeiling = perf.slow;
             perf.slow = Math.min(4, perf.slow + 1);
+            tuneLog(now, "fps", perf.slow);
           }
         } else if (autoD && density() > 1.01 && !(film.state === "recording" && filmScale(1) > renderScale)) {
           filmDense = false;
           resizeDue = true;
         } else if (!(autoF && simBound && perf.slow < 4) && tuneSteps(true, now, T2, floor, m > 2 * T2 ? 3 : m > 1.4 * T2 ? 2 : 1)) {
-        } else if (autoF && perf.slow < 4 && (m > T2 * 1.125 || stressed())) {
+        } else if (autoF && perf.slow < 4) {
           perf.slowCeiling = perf.slow;
           perf.slow = Math.min(4, perf.slow + (m > 2 * T2 ? 2 : 1));
+          tuneLog(now, "fps", perf.slow);
         }
         return;
       }
-      const cheap = perf.gpu + perf.mainMs * frameEvery() < T2 / 4;
-      if (m > T2 * 1.03 && !cheap || stressed()) {
-        perf.goodWindows = 0;
-        return;
-      }
-      perf.goodWindows++;
-      if (perf.goodWindows < 3) return;
+      if (!j.room) return;
       const held = now < perf.ceilingUntil;
       if (perf.slow > 1) {
         const faster = T2 * (perf.slow - 1) / perf.slow;
@@ -40698,6 +40777,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           perf.slow--;
           perf.goodWindows = 0;
           perf.raisedAt = now;
+          tuneLog(now, "fps", perf.slow);
         }
         if (perf.slow === 1) perf.why = "";
         return;
@@ -40709,6 +40789,39 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       }
       if ((!auto || renderScale >= 1) && best) perf.why = "";
     }
+    const knobOf = (id, on = shown()) => {
+      const k = tune[id], other2 = id === "haze" ? on.microscope ? tune.microscope.level : 0 : id === "microscope" ? on.haze ? tune.haze.level : 0 : void 0;
+      return { level: k.level, auto: tuneAuto(id, on), cost: k.cost, full: k.full, ratio: k.ratio, rel: k.rel, other: other2 };
+    };
+    function stepTo(id, to, now) {
+      if (id === "scale") {
+        if (hasTS && perf.renderR) perf.renderR *= (to / renderScale) ** 2;
+        renderScale = to;
+        resizeDue = true;
+        return;
+      }
+      const k = tune[id], def = KNOBS[id], top = def.levels.at(-1), kn = knobOf(id);
+      if (k.cost != null) k.cost = (k.full ?? k.cost / Math.max(1e-6, def.share(top, def.levels[k.level], kn))) * def.share(top, def.levels[to], kn);
+      if (id === "haze" || id === "microscope") tune.haze.cost = tune.microscope.cost = k.cost;
+      k.level = to;
+      k.since = now;
+      applyTune();
+    }
+    function undoClimb(now) {
+      const id = perf.raised;
+      perf.raised = null;
+      if (id === "scale") stepTo(id, SCALES.find((s) => s < renderScale - 1e-3) ?? renderScale, now);
+      else {
+        stepTo(id, Math.max(0, tune[id].level - 1), now);
+        tune[id].hold = now + perf.hold;
+      }
+      tuneLog(now, id, id === "scale" ? renderScale : KNOBS[id].levels[tune[id].level], "back");
+    }
+    function tuneLog(now, what, to, how = "") {
+      const T2 = frameTarget();
+      perf.log.push([Math.round(now / 1e3), +perf.judged.toFixed(2), +(perf.gpu / T2).toFixed(2), what, to, how]);
+      if (perf.log.length > 40) perf.log.shift();
+    }
     function tuneSteps(behind, now, T2, floor, n = 1, held = false) {
       const nb = tune.neighbors;
       if (perf.simS && now - (nb.since || 0) > 6e3) {
@@ -40717,17 +40830,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         const top = nb.at[KNOBS.neighbors.levels.length - 1];
         if (top) nb.rel = KNOBS.neighbors.levels.map((_, i) => nb.at[i] ? clamp6(nb.at[i] / top, 0.2, 1) : null);
       }
-      if (behind && perf.raised && now - perf.raisedAt < 6e3) {
-        const k = perf.raised;
-        if (tune[k]) tune[k].hold = now + perf.hold;
-        perf.raised = null;
-      }
       let acted = false;
       for (let i = 0; i < n; i++) {
-        const knobs = {}, on = shown();
-        for (const [id, k] of Object.entries(tune)) knobs[id] = { level: k.level, auto: tuneAuto(id, on), cost: k.cost, full: k.full, ratio: k.ratio, rel: k.rel };
-        knobs.haze.other = on.microscope ? tune.microscope.level : 0;
-        knobs.microscope.other = on.haze ? tune.haze.level : 0;
+        const on = shown(), knobs = Object.fromEntries(Object.keys(tune).map((id) => [id, knobOf(id, on)]));
         const heldK = Object.fromEntries(Object.entries(tune).map(([id, k]) => [id, now < k.hold]));
         heldK.scale = held;
         const draw = hasTS && perf.renderR ? perf.renderR : perf.gpu * 0.6;
@@ -40738,26 +40843,13 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           draw,
           knobs,
           held: heldK,
+          probe: !behind && !held,
           scale: { cur: renderScale, ladder: SCALES, floor, auto: state.perf.scale === "auto" }
         });
         if (!d) break;
-        if (d.id === "scale") {
-          if (behind) perf.ceiling = renderScale;
-          if (hasTS && perf.renderR) perf.renderR *= (d.to / renderScale) ** 2;
-          renderScale = d.to;
-          resizeDue = true;
-        } else {
-          const k = tune[d.id];
-          if (k.cost != null) {
-            const def = KNOBS[d.id], top = def.levels.at(-1), kn = knobs[d.id];
-            k.cost = (k.full ?? k.cost / Math.max(1e-6, def.share(top, def.levels[k.level], kn))) * def.share(top, def.levels[d.to], kn);
-          }
-          if (d.id === "haze" || d.id === "microscope") tune.haze.cost = tune.microscope.cost = k.cost;
-          k.level = d.to;
-          k.since = now;
-          applyTune();
-        }
-        perf.raised = behind ? null : d.id;
+        stepTo(d.id, d.to, now);
+        tuneLog(now, d.id, d.id === "scale" ? d.to : KNOBS[d.id].levels[d.to], d.probe ? "probe" : d.rebalance ? "rebalance" : "");
+        perf.raised = behind || d.rebalance ? null : d.id;
         acted = true;
       }
       return acted;
@@ -41682,7 +41774,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         lens: noteLens,
         notes: list,
         model: notes,
-        species: noteSp,
+        species: (k) => notes.sp(k),
         project: noteProject,
         radius: noteRadius,
         open: noteOpen,
@@ -41996,7 +42088,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       if (due && inflight >= 2) perf.gpuHeld = true;
       if (!state.busy && inflight < 2 && due) {
         perf.frames++;
-        if (perf.lastSubmit) perf.frameDt.push(Math.min(Math.max(50, frameTarget() * 2.5), now - perf.lastSubmit));
+        if (perf.lastSubmit) {
+          perf.frameDt.push(Math.min(Math.max(50, frameTarget() * 2.5), now - perf.lastSubmit));
+          if (perf.gpuHeld) perf.waits++;
+        }
         const T2 = frameTarget(), gap = perf.lastSubmit ? now - perf.lastSubmit : T2;
         perf.budget = !perf.gpuHeld && gap > 1.5 * T2 ? Math.min(gap, 2 * T2) : T2;
         const fdt = Math.min(100, gap);
@@ -42166,7 +42261,7 @@ Tidemote ${SAVE_VERSION} · world time ${fmtClock(eng.simTime)} · ${eng.count} 
     resetClimate();
     requestAnimationFrame(frame);
     document.addEventListener("visibilitychange", () => {
-      perf.frameDt.length = 0;
+      clearFrames();
       perf.lastSubmit = 0;
       perf.lastAdjust = performance.now() + 1500;
       sound.away(document.hidden);
