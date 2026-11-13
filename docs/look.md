@@ -131,7 +131,8 @@ and the look, and stone was added after them, so it took neither. Now:
   stone once a pixel instead of once per tap of its fringes and softening.
 - Shallow focus over a pile (`lensScene`): bare stone is blurred by how deep it lies, mostly its cobble's place in
   the pile (the stone color target's alpha past 1) and a little its own height there, up to 9.6 times the look's `dof`
-  (about 8 px at 800 px tall, at Darkfield's; 24 times when Darkfield's `dof` was 0.4, kept as it was when it rose to 1), full from 2.5 times the focus's start (200 px per unit on most screens):
+  (about 7 px at 800 px tall, at Darkfield's 0.9; 24 times when Darkfield's `dof` was 0.4, set so piles kept their
+  blur when it rose, chosen by eye with it at 0.9 too), full from 2.5 times the focus's start (200 px per unit on most screens):
   the grains on top sharp and those under them soft. A wide blur takes twelve taps, none from a grain lying higher
   (it is in focus, in front). Taken first from height alone and at a quarter of the strength, it did not show (a
   grain's own dome outweighs its place in the pile, so every grain softened alike, slightly); `tools/stonelab.mjs
