@@ -33,6 +33,9 @@ const GB = 1e9;
  *  software H.264 here does); in memory 1 GB, or 300 MB on a phone or a small machine (docs/film.md). */
 const FILM_CAP = { disk: 8 * GB, memory: 1 * GB, memorySmall: 0.3 * GB };
 const OPFS_PREFIX = 'tidemote-film-';
+// the font stretches a canvas takes (keywords only), by the percentages they stand for
+const STRETCH = [[50, 'ultra-condensed'], [62.5, 'extra-condensed'], [75, 'condensed'], [87.5, 'semi-condensed'], [100, 'normal'], // i18n-ignore (CSS)
+  [112.5, 'semi-expanded'], [125, 'expanded'], [150, 'extra-expanded'], [200, 'ultra-expanded']]; // i18n-ignore (CSS)
 
 /** The recording format this browser offers: [mimeType, extension], or null. */
 function filmFormat() {
@@ -230,28 +233,62 @@ export function createFilm({ canvas, source = null, overlay = null, caption = nu
     return b[0] > a[0] ? ((b[1] - a[1]) * 1000) / (b[0] - a[0]) : 0;
   }
 
-  // the caption, as the page shows it: its three lines, faded in and out with it
-  function drawCaption(ctx, w, h) {
+  // the caption, as the page shows it, faded in and out with it
+  function drawCaption(ctx, w) {
     if (!caption) return;
     st.capA += ((caption.classList.contains('on') ? 1 : 0) - st.capA) * 0.08;
-    const part = (cls) => caption.querySelector(`.${cls}`)?.textContent || '';
-    const eye = part('cap-eye'), main = part('cap-main'), sub = part('cap-sub');
-    if (st.capA < 0.02 || !main) return;
-    const s = h / 1080, F = 'Saira, Bahnschrift, "Segoe UI", system-ui, sans-serif'; // i18n-ignore (a font)
-    ctx.save();
+    if (st.capA < 0.02 || !captionPicture(w / innerWidth)) return;
     ctx.globalAlpha = st.capA;
-    ctx.textAlign = 'center';
-    const y = h - 96 * s;
-    const g = ctx.createLinearGradient(0, y - 90 * s, 0, h);
-    g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.55)');
-    ctx.fillStyle = g; ctx.fillRect(0, y - 90 * s, w, h - y + 90 * s);
-    ctx.fillStyle = '#7fd6df'; ctx.font = `500 ${Math.round(18 * s)}px ${F}`;
-    ctx.fillText(eye, w / 2, y - 44 * s);
-    ctx.fillStyle = 'rgba(150,222,230,0.55)'; ctx.fillRect(w / 2 - 24 * s, y - 34 * s, 48 * s, Math.max(1, s));
-    ctx.fillStyle = '#e2f1f0'; ctx.font = `400 ${Math.round(32 * s)}px ${F}`;
-    ctx.fillText(main, w / 2, y);
-    if (sub) { ctx.fillStyle = '#a3bdbe'; ctx.font = `400 ${Math.round(20 * s)}px ${F}`; ctx.fillText(sub, w / 2, y + 32 * s); }
-    ctx.restore();
+    ctx.drawImage(capPic.cv, capPic.x, capPic.y);
+    ctx.globalAlpha = 1;
+  }
+  // A picture of the caption at k film pixels to the page's: its plate, ticked corners, dotted rule and each letter
+  // where the page lays them out (so its wrapping and place too), in the page's styles (.caption in page.css). Drawn
+  // again only when its words or place change.
+  const capPic = { key: '', ok: false, cv: null, x: 0, y: 0 };
+  function captionPicture(k) {
+    const key = `${caption.innerHTML}|${caption.style.left}|${innerWidth}x${innerHeight}|${k}`;
+    if (key === capPic.key) return capPic.ok;
+    capPic.key = key;
+    const r = caption.getBoundingClientRect(), cs = getComputedStyle(caption);
+    capPic.ok = !!(caption.textContent && r.width);
+    if (!capPic.ok) return false;
+    // (where it rests once shown: less the slide it fades in with)
+    capPic.x = r.left * k; capPic.y = (r.top - new DOMMatrix(cs.transform).m42) * k;
+    const cv = capPic.cv = capPic.cv || document.createElement('canvas');
+    cv.width = Math.ceil(r.width * k); cv.height = Math.ceil(r.height * k);
+    const c = cv.getContext('2d');
+    c.scale(k, k);
+    const W = r.width, H = r.height;
+    c.fillStyle = cs.backgroundColor; c.fillRect(0, 0, W, H);
+    c.fillStyle = cs.getPropertyValue('--tick');
+    for (const [x, y, sx, sy] of [[0, 0, 1, 1], [W, 0, -1, 1], [0, H, 1, -1], [W, H, -1, -1]]) { c.fillRect(x, y, 5 * sx, sy); c.fillRect(x, y, sx, 5 * sy); }
+    const rule = caption.querySelector('.cap-rule');
+    if (rule) {
+      const q = rule.getBoundingClientRect(), [dx, dy] = getComputedStyle(rule).backgroundSize.split(' ').map(parseFloat);
+      c.fillStyle = cs.getPropertyValue('--line-2');
+      for (let x = q.left - r.left + dx / 2; x < q.right - r.left; x += dx) { c.beginPath(); c.arc(x, q.top - r.top + dy / 2, 1.2, 0, 2 * Math.PI); c.fill(); }
+    }
+    const walk = document.createTreeWalker(caption, NodeFilter.SHOW_TEXT), range = document.createRange();
+    for (let t; (t = walk.nextNode());) {
+      const s = getComputedStyle(t.parentElement), p = parseFloat(s.fontStretch);
+      c.font = `${s.fontWeight} ${s.fontSize} ${s.fontFamily}`;
+      c.fontStretch = STRETCH.reduce((a, b) => (Math.abs(b[0] - p) < Math.abs(a[0] - p) ? b : a))[1];
+      c.fillStyle = s.color; c.textAlign = 'center';
+      const asc = c.measureText(t.data).fontBoundingBoxAscent, ls = parseFloat(s.letterSpacing) || 0;
+      // (each letter centred in the advance the page gave it, which keeps the page's tabular digits in their columns)
+      for (const m of t.data.matchAll(/\S/gu)) {
+        range.setStart(t, m.index); range.setEnd(t, m.index + m[0].length);
+        const q = range.getBoundingClientRect();
+        c.fillText(m[0], q.left - r.left + (q.width - ls) / 2, q.top - r.top + asc);
+      }
+      if (s.textDecorationLine.includes('underline')) {
+        range.selectNodeContents(t);
+        c.fillStyle = s.textDecorationColor;
+        for (const q of range.getClientRects()) c.fillRect(q.left - r.left, q.top - r.top + asc + parseFloat(s.textUnderlineOffset || 0), q.width, parseFloat(s.textDecorationThickness) || 1);
+      }
+    }
+    return true;
   }
   /** Call right after the world's canvas was drawn this frame (its texture is still current). */
   function frame() {
@@ -262,7 +299,7 @@ export function createFilm({ canvas, source = null, overlay = null, caption = nu
     const ctx = st.ctx, { width: w, height: h } = st.cv;
     ctx.drawImage(canvas, 0, 0, w, h);
     if (overlay && overlay.width) ctx.drawImage(overlay, 0, 0, w, h);
-    drawCaption(ctx, w, h);
+    drawCaption(ctx, w);
     const s = h / 1080;
     ctx.save();
     ctx.font = `500 ${Math.round(15 * s)}px Saira, system-ui, sans-serif`; // i18n-ignore (a font)
