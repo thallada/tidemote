@@ -137,7 +137,7 @@ ticks, a frame a step; positions, 1e-3 units), 1/60 s steps → coarse steps dra
 
 At 2 ticks 70-80% of the excess over 1/60 s steps goes, at 3 ticks 60-75%. At 4 and 6 ticks (15 and 10 fps at real
 time, where the rule applies too) about half: 3-7 neighbors 2.49 → 8.38 → 5.01 and 4.67 → 15.17 → 9.64 in world 3,
-3.25 → 10.52 → 6.09 and 5.14 → 17.61 → 10.70 in world 5. The paths' speed drawn at the middles is the same or
+3.25 → 10.52 → 6.09 and 5.14 → 17.61 → 10.70 in world 5, 1.54 → 4.38 → 2.55 and 2.45 → 7.93 → 4.70 in world 7. The paths' speed drawn at the middles is the same or
 nearer 1/60 s steps' (world 3, 2 ticks, 3-7 neighbors: 138 / 142 / 140e-3 units a second). The velocity the heading
 and squash follow is the step's end, not blended: blended it would drop to 1/60 s levels too (world 3: 35 / 61 /
 34), but the drawing already eases it over 0.08 s (`contactGather`), which takes most of an alternation out at 30 fps.
