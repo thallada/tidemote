@@ -39,7 +39,7 @@ const out = await page.evaluate(async ({ zoom, frames, layout, speed, contacts }
   const res = [];
   for (const s of snaps) {
     for (const k of ['touch', 'sway', 'parts']) await s[k].mapAsync(GPUMapMode.READ);
-    const t = new Uint32Array(s.touch.getMappedRange()), sw = new Uint32Array(s.sway.getMappedRange()), swf = new Float32Array(s.sway.getMappedRange());
+    const swb = s.sway.getMappedRange(), t = new Uint32Array(s.touch.getMappedRange()), sw = new Uint32Array(swb), swf = new Float32Array(swb);
     const pb = s.parts.getMappedRange(), f = new Float32Array(pb), u = new Uint32Array(pb);
     const N = e.count, swN = sw.length / 14;
     const size = (i) => gf[u[i * 10 + 4] * 56 + 31] * (1 - 0.12 * ((u[i * 10 + 9] >> 4) & 3));
@@ -50,6 +50,9 @@ const out = await page.evaluate(async ({ zoom, frames, layout, speed, contacts }
     let now = -1;
     for (let k = 0; k < swN; k++) if (sw[k * 14] !== 0 && swf[k * 14 + 3] > now) now = swf[k * 14 + 3];
     const st = [0, 1].map(() => ({ cells: 0, exact: 0, jac: 0, drawn: 0, wrong: 0, missing: 0, none: 0 }));
+    // newborns in view (cause 9, under BIRTH_T old): how many have a record seen born (LOOK_BORN), and drawn budding
+    // from their mother (a shift), which their first sight decides
+    const born = { cells: 0, seenBorn: 0, budding: 0 };
     for (let i = 0; i < N; i++) {
       if (u[i * 10 + 4] < FIRST_LIFE) continue;
       const x = f[i * 10], y = f[i * 10 + 1];
@@ -81,6 +84,13 @@ const out = await page.evaluate(async ({ zoom, frames, layout, speed, contacts }
       }
       const drawn = new Set();
       if (row >= 0) for (let c = 0; c < 6; c++) { const j = t[row + c]; if (j === NONE) break; if (j < N && u[j * 10 + 4] >= FIRST_LIFE) drawn.add(u[j * 10 + 7]); }
+      if ((u[i * 10 + 9] & 15) === 9 && f[i * 10 + 6] < 0.9) {
+        const id = u[i * 10 + 7], k = sw[(id % swN) * 14] === id ? id % swN : -1;
+        let slot = k;
+        if (slot < 0) for (let q = 0; q < swN && slot < 0; q++) if (sw[q * 14] === id) slot = q;
+        born.cells++;
+        if (slot >= 0 && (sw[slot * 14 + 8] & 0x1000)) { born.seenBorn++; if (sw[slot * 14 + 11] !== 0) born.budding++; }
+      }
       const S = st[half];
       S.cells++;
       if (row < 0) S.none++;
@@ -90,7 +100,7 @@ const out = await page.evaluate(async ({ zoom, frames, layout, speed, contacts }
       S.drawn += drawn.size; S.wrong += drawn.size - inter; S.missing += truth.size - inter;
     }
     const fmt = (S) => ({ cells: S.cells, exact: +(S.exact / Math.max(1, S.cells)).toFixed(3), jaccard: +(S.jac / Math.max(1, S.cells)).toFixed(3), wrongPerCell: +(S.wrong / Math.max(1, S.cells)).toFixed(2), missingPerCell: +(S.missing / Math.max(1, S.cells)).toFixed(2), noRecord: S.none });
-    res.push({ steps: s.steps, odd: s.odd, searched: fmt(st[1]), notSearched: fmt(st[0]) });
+    res.push({ steps: s.steps, odd: s.odd, searched: fmt(st[1]), notSearched: fmt(st[0]), born });
   }
   return res;
 }, { zoom: +v.zoom, frames: +v.frames, layout: v.layout, speed: +v.speed, contacts: String(v.contacts) });

@@ -194,7 +194,9 @@ Chrome reports its adapter's vendor (`img-tec`) but neither architecture nor des
   against a Pixel 3, a Pixel 11 Pro and an RTX 4070 Ti modeled from these measurements: each settles within its frame
   (the Pixel 3 at 30 fps, half scale, without the haze or the microscope, 88 neighbors, the sea at half rate; the
   Pixel 11 at 85% scale, the sea at a quarter; the RTX at its best).
-  Behind, the step that saves the most GPU time for the least lost to the eye; with room (the frame under 85% busy), the
+  Behind, work done less often first (since 2026-11-13: the sea at half or a quarter rate, the contacts searched a
+  quarter of the grid cells a frame, the stone relit less often; Doing less work, below), then the step that saves
+  the most GPU time for the least lost to the eye; with room (the frame under 85% busy), the
   one that brings back the most for its time; with no room, a rebalance (a cheap step given up to pay for one worth half
   as much again for its time; only the dressing pays, the resolution falls only when frames are late). A knob's cost is
   measured every 10 s, 20 frames pass by pass (`tuneProfile`), and guessed as a share of the drawing until then; the
@@ -424,7 +426,8 @@ And `contactGather` (2.4-2.9 ms at 40-80 px a unit, measured by running it twice
 nothing): most of it was gathering and sorting a grid cell's neighbors for the search, the animation records cheap.
 Half the grid cells now search each frame, by an alternating checkerboard, the rest reading last frame's contacts
 (vsPoint places each where it is now); every one searches the first frame the cells gathered change. 40 px a unit
-−1.5 ms, 80 −0.7, 150 −1.1.
+−1.5 ms, 80 −0.7, 150 −1.1. (Those contacts read back by sorted index were mostly someone else's after each step's
+sort; since 2026-11-13 they are kept by id and carried through the sort: below, Doing less work.)
 
 Then the outline and its flattening, keeping every shape:
 - **The shape atlas** (`shapeDirty`, `shapeBake`, `shapeAt` in DRAW_WGSL; `Engine._shapes`): each species slot's bodies
@@ -584,6 +587,81 @@ slower. How it was found (`bench.mjs --android`, `kind: step`, the sim module pa
 - **Next on a phone**: what the step's two kernels run, not what they hold (the scan's pairs: 4.2 ms for 6.4k
   cells); the cells' fragment shader. Heat: a few minutes of benchmarks took the phone to thermal state 2-3
   without a fan, where every pass ran about 1.5 times slower.
+
+## Doing less work: the sea and the contacts (2026-11-13)
+
+The Pixel 3 runs each shader at about its hardware's honest speed (above), so the lever left is less work per frame.
+Two passes never feed the simulation: the sea (`SEA_WGSL`, 3.6 ms) and `contactGather` (3.4 ms at 80 pixels a unit,
+1.75 at 150). The Pixel 3, `p8` (8k, 6360 living), every effect on, half scale, 30 fps aimed for, `adapt: 'off'`; ms,
+two page loads each, thermal state 0-1 (`runs/night/cad0`-`cad3`):
+
+| | before | after |
+|---|---|---|
+| the sea, turned every frame | 3.61 (spectrum 0.51, rows' FFT 1.48, columns' 1.49, mipmaps 0.15) | 1.22 (0.03, 0.09, 0.99, 0.11) |
+| the sea every 2nd frame (the tuner's half rate) | 1.77 | 0.60 |
+| the sea every 4th | 0.90 | 0.3 (by the rate) |
+| `contactGather`, half the grid cells searching a frame (80 / 150 px a unit) | 3.39-3.47 / 1.74-1.77, its contacts wrong (below) | 3.55-3.92 / 1.76-1.86, and `touchCarry` 0.10 / 0.03-0.06 |
+| every grid cell searching every frame | 4.9 / 2.67 | 4.50 / 2.42-2.48 |
+| a quarter of them a frame (the tuner's new step) | | 2.78-2.88 / 1.29-1.32 |
+| the cells' pass (`fsReproj+…+fsPointLive`), the same scenes (a noisy pass) | 5.1-5.2 / 7.3 | 4.5-4.7 / 5.4-6.4 |
+
+- **The sea turns only the waves it holds** (`seaBands`, src/sea.js). Its waves are damped past `lmin` (4 units), and
+  nothing past three times the damping wavenumber is worth a thousandth of the slope, so a cascade whose band starts
+  past 2.5 times it holds nothing (the composite already skipped it) and in the rest only |f| up to that matters. A
+  phone's 8k world is 27 × 14 units: its second cascade holds nothing and its first only |f| ≤ 21 across and 11 down,
+  of 128. The spectrum is now worked out over the band's rows only (the rest of each row zeroed), the rows' FFT runs
+  over those rows only, a cascade that holds nothing is not turned at all; the columns' FFT still runs whole (its
+  output is every texel), and is most of what is left. The texture is the same within half precision's rounding (a
+  1M world's first cascade bit for bit; at most 1.2e-4 against slopes of 0.1-0.3 elsewhere, on lavapipe), on every
+  device: a desktop's worlds keep up to half their rows too.
+- **Turned less often, the sea is read carried along its drift** (`seaDrift`, `post.seaDepth.yz`). A sea held 1/30 s
+  of a storm's clock between turns is off by 14% of its slope's rms (28% at 1/15 s, 41% at 1/10), a step every turn;
+  its waves run at their own speeds (w ∝ k^0.5), but one velocity, the least-squares fit over the slope's spectrum
+  (5.6 units a clock-second along the wind, against 5.3 fitted to the texture directly), carries it to within 4.8%
+  (9.7, 14.5%): what is left is the waves changing shape, not moving. A calm sea's clock runs at 0.45 of a storm's.
+  As the composite shows it (`tools/seacarry.mjs` + `.py`: an 8k world held at 150 pixels a unit, the sea shown a
+  moment after a turn, against it turned afresh; 1 - SSIM): its light alone in a storm, 1/30 s on 0.0021 carried
+  against 0.0037 held, 1/10 s on 0.0046 against 0.0171; in calm water 0.001 either way. The whole view's frames differ
+  by 0.098 from one shot to the next with nothing changed (the look's grain), over which a storm 1/10 s on adds 0.014
+  carried and 0.026 held, 1/30 s on 0.003 and 0.011. The steps a held sea takes show only in motion; carried, it moves
+  on between turns.
+- **The contacts read back were someone else's.** The checkerboard (the M1's half-rate contacts, above) had the
+  grid cells not searching read back last frame's contacts by sorted index, but every step sorts the world again
+  (`resolveCount` ranks by atomics, and any cell gained or lost shifts every index after it): a cell read the row of
+  whoever now sat at its index, naming whoever sat at those. `tools/touchcheck.mjs` compares each cell's contacts as
+  drawn with a search on the CPU over the same positions (a 32k world on the RTX, 60 frames at 60 pixels a unit, about
+  1,500 cells a frame): before, a cell's contacts were exactly right on the frames its grid cell searched 99% of the
+  time and on the others 22% (at 150 pixels a unit 24-55%, a wrong and a missing contact a cell), so walls flattened
+  and fused against the wrong neighbors every other frame; and of the newborns in view only 58% were drawn budding from
+  their mother (their first sight's contacts someone else's). After: 98.8% and 99.4%, newborns budding 98%; a quarter
+  of the grid cells searching a frame 97-100% (at 150). Now the contacts are kept beside the cell's record (row for row with the sway table, by
+  id), and after each step `touchCarry` carries the rows of the cells gathered through its sort (`aux`, as
+  `scatterMain` carries bonds; 0.03-0.1 ms a step on the Pixel 3); a grid cell holding a cell with no contacts from
+  the last gathering (a newborn, one come into view) searches anyway; and a cell that lost a bite's or a birth's worth
+  of energy on a frame its grid cell did not search is judged on its next, which does (its energy as last seen kept):
+  a mother's newborn is never among the frame before's contacts, and was taken for a bite. Nothing is lost; a
+  contact is at most a few frames old and such an event at most a few frames late. Holding the record's whole slot
+  through the search (as first written) made the kernel a third slower on the Pixel 3 (6.6 ms at 80 with every cell
+  searching): the slot is found before the search and the record read after it.
+- **The tuner** (src/tuner.js): a knob `contacts` (a grid cell's search every 2 frames, its default, or every 4: the
+  search about two thirds of the pass), and a rule: behind, a cadence's step (`cadence`: the sea to half or a quarter
+  rate, the contacts to a quarter, the stone relit less often) is taken before any other, so nothing is turned off
+  while something can be done less often; with room, they are won back last. The sea's steps weigh half what they did
+  (0.3, 0.15) now that it keeps moving between turns. The contacts' cost is guessed as 0.15 of the drawing until
+  measured (with none, the Pixel 3 turned the sea off before it knew the contacts' step would pay).
+  On the Pixel 3 (`runs/night/cad4`, `cad5`: four page loads a build, `adapt: 'keep'`, 30 s at 80 then 150 pixels a
+  unit, the dressing back at its best for each), main took the haze, the sea to half rate, the specks and the
+  microscope before anything else; this build the sea to half rate, the contacts to a quarter, the sea to a quarter
+  and the stone to every 2 s, then the haze, the specks and the microscope. At 80 pixels a unit both end with all the
+  dressing off but the insides, half scale and 64 neighbors, at 20-34 fps (main 26-33, this 25-34): the step (11-14 ms)
+  and the cells (6-7 ms) are most of the frame there, and the dressing cannot pay for them. At 150 main held 54 fps in
+  one load of four (with the sea and the insides off) and 30 fps in three; this build 52-57 fps in three and 26 in
+  one, the sea and the insides kept in all four (the sea at a quarter rate in two), the haze and the microscope off
+  in both. Few loads, and the phone warmed to thermal state 1: a lean, not a measured difference.
+- **Not done, or no help**: the sea skipped while calm (a calm sea is 0.3 of a storm's height, its light plain to see);
+  a smaller FFT for small worlds (the columns' 1.0 ms would fall about four times at 128, but the cascades' layout and
+  the sea's own random draws follow `SEA_N`, so it would be another sea; left for later); blending two turns of the
+  sea (a second texture, twice the composite's reads, and a crossfade rather than motion).
 
 ## Where to look next (left off 2026-11-04, branch mac-perf merged; 2026-11-12 above)
 

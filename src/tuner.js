@@ -184,8 +184,9 @@ export function decide(s) {
 
 // A knob's cost at its top level: from its cost measured at its level (where that level costs anything), else the
 // last measured at the top (full), else a share of the drawing judged from the phones and desktops measured (the sea
-// about a fifth of it on a phone, bloom a twentieth)
-const GUESS = { sea: 0.2, contacts: 0, bloom: 0.05, specks: 0.05, stone: 0.03, haze: 0.3, microscope: 0.3, interiors: 0, neighbors: 0 };
+// about a fifth of it on a phone, bloom a twentieth, contactGather up close a quarter on a Pixel 3, a tenth on an M1;
+// until measured, a Pixel 3 turned the sea off before it took the contacts' cheaper step)
+const GUESS = { sea: 0.2, contacts: 0.15, bloom: 0.05, specks: 0.05, stone: 0.03, haze: 0.3, microscope: 0.3, interiors: 0, neighbors: 0 };
 function fullCost(id, k, draw) {
   const def = KNOBS[id], share = def.share(def.levels[def.levels.length - 1], def.levels[k.level], k);
   if (k.cost != null && share > 0) return k.cost / share;

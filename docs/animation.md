@@ -20,6 +20,13 @@ hurry at fast speeds):
 - `ev`: sim seconds since it was bitten and since it ate.
 - `sleep`: how far it has curled up into a cyst, and the bite's size.
 
+The six cells each cell presses on (`touch`) are kept beside its record, row for row with the sway table.
+Only half the grid cells in view search for them each frame (a quarter when the tuner asks, `contacts`); the rest take
+back theirs, carried through each step's sort by `touchCarry`. A grid cell with a cell that has no contacts from
+the last gathering (a newborn first seen) searches anyway, and a bite's or a birth's drop in energy seen on a frame
+that did not search is judged on the cell's next frame, which does: no event is missed, at most a frame or three
+late (docs/performance.md, Doing less work; `tools/touchcheck.mjs` checks the contacts against a search on the CPU).
+
 `ANIM_WGSL` holds the record and the durations; `animOf` and `ghostOf` (DRAW_WGSL) read it for the
 draw. The buffer has `min(n, 2^20)` slots of `SWAY_BYTES`: only cells in view need one.
 
