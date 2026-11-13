@@ -812,6 +812,8 @@ function cellWGSL(K, w, part = 'all') {
   // (the cell's record and genome through pointers: each p.x and g.x a load, read where used rather than held)
   const head = /* wgsl */ `  let p = &sortedFull[i];
   let g = &genomes[p.kind];
+  // the water's warmth here (read first, while the cell holds little else)
+  let heat = heatSample(p.pos);
 ${part === 'sense' ? '' : `  // the currents and the pond here, read once for all the cell's uses (first, while it holds little else)
   let openHere = openFlow(p.pos);
   let pond = pondWith(p.pos, openHere);
@@ -928,7 +930,6 @@ ${scan ? '' : `  // a tree holds its angles (bendOn), and a body bearing tails t
 `}
   // warmth: the water here, plus a heat-maker's own (a body insulates its cells)
   let thermo = thermoOf(*g);
-  let heat = heatSample(p.pos);
   let Tc = heat.x + ${f(K.selfWarm)} * thermo * (1.0 + 0.5 * (select(0.0, 1.0, keep1) + select(0.0, 1.0, keep2)));
   let th = cellThermal(*g, Tc);
   // a torpid cell neither hunts, grazes nor divides
@@ -1016,7 +1017,7 @@ ${live ? `      // A tight body's kin keep personal space only down to touching 
       var dfr = 0.0;
       var pull = 0.0;
 ${live ? `      // its own kind in the way stops it (a tree fills space without overlapping itself); strangers are shoved aside
-      if (budTurn < 3u && qk == p.kind && distance(d, budAt) < 0.7 * budGap) { budBlocked = true; }
+      if (qk == p.kind && distance(d, budAt) < budR) { budBlocked = true; }
       // a hungry forager lets other species inside its personal space so it can reach them
       let core = select(1.0, ${f(K.huntCore)}, canHunt && qk != p.kind);
       if (x < bk) { fr = (x * invBk - 1.0) * core; } else { fr = a * shape * sigK; }${W('mFr0 = fr; mFl = 0.0;')}
@@ -1138,6 +1139,8 @@ ${live ? `      if (join && joinable(i, j, select(NONE, n1, keep1), select(NONE,
   // a body bearing tails may start one at a bud, straight out from the partner it holds first (budTurn 0
   // here only asks the scan whether a cell is in the way)
   if (tails && n1 != NONE) { budTurn = 0u; budAt = -dn1 / max(d1, 1e-4) * budGap; }
+  // (how near a cell of its kind blocks the bud: none, without one)
+  let budR = select(-1.0, 0.7 * budGap, budTurn < 3u);
 
   // (the genome's traits the scan reads for every neighbor, in registers: g is a pointer, each g.x a load)
   let gSize = g.size; let gFlesh = g.dFlesh; let gGlint = g.dGlint; let gHusk = g.dHusk; let gSwim = g.swim; let gPhoto = g.photo;
