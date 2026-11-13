@@ -503,6 +503,17 @@ slower. How it was found (`bench.mjs --android`, `kind: step`, the sim module pa
     reads fewer) and the lens's fringes left out under a quarter pixel (two more): 5.4 against 4.9, slower: on
     this GPU a value held costs more than a texture read again.
   - `contactGather`: its search about 1.9 of 3.8 ms, its animation records 0.6; no cliff found.
+  - `senseMain`'s scan in kernels of its own: a kernel of the living's ranges alone (the matter's branch cut out)
+    takes 4.7 ms, the whole kernel's time, and one of the matter's alone 1.6: two would be slower than one.
+  - The cells' pass (`fsPointLive`): 4.6 ms at 150 pixels a unit, 1.0 with every cell a flat disc; by the pixels
+    (1.6 / 6.1 / 15.1 ms at a quarter, half and 0.85 scale), and the same with insides left out. Cut from
+    `cellColor`: the partners' loop 1.8 (0 when only kept from running: its code's presence, as in the kernels), the
+    contact planes' loop 1.3 (1.1 kept from running: its work), the seam 1.0 (0.2), the insides and the hairs 0.
+    Cells with no partner listed for the pipeline without necks (`listMain` after the gathering, reading
+    `bondsIn`): no change on this world. The cell's own outline taken out of the partners' loop: 4.4 → 3.6 at 150
+    pixels a unit and 5.1 → 6.4 at 80, where the plain pipeline draws: left as it was.
+  - `lifeMain`'s bends (`bendOn`, `tailBases`: 0.9 of its 3.3 ms kept from running): `bendAt` told whether its arm is
+    the mother, in place of `treeMom`'s reads again for every bend: 3.28 → 3.1. Left out.
 - **Next on a phone**: tools that show what Adreno's compiler holds (none found: every probe is a page load on the
   phone); `senseMain`'s body in kernels of its own (bonds, matter, the living), each leaner; `lifeMain`'s bonds
   (1.5 of its 3.2 ms); the cells' fragment shader, unprobed; and what the tuner prefers on such a device: at 30
