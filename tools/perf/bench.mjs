@@ -21,12 +21,16 @@
 //   adapt  'keep': the frame rate and scale left to the page's adaptive quality, unreset (fps, scale unused);
 //          'off': none at all, the frame rate aimed for held however long frames take
 //   prefs  more settings (eng.settings keys: bloom, optics, specks, lod, links, nodes, trails)
-//   look   the microscope's look (src/look.js) 'on' or 'off' (left as it was when unset)
+//   look   the microscope's look (src/look.js) 'on' or 'off' (left as it was when unset), or tunables over Darkfield's
+//          ({ "dof": 0 }: without the shallow focus)
 //   species  follow a cell of the named species (follow: false keeps it selected, the camera still)
 //   effects  the tuner's dressing (src/tuner.js): 'low' or 'high' fixes every knob cheapest or best, 'auto' leaves them
 //   tune   single knobs fixed after effects, { id: level index } (src/tuner.js KNOBS)
 //   frames every frame's passes kept, up to that many   thermalEvery  (--android) the phone's thermal state every N s
 //   lab    a Field Lab tab to hold open ('species', 'census', ...; closed by default); its updates are timed
+//   auto   true: the auto camera films while measuring (as the p key starts it; zoom is then the director's)
+//   trace  seconds of a Chrome trace and a JS CPU profile taken while measuring (from its start): OUT-WORLD-SCENARIO.trace.json
+//          and .cpuprofile beside the report, summarized by tools/perf/trace.mjs (main thread per frame, tasks, GC)
 // --android runs Chrome on the phone adb is connected to (tools/android.mjs: on USB under WSL through gpu-node.sh), each
 // scenario with the phone's thermal state and battery beside it (`phone`).
 // --electron EXE runs the packaged desktop app (desktop/) instead, launched afresh for each world, its
@@ -101,7 +105,9 @@ const W = +v.width, H = +v.height;
 const userDir = fs.mkdtempSync(path.join(process.env.TEMP || process.env.TMPDIR || '/tmp', 'tidemote-perf-'));
 const args = [`--window-size=${W},${H}`, '--window-position=0,0', '--enable-webgpu-developer-features', '--autoplay-policy=no-user-gesture-required',
   // (silent: a run's soundtrack still plays through the audio thread, unheard)
-  '--mute-audio', ...UNTHROTTLED, '--no-first-run', '--no-default-browser-check'];
+  '--mute-audio', ...UNTHROTTLED, '--no-first-run', '--no-default-browser-check',
+  // --dpr 2 on a shown Chrome: device pixels per CSS pixel as a Retina screen's (the window's size is then in CSS pixels)
+  ...(+v.dpr !== 1 && !v.linux && !v.android && !v.electron ? [`--force-device-scale-factor=${v.dpr}`] : [])];
 let ctx = null, desk = null;
 async function launch() {
   if (v.android) { ctx ??= await androidChrome(); return; }
@@ -254,7 +260,7 @@ async function measure(page, sc) {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     Object.assign(eng.settings, sc.prefs || {});
     // the look (src/look.js), on or off (a build without it ignores this)
-    if (sc.look && T.look) { if (sc.look === 'off') T.look.off(); else T.look.set(); }
+    if (sc.look && T.look) { if (sc.look === 'off') T.look.off(); else T.look.set(typeof sc.look === 'object' ? sc.look : {}); }
     // the tuner's dressing ('auto', 'low', 'high'; a build without it ignores this)
     if (sc.effects && T.setEffects) T.setEffects(sc.effects);
     // single knobs fixed ({ id: level index }), after effects
@@ -350,6 +356,11 @@ async function measure(page, sc) {
       count: eng.count, living: T.life().counts[3], effects: T.effects?.(), wall: +wall.toFixed(2), simRate: +simRate.toFixed(2),
       fps: +(sub.length / wall).toFixed(1), rafFps: +(raf.length / wall).toFixed(1),
       interval: { p50: q(sub, 0.5), p95: q(sub, 0.95), p99: q(sub, 0.99), max: q(sub, 1) },
+      // requestAnimationFrame's intervals, and the longest submit gaps with when they ended (ms since recording began)
+      rafInterval: { p50: q(raf, 0.5), p95: q(raf, 0.95), p99: q(raf, 0.99), max: q(raf, 1) },
+      worstGaps: sub.map((g, i) => [+g.toFixed(1), Math.round(rec.submits[i + 1] - t0)]).sort((a, b) => b[0] - a[0]).slice(0, 12),
+      encodeAll: { p50: q(rec.encode, 0.5), p99: q(rec.encode, 0.99), max: q(rec.encode, 1) },
+      gpuAll: { p99: q(rec.gpu, 0.99) },
       gpu: { mean: mean(rec.gpu), p50: q(rec.gpu, 0.5), p95: q(rec.gpu, 0.95), max: q(rec.gpu, 1) },
       sim: { mean: mean(rec.sim), stepsPerFrame: +(rec.steps / Math.max(1, rec.passFrames)).toFixed(2) },
       encodeMs: { mean: mean(rec.encode), p95: q(rec.encode, 0.95) },
@@ -380,7 +391,31 @@ try {
       // on a phone, its thermal state and battery every thermalEvery seconds while measuring
       const thermal = [];
       const sampler = v.android && sc.thermalEvery && setInterval(() => { try { thermal.push({ t: thermal.length * sc.thermalEvery, ...phoneState() }); } catch { /* adb busy */ } }, sc.thermalEvery * 1000);
+      if (sc.auto) await page.keyboard.press('p');
+      // trace: a Chrome trace and a JS profile over the first seconds of the measurement (after the settle)
+      const tracer = sc.trace && v.out && (async () => {
+        await page.waitForTimeout((sc.settle ?? 3) * 1000 + 300);
+        const cdp = await page.context().newCDPSession(page);
+        const stem = v.out.replace(/\.json$/, '') + `-${w.name}-${sc.name}`;
+        const events = [];
+        cdp.on('Tracing.dataCollected', (e) => { for (const x of e.value) events.push(x); });
+        const done = new Promise((r) => cdp.once('Tracing.tracingComplete', r));
+        await cdp.send('Profiler.enable');
+        await cdp.send('Profiler.setSamplingInterval', { interval: 200 });
+        await cdp.send('Tracing.start', { transferMode: 'ReportEvents', traceConfig: { includedCategories: ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'disabled-by-default-devtools.timeline.frame', 'v8', 'v8.execute', 'blink', 'blink.user_timing', 'toplevel', 'gpu', 'viz', 'cc', 'benchmark', 'disabled-by-default-gpu.service'] } });
+        await cdp.send('Profiler.start');
+        await page.waitForTimeout(Math.min(sc.trace, sc.seconds ?? 8) * 1000);
+        const { profile } = await cdp.send('Profiler.stop');
+        await cdp.send('Tracing.end');
+        await done;
+        fs.writeFileSync(`${stem}.cpuprofile`, JSON.stringify(profile));
+        fs.writeFileSync(`${stem}.trace.json`, JSON.stringify({ traceEvents: events }));
+        await cdp.detach();
+        console.log(`  trace: ${stem}.trace.json (${events.length} events), ${stem}.cpuprofile`);
+      })();
       const r = await measure(page, sc);
+      if (tracer) await tracer;
+      if (sc.auto) await page.keyboard.press('p');
       if (sampler) { clearInterval(sampler); r.thermal = thermal; }
       moving = false; await mover;
       if (v.android) r.phone = phoneState();
@@ -389,7 +424,7 @@ try {
       if (sc.kind === 'warm') { console.log(`${w.name}/${r.name}: ${r.count} particles, ${r.wall} s to reach the time, ${Math.round(r.simShare * 100)}% of GPU time stepping`); continue; }
       if (sc.kind === 'step') { console.log(`${w.name}/${r.name}: step ${r.total} ms (level ${+r.level.toFixed(5)}) | ${JSON.stringify(r.dispatch)}`); continue; }
       const top = Object.entries(r.passes).slice(0, 4).map(([k, x]) => `${k} ${x}`).join(', ');
-      console.log(`${w.name}/${r.name}: ${r.audio ? `audio ${JSON.stringify(r.audio)} ` : ''}${r.fps} fps (raf ${r.rafFps}), gpu ${r.gpu.mean} ms (p95 ${r.gpu.p95}), sim ${r.sim.mean} ms x${r.sim.stepsPerFrame}, enc ${r.encodeMs.mean} ms, long ${r.longTasks}/${r.longMs} ms${r.lab ? `, lab ${r.lab.n}× ${r.lab.mean} ms (max ${r.lab.max})` : ''}, scale ${r.scale.mean}, slow ${r.slow.end} ${r.slow.why || ''}, ppu ${r.ppu} | ${top}`);
+      console.log(`${w.name}/${r.name}: ${r.audio ? `audio ${JSON.stringify(r.audio)} ` : ''}${r.fps} fps (raf ${r.rafFps}; interval p50 ${r.interval.p50} p99 ${r.interval.p99} max ${r.interval.max}), gpu ${r.gpu.mean} ms (p95 ${r.gpu.p95}), sim ${r.sim.mean} ms x${r.sim.stepsPerFrame}, enc ${r.encodeMs.mean} ms, long ${r.longTasks}/${r.longMs} ms${r.lab ? `, lab ${r.lab.n}× ${r.lab.mean} ms (max ${r.lab.max})` : ''}, scale ${r.scale.mean}, slow ${r.slow.end} ${r.slow.why || ''}, ppu ${r.ppu} | ${top}`);
       if (v.out) fs.writeFileSync(v.out, JSON.stringify(report, null, 2));
     }
     if (desk) { await desk.close(); desk = null; } else if (!v.keep) await page.close();

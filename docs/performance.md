@@ -217,7 +217,156 @@ Chrome reports its adapter's vendor (`img-tec`) but neither architecture nor des
   a tab closed during a 65k world's run with no GPU process lost). The one restart in this session was Android's own
   (`system_server`'s watchdog: its adb pairing thread deadlocked while pairing over Tailscale). Pair over the LAN.
 
-## Where to look next (left off 2026-11-04, branch mac-perf merged)
+## A 32k world on an M1, worked out on the RTX 4070 Ti (2026-11-12)
+
+An M1 MacBook at 32k particles holds "(mostly) 60 fps" with Adaptation off: a frame near its 16.7 ms, not far over.
+Measured here on the RTX 4070 Ti (Chrome 157, D3D12, 175 Hz, so 58 fps aimed for) with `tools/perf/plans/m32k.json`
+(`w32k`: 32,768 particles grown 90 s at Max, 17.7k living, about 1000 species, full water and no events) at 2560×1440
+(canvas 2544×1289), and `m32k-mac.json`, the same world in a 1440×900 window at 1.5 device pixels (`--dpr 1.5`;
+canvas 1426×750, the Mac's 1440×757 of 2026-11-04), the dressing held at its best (`effects: 'high'`), scale 1.
+New for this: a scenario's `trace` (a Chrome trace and a JS profile; `tools/perf/trace.mjs` sums them: the main thread
+frame by frame, its longest tasks and what ran in them, GC, Chrome's dropped frames, JS self time), `auto` (the auto
+camera), `look` as tunables (`{ "dof": 0 }`), `--dpr` on Windows, and every report's `rafInterval`, `worstGaps`.
+Runs in `runs/perf/m32k-*.json`, `mac-*.json`, `notesp.json` (not in the repo).
+
+**The GPU.** Per pass, ms a frame at 1× (means over 15-20 s; repeated scenarios agree within ±0.03 ms, the frame's
+GPU p95 is 1.1-1.4 times its mean):
+
+| pass | 2544×1289 fit (47 px a unit) | 1426×750 fit (27) | 1426×750 at 150 | 2544×1289 at 150, a cell selected | auto camera (67-92) |
+| --- | --- | --- | --- | --- | --- |
+| step (`lifeMain` 0.096, `contactMain` 0.06, `matterMain` 0.03) | 0.22-0.25 | 0.22 | 0.24 | 0.25 | 0.24-0.25 |
+| `contactGather` (+ inbond) | 0.21-0.32 | – (under 2.8 px detail) | 0.04 | 0.04 | 0.22 |
+| scene (`fsReproj` … the cells) | 0.12-0.17 | 0.05 | 0.18 | 0.28 + 0.04 close-up | 0.18-0.22 |
+| `fsStoneLit(Scene)` | 0.07 | 0.02 | 0.03 | 0.10 | 0.08 |
+| bloom (`fsDown`, `fsUp`) | 0.06 | 0.04 | 0.03 | 0.06 | 0.07 |
+| `fsMurk` | 0.065 | 0.03 | 0.025 | 0.065 | 0.07 |
+| sea (spectrum, FFT, field, shift map) | 0.16 | 0.05 | 0.06 | 0.07 | 0.14 |
+| `fsComposite` | 0.48 | 0.20 | 0.18 | 0.71 | 0.57-0.61 |
+| frame (GPU mean) | 1.59 | 0.79 | 0.94 | 1.96 | 1.79-1.94 |
+
+At ×4 the step is 1.09 ms a frame (four steps; 0.27 each), the frame 2.3. A 6-tick coarse step is 0.38 ms (`lifeMainCoarse`
+0.12, `bodyTick` 0.13). At the Mac's size, a quarter of the pixels (`scale: 0.5`) takes 0.79 → 0.60 ms, all dressing off
+(`effects: 'low'`) 0.59, the look off 0.77; the shallow focus (Darkfield's `dof` 0.9, since 2026-11-12) costs 0.01 ms of the
+composite at 150 px a unit (`dof: 0`: 0.18 → 0.17).
+
+**The main thread.** From the traces (10 s each; a Ryzen 9 3900X, which an M1's cores match or beat at JS). The page's
+rAF callback (`frameWork` with `eng.frame`'s encoding) and everything else on the main thread:
+
+| view | main thread busy | rAF callback p50 / p95 / p99 / max | GC | what ran in the longest |
+| --- | --- | --- | --- | --- |
+| fit | 135 ms/s | 0.31 / 1.25 / 1.85 / 2.6 ms | 25 a second, 5 ms/s; one major GC of 26 ms | `GCFinalizeMCReduceMemory` (V8's memory reducer) |
+| at 150, a cell selected | 244 ms/s | 0.46 / 3.7 / 5.1 / 46 ms | 1.8 ms/s | `renderSpecimen` → `plainGlyph` → `glyphURL`'s `toDataURL`, 29 ms |
+| auto camera (live annotations) | 404-413 ms/s | 0.35 / 6.4-6.8 / 8.5-9.0 / 14.5-16 ms | 6 ms/s | the notes (`drawNotes` 207-218 ms/s) |
+
+The frame's own work is small: `frameWork` 21 ms/s at fit, `eng.frame` 12. The census 3 ms/s, the HUD and panels under 1.
+What grows is the live annotations, on by default with the auto camera, which a visitor's idle page starts after a
+minute: `drawNotes` (the notes' model and `noteview.js`) took 207-218 ms/s of the main thread, 96 of them in `noteSp`
+(main.js), the species of a slot worked out afresh, an object and a CSS color each time, for every call `noteview.js`
+makes per frame (the roster twice a row, guild tests in loops over the view's cells); `Notes.sp` caches it for 2 s but
+the view was handed the uncached function. Handing it `(k) => notes.sp(k)` (a variant page, same world, two runs of 30 s):
+the main thread 404 → 338 ms/s, `drawNotes` 207 → 139, the rAF callback's p95 6.4 → 5.2 ms, Chrome's dropped frames
+185 → 122 of about 830 drawn. The rest of the notes' cost is spread thin (`detect`'s stepped look 22 ms/s, `readView` 27,
+the roster, `_stats`, text). With them, a 60 Hz frame's main thread is 4-9 ms in one frame of twenty, against under 2 at fit.
+
+**Chrome's GPU process.** Its main thread runs WebGPU's commands (121 ms/s of `WebGPU` tasks under the auto camera) and
+also rasterizes the page's 2D content, the overlay canvas and the DOM (`RasterDecoderImpl::DoEndRasterCHROMIUM`): 8 ms/s at
+fit, 43-87 ms/s with a selection or the annotations, with single flushes of 24-36 ms (two to five in each 10 s trace),
+and the glyph's `toDataURL` as a 22 ms `DoReadbackARGBImagePixels`. While one runs, the frame's WebGPU work waits behind
+it. The auto camera hits the glyph too: its subject fills the specimen record, and a subject of matter or not yet
+sequenced draws a glyph of a color not drawn before (25 ms on the main thread, 22 in the GPU process, in the Mac-sized
+run). The same world under the auto camera at the Mac's size, with the annotations and without (`auto`, `auto-quiet`,
+45 s each): submit intervals p99 32 against 22.9 ms, the worst 40-45 ms (five past 40) against 23.2, the GPU 1.05 against
+0.80 ms a frame.
+
+**Frame pacing here.** Submit intervals at fit: p50 17.2 ms (three 175 Hz vsyncs), p95 22.9 (four), max 23-40; the auto
+camera p95 22-26, p99 24-32, and gaps of 29-58 ms every few seconds (three runs of 30-60 s; the GPU's frames never over
+3 ms, so the main thread or Chrome). Chrome's pipeline marks 8% of frames with new content dropped at fit, 22-26% with
+the annotations. The trace's own start shows as a 120-200 ms task (`CpuProfiler::StartProfiling`) in every traced run:
+not the page's.
+
+**Where an M1 loses its frame (known from 2026-11-04, the rest inferred).** Known: `lifeMain` costs about 110 ns a living
+cell (20 times the RTX's 5.4 ns at this count: 32k cannot fill the RTX), the composite about 3 ms a megapixel (15-18 times
+the RTX's 0.19), cells' shading close up 3-4 ms at 70 px a unit, WindowServer about 2 ms of the same GPU, Chrome's own
+compositing 0.2; m139 at fit drew in 10.6 ms, slow-mac-world at 71 px a unit in about 13.4 (58-60 fps). Projected for 32k
+at 1440×757 by those ratios:
+
+| | fit (27 px a unit) | 80-150 px a unit, a cell selected |
+| --- | --- | --- |
+| step (`lifeMain` 1.9 of it) | 2.6-3.2 | 2.6-3.2 |
+| `contactGather` | – | 0.4-0.7 |
+| scene | ~1 | 3-4 (+0.5 the close-up) |
+| stone lit, bloom, murk, sea | ~1.5 | ~1.5 |
+| composite | ~3.2 | ~3.0 |
+| WindowServer, Chrome | ~2.2 | ~2.2 |
+| frame | ~10.5-11 | ~13.3-15 |
+
+So the whole world at a laptop's size has room; up close with a cell selected (or the loupe, about 1.5 ms more) it sits
+at the budget, where any extra (the stone relit every half second, 1.2 ms in its first frame; a director's move that
+leaves the stone cache, all of its relighting in one frame; the overlay; the GPU's clock dropping between 60 fps frames)
+tips a frame into the next vsync. Three things the RTX cannot show and that point at the Mac:
+- **Pixels set the drawing, and the window sets the pixels.** Auto density draws one pixel a CSS pixel, so a full-screen
+  Chrome on a 1440×900 Air is 1.3 Mpx, but a 1728×1117 14-inch or an external display at 2560×1440 (3.7 Mpx) triples
+  the composite, the stone, the bloom and the murk: the per-pixel part of the frame alone would be 10-15 ms there. Which
+  display and window size the Mac ran is the first thing to settle.
+- **A small world's whole view is a close view.** 32k fills a 1440-px window at 27 px a unit (47 at 2560 here), so the
+  cells are drawn resolved at fit, and from about 30 px a unit (a window past about 1600 CSS px) `contactGather` gathers
+  every living cell's contacts every frame (0.21-0.32 ms here at 47 px, more than `lifeMain`); a 139k world at fit draws
+  specks. Fewer particles do not make a frame cheap in proportion: under about 50k the drawing, not the step, sets an
+  M1's frame.
+- **The main thread, the GPU process and the overlay.** At 60 Hz a 4-9 ms rAF callback (the annotations) sits beside a
+  GPU frame near the budget, and a 25-46 ms one (the specimen's glyph) or a 26 ms GC misses a vsync whatever the GPU does;
+  the GPU process's 24-36 ms raster flushes hold up the WebGPU frame queued behind them. The overlay canvas, at the
+  screen's 2 device pixels and redrawn every frame while anything is marked (a selection, the notes, the auto camera's
+  subject), is 5.2 Mpx Skia draws and composites on the M1's GPU (a ~4 ms compute pass beside the scene on 2026-11-04,
+  avenue 9 below). This is where the auto camera, which an idle page starts after a minute, differs from a still view.
+
+**Candidates, by what they would win on the M1 for their risk.** None touches the ecology.
+1. Notes' species from the cache (`species: (k) => notes.sp(k)` for `noteView.draw` in main.js). Measured: 65-80 ms/s of
+   main thread, p95 callback −1.2 ms, a third fewer dropped frames here. One line; nothing visible changes (a name changed
+   in the last 2 s shows a moment late).
+2. The specimen's glyph without a GPU readback: `glyphURL` (glyphs.js) draws on a GPU-backed 2D canvas and reads it with
+   `toDataURL`, a readback that holds the main thread 25-29 ms and the GPU process's 22 (measured, selected and under the
+   auto camera). `scratch.getContext('2d', { willReadFrequently: true })` keeps that canvas on the CPU. One line; the
+   same pixels.
+3. The overlay's raster (measured here in the GPU process, its GPU cost on the Mac still to measure: `auto` against
+   `auto-quiet`). 43-87 ms/s of rasterizing on the thread WebGPU shares, flushes up to 36 ms. Draw it only when what it
+   shows changes (its key holds `cam.x`, so any camera motion redraws it whole), clear and redraw only last frame's
+   rectangles, or draw it at `min(dpr, 1.5)`; then trace again for the long flushes' source (text new to Skia's glyph
+   cache is a suspect: the notes' labels change size and words).
+4. The stone's full relight on a camera move (`_stoneStale` 2, past 6% of zoom or the cache's margin: all its parts in
+   one frame, about 1.8 ms on an M1). Under the auto camera at the Mac's size (40 s, every frame's passes kept) it came
+   15 times, beside 69 half-second relights spread over three frames each: small. Spreading it too would show a few
+   frames of stone from the old cache at the view's edge.
+5. `opticsTex` as `rgba16float` (or `rgba8unorm`): three values in 0-1 read at every pixel each frame from an
+   `rgba32float` (16 bytes a pixel; 17 MB a frame at the Mac's size, about 1 GB/s at 60 fps of the M1's 68). Exact to the
+   eye; a format and the WGSL storage type.
+6. `stepCap` at 1× budgets against the whole frame target, but WindowServer's ~2 ms on the same GPU is not in `renderR`:
+   with drawing about 10.5 ms and a step 3 (16.5 for two), the cap allows the second step a late frame asks for, and that
+   frame is late too. Budget against about 85% of the target (`stepCap(0.85 * frameTarget())` in `plan`). One line; the
+   clock runs a little slow after a late frame instead of dropping a second one.
+7. `contactGather` for cells that show no contact: it runs for the whole view from about 30 px a unit, where cells are
+   11-15 px across; a higher floor (as `vsPoint` uses none under 6 px) needs judging by eye. 0.4-0.7 ms on an M1 where
+   it runs (inferred from 0.66 at 71 px on 2026-11-04); nothing at the Mac's fit.
+8. Known and larger: `lifeMain`'s registers (avenue 1), the cells' shading up close (2), the composite (3).
+And for the user now: Settings → Display → Microscope off halves the composite (about 1.5 ms on an M1), Annotations off
+takes the notes off the main thread, and a smaller window or Render scale 0.85 takes the per-pixel part down by a third.
+
+**For the Mac (one session).** `npm run build`, then with the system Chrome (Instruments as in How to measure):
+1. `node tools/perf/bench.mjs --chrome "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --plan
+   tools/perf/plans/m32k-mac.json --width 1440 --height 900 --out runs/perf/mac-m1.json` (grows `w32k` 90 s at Max
+   first; about 6 minutes): the frame (GPU, intervals, `worstGaps`) at fit, ×Max, without the dressing, at half scale,
+   without the look, at 80 and 150, without the shallow focus, selected, under the auto camera with notes and without
+   (`auto-quiet`). Per-pass times overlap on a tiled GPU: read the frame's total and the differences between scenarios.
+   The `auto` scenario writes a trace; `node tools/perf/trace.mjs runs/perf/mac-m1-w32k-auto.trace.json`.
+2. During `auto`, `xcrun xctrace record --template 'Metal System Trace' --attach <Chrome's GPU process> --time-limit 2s`:
+   whether Skia's overlay pass and WindowServer sit on the critical path.
+3. The same plan with `--width` and `--height` of the user's own window (and once full screen, `--width 1440 --height 900`
+   on the Air's own display against the external one if there is one): how the frame follows the pixels.
+4. On the page as the user runs it (Adaptation off, 32k, their window): Settings → Performance → Copy profile at fit, at
+   their usual zoom with a cell selected, and with the auto camera running; then again with Annotations off, then
+   Microscope off. Note the display (built-in or external), its scaling and the window's size.
+
+## Where to look next (left off 2026-11-04, branch mac-perf merged; 2026-11-12 above)
 
 Where an M1's frame stood when this work paused, at 1×, the GPU about 96% busy (Instruments' encoder table; the
 step's share from `bench.mjs` step scenarios with `dispatch: true`):
@@ -267,6 +416,9 @@ take two steps to keep time (main.js's clock), so a world just past the budget s
 
 ### Avenues, most promising first
 
+0. **The main thread and the window's pixels (2026-11-12, A 32k world on an M1).** First the cheap ones: the notes'
+   species from their cache and the specimen's glyph off the GPU (candidates 1-2 there), then the Mac session there,
+   which settles the display's size, the overlay's Skia pass and WindowServer's share before any shader work.
 1. **`lifeMain`'s registers** (1.9-2.7 ms; 3-4 ms in a 6-tick coarse step). It is latency-bound at 9.5% occupancy:
    too many values live per thread to keep enough threads in flight. The neighbor scan is three quarters of it, and its
    loop carries some forty sums plus the cell's invariants. Exact restructurings that did not help: pointer reads of
@@ -296,7 +448,8 @@ take two steps to keep time (main.js's clock), so a world just past the budget s
 4. **The catch-up at 1×.** When the GPU is the limit, keeping simulated time real costs the frames it is short of:
    an over-budget frame steps twice next. Letting the simulation run slightly slow when the GPU is busy (as Max and
    the adaptive frame rate already do) instead of catching up would hold the frame rate; a design choice, not an
-   optimization.
+   optimization. (Since then `stepCap` allows a second step only where the GPU's measured frame leaves room for it; it
+   does not count WindowServer's ~2 ms, candidate 6 of 2026-11-12.)
 5. **macOS's compositing** (~2 ms of GPU a frame for a windowed Retina Chrome). Untested: true fullscreen, where
    macOS can skip composing the window.
 6. **`contactGather`** (0.66 ms close up, 1.1 at 40 px a unit): its workgroup arrays (NEAR_N 1024, ~16 KB) limit
@@ -310,7 +463,8 @@ take two steps to keep time (main.js's clock), so a world just past the budget s
    mid-range GPU that measures once with its founders leaving it idle would still be undersized: check one.
 9. **The page's overlay canvas.** With the live annotations drawing, Chrome ran a ~4 ms compute pass alongside the
    scene each frame on the M1 (Skia drawing the 2D overlay); it overlapped there without costing frames, but may not
-   elsewhere.
+   elsewhere. On the main thread the notes cost 200-290 ms/s (2026-11-12); the GPU side is the Mac session's `auto`
+   against `auto-quiet`.
 
 ## Starting up (compiling the shaders)
 
@@ -570,7 +724,13 @@ and never during a balance gate.
   `.tidemote` save (Settings → Worlds) instead; `zoom: 'saved'` keeps its camera, `at` centers the
   view on a fixed spot, `mouse: 'sweep'` moves the pointer (the loupe) while measuring, and `adapt: 'keep'`
   leaves the adaptive quality to run as it would. Every report has the adaptation second by second
-  and the passes of each frame over 40 ms (`spikes`).
+  and the passes of each frame over 40 ms (`spikes`), the submit and rAF intervals' percentiles and the longest gaps
+  (`worstGaps`, with when they ended). `auto: true` runs the auto camera; `trace: SECONDS` takes a Chrome trace and a JS
+  profile from the measurement's start (`OUT-WORLD-SCENARIO.trace.json`, `.cpuprofile`), which `trace.mjs` sums: the
+  main thread per frame and per 16.7 ms, task kinds, GC, the longest tasks and what ran in them, the GPU process,
+  Chrome's frames presented and dropped, JS self time (the trace's start costs the page one 100-200 ms task). `--dpr N`
+  on a shown Chrome forces that many device pixels a CSS pixel (window sizes are then CSS pixels). `m32k.json` and
+  `m32k-mac.json` are the 32k plans of 2026-11-12.
 - `bench.mjs --android` runs the same plans in Chrome on a phone adb is connected to (`tools/android.mjs`): over a USB
   cable under WSL through Windows' adb (run it with `tools/gpu-node.sh`; Windows' `platform-tools` in
   `%LOCALAPPDATA%\Android\Sdk`), or over Wi-Fi (Developer options → Wireless debugging, `adb pair`, `adb connect`; pair

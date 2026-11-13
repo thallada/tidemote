@@ -1,0 +1,13 @@
+{ "worlds": [{ "name": "w32k", "n": 32768, "mature": 90, "k": { "lowEras": 0, "eventPlan": "none@1000000000" } }],
+  "scenarios": [
+    { "world": "w32k", "name": "warmup", "zoom": "fit", "fps": 60, "scale": 1, "effects": "high", "seconds": 4, "dispatch": false },
+    { "world": "w32k", "name": "fit", "zoom": "fit", "fps": 60, "scale": 1, "effects": "high", "seconds": 20, "trace": 10 },
+    { "world": "w32k", "name": "z80", "zoom": 80, "fps": 60, "scale": 1, "effects": "high", "seconds": 20 },
+    { "world": "w32k", "name": "z150-sel", "zoom": 150, "select": true, "fps": 60, "scale": 1, "effects": "high", "seconds": 20, "trace": 10 },
+    { "world": "w32k", "name": "z25-loupe", "zoom": 25, "mouse": "sweep", "fps": 60, "scale": 1, "effects": "high", "seconds": 20 },
+    { "world": "w32k", "name": "auto", "zoom": "saved", "auto": true, "fps": 60, "scale": 1, "effects": "high", "settle": 5, "seconds": 60, "series": true, "trace": 10, "dispatch": false },
+    { "world": "w32k", "name": "fit-x4", "zoom": "fit", "speed": 4, "fps": 60, "scale": 1, "effects": "high", "seconds": 15 },
+    { "world": "w32k", "name": "fit-max", "zoom": "fit", "speed": "max", "fps": 60, "scale": 1, "effects": "high", "seconds": 15 },
+    { "world": "w32k", "name": "step1", "kind": "step", "reps": 30 },
+    { "world": "w32k", "name": "step6", "kind": "step", "ticks": 6, "reps": 20 }
+  ] }

@@ -1,0 +1,19 @@
+{ "worlds": [
+    { "name": "w32k", "n": 32768, "mature": 90, "k": { "lowEras": 0, "eventPlan": "none@1000000000" } },
+    { "name": "w32k-quiet", "file": "w32k", "n": 32768, "mature": 90, "k": { "lowEras": 0, "eventPlan": "none@1000000000" }, "prefs": { "notes": 0 } }
+  ],
+  "scenarios": [
+    { "world": "w32k", "name": "warmup", "zoom": "fit", "fps": 60, "scale": 1, "effects": "high", "seconds": 4, "dispatch": false },
+    { "world": "w32k", "name": "fit", "zoom": "fit", "fps": 60, "scale": 1, "effects": "high", "seconds": 15, "dispatch": false },
+    { "world": "w32k", "name": "fit-max", "zoom": "fit", "speed": "max", "fps": 60, "scale": 1, "effects": "high", "seconds": 10, "dispatch": false },
+    { "world": "w32k", "name": "fit-low", "zoom": "fit", "fps": 60, "scale": 1, "effects": "low", "seconds": 10, "dispatch": false },
+    { "world": "w32k", "name": "fit-half", "zoom": "fit", "fps": 60, "scale": 0.5, "effects": "high", "seconds": 10, "dispatch": false },
+    { "world": "w32k", "name": "fit-lookoff", "zoom": "fit", "fps": 60, "scale": 1, "effects": "high", "look": "off", "seconds": 10, "dispatch": false },
+    { "world": "w32k", "name": "z80", "zoom": 80, "fps": 60, "scale": 1, "effects": "high", "look": "on", "seconds": 10, "dispatch": false },
+    { "world": "w32k", "name": "z150", "zoom": 150, "fps": 60, "scale": 1, "effects": "high", "look": "on", "seconds": 10, "dispatch": false },
+    { "world": "w32k", "name": "z150-dof0", "zoom": 150, "fps": 60, "scale": 1, "effects": "high", "look": { "dof": 0 }, "seconds": 10, "dispatch": false },
+    { "world": "w32k", "name": "z150-lookoff", "zoom": 150, "fps": 60, "scale": 1, "effects": "high", "look": "off", "seconds": 10, "dispatch": false },
+    { "world": "w32k", "name": "z150-sel", "look": "on", "zoom": 150, "select": true, "fps": 60, "scale": 1, "effects": "high", "seconds": 15, "dispatch": false },
+    { "world": "w32k", "name": "auto", "zoom": "saved", "auto": true, "fps": 60, "scale": 1, "effects": "high", "settle": 5, "seconds": 45, "dispatch": false, "trace": 10 },
+    { "world": "w32k-quiet", "name": "auto-quiet", "zoom": "saved", "auto": true, "fps": 60, "scale": 1, "effects": "high", "settle": 5, "seconds": 45, "dispatch": false }
+  ] }
