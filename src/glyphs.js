@@ -147,7 +147,8 @@ export function glyphURL(shape, col) {
   if (u) return u;
   scratch = scratch || document.createElement('canvas');
   scratch.width = scratch.height = 52;
-  paintGlyph(scratch.getContext('2d'), 52, shape, col);
+  // (read back at once: kept on the CPU, as a GPU-backed canvas's readback stalls the page and the GPU process 25 ms)
+  paintGlyph(scratch.getContext('2d', { willReadFrequently: true }), 52, shape, col);
   u = scratch.toDataURL();
   if (urls.size > 600) urls.clear();
   urls.set(k, u);
