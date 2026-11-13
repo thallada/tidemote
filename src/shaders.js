@@ -1477,8 +1477,11 @@ ${scan ? `  if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K.colorMix)}); }` 
   let heatMaking = ${f(K.heat ? K.thermoCost : 0)} * thermo;
   // a ridden cell pays for its will as for swimming
   let willCost = select(0.0, bitcast<f32>(sim.hand.ids.z) * min(length(sim.hand.more.zw) / ${f(K.will)}, 1.0) * ${f(K.willCost)} * g.metab, willOn);
-  let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0))
-    * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) + heatMaking + willCost;`;
+  // (its factors, reckoned once: a coarse step's ticks take upkeep again as the energy changes)
+  let upFirst = g.metab * kinCost * thrift;
+  let upStress = 1.0 + ${f(K.stressCost)} * th.stress;
+  let upTorpor = select(1.0, ${f(K.torporCost)}, th.torpid);
+  let upkeep = upFirst * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0)) * upStress * upTorpor + heatMaking + willCost;`;
 }
 // The words senseMain leaves lifeMain for each cell (sense[]): the pair forces, stone's push, its kin's motion and
 // number, the crowd of producers, silt, packing, stone, plants and animals near, its kin's color, the two bonds it
@@ -3455,6 +3458,10 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   if (i == NONE) { return; }
   if ((sortedFull[i].info & 15u) == CYST) { cystStep(i); return; }
 ${cellWGSL(K, false, 'act')}
+  // (where it moved, stored now rather than held through the energy and the events, which amend it there)
+  parts[i].pos = pos; parts[i].vel = vel;
+  // (whether it ends the step in the ice, for the news of a death: asked now, beside little else)
+  let iceEnd = inIce(pos);
   var E = p.energy + shareE + (photoGain - upkeep) * sim.dt;
   let dg = ledgerGuild(*g);
   if (DIAG && torn > 0u) { diagAdd(dg, 24u, torn); }
@@ -3516,15 +3523,17 @@ ${cellWGSL(K, false, 'act')}
             atomicAdd(&ledger[3], 1u);
           }
         }
-        ce = max(E - bodyCost, 0.0) * g.share;
-        E -= ce + bodyCost;
-        addEnergy(dg, 6u, ce + bodyCost);
+        // (a child's body cost read again from the genome here and below: held to here, it costs registers)
+        ce = max(E - (${bodyOf(K, 'g')}), 0.0) * g.share;
+        E -= ce + (${bodyOf(K, 'g')});
+        addEnergy(dg, 6u, ce + (${bodyOf(K, 'g')}));
         act = 2u;
       }
     // a meal opportunity every K.eatEvery ticks, in the cell's own phase
     } else if (${SENSE.food} != NONE && (sim.tick + p.id) % ${K.eatEvery | 0}u == 0u && mealDue(sortedFull[${SENSE.food}].kind, (sim.tick + p.id) / ${K.eatEvery | 0}u)) {
       let fk = sortedFull[${SENSE.food}].kind;
-      let missed = mealMissed(fk, info, *g, eatEff, ${SENSE.stoneN}, ${SENSE.plantN}, ${SENSE.animN}, max(0.0, ${SENSE.kinN} - bonds), sg, E / (divE * ${f(K.satietyAt)}), &s);
+      // (its signature read again where a meal asks for it: held from the start, it costs registers)
+      let missed = mealMissed(fk, info, *g, eatEff, ${SENSE.stoneN}, ${SENSE.plantN}, ${SENSE.animN}, max(0.0, ${SENSE.kinN} - bonds), g.sig[role], E / (divE * ${f(K.satietyAt)}), &s);
       let won = !missed && atomicCompareExchangeWeak(&ledger[META_CLAIM + ${SENSE.food}], 0u, i + 1u).exchanged;
       if (DIAG && canHunt && isAnimal(${SENSE.food})) { diagAdd(dg, 15u, 1u); diagAdd(dg, select(select(17u, 18u, won), 16u, missed), 1u); }
       if (fk >= FIRST_LIFE) { splPair(p.kind, fk, won); }
@@ -3558,8 +3567,7 @@ ${cellWGSL(K, false, 'act')}
     var next = 0u;
     var born = false;
     for (var k = 1u; k <= sim.ticks; k++) {
-      E += (photoGain - g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(E / g.reproE, 0.0, 1.0))
-        * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) - heatMaking - willCost) * h;
+      E += (photoGain - upFirst * (0.55 + 0.45 * clamp(E / g.reproE, 0.0, 1.0)) * upStress * upTorpor - heatMaking - willCost) * h;
       age += h * ageRate;
       let tk = sim.tick - sim.ticks + k;
       if (!born && E > divE && ${SENSE.silt} != NONE && !th.torpid && age > select(${f(K.mature)} * g.lifespan, select(${f(K.growTipA)}, ${f(K.mature)} * g.lifespan, g.photo > 0.4), tree && (g.photo > 0.4 || g.beat.w > 0.5 || tail)) && (!tree || (budTurn < 3u && !budBlocked))) {
@@ -3577,9 +3585,9 @@ ${cellWGSL(K, false, 'act')}
               atomicAdd(&ledger[3], 1u);
             }
           }
-          ce = max(E - bodyCost, 0.0) * g.share;
-          E -= ce + bodyCost;
-          addEnergy(dg, 6u, ce + bodyCost);
+          ce = max(E - (${bodyOf(K, 'g')}), 0.0) * g.share;
+          E -= ce + (${bodyOf(K, 'g')});
+          addEnergy(dg, 6u, ce + (${bodyOf(K, 'g')}));
           act = 2u;
           continue;
         }
@@ -3596,7 +3604,7 @@ ${cellWGSL(K, false, 'act')}
           let fp = sortedFull[fd];
           // handling time, or a miss (armour, an unfamiliar quarry, skill, shelter), ends this opportunity
           if (!mealDue(fp.kind, mi)) { break; }
-          if (mealMissed(fp.kind, info, *g, eatEff, ${SENSE.stoneN}, ${SENSE.plantN}, ${SENSE.animN}, max(0.0, ${SENSE.kinN} - bonds), sg, E / (divE * ${f(K.satietyAt)}), &s)) {
+          if (mealMissed(fp.kind, info, *g, eatEff, ${SENSE.stoneN}, ${SENSE.plantN}, ${SENSE.animN}, max(0.0, ${SENSE.kinN} - bonds), g.sig[role], E / (divE * ${f(K.satietyAt)}), &s)) {
             if (hunt && isAnimal(fd)) { diagAdd(dg, 16u, 1u); }
             if (fp.kind >= FIRST_LIFE) { splPair(p.kind, fp.kind, false); }
             break;
@@ -3648,43 +3656,43 @@ ${cellWGSL(K, false, 'act')}
     info = (info & 0xffff003fu & 0xfffffff0u) | CYST;
     age = 0.0;
     splCause(p.kind, 6u);
-    noteSelf(EV_CYST, p.kind, p.id, pos);
+    noteSelf(EV_CYST, p.kind, p.id, parts[i].pos);
   }
   // stranded on dry ground a cell dries out, unless it rests as a cyst (or a spore) first (one that went dormant
   // just above is a cyst already: it neither encysts twice nor dries)
   if (stranded && E > 0.0 && (info & 15u) != CYST) {
-    if (act == 0u && rnd(&s) < ${f(K.dryCyst)} * smoothstep(0.5, 1.0, -shore / ${f(K.filmR)}) * sim.dt) { info = (info & 0xffff003fu & 0xfffffff0u) | CYST; age = 0.0; act = 0u; splCause(p.kind, 6u); noteSelf(EV_CYST, p.kind, p.id, pos); }
+    if (act == 0u && rnd(&s) < ${f(K.dryCyst)} * smoothstep(0.5, 1.0, -shore / ${f(K.filmR)}) * sim.dt) { info = (info & 0xffff003fu & 0xfffffff0u) | CYST; age = 0.0; act = 0u; splCause(p.kind, 6u); noteSelf(EV_CYST, p.kind, p.id, parts[i].pos); }
     else { E -= ${f(K.dryCost)} * sim.dt; }
   }
   var kind = p.kind;
   if (E <= 0.0) {
-    kind = HUSK; E = bodyCost; age = 0.0; vel *= 0.3;
+    kind = HUSK; E = (${bodyOf(K, 'g')}); age = 0.0; parts[i].vel *= 0.3;
     info = (info & 0xffff7fc0u) | 1u${litterOf('g')};
     atomicAdd(&ledger[5], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * ledgerGuild(*g) + 1u], 1u);
     splCause(p.kind, select(1u, 5u, stranded));
     // (the cold: starved torpid, in the ice, or stranded where nothing is dry ground but the ice's edge)
-    noteSelf(select(select(EV_STARVED, EV_DRIED, stranded), EV_FROZE, th.torpid || inIce(pos) || (stranded && sim.pond.x >= 1.0)), p.kind, p.id, pos);
+    noteSelf(select(select(EV_STARVED, EV_DRIED, stranded), EV_FROZE, th.torpid || iceEnd || (stranded && sim.pond.x >= 1.0)), p.kind, p.id, parts[i].pos);
   } else if (age > g.lifespan) {
-    kind = HUSK; E = bodyCost + ${f(K.huskFrac)} * E; age = 0.0; vel *= 0.3;
+    kind = HUSK; E = (${bodyOf(K, 'g')}) + ${f(K.huskFrac)} * E; age = 0.0; parts[i].vel *= 0.3;
     info = (info & 0xffff7fc0u) | 2u${litterOf('g')};
     atomicAdd(&ledger[6], 1u);
     atomicAdd(&ledger[META_DEATH + 4u * ledgerGuild(*g) + 2u], 1u);
     splCause(p.kind, 2u);
-    noteSelf(EV_OLD, p.kind, p.id, pos);
+    noteSelf(EV_OLD, p.kind, p.id, parts[i].pos);
   } else if (th.x > 0.8 && rnd(&s) < ${f(K.scald)} * smoothstep(0.8, 1.4, th.x) * sim.dt) {
     // scalded: far above its optimum, a cell's proteins come apart
-    kind = HUSK; E = bodyCost; age = 0.0; vel *= 0.3;
+    kind = HUSK; E = (${bodyOf(K, 'g')}); age = 0.0; parts[i].vel *= 0.3;
     info = (info & 0xffff7fc0u) | 10u${litterOf('g')};
     atomicAdd(&ledger[META_DEATH + 20u + dg], 1u);
     splCause(p.kind, 4u);
-    noteSelf(EV_SCALDED, p.kind, p.id, pos);
+    noteSelf(EV_SCALDED, p.kind, p.id, parts[i].pos);
   }
   if (kind == HUSK) { atomicAdd(&ledger[META_ENERGY + select(61u, 60u, g.photo > 0.4)], 1u); }
   // calcifying cells that settled leave their skeleton as stone, in their own color, mostly where
   // stone already is, so reefs grow outward from rock and from the rare place one starts
   if (kind == HUSK && g.calcify > 0.0 && rnd(&s) < ${f(K.reefs)} * g.calcify * (1.0 - g.advect) * select(${f(K.nucleate)}, 1.0, ${SENSE.stoneN} >= 1.0)) {
-    kind = STONE; E = ${f(K.stoneLife)} * (0.5 + rnd(&s)); vel = vec2f(0.0);
+    kind = STONE; E = ${f(K.stoneLife)} * (0.5 + rnd(&s)); parts[i].vel = vec2f(0.0);
   }
   // the child's generation, and in a tree her turn and branch order
   var childGen = ((genOf(p.info) + 1u) & 4095u) << 14u;
@@ -3695,7 +3703,8 @@ ${cellWGSL(K, false, 'act')}
   intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(select(${SENSE.pack}, ce, act == 2u)), n1, n2);
   // (a cell that died this step is not bodyTick's to move)
   if (sub && kind != p.kind) { bondsNow[subMark(i)] = 0u; }
-  parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), 1.0 - gut / ${f(K.dungE)})), info);
+  parts[i].kind = kind; parts[i].energy = E; parts[i].age = age; parts[i].id = p.id;
+  parts[i].col = pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), 1.0 - gut / ${f(K.dungE)})); parts[i].info = info;
 }
 
 // What a living cell's neighborhood holds, before lifeMain (cellWGSL): the bonds it keeps, the scan, left in sense[].
