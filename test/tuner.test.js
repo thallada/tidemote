@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { KNOBS, decide, costOf, scaleLoss, heldBack, COMP_GUESS } from '../src/tuner.js';
+import { KNOBS, decide, costOf, scaleLoss, heldBack, COMP_GUESS, judge, LATE } from '../src/tuner.js';
 
 const ladder = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
 const all = (over = {}) => ({
@@ -131,12 +131,17 @@ test('the neighbors are given up only where they pay much: a Pixel 3, not a Pixe
 });
 
 // The tuner run window after window against devices modeled from measurements (ms at full scale, every knob best),
-// with adaptQuality's essentials: behind past 92% busy; the frame rate halved first when the step is more than twice
-// the drawing; climbs after three good windows, a climb late again at once held. It must settle, within the frame.
-function simulate(dev, windows = 120) {
+// with adaptQuality's essentials: frames judged by their intervals (judge: two windows late in a row; a frame comes
+// when the GPU has done the last, at the rate aimed for at best); the frame rate halved first when the step is more
+// than twice the drawing; climbs after three windows on time, by the GPU's time where it fits and tried anyway once no
+// frame has been late for the hold (30 s, twice as long after each climb that failed); a climb frames slip after taken
+// back. A device that slows its clock to its work (dvfs: Apple's) measures its GPU busy for most of the frame
+// whatever it has to spare. It must settle, its frames on time. from: a run to carry on from (its knobs and scale).
+function simulate(dev, windows = 400, from = null) {
   const T0 = 1000 / 60, top = (id) => KNOBS[id].levels.length - 1;
-  const lv = Object.fromEntries(Object.keys(dev.knobs).map((id) => [id, top(id)]));
-  let scale = 1, slow = 1, good = 0, raised = null, held = {};
+  const lv = from ? { ...from.lv } : Object.fromEntries(Object.keys(dev.knobs).map((id) => [id, top(id)]));
+  let scale = from?.scale ?? 1, slow = 1, w = { late: 0, good: 0 }, raised = null, raisedAt = -99, hold = 0, ceilingUntil = 0;
+  const held = {};
   // (the haze and the microscope share one cost, the composite's in the state the two leave it, per pixel)
   const COMP = ['haze', 'microscope'], compCost = () => dev.comp.full * dev.comp.rel[lv.haze + 2 * lv.microscope];
   const levelCost = (id) => {
@@ -151,32 +156,36 @@ function simulate(dev, windows = 120) {
     for (const id of Object.keys(dev.knobs)) if (id !== 'neighbors' && !COMP.includes(id)) fx += levelCost(id) * (dev.knobs[id].px ? scale * scale : 1);
     return { step, draw: draw + fx, gpu: step + draw + fx };
   };
+  const apply = (d) => { if (d.id === 'scale') scale = d.to; else lv[d.id] = d.to; };
   const trail = [];
-  for (let w = 0; w < windows; w++) {
-    const T = T0 * slow, f = frame(), behind = f.gpu > 0.92 * T;
+  for (let i = 0; i < windows; i++) {
+    const T = T0 * slow, f = frame(), gpu = dev.dvfs ? Math.max(f.gpu, 0.97 * T) : f.gpu;
+    const climbed = raised != null && i - raisedAt <= 2;
+    const j = judge(w, [Math.max(T, f.gpu)], T, { climbed, waited: f.gpu > T ? 1 : 0 });
+    w = { late: j.late, good: j.good };
     const knobs = Object.fromEntries(Object.keys(dev.knobs).map((id) => [id, { level: lv[id], auto: true, cost: levelCost(id), ...dev.knobs[id] }]));
     knobs.haze = { ...knobs.haze, rel: dev.comp.rel, other: lv.microscope };
     knobs.microscope = { ...knobs.microscope, rel: dev.comp.rel, other: lv.haze };
-    const s = { behind, T, gpu: f.gpu, draw: f.draw, knobs, held, scale: { cur: scale, ladder, floor: dev.floor ?? 0.5, auto: true } };
+    const heldNow = Object.fromEntries(Object.entries(held).map(([id, until]) => [id, i < until]));
+    const s = { T, gpu, draw: f.draw, knobs, scale: { cur: scale, ladder, floor: dev.floor ?? 0.5, auto: true } };
     let acted = '';
-    if (behind) {
-      good = 0;
-      if (raised) { held[raised] = true; raised = null; }
-      if (f.step > 2 * f.draw && slow < 4) { slow++; acted = 'slow'; }
+    if (j.behind) {
+      hold = i - raisedAt <= 2 ? Math.min(120, (hold || 15) * 2) : 15;
+      ceilingUntil = i + hold;
+      if (climbed) {
+        if (raised === 'scale') scale = ladder.find((v) => v < scale - 1e-3); else lv[raised]--;
+        held[raised] = i + hold; raised = null; acted = 'back';
+      } else if (f.step > 2 * f.draw && slow < 4) { slow++; acted = 'slow'; }
       else {
-        const d = decide(s);
-        if (d) { if (d.id === 'scale') scale = d.to; else lv[d.id] = d.to; acted = d.id; }
-        else if (slow < 4) { slow++; acted = 'slow'; }
+        const d = decide({ ...s, behind: true, held: heldNow });
+        if (d) { apply(d); acted = d.id; } else if (slow < 4) { slow++; acted = 'slow'; }
       }
-    } else {
-      raised = null;
-      if (++good >= 3) {
-        const faster = (T0 * (slow - 1)), cost = (m) => 1 + 0.45 * (m - 1);
-        if (slow > 1 && f.draw + (f.step / cost(slow)) * cost(slow - 1) < 0.75 * faster) { slow--; good = 0; acted = 'fast'; }
-        else if (slow === 1 || true) {
-          const d = decide(s);
-          if (d) { if (d.id === 'scale') scale = d.to; else lv[d.id] = d.to; good = 0; raised = d.rebalance ? null : d.id; acted = d.id; }
-        }
+    } else if (j.room) {
+      const faster = (T0 * (slow - 1)), cost = (m) => 1 + 0.45 * (m - 1);
+      if (slow > 1) { if (f.draw + (f.step / cost(slow)) * cost(slow - 1) < 0.75 * faster) { slow--; w.good = 0; raisedAt = i; acted = 'fast'; } }
+      else {
+        const d = decide({ ...s, behind: false, held: { ...heldNow, scale: i < ceilingUntil }, probe: i >= ceilingUntil });
+        if (d) { apply(d); w.good = 0; raised = d.rebalance ? null : d.id; raisedAt = i; acted = d.probe ? `${d.id}?` : d.id; }
       }
     }
     trail.push({ acted, gpu: f.gpu, T, scale, slow, ...lv });
@@ -184,21 +193,75 @@ function simulate(dev, windows = 120) {
   return { lv, scale, slow, trail, gpu: frame().gpu, T: T0 * slow };
 }
 // measured (docs/performance.md, runs/phone): a Pixel 3 in an 8k world, a Pixel 11 Pro in a 16k one, an RTX 4070 Ti
-// in a 1M one (draw: the drawing at full scale less the knobs; px: a knob's cost follows the pixels; comp: the composite
-// at full scale with the haze and the microscope on, and in each state of the two, haze + 2 × microscope)
+// in a 1M one, an M1 in a 32k one (draw: the drawing at full scale less the knobs; px: a knob's cost follows the
+// pixels; comp: the composite at full scale with the haze and the microscope on, and in each state of the two,
+// haze + 2 × microscope)
 const COMP_REL = [0.45, 0.57, 0.88, 1];
 const DEVICES = {
   pixel3: { step: 20, draw: 12, floor: 0.5, comp: { full: 30, rel: COMP_REL }, knobs: { sea: { full: 5 }, bloom: { full: 0.6, px: true }, specks: { full: 0.2 }, stone: { full: 0.2 }, haze: {}, microscope: {}, interiors: { full: 0 }, neighbors: { full: 20, rel: [0.45, 0.6, 1] } } },
   pixel11: { step: 8, draw: 5, comp: { full: 2.5, rel: COMP_REL }, knobs: { sea: { full: 2.6 }, bloom: { full: 0.3, px: true }, specks: { full: 0.05 }, stone: { full: 0.1 }, haze: {}, microscope: {}, interiors: { full: 0 }, neighbors: { full: 8, rel: [0.97, 0.98, 1] } } },
   rtx: { step: 3.4, draw: 2.5, comp: { full: 0.8, rel: COMP_REL }, knobs: { sea: { full: 0.03 }, bloom: { full: 0.07, px: true }, specks: { full: 0.08 }, stone: { full: 0.1 }, haze: {}, microscope: {}, interiors: { full: 0 }, neighbors: { full: 3.4, rel: [0.97, 0.98, 1] } } },
+  m1: { dvfs: true, step: 2.5, draw: 5, comp: { full: 3.6, rel: COMP_REL }, knobs: { sea: { full: 0.8 }, bloom: { full: 0.6, px: true }, specks: { full: 0.1 }, stone: { full: 0.2 }, haze: {}, microscope: {}, interiors: { full: 0 }, neighbors: { full: 2.5, rel: [0.9, 0.95, 1] } } },
 };
+const atBest = (r) => r.scale === 1 && r.slow === 1 && Object.entries(r.lv).every(([id, l]) => l === KNOBS[id].levels.length - 1);
+const moved = (r) => r.trail.map((t, i) => (t.acted ? `${i}:${t.acted}` : '')).filter(Boolean).join(' ');
 for (const [name, dev] of Object.entries(DEVICES)) {
-  test(`the tuner settles on a ${name}, within its frame`, () => {
+  test(`the tuner settles on a ${name}, its frames on time`, () => {
     const r = simulate(dev);
-    const last = r.trail.slice(-30);
-    assert.ok(last.every((t) => !t.acted), `${name} still moving: ${JSON.stringify(last.filter((t) => t.acted).map((t) => t.acted))}`);
-    assert.ok(r.gpu <= 0.92 * r.T, `${name}: ${r.gpu.toFixed(1)} ms of ${r.T.toFixed(1)}`);
-    if (name === 'rtx') { assert.equal(r.scale, 1); assert.equal(r.slow, 1); for (const [id, l] of Object.entries(r.lv)) assert.equal(l, KNOBS[id].levels.length - 1, id); }
-    if (process.env.TUNER_TRACE) console.log(name, JSON.stringify({ lv: r.lv, scale: r.scale, slow: r.slow, gpu: +r.gpu.toFixed(1), T: +r.T.toFixed(1) }), r.trail.filter((t) => t.acted).map((t) => t.acted).join(' '));
+    // settled: at most a step up tried and taken back now and then (every 240 s at most, once climbs keep failing)
+    const moves = r.trail.slice(-200).filter((t) => t.acted).map((t) => t.acted);
+    assert.ok(moves.every((a) => a === 'back' || a.endsWith('?')) && moves.length <= 4, `${name} still moving: ${moved(r)}`);
+    assert.ok(r.gpu <= LATE * r.T, `${name}: ${r.gpu.toFixed(1)} ms of ${r.T.toFixed(1)}`);
+    // a device with room, whatever its GPU's time says (the M1's fills the frame), gives up nothing
+    if (name === 'rtx' || name === 'm1') assert.ok(atBest(r) && !moved(r), `${name}: ${moved(r)}`);
+    if (process.env.TUNER_TRACE) console.log(name, JSON.stringify({ lv: r.lv, scale: r.scale, slow: r.slow, gpu: +r.gpu.toFixed(1), T: +r.T.toFixed(1) }), moved(r));
   });
 }
+
+test('an M1 eased by a heavy moment wins it all back once the moment passes, though its GPU\'s time fills the frame', () => {
+  // its frames late a while (up close on a dense colony: the drawing three times as dear), then the view as before
+  const r1 = simulate({ ...DEVICES.m1, draw: 15 }, 40);
+  assert.ok(!atBest(r1), 'eased while late');
+  const r2 = simulate(DEVICES.m1, 400, r1);
+  assert.ok(atBest(r2), moved(r2));
+  if (process.env.TUNER_TRACE) console.log('m1 heavy', moved(r1), '| after', moved(r2));
+});
+
+// Windows of frames on a 60 Hz display (16.7 ms a frame aimed for): each 2 s window 120 intervals, some a vsync missed,
+// some a hitch (main.js counts any as at most 50 ms)
+const T60 = 1000 / 60;
+const win = (missed = 0, hitches = 0) => [...Array(120 - missed - hitches).fill(T60), ...Array(missed).fill(2 * T60), ...Array(hitches).fill(50)];
+const run = (windows, o = {}) => { let w = { late: 0, good: 0 }; return windows.map((dts) => (w = judge(w, dts, T60, o))); };
+
+test('mostly 60 fps with occasional hitches never eases anything', () => {
+  // a vsync or two missed a second and a 50 ms hitch (a GC, a shader compiled) every window, for ten minutes
+  assert.ok(run(Array.from({ length: 300 }, (_, i) => win(i % 3 ? 4 : 2, 1))).every((j) => !j.behind));
+  // nor a bad moment alone: a window 30% late (a tab come back, a panel opened) among good ones
+  assert.ok(run([win(1), win(36), win(1), win(1), win(36), win(2)]).every((j) => !j.behind));
+});
+
+test('frames late two windows in a row ease; a climb frames slip after is taken back at once', () => {
+  assert.deepEqual(run([win(), win(20), win(20), win(20)]).map((j) => j.behind), [false, false, true, true]);
+  // just after a step up, frames a little late (5%: not late enough to ease anything) take it back
+  assert.equal(judge({ late: 0, good: 0 }, win(6), T60, { climbed: true }).behind, true);
+  assert.equal(judge({ late: 0, good: 0 }, win(6), T60).behind, false);
+});
+
+test('room after three windows on time; a little late, or under pressure, is no room', () => {
+  assert.deepEqual(run([win(), win(), win()]).map((j) => j.room), [false, false, true]);
+  assert.equal(run([win(), win(), win(6)]).at(-1).room, false);
+  // (frames a little late while the page's own work is light: the browser's pace, counted on time)
+  assert.equal(run([win(6), win(6), win(6)], { cheap: true }).at(-1).room, true);
+  assert.equal(run([win(), win(), win()], { stressed: true }).at(-1).room, false);
+});
+
+test('with no step up fitting by the GPU\'s time, frames on time a while try the best one anyway (probe)', () => {
+  const off = { level: 0, auto: true, cost: 0 };
+  const s = base({ behind: false, gpu: 16, draw: 9, knobs: all({ sea: off, bloom: off, specks: off, stone: off }), scale: { cur: 0.7, ladder, floor: 0.5, auto: true } });
+  assert.equal(decide(s), null);
+  const d = decide({ ...s, probe: true });
+  assert.equal(d.probe, true);
+  assert.ok(d.id === 'scale' ? d.to === 0.85 : d.to === s.knobs[d.id].level + 1, JSON.stringify(d));
+  // a knob held after a failed climb is not tried, probe or not
+  assert.equal(decide({ ...s, probe: true, knobs: { sea: off }, held: { sea: true }, scale: null }), null);
+});

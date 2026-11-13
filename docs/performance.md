@@ -420,9 +420,22 @@ The weakest GPU at hand (Android 12, Chrome, 393×786 CSS pixels at 2.75). Chrom
   so frames stay evenly spaced: 72 fps on a 144 Hz display, 75 on 150 Hz, 58 on 175 Hz (rounded with a lean toward
   the faster rate, so a display near an edge doesn't flip between two: `displayFrames`). Display rate means one
   simulation step per refresh, 2.4 times the work of 60 at 143 Hz.
-- **Adaptive quality,** every two seconds at real time or slower. Behind (frames late, the GPU busy
-  for more than 92% of the frame with timestamps or 100% of it by submit-to-done time without, or
-  Compute Pressure reporting `serious`): with Auto pixel density, a film's scene drawn at more than
+- **Adaptive quality,** every two seconds at real time or slower, judged by the frames (`judge` in `src/tuner.js`):
+  behind when the mean interval between submitted frames runs an eighth over the frame aimed for, or 3% over while
+  more than 3% of the frames waited on the GPU (two frames still in flight when one was due), two windows in a row. A
+  hitch counts as one frame of at most 50 ms, so a few hitches, or one bad window (a tab come back, a panel opened),
+  ease nothing. Not by the GPU's measured time: until 2026-11-12 a GPU busy for more than 92% of the frame counted as
+  behind with its frames on time, and a GPU that slows its clock to its work (Apple's at 60 fps; docs above: "the GPU
+  idles between frames and its clock drops") measures busy for most of the frame whatever it has to spare. An M1 in a
+  32k world eased its render scale, microscope, glow and insides at a steady 60 fps, and never won them back, since a
+  step up had to fit in 85% of the frame (`ROOM`) beside that same inflated time. Compute Pressure at `serious` now
+  only keeps anything from coming back. With three windows on time a step up is taken where the GPU's time says it
+  fits; where it does not, and no frame has been late for the hold (30 s, twice as long after each climb that failed,
+  up to 4 min), the best step up is tried anyway (`probe`), and one that frames slip after (over 3% late in the next
+  windows) is taken back at once and held. The emergency step-down (`overload`: three drawn frames over max(50 ms,
+  three intervals)) acts only while frames come at under half the rate aimed for. The last 40 moves are in Copy
+  profile (`adapt`) and a bench report (`adaptLog`): [s, the window's mean frame and the GPU's time as shares of the
+  frame aimed for, what moved, to what, how]. Behind: with Auto pixel density, a film's scene drawn at more than
   one device pixel per CSS pixel drops to 1× first; then the render scale steps down a fixed ladder (1, 0.85, 0.7,
   0.6, 0.5 …) to its floor, then the frame rate drops (half, a third, a quarter: 30, 20, 15 fps), or
   the frame rate first when the simulation is more than twice the drawing. With room again for

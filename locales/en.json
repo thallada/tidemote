@@ -501,8 +501,6 @@
   "settings.reset-yes": "Reset",
   "settings.reset": "Reset to defaults",
   "readout.why-overloaded": "GPU overloaded",
-  "readout.why-pressure": "under pressure",
-  "readout.why-busy": "GPU busy",
   "readout.why-late": "frames late",
   "readout.why-pace": "browser pace",
   "readout.millions": "{n}M",

@@ -1,9 +1,10 @@
 // The auto-tuner: which of the frame's costs to give up when frames run late, and which to win back when there is
-// room (main.js adaptQuality asks every two seconds; its emergency step-down, overload, acts at once). Each knob is a
-// ladder of settings, cheapest first, and while Settings → Performance → Adaptation is on (and the viewer
-// shows the effect it eases, in Display) the tuner moves it one step at a time:
+// room (main.js adaptQuality asks every two seconds, judge says when; its emergency step-down, overload, acts at
+// once). Each knob is a ladder of settings, cheapest first, and while Settings → Performance → Adaptation is on (and
+// the viewer shows the effect it eases, in Display) the tuner moves it one step at a time:
 // down, the step that saves the most GPU time for the least that is lost to the eye; up, the one that brings back the
-// most for the time it costs, if it fits. What a knob costs is measured where it can be (the GPU's timestamps, pass by
+// most for the time it costs, if it fits (or, frames on time a while, tried anyway: probe). What a knob costs is
+// measured where it can be (the GPU's timestamps, pass by
 // pass, every so often: costOf), and estimated where it cannot. Pure, tested in test/tuner.test.js.
 //
 // On a Pixel 11 Pro (PowerVR, 2026-11-04) the sea's spectrum and inverse FFT took 2.3-2.9 ms of a 12.6 ms frame in
@@ -66,6 +67,31 @@ const nbRel = (k, n) => Math.max(0.05, k?.rel?.[KNOBS.neighbors.levels.indexOf(n
 // the share of the frame's interval a step up must leave the GPU under
 export const ROOM = 0.85;
 
+// A window of frames (main.js adaptQuality, every two seconds) judged by the frames: late when their mean interval
+// runs an eighth over the frame's (a hitch of any length counts as one frame of at most 50 ms or 2.5 intervals,
+// main.js), or over 3% while over 3% of them waited on the GPU (the GPU behind, not a hitch); on time within 3%. Not by
+// the GPU's measured time: a GPU that slows its clock to its work, as Apple's do at 60 fps, measures busy for most
+// of the frame whatever it has to spare (an M1 at 60 fps, judged behind by a GPU busy over 92% of the frame, gave up
+// the microscope, the glow and the insides with its frames on time, and never took them back: what a step up costs
+// never fit beside a time that filled the frame). A frame that waited on the GPU (two frames still in flight when it
+// was due) is the GPU's own word that it is behind, at any clock.
+export const LATE = 1.125, ON_TIME = 1.03;
+/**
+ * A window's verdict. w: { late, good }, the windows late and on time in a row before this one; dts: its frames'
+ * intervals (ms); T: the frame's interval (ms). o: { climbed: a step up was just taken, cheap: the page's own work
+ * fills under a quarter of the interval (frames a little late are the browser's pace, which nothing here can
+ * help), stressed: Compute Pressure serious or worse (no step up), waited: the share of its frames that waited on
+ * the GPU }. Returns { m: the mean interval, late, good, behind: give something up (two windows late in a row: a
+ * hitch or two is not a frame rate missed; or frames off time just after a step up, which takes it back), room:
+ * three windows on time }.
+ */
+export function judge(w, dts, T, { climbed = false, cheap = false, stressed = false, waited = 0 } = {}) {
+  const m = dts.reduce((a, b) => a + b, 0) / Math.max(1, dts.length), slipped = m > ON_TIME * T && !cheap;
+  const late = m > LATE * T || (slipped && waited > 0.03) ? w.late + 1 : 0;
+  const good = late || slipped || stressed ? 0 : w.good + 1;
+  return { m, late, good, behind: late >= 2 || (climbed && slipped), room: good >= 3 };
+}
+
 // Render scale: the share of the screen's resolution the world is drawn at (main.js SCALES); its loss per step grows
 // as it falls, and what it saves is the drawing's pixels (its cost about the square of the scale)
 const SCALE_LOSS = 12;
@@ -87,7 +113,8 @@ export function costOf(passes) {
  *     last measured at its top level (or null); the haze's and the microscope's also rel, the composite in each state
  *     of the two, and other, the other's level as shown } },
  *   scale: { cur, ladder (descending), floor, auto },
- *   held: { id: true } (not to be raised again yet), }
+ *   held: { id: true } (not to be raised again yet),
+ *   probe: with room, a step up even where the GPU's time says it will not fit (frames on time a while), }
  * Returns { id: knob id or 'scale', to: its new level index (or scale) } .
  */
 export function decide(s) {
@@ -121,11 +148,15 @@ export function decide(s) {
     opts.sort((a, b) => b.gain / b.loss - a.gain / a.loss);
     return s.rebalance ? { id: opts[0].id, to: opts[0].to, save: opts[0].gain, loss: opts[0].loss } : { id: opts[0].id, to: opts[0].to };
   }
-  // the most brought back for its cost, among those that fit in ROOM of the frame (behind is 92%: what lies between
+  // the most brought back for its cost, among those that fit in ROOM of the frame (what lies between it and the frame
   // keeps a climb from tipping straight back)
   opts.sort((a, b) => b.gain / b.loss - a.gain / a.loss);
   const fit = opts.find((o) => s.gpu + o.loss < ROOM * s.T);
   if (fit) return { id: fit.id, to: fit.to };
+  // None fits by the GPU's time, but frames have kept time a while (probe): they say more than that time can (a GPU
+  // that slows its clock to its work fills the frame whatever it has to spare; without timestamps the time is
+  // overstated). The best step up is tried; one that makes frames late is taken back and held (main.js tuneSteps).
+  if (s.probe) return { id: opts[0].id, to: opts[0].to, probe: true };
   // None fits: a rebalance, if one pays. Give up the step that costs the eye least for the time it frees, when what it
   // makes room for brings back half as much again for its time (so the step given up is never worth climbing back
   // before what it paid for: no see-saw). A quarter of the room it needs is enough to begin with (the next windows

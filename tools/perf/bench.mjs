@@ -317,7 +317,7 @@ async function measure(page, sc) {
     const po = new PerformanceObserver((l) => { for (const e of l.getEntries()) { rec.long++; rec.longMs += e.duration; } });
     try { po.observe({ type: 'longtask', buffered: false }); } catch { /* unsupported */ }
     // the adaptation every second: [s, frames aimed slower, render scale, why, GPU ms (ema), fps, the tuner's knobs,
-    // neighbors weighed, step ms]
+    // neighbors weighed, step ms] (and adaptLog, the page's own record of its last moves: main.js tuneLog)
     rec.adapt = [];
     const watch = setInterval(() => rec.adapt.push([Math.round((performance.now() - t0) / 1000), perf.slow, T.renderScale(), perf.why, +perf.gpu.toFixed(1), +perf.fps.toFixed(1), T.effects?.(), T.eng.maxScan, +(perf.simS ?? 0).toFixed(1)]), 1000);
     let on = true;
@@ -354,7 +354,7 @@ async function measure(page, sc) {
       sim: { mean: mean(rec.sim), stepsPerFrame: +(rec.steps / Math.max(1, rec.passFrames)).toFixed(2) },
       encodeMs: { mean: mean(rec.encode), p95: q(rec.encode, 0.95) },
       scale: { min: Math.min(...rec.scale), mean: mean(rec.scale), end: rec.scale.at(-1) }, slow: { mean: mean(rec.slow), end: rec.slow.at(-1), why: perf.why },
-      audio: T.sound.loadInfo, longTasks: rec.long, longMs: Math.round(rec.longMs), lab: rec.lab.length ? { n: rec.lab.length, mean: mean(rec.lab), max: q(rec.lab, 1) } : undefined, passes, dispatch, series: sc.then || sc.series ? rec.series : undefined, adapt: rec.adapt, spikes: rec.spikes, dts: rec.dts, frames: rec.frames || undefined,
+      audio: T.sound.loadInfo, longTasks: rec.long, longMs: Math.round(rec.longMs), lab: rec.lab.length ? { n: rec.lab.length, mean: mean(rec.lab), max: q(rec.lab, 1) } : undefined, passes, dispatch, series: sc.then || sc.series ? rec.series : undefined, adapt: rec.adapt, adaptLog: perf.log, spikes: rec.spikes, dts: rec.dts, frames: rec.frames || undefined,
     };
   }, sc);
 }
