@@ -20763,7 +20763,7 @@ ${e.message}` : String(e?.message || e));
         u[17] = gh;
         new Float32Array(u.buffer)[18] = time;
         new Float32Array(u.buffer)[19] = this.simTime % 4096;
-        const key = `${u.subarray(0, 16).join()},${this.worldGeneration}`;
+        const key = `${u.subarray(0, 16).join()},${this.worldGeneration},${this.frameNo}`;
         this._gatherOdd = !this._gatherOdd;
         u[2] = +this._gatherOdd;
         u[3] = key === this._gatherKey ? 1 : 0;
@@ -36738,9 +36738,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "125a3d8dd0fbf806") return;
+      if (localStorage.getItem(key) === "3798579b44b6e6ed") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "125a3d8dd0fbf806");
+      if (res) localStorage.setItem(key, "3798579b44b6e6ed");
     } catch {
     }
   }
