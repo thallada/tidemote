@@ -36691,6 +36691,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       stepCredit: 0,
       ticks: 1,
       held: false,
+      fine: 0,
       ticksAt: 0,
       rate: 1,
       rateT: performance.now(),
@@ -40324,6 +40325,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       if (!(s > 1) || !stepCost()) {
         perf.ticks = 1;
         perf.held = false;
+        perf.fine = s === 1 ? fineTicks() : 0;
         return;
       }
       if (s === Infinity) {
@@ -40687,7 +40689,15 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const frameEvery = () => displayFrames() * (state.speed > 1 ? 1 : perf.slow);
     const frameTarget = () => frameEvery() * displayMs();
     const ticksFor = (ms) => clamp6(Math.ceil(ms * 60 / 1e3 - 0.1), 1, MAX_TICKS);
-    const stepTicks = () => ticksFor(frameTarget());
+    const stepTicks = () => {
+      const m = ticksFor(frameTarget());
+      return perf.fine === m ? 1 : m;
+    };
+    function fineTicks() {
+      const m = ticksFor(frameTarget());
+      if (m === 1 || !perf.simS || !perf.renderR) return 0;
+      return perf.renderR + m * perf.simS < frameTarget() * (perf.fine === m ? 0.85 : 0.75) ? m : 0;
+    }
     const SCALES = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
     function resetAdapt() {
       clearFrames();
