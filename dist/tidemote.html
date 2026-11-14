@@ -17814,6 +17814,7 @@ struct SV {
       this.cpLerp = cPipe({ layout: "auto", compute: { module: lerpModule, entryPoint: "lerpApply" }, label: "lerpApply" });
       this.cpLerpBack = cPipe({ layout: "auto", compute: { module: lerpModule, entryPoint: "lerpRestore" }, label: "lerpRestore" });
       this.lerp = null;
+      this.halfOwed = false;
       this._lerpN = 0;
       this._lerpOk = false;
       const cullModule = shader({ code: CULL_WGSL, label: "cull" });
@@ -17996,10 +17997,11 @@ struct SV {
       this.timing = null;
       if (hasTimestamps) {
         this.timing = {
-          // 0: start of the frame's first pass, 1: end of its last, 2: end of its last simulation step
-          qs: d.createQuerySet({ type: "timestamp", count: 3 }),
-          resolve: d.createBuffer({ size: 24, usage: U.QUERY_RESOLVE | U.COPY_SRC }),
-          reads: [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: 24, usage: U.COPY_DST | U.MAP_READ }), busy: false }))
+          // 0: start of the frame's first pass, 1: end of its drawing (or of its last pass), 2: end of its last simulation
+          // step before the drawing, 3: end of a step's first half begun after it (frame's split)
+          qs: d.createQuerySet({ type: "timestamp", count: 4 }),
+          resolve: d.createBuffer({ size: 32, usage: U.QUERY_RESOLVE | U.COPY_SRC }),
+          reads: [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: 32, usage: U.COPY_DST | U.MAP_READ }), busy: false }))
         };
       }
       this.censusStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: CENSUS_BYTES + SPL_WORDS * 4, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
@@ -18212,6 +18214,7 @@ ${e.message}` : String(e?.message || e));
     }
     /** Allocate particle storage for exactly n particles. Returns false if the GPU refuses. */
     async allocate(n) {
+      this._finishHalf();
       const d = this.device;
       const b = this.b;
       const names = ["parts", "sortedFull", "sortedLite", "aux", "intent", "bondsNow", "sense", "bondsIn", "touch", "sway", "stoneList", "ledger", "livingList", "quads", "small", "smallArgs", "lerpEnd", "subL"];
@@ -18825,6 +18828,7 @@ ${e.message}` : String(e?.message || e));
      * K.foundColonies small colonies in empty water, as a world recovering from a collapse begins again.
      */
     seed(n, { aspect = 16 / 9, rng = Math.random } = {}) {
+      this._finishHalf();
       this._lerpN = 0;
       this._lerpOk = false;
       const d = this.device;
@@ -19334,41 +19338,16 @@ ${e.message}` : String(e?.message || e));
     /**
      * Encode one simulation step whose uniforms are at `ring` (a slot of b.simRing), or written directly.
      * prof: {qs, names}, to time each dispatch in a pass of its own (profileStep).
+     * part: 0 the whole step; 1 its first half, up to and including senseMain (which only read the world and fill the
+     * sort, the grid, the contacts and sense[]); 2 the rest, from lifeMain on, with the uniforms part 1 left in b.sim.
+     * A step split over two frames (frame's split) runs the same passes in the same order as a whole one.
      */
-    _step(enc, simDt, timestampWrites, ring2 = -1, prof = null) {
+    _step(enc, simDt, timestampWrites, ring2 = -1, prof = null, part = 0) {
       const b = this.b;
       const N = this.count;
-      this._lerpOk = true;
-      this.dt = simDt;
-      this.simTime += simDt;
-      if (simDt < this._listenDt) this._listenDt = simDt;
-      if (simDt < this._surveyDt) this._surveyDt = simDt;
-      this.frameNo++;
-      this.ticks = Math.max(1, Math.round(simDt * 60));
-      if (this.ticks > SUB_TICKS) throw new Error(`a step of ${this.ticks} ticks: at most ${SUB_TICKS}`);
-      this.tick += this.ticks;
-      if (ring2 < 0) this._writeSim();
-      else {
-        this._fillSim();
-        new Uint8Array(this.ringData, ring2 * SIM_STRIDE, this.simData.byteLength).set(new Uint8Array(this.simData));
-        enc.copyBufferToBuffer(b.simRing, ring2 * SIM_STRIDE, b.sim, 0, this.simData.byteLength);
-      }
       const cells = this.grid[0] * this.grid[1];
-      this.sorted = true;
-      this._clear(enc, b.counts, 0, cells * 4);
-      this._clear(enc, b.counts, MAX_CELLS * 4, cells * 4);
-      this._clear(enc, b.stoneGrid, 0, cells * 4);
-      if (this.K.heat) {
-        this._clear(enc, b.ledger, this._heatAccAt() + MAX_CELLS * 4, cells * 4);
-        this._clear(enc, b.ledger, this._heatAccAt() + 2 * MAX_CELLS * 4, (4 + 2 * TILES) * 4);
-      }
-      this._clear(enc, b.ledger, META_POP * 4, MAXK * 4);
-      this._clear(enc, b.ledger, (META_DEATH + 57) * 4, 6 * 4);
-      this._clear(enc, b.frameCtr, 0, 4);
-      this._clear(enc, b.subL, 0, 4);
-      this._clear(enc, b.frameCtr, 36, 4);
-      this._clear(enc, b.ledger, 48, 12);
-      let pass = prof ? null : enc.beginComputePass({ timestampWrites });
+      const wg = Math.ceil(N / 256);
+      let pass = null;
       const run2 = (name, n) => {
         const q = prof ? prof.names.push(name) * 2 - 2 : 0;
         if (prof) pass = enc.beginComputePass({ timestampWrites: { querySet: prof.qs, beginningOfPassWriteIndex: q, endOfPassWriteIndex: q + 1 } });
@@ -19379,18 +19358,25 @@ ${e.message}` : String(e?.message || e));
         else pass.dispatchWorkgroups(n);
         if (prof) pass.end();
       };
-      const wg = Math.ceil(N / 256);
-      run2("resolveCount", wg);
-      const scanWG = Math.min(MAX_CELLS / 256, Math.ceil((cells + 1) / 256));
-      run2("scanBlocks", scanWG);
-      run2("scanSums", 1);
-      run2("scanAdd", scanWG);
-      run2("scatterMain", wg);
-      run2("censusMain", Math.ceil(MAXK / 256));
-      run2("matterMain", wg);
-      run2("contactMain", null);
-      run2("bondBackMain", null);
-      run2(this.ticks > 1 ? "senseMainCoarse" : "senseMain", null);
+      if (part !== 2) {
+        this._stepFirst(enc, simDt, ring2, cells);
+        if (!prof) pass = enc.beginComputePass({ timestampWrites });
+        run2("resolveCount", wg);
+        const scanWG = Math.min(MAX_CELLS / 256, Math.ceil((cells + 1) / 256));
+        run2("scanBlocks", scanWG);
+        run2("scanSums", 1);
+        run2("scanAdd", scanWG);
+        run2("scatterMain", wg);
+        run2("censusMain", Math.ceil(MAXK / 256));
+        run2("matterMain", wg);
+        run2("contactMain", null);
+        run2("bondBackMain", null);
+        run2(this.ticks > 1 ? "senseMainCoarse" : "senseMain", null);
+        if (part === 1) {
+          if (!prof) pass.end();
+          return;
+        }
+      } else if (!prof) pass = enc.beginComputePass({ timestampWrites });
       run2(this.ticks > 1 ? "lifeMainCoarse" : "lifeMain", null);
       if (this.ticks > 1) {
         if (prof) {
@@ -19428,8 +19414,57 @@ ${e.message}` : String(e?.message || e));
         enc.copyBufferToBuffer(b.ledger, this._heatAccAt() + (2 * MAX_CELLS + 4) * 4, b.heatTiles, 0, 2 * TILES * 4);
       }
     }
+    // a step's start: its clock and uniforms, and the counts it gathers afresh cleared
+    _stepFirst(enc, simDt, ring2, cells) {
+      const b = this.b;
+      this._lerpOk = true;
+      this.dt = simDt;
+      this.simTime += simDt;
+      if (simDt < this._listenDt) this._listenDt = simDt;
+      if (simDt < this._surveyDt) this._surveyDt = simDt;
+      this.frameNo++;
+      this.ticks = Math.max(1, Math.round(simDt * 60));
+      if (this.ticks > SUB_TICKS) throw new Error(`a step of ${this.ticks} ticks: at most ${SUB_TICKS}`);
+      this.tick += this.ticks;
+      if (ring2 < 0) this._writeSim();
+      else {
+        this._fillSim();
+        new Uint8Array(this.ringData, ring2 * SIM_STRIDE, this.simData.byteLength).set(new Uint8Array(this.simData));
+        enc.copyBufferToBuffer(b.simRing, ring2 * SIM_STRIDE, b.sim, 0, this.simData.byteLength);
+      }
+      this.sorted = true;
+      this._clear(enc, b.counts, 0, cells * 4);
+      this._clear(enc, b.counts, MAX_CELLS * 4, cells * 4);
+      this._clear(enc, b.stoneGrid, 0, cells * 4);
+      if (this.K.heat) {
+        this._clear(enc, b.ledger, this._heatAccAt() + MAX_CELLS * 4, cells * 4);
+        this._clear(enc, b.ledger, this._heatAccAt() + 2 * MAX_CELLS * 4, (4 + 2 * TILES) * 4);
+      }
+      this._clear(enc, b.ledger, META_POP * 4, MAXK * 4);
+      this._clear(enc, b.ledger, (META_DEATH + 57) * 4, 6 * 4);
+      this._clear(enc, b.frameCtr, 0, 4);
+      this._clear(enc, b.subL, 0, 4);
+      this._clear(enc, b.frameCtr, 36, 4);
+      this._clear(enc, b.ledger, 48, 12);
+    }
+    /** Whether coarse steps have compiled (they compile late: until then frame takes one as that many 1/60 s steps). */
+    get coarseReady() {
+      return COARSE_PIPES.every((n) => this.cp[n].bg);
+    }
+    // A step begun as a first half (frame's split) finished alone: anything that reads, steps or replaces the world
+    // calls this first, so nothing ever sees or runs between a step's halves (the next frame finishes it anyway).
+    _finishHalf() {
+      if (!this.halfOwed) return;
+      this.halfOwed = false;
+      const enc = this.device.createCommandEncoder();
+      this._step(enc, this.dt, void 0, -1, null, 2);
+      const job = this._censusCopy(enc);
+      this.device.queue.submit([enc.finish()]);
+      if (job) this._censusRead(job, this.worldGeneration);
+    }
     /** One simulation step with each dispatch timed on the GPU: [[name, ms], ...]. Needs timestamps. */
     async profileStep(simDt = 1 / 60) {
+      this._finishHalf();
       const d = this.device, U2 = GPUBufferUsage;
       this.prof ??= {
         qs: d.createQuerySet({ type: "timestamp", count: 32 }),
@@ -19453,6 +19488,7 @@ ${e.message}` : String(e?.message || e));
      * with the clock, light and tides), to run the same moment forward again with restore().
      */
     snapshot() {
+      this._finishHalf();
       this._lerpBack();
       const d = this.device, b = this.b, U2 = GPUBufferUsage;
       const enc = d.createCommandEncoder();
@@ -19494,6 +19530,7 @@ ${e.message}` : String(e?.message || e));
       return keep;
     }
     restore(keep) {
+      this._finishHalf();
       const d = this.device, b = this.b;
       const enc = d.createCommandEncoder();
       for (const [k, buf] of Object.entries(keep.gpu)) enc.copyBufferToBuffer(buf, 0, b[k], 0, buf.size);
@@ -19563,6 +19600,7 @@ ${e.message}` : String(e?.message || e));
     }
     /** Put back a world from readState() (allocated for at least its count, the page's grid aside). */
     writeState({ cpu, gpu }) {
+      this._finishHalf();
       this._lerpN = 0;
       this._lerpOk = false;
       for (const [k, data] of Object.entries(gpu)) this.device.queue.writeBuffer(this.b[k], 0, data);
@@ -19600,6 +19638,7 @@ ${e.message}` : String(e?.message || e));
       this._lerpN = 0;
     }
     async readParticles() {
+      this._finishHalf();
       this._lerpBack();
       const d = this.device, U2 = GPUBufferUsage, size = this.count * P_BYTES;
       const st = d.createBuffer({ size, usage: U2.COPY_DST | U2.MAP_READ });
@@ -19614,6 +19653,7 @@ ${e.message}` : String(e?.message || e));
     }
     /** What bodyCensus (src/bodies.js) reads of readState(), and only that: { cpu: { count }, gpu: { parts, intent, genomes } }. */
     async readBodies() {
+      this._finishHalf();
       this._lerpBack();
       const d = this.device, n = this.count, sizes = { parts: n * P_BYTES, intent: n * 16, genomes: MAXK * G_BYTES };
       const st = d.createBuffer({ size: sizes.parts + sizes.intent + sizes.genomes, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
@@ -19677,6 +19717,7 @@ ${e.message}` : String(e?.message || e));
     }
     /** Read the ledger and genomes now (headless forks), in the shape onCensus receives, with K.diag's counters. */
     async readCensus() {
+      this._finishHalf();
       const d = this.device, U2 = GPUBufferUsage;
       const st = d.createBuffer({ size: CENSUS_BYTES, usage: U2.COPY_DST | U2.MAP_READ });
       const enc = d.createCommandEncoder();
@@ -19943,8 +19984,11 @@ ${e.message}` : String(e?.message || e));
      * cam: {x,y,ppu}; loupe: {x,y,r (canvas px), ppu, cx, cy (world)} or null.
      * hold (Max and coarse speeds): true draws the world into the held image, false only carries the held
      * image with the camera (a fullscreen blit), so most of the GPU stays on the simulation.
+     * split: a frame's one step spread over two frames: begun after this frame's drawing (its first half, _step part
+     * 1) and finished before the next frame's (or by _finishHalf, before anything else reads or steps the world), so
+     * each frame holds about half its GPU time; both frames draw the last finished step (docs/fast-forward.md, Split).
      */
-    frame({ target: target2 = null, targetTex = null, cam = { x: 0, y: 0, ppu: 1 }, paused = false, simDt = 1 / 60, steps: steps2 = 1, time = 0, dpr = 1, selId = 4294967295, loupe = null, specimen = null, hold = null }) {
+    frame({ target: target2 = null, targetTex = null, cam = { x: 0, y: 0, ppu: 1 }, paused = false, simDt = 1 / 60, steps: steps2 = 1, time = 0, dpr = 1, selId = 4294967295, loupe = null, specimen = null, hold = null, split = false }) {
       const d = this.device;
       const generation = this.worldGeneration;
       const b = this.b;
@@ -19952,11 +19996,13 @@ ${e.message}` : String(e?.message || e));
       const t0 = performance.now();
       const stepping = !paused && N > 0;
       const coarse2 = Math.round(simDt * 60);
-      if (coarse2 > 1 && !COARSE_PIPES.every((n) => this.cp[n].bg)) {
+      if (coarse2 > 1 && !this.coarseReady) {
         steps2 *= coarse2;
         simDt /= coarse2;
       }
       const nSteps = stepping ? Math.min(MAX_STEPS, Math.max(1, steps2 | 0)) : 0;
+      const finishing = !!this.halfOwed, half2 = split && nSteps === 1, pre = half2 ? 0 : nSteps, done = pre + finishing;
+      const nRep = pre + (finishing + half2) / 2;
       const tm = this.timing;
       const slot = tm && !this.passProfile ? tm.reads.find((r) => !r.busy) : null;
       let tsFirst = !!slot;
@@ -19983,7 +20029,7 @@ ${e.message}` : String(e?.message || e));
         lf[1] = Math.min(1, Math.max(0, this.lerp ?? 1));
         lf[2] = this.grid[0];
         lf[3] = this.grid[1];
-        lv[4] = this._lerpN;
+        lv[4] = this._lerpN || lerpN;
         d.queue.writeBuffer(b.lerpU, 0, lu);
       }
       if (this._lerpN) {
@@ -19995,20 +20041,27 @@ ${e.message}` : String(e?.message || e));
         this._lerpN = 0;
       }
       const censusJobs = [];
-      const setDown = N > 0 && this.setDownJob && !this.setDownJob.sent ? this._setDown(enc, this.setDownJob) : null;
-      for (let s = 0; s < nSteps; s++) {
-        const last = s === nSteps - 1;
-        const endTs = last && slot ? { querySet: tm.qs, endOfPassWriteIndex: target2 ? 2 : 1 } : void 0;
-        const begin = tsBegin();
-        this._step(enc, simDt, begin || endTs ? { ...begin || {}, ...endTs || {} } : void 0, nSteps > 1 ? s : -1);
+      const stepTs = (last) => {
+        const begin = tsBegin(), endTs = last && slot ? { querySet: tm.qs, endOfPassWriteIndex: target2 || half2 ? 2 : 1 } : void 0;
+        return begin || endTs ? { ...begin || {}, ...endTs || {} } : void 0;
+      };
+      if (finishing) {
+        this.halfOwed = false;
+        this._step(enc, this.dt, stepTs(!pre), -1, null, 2);
         const job = this._censusCopy(enc);
         if (job) censusJobs.push(job);
       }
-      if (nSteps > 1) d.queue.writeBuffer(b.simRing, 0, this.ringData, 0, nSteps * SIM_STRIDE);
-      const takeJob = nSteps > 0 && (this.hand[26] > 0 || this.hand[17] > 0) ? this._takenCopy(enc) : null;
-      const listenJob = nSteps > 0 ? this._listenCopy(enc, cam) : null;
+      const setDown = N > 0 && this.setDownJob && !this.setDownJob.sent ? this._setDown(enc, this.setDownJob) : null;
+      for (let s = 0; s < pre; s++) {
+        this._step(enc, simDt, stepTs(s === pre - 1), pre > 1 ? s : -1);
+        const job = this._censusCopy(enc);
+        if (job) censusJobs.push(job);
+      }
+      if (pre > 1) d.queue.writeBuffer(b.simRing, 0, this.ringData, 0, pre * SIM_STRIDE);
+      const takeJob = done > 0 && (this.hand[26] > 0 || this.hand[17] > 0) ? this._takenCopy(enc) : null;
+      const listenJob = done > 0 ? this._listenCopy(enc, cam) : null;
       const mindJob = this._mindCopy(enc);
-      const surveyJob = nSteps > 0 ? this._surveyCopy(enc) : null;
+      const surveyJob = done > 0 ? this._surveyCopy(enc) : null;
       if (lerpN) {
         const pass = enc.beginComputePass();
         pass.setPipeline(this.cpLerp);
@@ -20148,12 +20201,26 @@ ${e.message}` : String(e?.message || e));
         pass.end();
       }
       if (target2 && targetTex && this.glass.length) this._glass(enc, targetTex, target2);
-      const timed = slot && (stepping || target2);
-      if (timed) {
-        enc.resolveQuerySet(tm.qs, 0, 3, tm.resolve, 0);
-        enc.copyBufferToBuffer(tm.resolve, 0, slot.buf, 0, 24);
+      if (half2) {
+        if (this._lerpN) {
+          const pass = enc.beginComputePass();
+          pass.setPipeline(this.cpLerpBack);
+          pass.setBindGroup(0, this._lerpBG.back);
+          pass.dispatchWorkgroups(Math.ceil(this._lerpN / 256));
+          pass.end();
+          this._lerpN = 0;
+        }
+        const begin = tsBegin(), endTs = slot ? { querySet: tm.qs, endOfPassWriteIndex: 3 } : void 0;
+        this._step(enc, simDt, endTs ? { ...begin || {}, ...endTs } : void 0, 0, null, 1);
+        d.queue.writeBuffer(b.simRing, 0, this.ringData, 0, SIM_STRIDE);
+        this.halfOwed = true;
       }
-      if (prof) prof.finish(nSteps, drew, generation);
+      const timed = slot && (stepping || finishing || target2);
+      if (timed) {
+        enc.resolveQuerySet(tm.qs, 0, 4, tm.resolve, 0);
+        enc.copyBufferToBuffer(tm.resolve, 0, slot.buf, 0, 32);
+      }
+      if (prof) prof.finish(nRep, drew, generation);
       d.queue.submit([enc.finish()]);
       if (prof) prof.read();
       const sh = this._shiftPending;
@@ -20180,18 +20247,18 @@ ${e.message}` : String(e?.message || e));
       if (timed) {
         slot.busy = true;
         slot.buf.mapAsync(GPUMapMode.READ).then(() => {
-          const t = new BigUint64Array(slot.buf.getMappedRange());
-          const ms = Number(t[1] - t[0]) / 1e6;
-          const simMs = !nSteps ? 0 : target2 ? Number(t[2] - t[0]) / 1e6 : ms;
+          const t = new BigUint64Array(slot.buf.getMappedRange()), at = (i) => Number(t[i] - t[0]) / 1e6;
+          const ms = at(half2 ? 3 : 1);
+          const simMs = !nRep ? 0 : !target2 ? ms : (done ? at(2) : 0) + (half2 ? at(3) - at(1) : 0);
           slot.buf.unmap();
           slot.busy = false;
-          if (generation === this.worldGeneration && ms > 0 && ms < 5e3 && this.onGpuTime) this.onGpuTime(ms, N, nSteps, simMs > 0 && simMs <= ms ? simMs : null, drew);
+          if (generation === this.worldGeneration && ms > 0 && ms < 5e3 && this.onGpuTime) this.onGpuTime(ms, N, nRep, simMs > 0 && simMs <= ms ? simMs : null, drew);
         }).catch(() => {
           slot.busy = false;
         });
-      } else if (!tm && this.onGpuTime && (stepping || target2)) {
+      } else if (!tm && this.onGpuTime && (stepping || finishing || target2)) {
         d.queue.onSubmittedWorkDone().then(() => {
-          if (generation === this.worldGeneration && this.onGpuTime) this.onGpuTime(performance.now() - t0, N, nSteps, null, drew);
+          if (generation === this.worldGeneration && this.onGpuTime) this.onGpuTime(performance.now() - t0, N, nRep, null, drew);
         });
       }
       if (pickJob) {
@@ -20281,7 +20348,7 @@ ${e.message}` : String(e?.message || e));
         pass.setPipeline = (p2) => {
           if (!used.includes(p2.label)) {
             used.push(p2.label);
-            names[k] = used[0] === "resolveCount" ? "step" : used.slice(0, 3).join("+");
+            names[k] = /^resolveCount$|^lifeMain/.test(used[0]) ? "step" : used.slice(0, 3).join("+");
           }
           set(p2);
         };
@@ -36902,9 +36969,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "bb30ab4533676da1") return;
+      if (localStorage.getItem(key) === "e5653a3ca40b5300") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "bb30ab4533676da1");
+      if (res) localStorage.setItem(key, "e5653a3ca40b5300");
     } catch {
     }
   }
@@ -37290,6 +37357,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       ticks: 1,
       held: false,
       fine: 0,
+      split: false,
+      halfShare: 0,
+      half0: null,
       ticksAt: 0,
       rate: 1,
       rateT: performance.now(),
@@ -37318,10 +37388,17 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const ema = (a, v, k) => a ? a + (v - a) * k : v;
     eng.onGpuTime = (ms, n, steps2, simMs, drew) => {
       const rise = (a, v, k) => ema(a, v, v > a ? 0.5 : k);
-      if (steps2 > 0 && drew) perf.stepMs = rise(perf.stepMs, ms / steps2, 0.15);
+      if (steps2 > 0 && drew) perf.stepMs = rise(perf.stepMs, ms / Math.max(1, steps2), 0.15);
+      let stepSim = steps2 > 0 && simMs != null ? simMs / steps2 : null;
+      if (steps2 === 0.5 && simMs != null) {
+        const h = perf.half0;
+        stepSim = h != null ? h + simMs : null;
+        if (stepSim) perf.halfShare = ema(perf.halfShare, Math.max(h, simMs) / stepSim, 0.1);
+        perf.half0 = h != null ? null : simMs;
+      }
       if (steps2 > 0 && simMs != null) {
-        perf.simS = rise(perf.simS, simMs / steps2, 0.1);
-        perf.stepPeak = Math.max((perf.stepPeak || 0) * 0.97, simMs / steps2);
+        if (stepSim != null) perf.simS = rise(perf.simS, stepSim, 0.1);
+        if (stepSim != null) perf.stepPeak = Math.max((perf.stepPeak || 0) * 0.97, stepSim);
         if (drew) perf.renderR = ema(perf.renderR, ms - simMs, 0.1);
         else perf.presentR = ema(perf.presentR, ms - simMs, 0.1);
       }
@@ -40979,6 +41056,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         perf.ticks = 1;
         perf.held = false;
         perf.fine = s === 1 ? fineTicks() : 0;
+        perf.split = s === 1 && splitTicks();
         return;
       }
       if (s === Infinity) {
@@ -41345,12 +41423,25 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const ticksFor = (ms) => clamp6(Math.ceil(ms * 60 / 1e3 - 0.1), 1, MAX_TICKS);
     const stepTicks = () => {
       const m = ticksFor(frameTarget());
-      return perf.fine === m ? 1 : m;
+      return m === 1 && perf.split ? 2 : perf.fine === m ? 1 : m;
+    };
+    const tickCost = (m) => 1 + 0.45 * (m - 1);
+    const SPLIT_HALF = 0.6;
+    const halfShare = () => perf.halfShare || SPLIT_HALF;
+    const splitPer = () => {
+      const x = halfShare() * tickCost(2);
+      return x > 0.95 ? 1 : x;
     };
     function fineTicks() {
       const m = ticksFor(frameTarget());
       if (m === 1 || !perf.simS || !perf.renderR) return 0;
       return perf.renderR + m * perf.simS < frameTarget() * (perf.fine === m ? 0.85 : 0.75) ? m : 0;
+    }
+    function splitTicks() {
+      const T2 = frameTarget();
+      if (T2 < 900 * H || ticksFor(T2) !== 1 || !perf.simS || !perf.renderR || splitPer() === 1 || !eng.coarseReady) return false;
+      const S1 = perf.split ? perf.simS / tickCost(2) : perf.simS;
+      return perf.renderR + S1 > T2 * (perf.split ? 0.75 : 0.85);
     }
     const SCALES = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
     function resetAdapt() {
@@ -41398,7 +41489,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       perf.goodWindows = j.good;
       perf.judged = m / T2;
       const floor = auto ? Math.max(state.perf.floor, filmScale()) : renderScale;
-      const simBound = hasTS && !state.paused && perf.simS > 2 * perf.renderR;
+      const simBound = hasTS && !state.paused && (perf.split ? halfShare() : 1) * perf.simS > 2 * perf.renderR;
       if (j.behind) {
         perf.why = "frames late";
         perf.hold = now - perf.raisedAt < 6e3 ? Math.min(24e4, (perf.hold || 3e4) * 2) : 3e4;
@@ -41429,9 +41520,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       if (!j.room) return;
       const held = now < perf.ceilingUntil;
       if (perf.slow > 1) {
-        const faster = T2 * (perf.slow - 1) / perf.slow;
-        const cost = (m2) => 1 + 0.45 * (m2 - 1);
-        const est = hasTS && perf.simS && perf.renderR ? perf.renderR + perf.simS * cost(ticksFor(faster)) / cost(stepTicks()) : perf.gpu;
+        const faster = T2 * (perf.slow - 1) / perf.slow, m2 = ticksFor(faster);
+        const per = m2 === 1 ? splitPer() : tickCost(m2);
+        const est = hasTS && perf.simS && perf.renderR ? perf.renderR + perf.simS * per / tickCost(stepTicks()) : perf.gpu;
         if (!(held && perf.slow - 1 <= perf.slowCeiling) && (!est || est < faster * 0.75)) {
           perf.slow--;
           perf.goodWindows = 0;
@@ -42757,15 +42848,17 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         perf.gpuHeld = false;
         perf.lastSubmit = now;
         eng.season = seasonAt(eng.simTime);
-        const step = plan(now) || { steps: 0, dt: H };
+        const step = (perf.split && eng.halfOwed && state.speed === 1 && !state.paused ? null : plan(now)) || { steps: 0, dt: H };
         eng.censusEvery = Math.max(20, Math.round(step.steps * 1e3 / frameTarget() / 5));
         if (step.steps > 0) {
           perf.lerpDt = step.dt;
           perf.lerpTicks = Math.round(step.dt * 60);
         }
         const lerpOn = !state.paused && state.phase === "running" && perf.lerpTicks > 1 && (state.speed === Infinity ? fastMode : !perf.held);
-        eng.lerp = !lerpOn ? null : state.speed === 1 ? 0.5 : clamp6(state.speed === Infinity ? perf.stepCredit : clock2.owed / perf.lerpDt, 0, 1);
-        viewSimTime = eng.simTime + (state.paused ? 0 : step.steps * step.dt) - (eng.lerp != null ? (1 - eng.lerp) * perf.lerpDt : 0);
+        const split = perf.split && state.speed === 1 && step.steps === 1 && !state.paused;
+        const fresh = eng.halfOwed || step.steps > 0 && !split && !state.paused;
+        eng.lerp = !lerpOn ? null : perf.split && state.speed === 1 ? fresh ? 0.25 : 0.75 : state.speed === 1 ? 0.5 : clamp6(state.speed === Infinity ? perf.stepCredit : clock2.owed / perf.lerpDt, 0, 1);
+        viewSimTime = eng.simTime + (state.paused || split ? 0 : step.steps * step.dt) - (eng.lerp != null ? (1 - eng.lerp) * perf.lerpDt : 0);
         if (state.phase === "running" && !state.paused) climate.tick(step.steps * step.dt);
         autoCamera(now, dt);
         renderCaption(now);
@@ -42838,7 +42931,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           // the close-up only when the world is drawn: a canvas not given a new texture keeps its last image
           // (a portrait takes the close-up's place for one frame)
           specimen: hold === false ? null : portraitParams() || specimenParams(),
-          hold
+          hold,
+          split
         });
         if (step.steps && !state.paused) hand.stepped();
         if (portraitJob?.drawn) readPortrait();
