@@ -38,7 +38,7 @@ import { miniCard, setThumb, hasThumb, dropThumb } from './minicard.js';
 import { stage, bodyOf, portraitCells } from './studio.js';
 import { studioPortrait } from './studiorender.js';
 import { encodeImages, encodeBytes } from './encode.js';
-import { KNOBS, decide, costOf, adaptation, judge } from './tuner.js';
+import { KNOBS, decide, costOf, adaptation, judge, slowerFirst, fasterFirst } from './tuner.js';
 import { trackGlass } from './glass.js';
 import { isRideKey, keyWay, pointerWay, createThrottle, stepThrottle, throttleGrip, createRideCam, stepRideCam, willSpeed } from './ride.js';
 import { createCabinetStore, encodeCard, decodeCard, cardLink, cardFromHash, cardFromPng, cardIntoPng } from './cabinet.js';
@@ -4232,11 +4232,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const stressed = () => pressure === 'serious' || pressure === 'critical';
   // Adapt what a frame costs to what the device sustains, every two seconds at real time or slower,
   // paused too (running fast spends the frame on simulation on purpose). Behind (frames late two windows in a
-  // row, tuner.js judge; a step up just taken that frames slipped after is only taken back): a lower
-  // render scale, then a lower frame rate, or the frame rate first when the simulation is most of the
-  // cost (resolution would barely help); with Auto pixel density, a film's scene drawn at more than 1 device
-  // pixel per CSS pixel drops to 1 before any of them. With room again: the frame rate back first, then
-  // the scale.
+  // row, tuner.js judge; a step up just taken that frames slipped after is only taken back): with Auto pixel density,
+  // a film's scene drawn at more than 1 device pixel per CSS pixel drops to 1 first; then the frame rate from 60 to
+  // 30 (tuner.js slowerFirst), then the tuner's steps (work done less often, then what saves most for least lost to
+  // the eye), then 20 and 15 fps; or, slower than 30, the frame rate before the tuner's steps when the simulation is
+  // most of the cost (resolution would barely help) and fewer neighbors cannot lighten it. With room again: back to
+  // 30 fps first, then the tuner's steps up, and 60 fps last, once nothing else is held back (fasterFirst).
   function adaptQuality(now) {
     // fast speeds are never judged, so their frames are not kept (a day held at ×64 kept millions)
     if (state.phase !== 'running' || state.speed > 1) { clearFrames(); return; }
@@ -4278,33 +4279,46 @@ function run(eng, device, ctx, specCtx, hasTS) {
       // only a lower frame rate is tried (which also lightens the browser's compositing, if that's the cause).
       const pace = perf.rafMed > 1.8 * displayMs() && perf.gpu + perf.mainMs < 0.3 * perf.rafMed;
       if (pace) perf.why = 'browser pace'; // i18n-ignore (a key, shown through WHY_WORDS)
+      // (fewer neighbors can still lighten the step)
+      const lighter = tuneAuto('neighbors') && tune.neighbors.level > 0 && now >= tune.neighbors.hold;
       if (pace) { if (autoF && perf.slow < 4) { perf.slowCeiling = perf.slow; perf.slow = Math.min(4, perf.slow + 1); tuneLog(now, 'fps', perf.slow); } }
       else if (autoD && density() > 1.01 && !(film.state === 'recording' && filmScale(1) > renderScale)) {
         filmDense = false; resizeDue = true;
-      } else if (!(autoF && simBound && perf.slow < 4) && tuneSteps(true, now, T, floor, m > 2 * T ? 3 : m > 1.4 * T ? 2 : 1)) {
-        // (the tuner's: the steps that save the most for the least lost to the eye, src/tuner.js)
+      } else if (autoF && slowerFirst({ slow: perf.slow, simBound, lighter })) {
+        // (60 to 30 a step alone; slower, as late as frames are)
+        perf.slowCeiling = perf.slow; perf.slow = Math.min(4, perf.slow + (perf.slow > 1 && m > 2 * T ? 2 : 1)); tuneLog(now, 'fps', perf.slow);
+      } else if (tuneSteps(true, now, T, floor, m > 2 * T ? 3 : m > 1.4 * T ? 2 : 1, false, autoF && perf.slow > 1 && simBound ? ['neighbors'] : null)) {
+        // (the tuner's: the steps that save the most for the least lost to the eye, src/tuner.js; where the step is
+        // most of the frame, only fewer neighbors, which lighten it)
       } else if (autoF && perf.slow < 4) { perf.slowCeiling = perf.slow; perf.slow = Math.min(4, perf.slow + (m > 2 * T ? 2 : 1)); tuneLog(now, 'fps', perf.slow); }
       return;
     }
     if (!j.room) return;
     const held = now < perf.ceilingUntil;
+    // nothing the tuner moves held back (the frame rate's climb to 60 waits for it)
+    const best = Object.keys(tune).every((k) => !tuneAuto(k) || tune[k].level === KNOBS[k].levels.length - 1) && (!auto || renderScale >= 1 - 1e-3);
     // A faster frame rate costs a drawing and a shorter step per frame, in less time. A coarse step
     // of m ticks costs about 1 + 0.45 (m - 1) of a 1/60 s one (docs/performance.md): judged by this
     // frame's cost alone, 30 fps in 2-tick steps never looked able to return to 60. A frame one tick long holds a
-    // 1/60 s step, or half of a 2-tick one where that is less (splitTicks).
-    if (perf.slow > 1) {
+    // 1/60 s step, or half of a 2-tick one where that is less (splitTicks, unless Split steps is Off). Where the
+    // estimate says it will not fit, it is tried anyway once no frame has been late for perf.hold (a GPU that slows
+    // its clock to its work, as Apple's do, fills a 30 fps frame whatever it has to spare), as a step up is; and like
+    // one, taken back if frames slip at once (undoClimb), and not tried again for perf.hold.
+    if (perf.slow > 1 && fasterFirst({ slow: perf.slow, best })) {
       const faster = (T * (perf.slow - 1)) / perf.slow, m = ticksFor(faster);
-      const per = m === 1 ? splitPer() : tickCost(m);
+      const per = m === 1 ? (state.perf.split === 'off' ? 1 : splitPer()) : tickCost(m);
       const est = hasTS && perf.simS && perf.renderR ? perf.renderR + perf.simS * per / tickCost(stepTicks()) : perf.gpu;
-      if (!(held && perf.slow - 1 <= perf.slowCeiling) && (!est || est < faster * 0.75)) { perf.slow--; perf.goodWindows = 0; perf.raisedAt = now; tuneLog(now, 'fps', perf.slow); }
+      const fits = !est || est < faster * 0.75;
+      if (!(held && perf.slow - 1 <= perf.slowCeiling) && (fits || !held)) {
+        perf.slow--; perf.goodWindows = 0; perf.raisedAt = now; perf.raised = 'fps'; tuneLog(now, 'fps', perf.slow, fits ? '' : 'probe');
+      }
       if (perf.slow === 1) perf.why = '';
       return;
     }
-    const best = Object.keys(tune).every((k) => !tuneAuto(k) || tune[k].level === KNOBS[k].levels.length - 1);
     // the tuner's: the step that brings back the most for its cost, if it fits, or tried anyway once no frame has
     // been late for perf.hold (src/tuner.js)
     if (tuneSteps(false, now, T, auto ? state.perf.floor : renderScale, 1, held)) { perf.goodWindows = 0; perf.raisedAt = now; }
-    if ((!auto || renderScale >= 1) && best) perf.why = '';
+    if (best && perf.slow === 1) perf.why = '';
   }
   // a knob as the tuner's decide sees it (the haze's and the microscope's cost is the composite's, in the state the
   // other leaves it)
@@ -4329,6 +4343,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function undoClimb(now) {
     const id = perf.raised;
     perf.raised = null;
+    // (a frame rate: the one it came from, and the one it tried held off for perf.hold, perf.slowCeiling)
+    if (id === 'fps') { perf.slow++; perf.slowCeiling = perf.slow - 1; tuneLog(now, 'fps', perf.slow, 'back'); return; }
     if (id === 'scale') stepTo(id, SCALES.find((s) => s < renderScale - 1e-3) ?? renderScale, now);
     else { stepTo(id, Math.max(0, tune[id].level - 1), now); tune[id].hold = now + perf.hold; }
     tuneLog(now, id, id === 'scale' ? renderScale : KNOBS[id].levels[tune[id].level], 'back');
@@ -4343,7 +4359,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (perf.log.length > 40) perf.log.shift();
   }
   // Up to n of the tuner's steps (src/tuner.js), behind or with room: render scale or a knob on Auto.
-  function tuneSteps(behind, now, T, floor, n = 1, held = false) {
+  // only: the knobs it may move, or all (null)
+  function tuneSteps(behind, now, T, floor, n = 1, held = false, only = null) {
     // the neighbors' cost: the step's, measured at each of their levels once it has settled there (three windows on),
     // each against the top's what fewer save on this device (rel)
     const nb = tune.neighbors;
@@ -4355,12 +4372,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     let acted = false;
     for (let i = 0; i < n; i++) {
-      const on = shown(), knobs = Object.fromEntries(Object.keys(tune).map((id) => [id, knobOf(id, on)]));
+      const on = shown(), knobs = Object.fromEntries(Object.keys(tune).filter((id) => !only || only.includes(id)).map((id) => [id, knobOf(id, on)]));
       const heldK = Object.fromEntries(Object.entries(tune).map(([id, k]) => [id, now < k.hold]));
       heldK.scale = held;
       const draw = hasTS && perf.renderR ? perf.renderR : perf.gpu * 0.6;
       const d = decide({ behind, T, gpu: perf.gpu, draw, knobs, held: heldK, probe: !behind && !held,
-        scale: { cur: renderScale, ladder: SCALES, floor, auto: state.perf.scale === 'auto' } });
+        scale: only ? null : { cur: renderScale, ladder: SCALES, floor, auto: state.perf.scale === 'auto' } });
       if (!d) break;
       stepTo(d.id, d.to, now);
       tuneLog(now, d.id, d.id === 'scale' ? d.to : KNOBS[d.id].levels[d.to], d.probe ? 'probe' : d.rebalance ? 'rebalance' : '');

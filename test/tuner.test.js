@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { KNOBS, decide, costOf, scaleLoss, adaptation, COMP_GUESS, judge, LATE } from '../src/tuner.js';
+import { KNOBS, decide, costOf, scaleLoss, adaptation, COMP_GUESS, judge, LATE, slowerFirst, fasterFirst } from '../src/tuner.js';
 
 const ladder = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
 const all = (over = {}) => ({
@@ -138,15 +138,17 @@ test('the neighbors are given up only where they pay much: a Pixel 3, not a Pixe
 
 // The tuner run window after window against devices modeled from measurements (ms at full scale, every knob best),
 // with adaptQuality's essentials: frames judged by their intervals (judge: two windows late in a row; a frame comes
-// when the GPU has done the last, at the rate aimed for at best); the frame rate halved first when the step is more
-// than twice the drawing; climbs after three windows on time, by the GPU's time where it fits and tried anyway once no
-// frame has been late for the hold (30 s, twice as long after each climb that failed); a climb frames slip after taken
-// back. A device that slows its clock to its work (dvfs: Apple's) measures its GPU busy for most of the frame
-// whatever it has to spare. It must settle, its frames on time. from: a run to carry on from (its knobs and scale).
+// when the GPU has done the last, at the rate aimed for at best); the frame rate to 30 first of all, slower than 30
+// only once the tuner has nothing left, or first when the step is more than twice the drawing and fewer neighbors
+// cannot lighten it (slowerFirst); climbs after three windows on time, back to 30 first and to 60 last (fasterFirst),
+// by the GPU's time where it fits and tried anyway once no frame has been late for the hold (30 s, twice as long after
+// each climb that failed); a climb frames slip after taken back, the frame rate's too. A device that slows its clock
+// to its work (dvfs: Apple's) measures its GPU busy for most of the frame whatever it has to spare. It must settle,
+// its frames on time. from: a run to carry on from (its knobs, scale and frame rate).
 function simulate(dev, windows = 400, from = null) {
   const T0 = 1000 / 60, top = (id) => KNOBS[id].levels.length - 1;
   const lv = from ? { ...from.lv } : Object.fromEntries(Object.keys(dev.knobs).map((id) => [id, top(id)]));
-  let scale = from?.scale ?? 1, slow = 1, w = { late: 0, good: 0 }, raised = null, raisedAt = -99, hold = 0, ceilingUntil = 0;
+  let scale = from?.scale ?? 1, slow = from?.slow ?? 1, w = { late: 0, good: 0 }, raised = null, raisedAt = -99, hold = 0, ceilingUntil = 0;
   const held = {};
   // (the haze and the microscope share one cost, the composite's in the state the two leave it, per pixel)
   const COMP = ['haze', 'microscope'], compCost = () => dev.comp.full * dev.comp.rel[lv.haze + 2 * lv.microscope];
@@ -179,17 +181,23 @@ function simulate(dev, windows = 400, from = null) {
       hold = i - raisedAt <= 2 ? Math.min(120, (hold || 15) * 2) : 15;
       ceilingUntil = i + hold;
       if (climbed) {
-        if (raised === 'scale') scale = ladder.find((v) => v < scale - 1e-3); else lv[raised]--;
+        if (raised === 'fps') slow++; else if (raised === 'scale') scale = ladder.find((v) => v < scale - 1e-3); else lv[raised]--;
         held[raised] = i + hold; raised = null; acted = 'back';
-      } else if (f.step > 2 * f.draw && slow < 4) { slow++; acted = 'slow'; }
+      } else if (slowerFirst({ slow, simBound: f.step > 2 * f.draw, lighter: lv.neighbors > 0 })) { slow++; acted = 'slow'; }
       else {
-        const d = decide({ ...s, behind: true, held: heldNow });
+        // (where the step is most of the frame, only fewer neighbors, which lighten it)
+        const only = slow > 1 && f.step > 2 * f.draw ? { knobs: { neighbors: s.knobs.neighbors }, scale: null } : {};
+        const d = decide({ ...s, ...only, behind: true, held: heldNow });
         if (d) { apply(d); acted = d.id; } else if (slow < 4) { slow++; acted = 'slow'; }
       }
     } else if (j.room) {
       const faster = (T0 * (slow - 1)), cost = (m) => 1 + 0.45 * (m - 1);
-      if (slow > 1) { if (f.draw + (f.step / cost(slow)) * cost(slow - 1) < 0.75 * faster) { slow--; w.good = 0; raisedAt = i; acted = 'fast'; } }
-      else {
+      const best = scale === 1 && Object.entries(lv).every(([id, l]) => l === top(id));
+      if (fasterFirst({ slow, best })) {
+        // (where the estimate says it will not fit, tried anyway once no frame has been late for the hold, as a step up is)
+        const fits = f.draw + (f.step / cost(slow)) * cost(slow - 1) < 0.75 * faster;
+        if (!heldNow.fps && (fits || i >= ceilingUntil)) { slow--; w.good = 0; raised = 'fps'; raisedAt = i; acted = fits ? 'fast' : 'fast?'; }
+      } else {
         const d = decide({ ...s, behind: false, held: { ...heldNow, scale: i < ceilingUntil }, probe: i >= ceilingUntil });
         if (d) { apply(d); w.good = 0; raised = d.rebalance ? null : d.id; raisedAt = i; acted = d.probe ? `${d.id}?` : d.id; }
       }
@@ -204,10 +212,10 @@ function simulate(dev, windows = 400, from = null) {
 // haze + 2 × microscope)
 const COMP_REL = [0.45, 0.57, 0.88, 1];
 const DEVICES = {
-  pixel3: { step: 20, draw: 12, floor: 0.5, comp: { full: 30, rel: COMP_REL }, knobs: { sea: { full: 5 }, bloom: { full: 0.6, px: true }, specks: { full: 0.2 }, stone: { full: 0.2 }, haze: {}, microscope: {}, interiors: { full: 0 }, neighbors: { full: 20, rel: [0.45, 0.6, 1] } } },
-  pixel11: { step: 8, draw: 5, comp: { full: 2.5, rel: COMP_REL }, knobs: { sea: { full: 2.6 }, bloom: { full: 0.3, px: true }, specks: { full: 0.05 }, stone: { full: 0.1 }, haze: {}, microscope: {}, interiors: { full: 0 }, neighbors: { full: 8, rel: [0.97, 0.98, 1] } } },
-  rtx: { step: 3.4, draw: 2.5, comp: { full: 0.8, rel: COMP_REL }, knobs: { sea: { full: 0.03 }, bloom: { full: 0.07, px: true }, specks: { full: 0.08 }, stone: { full: 0.1 }, haze: {}, microscope: {}, interiors: { full: 0 }, neighbors: { full: 3.4, rel: [0.97, 0.98, 1] } } },
-  m1: { dvfs: true, step: 2.5, draw: 5, comp: { full: 3.6, rel: COMP_REL }, knobs: { sea: { full: 0.8 }, bloom: { full: 0.6, px: true }, specks: { full: 0.1 }, stone: { full: 0.2 }, haze: {}, microscope: {}, interiors: { full: 0 }, neighbors: { full: 2.5, rel: [0.9, 0.95, 1] } } },
+  pixel3: { step: 20, draw: 12, floor: 0.5, comp: { full: 30, rel: COMP_REL }, knobs: { sea: { full: 5 }, contacts: { full: 2.5 }, bloom: { full: 0.6, px: true }, specks: { full: 0.2 }, stone: { full: 0.2 }, haze: {}, microscope: {}, interiors: { full: 0 }, neighbors: { full: 20, rel: [0.45, 0.6, 1] } } },
+  pixel11: { step: 8, draw: 5, comp: { full: 2.5, rel: COMP_REL }, knobs: { sea: { full: 2.6 }, contacts: { full: 1.5 }, bloom: { full: 0.3, px: true }, specks: { full: 0.05 }, stone: { full: 0.1 }, haze: {}, microscope: {}, interiors: { full: 0 }, neighbors: { full: 8, rel: [0.97, 0.98, 1] } } },
+  rtx: { step: 3.4, draw: 2.5, comp: { full: 0.8, rel: COMP_REL }, knobs: { sea: { full: 0.03 }, contacts: { full: 0.1 }, bloom: { full: 0.07, px: true }, specks: { full: 0.08 }, stone: { full: 0.1 }, haze: {}, microscope: {}, interiors: { full: 0 }, neighbors: { full: 3.4, rel: [0.97, 0.98, 1] } } },
+  m1: { dvfs: true, step: 2.5, draw: 5, comp: { full: 3.6, rel: COMP_REL }, knobs: { sea: { full: 0.8 }, contacts: { full: 1 }, bloom: { full: 0.6, px: true }, specks: { full: 0.1 }, stone: { full: 0.2 }, haze: {}, microscope: {}, interiors: { full: 0 }, neighbors: { full: 2.5, rel: [0.9, 0.95, 1] } } },
 };
 const atBest = (r) => r.scale === 1 && r.slow === 1 && Object.entries(r.lv).every(([id, l]) => l === KNOBS[id].levels.length - 1);
 const moved = (r) => r.trail.map((t, i) => (t.acted ? `${i}:${t.acted}` : '')).filter(Boolean).join(' ');
@@ -284,4 +292,101 @@ test('behind, work done less often comes before any effect turned off; with room
   // with room for either, the effect comes back before the cadence
   const up = { ...knobs, sea: { level: 2, auto: true, cost: 0.6 }, bloom: { level: 0, auto: true, cost: 0, full: 0.3 } };
   assert.deepEqual(decide(base({ behind: false, gpu: 5, knobs: up })), { id: 'bloom', to: 1 });
+});
+
+// The order of what is given up, as the viewer judges what a viewer notices (2026-11-14): 30 fps first, then work done
+// less often, then the render scale's first step before any major effect (the glow, the microscope, cells' insides, the
+// sea turned off), the glow late; with room the reverse, 60 fps last.
+test('behind, the frame rate drops to 30 before anything else; slower only once nothing else is left, or where the step is most of the frame and fewer neighbors cannot lighten it', () => {
+  assert.equal(slowerFirst({ slow: 1 }), true);
+  assert.equal(slowerFirst({ slow: 1, simBound: true, lighter: true }), true);
+  assert.equal(slowerFirst({ slow: 2 }), false);
+  assert.equal(slowerFirst({ slow: 2, simBound: true }), true);
+  assert.equal(slowerFirst({ slow: 2, simBound: true, lighter: true }), false);
+  assert.equal(slowerFirst({ slow: 4, simBound: true }), false);
+  // every device that runs late takes 30 fps as its first move, the dressing all kept
+  for (const [name, dev] of Object.entries(DEVICES)) {
+    const r = simulate({ ...dev, draw: dev.draw * 3 + 12 }, 30), first = r.trail.find((t) => t.acted);
+    assert.equal(first.acted, 'slow', name);
+    assert.ok(Object.entries(first).every(([id, l]) => !KNOBS[id] || l === KNOBS[id].levels.length - 1) && first.scale === 1, `${name}: ${moved(r)}`);
+  }
+});
+
+test('with room, back up to 30 fps first, the tuner\'s steps up next, 60 fps last', () => {
+  assert.equal(fasterFirst({ slow: 3, best: false }), true);
+  assert.equal(fasterFirst({ slow: 2, best: false }), false);
+  assert.equal(fasterFirst({ slow: 2, best: true }), true);
+  assert.equal(fasterFirst({ slow: 1, best: true }), false);
+});
+
+test('behind, the render scale\'s first step goes before the glow, the microscope and cells\' insides (the haze and the specks may go before it)', () => {
+  const off = { level: 0, auto: true, cost: 0 };
+  // the major effects save far more than the scale's first step, which saves little where the drawing is cheap
+  const majors = { bloom: { level: 1, auto: true, cost: 3 }, interiors: { level: 1, auto: true, cost: 4, ratio: 0.5 },
+    microscope: { level: 1, auto: true, cost: 6, other: 0 } };
+  const knobs = { sea: { level: 1, auto: true, cost: 3 }, specks: off, stone: off, haze: off, neighbors: { level: 2, auto: true, cost: 2, rel: [0.97, 0.98, 1] }, ...majors };
+  assert.deepEqual(decide(base({ draw: 2, knobs })), { id: 'scale', to: 0.85 });
+  // the scale's first step taken, they compete by what they save for what they cost the eye
+  assert.ok(['interiors', 'microscope'].includes(decide(base({ draw: 2, knobs, scale: { cur: 0.85, ladder, floor: 0.5, auto: true } })).id));
+  // a render scale the viewer fixed (or one at its floor) holds nothing back
+  assert.ok(Object.keys(majors).includes(decide(base({ draw: 2, knobs, scale: { cur: 1, ladder, floor: 1, auto: true } })).id));
+  assert.ok(Object.keys(majors).includes(decide(base({ draw: 2, knobs, scale: { cur: 1, ladder, floor: 0.5, auto: false } })).id));
+  // the haze, the specks: barely seen, they may go before the scale
+  assert.deepEqual(decide(base({ draw: 2, knobs: { ...knobs, haze: { level: 1, auto: true, cost: 6, other: 0 } } })), { id: 'haze', to: 0 });
+  assert.deepEqual(decide(base({ draw: 2, knobs: { ...knobs, specks: { level: 1, auto: true, cost: 0.5 } } })), { id: 'specks', to: 0 });
+});
+
+test('behind, the glow goes late: after cells\' insides and the microscope, and after a further step of the scale where the drawing is most of the frame', () => {
+  const pin = { scale: { cur: 0.85, ladder, floor: 0.5, auto: true } };
+  const k = (o) => all({ sea: { level: 0, auto: true, cost: 0 }, specks: { level: 0, auto: true, cost: 0 }, stone: { level: 0, auto: true, cost: 0 },
+    bloom: { level: 1, auto: true, cost: 1.5 }, interiors: { level: 1, auto: true, cost: 1.5, ratio: 0.5 }, microscope: { level: 1, auto: true, cost: 2.5, other: 0 }, ...o });
+  // (each saving about as much)
+  assert.deepEqual(decide(base({ ...pin, draw: 3, knobs: k() })), { id: 'interiors', to: 0 });
+  assert.deepEqual(decide(base({ ...pin, draw: 3, knobs: k({ interiors: { level: 0, auto: true, cost: 0 } }) })), { id: 'microscope', to: 0 });
+  // (the drawing dear: the scale steps down again before the glow goes)
+  const late = k({ interiors: { level: 0, auto: true, cost: 0 }, microscope: { level: 0, auto: true, cost: 1.2, other: 0 } });
+  assert.deepEqual(decide(base({ ...pin, draw: 9, knobs: late })), { id: 'scale', to: 0.7 });
+  // at the scale's floor, the glow
+  assert.deepEqual(decide(base({ draw: 9, knobs: late, scale: { cur: 0.5, ladder, floor: 0.5, auto: true } })), { id: 'bloom', to: 0 });
+});
+
+test('with room, the reverse: the glow back first of the major effects, and every one of them before the render scale returns to full', () => {
+  const pin = { scale: { cur: 0.85, ladder, floor: 0.5, auto: true } };
+  const down = all({ bloom: { level: 0, auto: true, cost: 0, full: 0.4 }, microscope: { level: 0, auto: true, cost: 1.2, other: 0 } });
+  assert.deepEqual(decide(base({ ...pin, behind: false, gpu: 6, knobs: down })), { id: 'bloom', to: 1 });
+  assert.deepEqual(decide(base({ ...pin, behind: false, gpu: 6, knobs: { ...down, bloom: { level: 1, auto: true, cost: 0.4 } } })), { id: 'microscope', to: 1 });
+  // the scale back to full only once they are back, though it fits and they do not (a step to pay for one, at most)
+  const d = decide(base({ ...pin, behind: false, gpu: 13.5, draw: 2, knobs: { ...down, bloom: { level: 0, auto: true, cost: 0, full: 2 } } }));
+  assert.ok(d === null || d.rebalance || d.probe, JSON.stringify(d));
+  assert.notEqual(d?.id, 'scale');
+  // a major effect held after a failed climb does not hold the scale back
+  assert.deepEqual(decide(base({ ...pin, behind: false, gpu: 6, draw: 2, knobs: { ...down, microscope: { level: 1, auto: true, cost: 2.4 } }, held: { bloom: true } })), { id: 'scale', to: 1 });
+});
+
+test('a run late up close, then easier: 30 fps, cadence, the scale\'s first step, then the rest, the glow kept longest; back in reverse, 60 fps last', () => {
+  // a Pixel 11 up close on a dense colony: the drawing six times as dear, the cells' insides dear, then the view as before
+  const close = { ...DEVICES.pixel11, draw: 30, comp: { full: 6, rel: COMP_REL }, knobs: { ...DEVICES.pixel11.knobs, interiors: { full: 8, ratio: 0.5 }, bloom: { full: 1.5, px: true } } };
+  const r1 = simulate(close, 60), moves = r1.trail.map((t) => t.acted).filter((a) => a && !a.endsWith('?') && a !== 'back');
+  const at = (id) => (moves.includes(id) ? moves.indexOf(id) : Infinity);
+  assert.equal(moves[0], 'slow', moved(r1));
+  const firstScale = at('scale');
+  assert.ok(firstScale < Infinity, moved(r1));
+  // the cadences before the scale; the major effects after it, the glow after the microscope and the insides
+  for (const id of ['sea', 'contacts']) assert.ok(at(id) < firstScale, `${id}: ${moved(r1)}`);
+  for (const id of ['microscope', 'interiors', 'bloom']) assert.ok(at(id) > firstScale, `${id}: ${moved(r1)}`);
+  assert.ok(at('bloom') >= Math.max(at('microscope') === Infinity ? 0 : at('microscope'), at('interiors')), moved(r1));
+  // easier again: everything comes back, and the frame rate returns to 60 only after the rest
+  const r2 = simulate(DEVICES.rtx, 200, r1);
+  assert.ok(atBest(r2), moved(r2));
+  const last = r2.trail.findLastIndex((t) => t.acted.startsWith('fast'));
+  assert.ok(last >= 0 && r2.trail.slice(last + 1).every((t) => !t.acted), moved(r2));
+  assert.ok(r2.trail.slice(0, last).every((t) => t.slow === 2), moved(r2));
+  if (process.env.TUNER_TRACE) console.log('close', moved(r1), '| after', moved(r2));
+});
+
+test('adaptation: the split step, held while a step is split on Auto, fixed when the viewer turned it off', () => {
+  const top = Object.fromEntries(Object.entries(KNOBS).map(([id, k]) => [id, k.levels.length - 1]));
+  assert.deepEqual(adaptation(top, { split: { v: true, auto: true } }).at(-1), ['split', 1, 'held']);
+  assert.deepEqual(adaptation(top, { split: { v: false, auto: true } }).at(-1), ['split', 0, 'best']);
+  assert.deepEqual(adaptation(top, { split: { v: false, auto: false } }).at(-1), ['split', 0, 'fixed']);
 });

@@ -1,7 +1,8 @@
 // The auto-tuner: which of the frame's costs to give up when frames run late, and which to win back when there is
 // room (main.js adaptQuality asks every two seconds, judge says when; its emergency step-down, overload, acts at
 // once). Each knob is a ladder of settings, cheapest first, and while Settings → Performance → Adaptation is on (and
-// the Display row of the effect it eases is on Auto) the tuner moves it one step at a time:
+// its rows are on Auto: the Display row of the effect it eases, Performance → Pacing's for the work done less often)
+// the tuner moves it one step at a time:
 // down, the step that saves the most GPU time for the least that is lost to the eye; up, the one that brings back the
 // most for the time it costs, if it fits (or, frames on time a while, tried anyway: probe). What a knob costs is
 // measured where it can be (the GPU's timestamps, pass by
@@ -16,10 +17,17 @@
 // sea's turns less often show only in motion, which a frozen frame cannot score). The render scale scored 0.07-0.13
 // from 85% to 50%, the first step most, but SSIM judges softness on a phone's dense screen poorly: its weights are
 // left as judged.
+//
+// The order behind, as the viewer judges what is noticed (2026-11-14): the frame rate to 30 first (slowerFirst), then
+// work done less often (cadence), then by what is saved for what is lost, but no major effect turned off before the
+// render scale's first step down (major), and the glow weighed to go late; with room, the reverse, 60 fps last.
 
 // Each knob: levels, cheapest first (the engine's own words: Engine.fx); passes, the GPU passes whose time it is (by
 // their names in Engine.passProfile's report); share(from, to), the share of that time a step from level `from` to
 // level `to` keeps; loss[i], what stepping from level i + 1 down to level i costs the eye.
+// major: an effect a viewer misses most (the water's surface, the glow, the microscope, cells' insides): behind, its
+// step to level 0 (the effect off) waits until the render scale has taken its first step down (decide), and with room
+// it comes back before the scale's last step up.
 // cadence: a knob whose steps down, short of its level 0's value (0 or false: the effect off), make its work less often
 // (or over less of it each frame), not less of it; behind, such steps are taken before any other (decide), so an effect
 // is turned less often before anything is turned off, and won back after.
@@ -31,8 +39,12 @@ export const KNOBS = {
     share: (from, to) => rate(to) / Math.max(1e-6, rate(from)),
     loss: [3, 0.3, 0.15],
     cadence: true,
+    major: true,
   },
-  bloom: { levels: [false, true], passes: /^fsDown$|^fsUp$/, share: (from, to) => (to ? 1 : 0), loss: [1] },
+  // The glow weighs as much as the sea gone (the viewer's judgement, 2026-11-14: it adds much to the scene, kept as long
+  // as it can be, though it costs more than its 1 - SSIM says): it goes after the microscope and cells' insides, and
+  // comes back first of them
+  bloom: { levels: [false, true], passes: /^fsDown$|^fsUp$/, share: (from, to) => (to ? 1 : 0), loss: [3], major: true },
   specks: { levels: [false, true], passes: /^microSpecks$|^fsSpeck$/, share: (from, to) => (to ? 1 : 0), loss: [0.2] },
   // seconds between relightings: the cache's grains ('fsStone', 'fsStone+fsStone edge') and its light ('fsStoneCache'),
   // not the cache lit under the cells every frame (fsStoneLit, fsStoneLitScene, fsStoneLitMicro). The loupe's and the
@@ -51,12 +63,12 @@ export const KNOBS = {
   // microscope and the microscope comes back first. Their cost is the composite's in each state of the two (k.other:
   // the other's level as shown), learned on the device per pixel (rel), guessed from the RTX until then.
   haze: { levels: [false, true], passes: null, share: (from, to, k) => comp(k, +to + 2 * other(k)) / comp(k, +from + 2 * other(k)), loss: [0.05] },
-  microscope: { levels: [false, true], passes: null, share: (from, to, k) => comp(k, other(k) + 2 * +to) / comp(k, other(k) + 2 * +from), loss: [1.2] },
+  microscope: { levels: [false, true], passes: null, share: (from, to, k) => comp(k, other(k) + 2 * +to) / comp(k, other(k) + 2 * +from), loss: [1.2], major: true },
   // Cells' insides in the main view, the loupe and the live close-up (Engine.fx.interiors): left out, every cell takes the lean pipeline, its outline,
   // walls and tissue kept (1 - SSIM 0.007-0.012 at 150 and 400 pixels a unit; weighed above that, the insides being
   // what a close look is for). Its cost is the cells' pass, learned at each level at a like zoom (ratio), none
   // where cells are drawn too small for insides.
-  interiors: { levels: [false, true], passes: null, share: (from, to, k) => (from === to ? 1 : to ? 1 / (k?.ratio ?? 0.75) : k?.ratio ?? 0.75), loss: [0.4] },
+  interiors: { levels: [false, true], passes: null, share: (from, to, k) => (from === to ? 1 : to ? 1 / (k?.ratio ?? 0.75) : k?.ratio ?? 0.75), loss: [0.4], major: true },
   // The simulation's own: the neighbors a cell weighs per step (Engine.maxScan; the contact cap scales with them), its
   // cost a share of the step that differs most between GPUs (a Pixel 11 Pro's step 2% less at 88 than at 112),
   // learned on the device (rel: the step at each level against the top's, as the page measures them; a
@@ -109,6 +121,17 @@ export function judge(w, dts, T, { climbed = false, cheap = false, stressed = fa
   return { m, late, good, behind: late >= 2 || (climbed && slipped), room: good >= 3 };
 }
 
+// The frame rate aimed for, on Auto, in the order of what is given up (main.js adaptQuality): slow, the divisor of the
+// display's rate it aims at (1: 60 fps; 2: 30; 3, 4: 20, 15). Behind, 60 → 30 goes first of all, before work done
+// less often and anything drawn less well (the viewer's judgement, 2026-11-14: a view at 30 fps with all of its
+// look is better than one at 60 that has given some up; at 30 the step's 2 ticks cost 1.45 of one a frame, the drawing
+// half); slower than 30 only once the tuner has nothing left to give, or first where the step is most of the frame
+// (simBound: fewer pixels would barely help) and fewer neighbors cannot lighten it (lighter: the neighbors' knob can
+// still step down, which main.js then takes alone). With room, the reverse: back up to 30 first, and to 60 last, once
+// nothing the tuner moves is held back (best).
+export const slowerFirst = ({ slow, simBound = false, lighter = false, max = 4 }) => slow < max && (slow === 1 || (simBound && !lighter));
+export const fasterFirst = ({ slow, best }) => slow > 2 || (slow === 2 && best);
+
 // Render scale: the share of the screen's resolution the world is drawn at (main.js SCALES); its loss per step grows
 // as it falls, and what it saves is the drawing's pixels (its cost about the square of the scale)
 const SCALE_LOSS = 12;
@@ -135,17 +158,18 @@ export function costOf(passes) {
  * Returns { id: knob id or 'scale', to: its new level index (or scale) } .
  */
 export function decide(s) {
-  const opts = [];
+  let opts = [];
   for (const [id, k] of Object.entries(s.knobs)) {
     const def = KNOBS[id];
     if (!def || !k.auto) continue;
     const top = def.levels.length - 1, full = fullCost(id, k, s.draw);
     const at = (i) => full * def.share(def.levels[top], def.levels[i], k);
+    // (major: a major effect turned off, or back on)
     if (s.behind && k.level > (k.floor ?? 0)) {
       const save = at(k.level) - at(k.level - 1);
-      if (save > 0.05) opts.push({ id, to: k.level - 1, gain: save, loss: def.loss[k.level - 1], cadence: def.cadence && !!def.levels[k.level - 1] });
+      if (save > 0.05) opts.push({ id, to: k.level - 1, gain: save, loss: def.loss[k.level - 1], cadence: def.cadence && !!def.levels[k.level - 1], major: def.major && k.level === 1 });
     } else if (!s.behind && k.level < top && !s.held?.[id]) {
-      opts.push({ id, to: k.level + 1, gain: def.loss[k.level], loss: Math.max(0.05, at(k.level + 1) - at(k.level)), cadence: def.cadence && !!def.levels[k.level] });
+      opts.push({ id, to: k.level + 1, gain: def.loss[k.level], loss: Math.max(0.05, at(k.level + 1) - at(k.level)), cadence: def.cadence && !!def.levels[k.level], major: def.major && k.level === 0 });
     }
   }
   const sc = s.scale;
@@ -153,22 +177,29 @@ export function decide(s) {
     const i = sc.ladder.findIndex((v) => v <= sc.cur + 1e-3);
     if (s.behind) {
       const next = sc.ladder.find((v) => v < sc.cur - 1e-3 && v >= sc.floor - 1e-3);
-      if (next != null) opts.push({ id: 'scale', to: next, gain: s.draw * (1 - (next / sc.cur) ** 2), loss: scaleLoss(sc.cur, next) });
+      // (first: the scale's first step down, from the top of its ladder)
+      if (next != null) opts.push({ id: 'scale', to: next, gain: s.draw * (1 - (next / sc.cur) ** 2), loss: scaleLoss(sc.cur, next), first: sc.cur >= sc.ladder[0] - 1e-3 });
     } else if (i > 0 && !s.held?.scale) {
       const next = sc.ladder[i - 1];
-      opts.push({ id: 'scale', to: next, gain: scaleLoss(next, sc.cur), loss: Math.max(0.05, s.draw * ((next / sc.cur) ** 2 - 1)) });
+      opts.push({ id: 'scale', to: next, gain: scaleLoss(next, sc.cur), loss: Math.max(0.05, s.draw * ((next / sc.cur) ** 2 - 1)), first: i === 1 });
     }
   }
   if (!opts.length) return null;
   if (s.behind) {
     // a cadence's step first (work done less often, nothing turned off), then the most saved for the least lost to the
-    // eye (and, asked for a rebalance, what it saves and costs the eye)
-    const pool = opts.some((o) => o.cadence) ? opts.filter((o) => o.cadence) : opts;
+    // eye (and, asked for a rebalance, what it saves and costs the eye); no major effect turned off while the render
+    // scale's first step down is still to take (a view a little softer is noticed less than one without its glow or
+    // its microscope), nor in a rebalance that pays for that step back up (keepMajor)
+    let pool = opts.some((o) => o.cadence) ? opts.filter((o) => o.cadence) : opts;
+    if (s.keepMajor || pool.some((o) => o.first)) pool = pool.filter((o) => !o.major);
+    if (!pool.length) return null;
     pool.sort((a, b) => b.gain / b.loss - a.gain / a.loss);
     return s.rebalance ? { id: pool[0].id, to: pool[0].to, save: pool[0].gain, loss: pool[0].loss } : { id: pool[0].id, to: pool[0].to };
   }
   // the most brought back for its cost, among those that fit in ROOM of the frame (what lies between it and the frame
-  // keeps a climb from tipping straight back); a cadence's step last, as it went first
+  // keeps a climb from tipping straight back); a cadence's step last, as it went first; the render scale's last step
+  // up (back to full) only once every major effect it can is back, as that step went before them
+  if (opts.some((o) => o.major)) opts = opts.filter((o) => !(o.id === 'scale' && o.first));
   opts.sort((a, b) => a.cadence - b.cadence || b.gain / b.loss - a.gain / a.loss);
   const fit = opts.find((o) => s.gpu + o.loss < ROOM * s.T);
   if (fit) return { id: fit.id, to: fit.to };
@@ -182,7 +213,7 @@ export function decide(s) {
   // give up the next, each worth it on its own).
   const best = opts[0], need = s.gpu + best.loss - ROOM * s.T;
   // (only the dressing pays: the resolution falls only when frames are late)
-  const down = decide({ ...s, behind: true, knobs: Object.fromEntries(Object.entries(s.knobs).filter(([id]) => id !== best.id)), scale: null, rebalance: true });
+  const down = decide({ ...s, behind: true, knobs: Object.fromEntries(Object.entries(s.knobs).filter(([id]) => id !== best.id)), scale: null, rebalance: true, keepMajor: best.id === 'scale' && best.first });
   if (!down || down.save < 0.25 * need || best.gain / best.loss < 1.5 * (down.loss / down.save)) return null;
   return { id: down.id, to: down.to, rebalance: true };
 }
@@ -202,16 +233,18 @@ function fullCost(id, k, draw) {
 /**
  * Where each setting the page may adapt stands right now, as Settings → Performance's line under Adaptation and the
  * dock's readout and its summary say it: [id, value, state] for each knob (its level index, in KNOBS' order), then
- * the render scale (['scale', scale]) and the frame rate aimed for (['fps', frames a second]) where given. state: 'fixed', a
- * value the viewer chose (or a tool); 'off', an effect the viewer has off; 'held', below its best (what the tuner
- * holds back); else 'best'. levels: { id: index }; shown: { id: false } for an effect off; fixed: { id: true };
- * scale: { v, auto }; fps: { v, auto, slow: the rate aimed lower, a divisor over 1 }.
+ * the render scale (['scale', scale]), the frame rate aimed for (['fps', frames a second]) and the split step
+ * (['split', 1 while a 2-tick step is spread over two frames, else 0]) where given. state: 'fixed', a value the viewer
+ * chose (or a tool); 'off', an effect the viewer has off; 'held', below its best (what the tuner holds back); else
+ * 'best'. levels: { id: index }; shown: { id: false } for an effect off; fixed: { id: true }; scale: { v, auto }; fps:
+ * { v, auto, slow: the rate aimed lower, a divisor over 1 }; split: { v: on, auto } (on, the step coarser than 1/60 s).
  */
-export function adaptation(levels, { shown = {}, fixed = {}, scale = null, fps = null } = {}) {
+export function adaptation(levels, { shown = {}, fixed = {}, scale = null, fps = null, split = null } = {}) {
   const at = (fix, off, held) => (fix ? 'fixed' : off ? 'off' : held ? 'held' : 'best');
   const out = [];
   for (const [id, def] of Object.entries(KNOBS)) if (levels[id] != null) out.push([id, levels[id], at(fixed[id], shown[id] === false, levels[id] < def.levels.length - 1)]);
   if (scale) out.push(['scale', scale.v, at(!scale.auto, false, scale.v < 0.995)]);
   if (fps) out.push(['fps', fps.v, at(!fps.auto, false, fps.slow > 1)]);
+  if (split) out.push(['split', +!!split.v, at(!split.auto, false, !!split.v)]);
   return out;
 }

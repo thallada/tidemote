@@ -193,11 +193,13 @@ Chrome reports its adapter's vendor (`img-tec`) but neither architecture nor des
   haze's and the microscope's, the insides' and the neighbors' costs sit inside passes shared with others (the
   composite, the cells' pass, the step), so each is learned from that pass at each of its levels. `test/tuner.test.js` runs the tuner window after window
   against a Pixel 3, a Pixel 11 Pro and an RTX 4070 Ti modeled from these measurements: each settles within its frame
-  (the Pixel 3 at 30 fps, half scale, without the haze or the microscope, 88 neighbors, the sea at half rate; the
-  Pixel 11 at 85% scale, the sea at a quarter; the RTX at its best).
-  Behind, work done less often first (since 2026-11-13: the sea at half or a quarter rate, the contacts searched a
-  quarter of the grid cells a frame, the stone relit less often; Doing less work, below), then the step that saves
-  the most GPU time for the least lost to the eye; with room (the frame under 85% busy), the
+  (since 2026-11-14, with 30 fps first: the Pixel 3 at 30 fps, 70% scale, without the haze or the microscope, 88
+  neighbors, the sea and the contacts at a quarter rate; the Pixel 11 at 30 fps with everything at its best, 60 tried
+  now and then; the RTX at its best).
+  Behind, after the frame rate's drop to 30 (since 2026-11-14), work done less often first (since 2026-11-13: the sea
+  at half or a quarter rate, the contacts searched a quarter of the grid cells a frame, the stone relit less often;
+  Doing less work, below), then the step that saves the most GPU time for the least lost to the eye (no major effect
+  before the render scale's first step); with room (the frame under 85% busy), the
   one that brings back the most for its time; with no room, a rebalance (a cheap step given up to pay for one worth half
   as much again for its time; only the dressing pays, the resolution falls only when frames are late). A knob's cost is
   measured every 10 s, 20 frames pass by pass (`tuneProfile`), and guessed as a share of the drawing until then; the
@@ -1108,10 +1110,9 @@ The weakest GPU at hand (Android 12, Chrome, 393×786 CSS pixels at 2.75). Chrom
   three intervals)) acts only while frames come at under half the rate aimed for. The last 40 moves are in Copy
   profile (`adapt`) and a bench report (`adaptLog`): [s, the window's mean frame and the GPU's time as shares of the
   frame aimed for, what moved, to what, how]. Behind: with Auto pixel density, a film's scene drawn at more than
-  one device pixel per CSS pixel drops to 1× first; then the render scale steps down a fixed ladder (1, 0.85, 0.7,
-  0.6, 0.5 …) to its floor, then the frame rate drops (half, a third, a quarter: 30, 20, 15 fps), or
-  the frame rate first when the simulation is more than twice the drawing. With room again for
-  three windows: the frame rate back first, then the scale. Auto pixel density stays at 1× (until
+  one device pixel per CSS pixel drops to 1× first; then the order below (the frame rate to 30, the tuner's steps,
+  the render scale among them down a fixed ladder, 1, 0.85, 0.7, 0.6, 0.5 …, to its floor; then 20 and 15 fps). With
+  room again for three windows: the reverse. Auto pixel density stays at 1× (until
   2026-11 it rose to 1.5× with room to spare: at 1.5× an M1 MacBook spent 18 ms a frame drawing, 2.25 times
   the pixels for little visible gain), except while a film rolls, whose frames are the screen's size; a level that just proved too slow is
   not retried for 30 s. Settings → Perf shows the rate aimed for and why, and each Auto choice
@@ -1122,6 +1123,38 @@ The weakest GPU at hand (Android 12, Chrome, 393×786 CSS pixels at 2.75). Chrom
   Adaptation off, Auto holds every one at its best. Prefs saved before then read a value other than Auto's as chosen
   (an effect turned off stays off), the rest as Auto. A fixed pixel density never changes; prefs saved before v3 holding the old default 1.5
   open as Auto.
+- **The order things are given up (2026-11-14).** The viewer's judgement of what a viewer notices, not the GPU's
+  arithmetic alone: a view at 30 fps with all of its look reads better than one at 60 that has given some of it up,
+  and the glow adds more to the scene than its cost or its 1 - SSIM (0.03-0.09) say. With everything on Auto:
+  1. **60 → 30 fps first** (`slowerFirst` in `src/tuner.js`), before anything else, cadences too. At 30 the step's 2
+     ticks cost 1.45 of a 1/60 s one a frame (or two 1/60 s steps where they fit, `fineTicks`) and the drawing half.
+  2. **Work done less often** (`cadence`): the sea at half then a quarter rate, the contacts a quarter of the grid
+     cells a frame, the stone relit every 1 then 2 s.
+  3. **Then by what each step saves for what it costs the eye**, with one rule (`major` in `KNOBS`): no major effect
+     (the microscope, cells' insides, the glow, the sea's surface off) is turned off while the render scale's first
+     step down (to 85%) is still to take, as a view a little softer is noticed less. The heat haze, the specks and the
+     ice at half resolution, barely seen, compete with that first step and usually go before it.
+  4. **The glow late**: its loss is 3, as much as the sea gone (was 1), so it goes after the microscope (1.2) and the
+     insides (0.4), and after further steps of the scale wherever the drawing is much of the frame; in practice last
+     of the dressing, near the scale's floor. The insides count as major (what a close look is for) but keep their
+     weight, so up close they are usually the first major effect to go.
+  5. Slower than 30 (20, 15 fps) only once the tuner has nothing left, or first where the step is more than twice the
+     drawing and the neighbors are already at their floor (where they are not, they alone are tried first).
+
+  A typical sequence (the tuner's test run, `test/tuner.test.js`: a Pixel 11 modeled up close, the drawing six times
+  dearer): 30 fps, the sea at ½, the contacts at ¼, the sea at ¼, the haze, 85%, the insides, 70%, 60%; the glow and
+  the microscope kept. A Pixel 3 modeled seen whole: 30 fps, the sea at ½, the contacts at ¼, the sea at ¼, the stone,
+  the haze, 85%, the microscope, 70%, 88 neighbors. Winning back is the reverse (by what each brings back for its cost;
+  cadences last of the tuner's steps; a major effect back before the scale's last step to 100%), and **60 fps last**
+  (`fasterFirst`), only once nothing the tuner moves is held back. The climb to 60 is judged by the estimate of a
+  60 fps frame (the drawing and a 1/60 s step, or the dearer half of a split 2-tick one, `splitPer`, unless Split steps
+  is Off) in 75% of its interval; where it says no, 60 is tried anyway once no frame has been late for the hold
+  (`probe`: an M1, whose GPU slows its clock to fill a 30 fps frame, would never look able to). Like any step up, a
+  climb that frames slip after (3% late in the next window) is taken back at once (`undoClimb`) and that rate held off
+  for the hold (30 s, doubled after each failure, up to 4 min), so 60 and 30 never see-saw. The split step is not one of
+  the steps given up: at 60 fps it begins before frames run late (`splitTicks`, by the GPU's timestamps each second),
+  and is how 60 is kept where a 1/60 s step does not fit beside the drawing; frames late even so drop to 30, where no
+  step is split. The emergency (`overload`) is as it was: every free knob to its floor at once.
 - **Coarse steps at low frame rates.** At real time a step covers up to a frame's worth of whole
   ticks, so below about 45 fps the world takes coarse steps (docs/fast-forward.md). A 2-tick step
   costs about 1.45 times a 1/60 s one (one neighbor scan, more motion substeps), so 30 fps still cuts
