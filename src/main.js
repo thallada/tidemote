@@ -760,8 +760,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   function seedWorld(n) {
     eng.seed(n, { aspect: innerWidth / Math.max(1, innerHeight) });
-    // (its first frames are its seeding's, not the GPU's measure: overload waits them out)
-    perf.calmUntil = performance.now() + 2000;
+    // (a fresh judgment of what the device sustains, below the floor no more; its first frames are its seeding's, not
+    // the GPU's measure: overload waits them out, resetAdapt's calm)
+    freshAdapt();
     const g = eng.grid;
     cam.x = g[0] / 2; cam.y = g[1] / 2; cam.zoom = cam.zoomTarget = 1; cam.anchor = null;
     resetDirector();
@@ -886,6 +887,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     state.perf.particles = n === 'auto' ? null : n;
     persist();
     state.phase = 'calibrating';
+    // (another count: the last world's adaptation is no guide to this one's)
+    freshAdapt(true);
     flash(n === 'auto' ? tr('flash.measuring', 'Measuring the GPU') : tr('flash.particles', '{n, plural, other {# particles}}', { n }));
     try { await calibrate(); } catch (e) { fail(tr('err.start', 'Could not start the simulation'), String(e.message || e), [RELOAD]); return; }
     state.phase = 'running';
@@ -2532,8 +2535,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // bar of more than seven always is
     const choice = (id, title, key, items, cur, tip, cols = 0) => {
       const now = String(cur) === 'auto' ? autoNow(id) : null;
-      const label = (v, l) => (v === 'auto' && now ? `${l} <span class="auto-now" data-auto="${id}">${now.text}</span>` : l);
-      return `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ''}</span><div class="row segs${cols ? ` many" style="--cols: ${cols}` : items.length > 7 ? ' many' : ''}" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip${now && String(v) === now.pick ? ' auto-pick' : ''}" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? ' disabled' : ''}>${label(v, l)}</button>`).join('')}</div></div>`;
+      const sos = now?.sos ? ' auto-sos' : '';
+      const label = (v, l) => (v === 'auto' && now ? `${l} <span class="auto-now${sos}" data-auto="${id}">${now.text}</span>` : l);
+      return `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ''}</span><div class="row segs${cols ? ` many" style="--cols: ${cols}` : items.length > 7 ? ' many' : ''}" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip${now && String(v) === now.pick ? ` auto-pick${sos}` : ''}" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? ' disabled' : ''}>${label(v, l)}</button>`).join('')}</div></div>`;
     };
     // what an Auto option is using now ({ text, pick: the data-v of the choice it matches, if any }):
     // the render scale, the pixel density, the frame rate aimed for, a measured world's particle count, and a Display
@@ -2544,7 +2548,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (KNOB_OF[id]) return { text: '', pick: String(KNOBS[KNOB_OF[id]].levels[tune[KNOB_OF[id]].level]) };
       if (id === 'split') return perf.split ? { text: tr('settings.on', 'On'), pick: '' } : { text: '', pick: 'off' };
       if (id === 'fps') { const f = Math.round(1000 / frameTarget()); return { text: String(f), pick: String([30, 60].find((v) => Math.abs(v - f) <= 3) ?? '') }; }
-      if (id === 'scale') return { text: pctOf(Math.round(renderScale * 100)), pick: String(+renderScale.toFixed(2)) };
+      // (sos: below Auto lowest, overload's emergency: marked in red)
+      if (id === 'scale') return { text: pctOf(Math.round(renderScale * 100)), pick: String(+renderScale.toFixed(2)), sos: scaleSOS() };
       if (id === 'density') { const d = +density().toFixed(2); return { text: timesOf(d), pick: String(d) }; }
       if (id === 'n' && !state.perf.particles) return { text: kfmt(eng.count), pick: String(eng.count) };
       if (id === 'scan') return { text: String(eng.maxScan), pick: String(eng.maxScan) };
@@ -2555,7 +2560,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
         const now = autoNow(sp.dataset.auto);
         if (!now) continue;
         setLive(sp, now.text);
-        for (const b of sp.closest('.segs').children) b.classList.toggle('auto-pick', b.dataset.v === now.pick);
+        sp.classList.toggle('auto-sos', !!now.sos);
+        for (const b of sp.closest('.segs').children) { const pick = b.dataset.v === now.pick; b.classList.toggle('auto-pick', pick); b.classList.toggle('auto-sos', pick && !!now.sos); }
       }
     };
     const onoff = (id, title, key, on, tip) => choice(id, title, key, [[1, tr('settings.on', 'On')], [0, tr('settings.off', 'Off')]], on ? 1 : 0, tip);
@@ -4275,6 +4281,22 @@ function run(eng, device, ctx, specCtx, hasTS) {
     clearFrames(); perf.goodWindows = 0; perf.lateWindows = 0; perf.ceiling = 1; perf.ceilingUntil = 0; perf.lastAdjust = performance.now();
     perf.slow = 1; perf.why = ''; perf.raisedAt = 0; perf.hold = 0; perf.raised = null; perf.calmUntil = performance.now() + 2000;
     for (const k of Object.values(tune)) k.hold = 0;
+  }
+  // The render scale below Auto lowest: overload's emergency, for the moment that called for it (the view goes no
+  // lower than the viewer's floor otherwise)
+  const scaleSOS = () => state.perf.scale === 'auto' && renderScale < state.perf.floor - 0.01;
+  // A new world: overload's emergency scale was the last world's (a 4M world started from an 8M one's 25% climbed
+  // back a step every few windows, from minutes into its life, behind the frame rate and every knob's hold), so the
+  // scale comes back to the floor and the adaptation judges afresh. best: every knob back at its best and the scale at
+  // full, as a page opens (a world of another count, before its count is measured: a measure at the last world's floor
+  // settings would overstate what the GPU can draw)
+  function freshAdapt(best = false) {
+    if (best) {
+      for (const [id, k] of Object.entries(tune)) k.level = KNOBS[id].levels.length - 1;
+      applyTune();
+      if (state.perf.scale === 'auto' && renderScale < 1) { renderScale = 1; resizeDue = true; perf.renderR = 0; }
+    } else if (scaleSOS()) { renderScale = Math.max(state.perf.floor, filmScale()); resizeDue = true; perf.renderR = 0; }
+    resetAdapt();
   }
   // where the browser reports it (Compute Pressure), a device under serious pressure, hot or busy, takes nothing back
   // (it gives up only for frames late, as any other)

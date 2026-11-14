@@ -646,6 +646,9 @@ canvas.chart { cursor: crosshair; }
 .opt .auto-now { color: var(--sun); min-width: 3ch; letter-spacing: .04em; font-variant-numeric: tabular-nums; }
 .opt .segs:has(.auto-pick) .auto-now { display: none; }
 .opt .chip.auto-pick:not([aria-pressed="true"]) { box-shadow: inset 0 -2px 0 var(--sun); }
+/* Auto below its own lowest (the render scale's emergency step when the GPU is overloaded): red, not the sun's */
+.opt .chip.auto-pick.auto-sos:not([aria-pressed="true"]) { box-shadow: inset 0 -2px 0 var(--hot); }
+.opt .auto-now.auto-sos { color: var(--hot); }
 .hot-btn { border-color: var(--hot); color: var(--ink); background: rgba(255, 95, 58, 0.14); justify-self: start; }
 .hot-btn:hover { background: rgba(255, 95, 58, 0.26); border-color: var(--hot); }
 /* a button that is a row's value (Start a new world with ...) may wrap: it grows, padded, rather than crowd its lines */
