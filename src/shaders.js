@@ -156,6 +156,14 @@ fn swaySlot2(id: u32, n: u32) -> u32 {
   return select(b, (a + 1u) % n, b == a);
 }
 `;
+// Where the step's sort puts a particle, from its aux (resolveCount: its grid cell, and its rank among the cell's
+// living, LIVE_BIT set, or among its matter): its grid cell's start, then its rank (past the cell's living, for
+// matter). scatterMain moves it there, touchCarry follows it there.
+const SORTED_AT = /* wgsl */ `fn sortedAt(a: vec2u) -> u32 {
+  if ((a.y & LIVE_BIT) != 0u) { return cellStart[a.x] + (a.y & ~LIVE_BIT); }
+  return cellStart[a.x] + cellStart[LIVE_AT + a.x] + a.y;
+}
+`;
 // The selected cell's mind (mindMain): a header of MIND_HEAD words, then MIND_NBR living neighbors
 // of MIND_NBR_WORDS words each. See parseMind in mind.js for the layout.
 export const MIND_HEAD = 68;
@@ -2556,12 +2564,7 @@ fn scanAdd(@builtin(global_invocation_id) gid: vec3u, @builtin(workgroup_id) wg:
 }
 
 // ------------------------------------------------------------------ scatter
-// where a particle sorts to: its grid cell's start, then its rank (past the cell's living, for matter)
-fn sortedAt(a: vec2u) -> u32 {
-  if ((a.y & LIVE_BIT) != 0u) { return cellStart[a.x] + (a.y & ~LIVE_BIT); }
-  return cellStart[a.x] + cellStart[LIVE_AT + a.x] + a.y;
-}
-var<workgroup> wgCount: atomic<u32>;
+${SORTED_AT}var<workgroup> wgCount: atomic<u32>;
 var<workgroup> wgBase: u32;
 
 @compute @workgroup_size(256)
@@ -4540,11 +4543,7 @@ const TOUCH_N = 6u;
 ${SWAY_SLOTS}
 const LIVE_BIT = 0x80000000u;
 const LIVE_AT = ${MAX_CELLS + 1}u;
-fn sortedTo(a: vec2u) -> u32 {
-  if ((a.y & LIVE_BIT) != 0u) { return cellStart[a.x] + (a.y & ~LIVE_BIT); }
-  return cellStart[a.x] + cellStart[LIVE_AT + a.x] + a.y;
-}
-// the slot of a cell's record written by the last gathering (views.count[0].w its time), or NONE: its contacts
+${SORTED_AT}// the slot of a cell's record written by the last gathering (views.count[0].w its time), or NONE: its contacts
 // kept there are its own, carried through every step since (touchCarry)
 fn keptSlot(id: u32) -> u32 {
   let n = arrayLength(&sway);
@@ -4585,7 +4584,7 @@ fn touchCarry(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_index)
     for (var c = 0u; c < TOUCH_N; c++) {
       let j = touch[slot * TOUCH_N + c];
       if (j == NONE) { break; }
-      touch[slot * TOUCH_N + c] = select(NONE, sortedTo(aux[j]), j < arrayLength(&aux));
+      touch[slot * TOUCH_N + c] = select(NONE, sortedAt(aux[j]), j < arrayLength(&aux));
     }
   }
 }
