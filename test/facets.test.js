@@ -42,5 +42,5 @@ test('classification preserves strict thresholds and uses supplied K', () => {
   assert.ok(tagsOf(social, K).some(([tag]) => tag === 'swarming'));
   assert.ok(tagsOf(social, { ...K, affScale: -1 }).some(([tag]) => tag === 'solitary'));
   assert.deepEqual(tagsOf(genome({ photo: 0.4, mutRate: 0.05 }), K).map(([tag]) => tag),
-    ['grazer', 'single-cell', 'loose-knit', 'drifter', 'part photosynth', 'fast-mutating']);
+    ['grazer', 'single-cell', 'loose-knit', 'drifter', 'part producer', 'fast-mutating']);
 });

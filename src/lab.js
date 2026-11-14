@@ -40,7 +40,7 @@ export function createLab(api) {
     document.body.classList.toggle('lab-open', st.open);
     document.body.classList.toggle('lab-wide', st.open && st.tab !== 'census');
     fold.setAttribute('aria-expanded', String(st.open));
-    fold.setAttribute('aria-label', st.open ? tr('lab.close.aria', 'Collapse the Lab') : tr('lab.fold.open.aria', 'Open the Lab'));
+    fold.setAttribute('aria-label', st.open ? tr('lab.close.aria', 'Collapse the Field Lab') : tr('lab.fold.open.aria', 'Open the Lab'));
     // the title bar folds and opens it too, so it hints as the chevron does
     fold.dataset.hint = titleBar.dataset.hint = st.open ? tr('lab.close.hint', 'Collapse · K') : tr('lab.fold.open.hint', 'Open the Lab · K');
     $('lab-open').setAttribute('aria-expanded', String(st.open));
@@ -110,7 +110,7 @@ export function createLab(api) {
   // i18n: a filter chip (Lab → Species, Lab → Cabinet) that filters nothing out
   const ANY = tr('lab.filter.any', 'Any');
   // i18n: filter chips (Lab → Species, Lab → Cabinet): the diets, the movements
-  const DIETS = [['all', ANY], ['photosynth', tr('lab.filter.photosynth', 'Photosynth')], ['grazer', tr('lab.filter.grazer', 'Grazer')], ['scavenger', tr('lab.filter.scavenger', 'Scavenger')], ['predator', tr('lab.filter.predator', 'Predator')]];
+  const DIETS = [['all', ANY], ['photosynth', tr('lab.filter.photosynth', 'Producer')], ['grazer', tr('lab.filter.grazer', 'Grazer')], ['scavenger', tr('lab.filter.scavenger', 'Scavenger')], ['predator', tr('lab.filter.predator', 'Predator')]];
   const MOBS = [['all', ANY], ['anchored', tr('lab.filter.anchored', 'Anchored')], ['crawler', tr('lab.filter.crawler', 'Crawler')], ['swimmer', tr('lab.filter.swimmer', 'Swimmer')], ['drifter', tr('lab.filter.drifter', 'Drifter')]];
   // by preferred temperature (thermalGuild): cold-loving, temperate, warmth-loving and thermophile
   // i18n: filter chips (Lab → Species, Temp): species by the temperature they prefer: cold-loving, temperate, warmth-loving, thermophile
@@ -275,12 +275,12 @@ export function createLab(api) {
       <div class="lin-muller"><canvas id="lin-muller" aria-label="${tr('lab.lin.plot.aria', 'Cells by lineage over time')}"></canvas><div class="lin-brush" hidden></div></div>`, 'lineage');
     const treeHead = document.createElement('div');
     // i18n: the heading over the lineage tree, and how to use it with a mouse ({ret}: the reticle's icon) and on a touch screen
-    treeHead.innerHTML = subHead(tr('lab.lin.tree.head', 'Lineages'), `<span class="hov">${tr('lab.lin.tree.how', 'click one to explore it · its <ret></ret> shows it in the water', { ret: () => '<svg class="ret-i" aria-hidden="true"><use href="#i-ret"/></svg>' })}</span><span class="tch">${tr('lab.lin.tree.how-touch', 'tap one to explore it')}</span>`);
+    treeHead.innerHTML = subHead(tr('lab.lin.tree.head', 'Lineages'), `<span class="hov">${tr('lab.lin.tree.how', 'click to explore · <ret></ret> shows species in the water', { ret: () => '<svg class="ret-i" aria-hidden="true"><use href="#i-ret"/></svg>' })}</span><span class="tch">${tr('lab.lin.tree.how-touch', 'tap to explore')}</span>`);
     const descent = document.createElement('div');
     descent.className = 'lin-descent';
     descent.hidden = true;
     // i18n: an explored lineage's line of descent: the species it passed through, oldest first, each a link
-    descent.innerHTML = block(tr('lab.lin.descent', 'Line of descent'), '<ol class="lin-chain"></ol>', { aside: tr('lab.lin.descent.aside', 'a name shows it in the water') });
+    descent.innerHTML = block(tr('lab.lin.descent', 'Line of descent'), '<ol class="lin-chain"></ol>', { aside: tr('lab.lin.descent.aside', 'click species to highlight') });
     const chainOl = descent.querySelector('ol');
     const treeCv = document.createElement('canvas');
     treeCv.className = 'lin-tree';
@@ -526,7 +526,7 @@ export function createLab(api) {
       setHTML(list, c.units.map((u, i) => {
         const n = strandLead(u.strand), tg = target(u);
         // i18n: for screen readers, each lineage on the plot: a button to explore it ({name}: its leading species, how many species it holds, living or extinct) and one to show a species ({name}) in the water
-        return `<li>${u.strand !== r ? `<button type="button" data-u="${i}" data-do="explore">${tr('lab.lin.item.explore', 'Explore {name}’s lineage: {count, plural, other {# species}}, {alive, select, yes {living} other {extinct}}', { name: esc(n.name), count: u.count, alive: u.alive ? 'yes' : 'no' })}</button>` : ''}<button type="button" data-u="${i}" data-sp="${tg.serial}">${tr('lab.lin.item.show', 'Show {name} in the water', { name: esc(tg.name) })}</button></li>`;
+        return `<li>${u.strand !== r ? `<button type="button" data-u="${i}" data-do="explore">${tr('lab.lin.item.explore', 'Explore {name}’s lineage: {count, plural, other {# species}}, {alive, select, yes {living} other {extinct}}', { name: esc(n.name), count: u.count, alive: u.alive ? 'yes' : 'no' })}</button>` : ''}<button type="button" data-u="${i}" data-sp="${tg.serial}">${tr('lab.lin.item.show', 'Highlight {name} in the water', { name: esc(tg.name) })}</button></li>`;
       }).join(''));
     }
     return { ...p, update };
@@ -625,7 +625,7 @@ export function createLab(api) {
     p.scroll.innerHTML = `<div class="legend"><span><i style="background:var(--sun);height:6px;width:1px"></i>${tr('lab.graph.era-key', 'dotted lines mark a new era')}</span></div>`
       + CHARTS.map(([t, tip, s], i) => block(t, `<canvas class="dyn chart" data-i="${i}" aria-label="${esc(t)}"></canvas><div class="legend">${s.map((x) => `<span><i style="background:${x.col}"></i>${x.label}</span>`).join('')}</div>`, { tip })).join('')
       // i18n: Lab → Charts, Thermal niches: its heading, its canvas's label and its legend (the shaded bars, the dotted line, the dots)
-      + (api.eng.K.heat ? block(tr('lab.graph.niches', 'Thermal niches'), `<canvas class="niches chart" aria-label="${tr('lab.graph.niches.aria', 'Each species by the temperature it prefers and its population. Point at a dot to name its species; click to open it.')}"></canvas><div class="legend"><span><i style="background:#ff8a3a;opacity:.4"></i>${tr('lab.graph.niches.felt', 'warmth the living feel')}</span><span><i style="background:#ff8a3a;height:6px;width:1px"></i>${tr('lab.graph.niches.water', 'background temperature')}</span><span>${tr('lab.graph.niches.dots', 'dot size: tolerance · ring: <term>heat-maker</term>', { term: (c) => term('heatmaker', c.join('')) })}</span></div>`, { tip: 'optimum' }) : '')
+      + (api.eng.K.heat ? block(tr('lab.graph.niches', 'Thermal niches'), `<canvas class="niches chart" aria-label="${tr('lab.graph.niches.aria', 'Each species by the temperature it prefers and its population. Hover over a dot to display the species name; click to inspect it.')}"></canvas><div class="legend"><span><i style="background:#ff8a3a;opacity:.4"></i>${tr('lab.graph.niches.felt', 'warmth the living feel')}</span><span><i style="background:#ff8a3a;height:6px;width:1px"></i>${tr('lab.graph.niches.water', 'background temperature')}</span><span>${tr('lab.graph.niches.dots', 'dot size: tolerance · ring: <term>heat-maker</term>', { term: (c) => term('heatmaker', c.join('')) })}</span></div>`, { tip: 'optimum' }) : '')
       + block(tr('lab.graph.eras', 'Eras'), '<ol class="eras" id="eras"></ol>');
     const cvs = [...p.scroll.querySelectorAll('canvas.dyn')];
     const niches = p.scroll.querySelector('canvas.niches');
@@ -755,7 +755,7 @@ export function createLab(api) {
       undoKey = k;
       el.hidden = !c; p.ctl.querySelector('#cab-order').hidden = !!c;
       // i18n: after a card is taken out of the cabinet ({name}: its species), and the button that puts it back
-      el.innerHTML = c ? `<span>${tr('lab.cab.taken-out', '{name} taken out', { name: esc(c.name) })}</span> <button type="button" class="link">${tr('lab.cab.undo', 'Undo')}</button>` : '';
+      el.innerHTML = c ? `<span>${tr('lab.cab.taken-out', '{name} removed', { name: esc(c.name) })}</span> <button type="button" class="link">${tr('lab.cab.undo', 'Undo')}</button>` : '';
     }
     let key = '';
     function update(force) {
@@ -776,8 +776,8 @@ export function createLab(api) {
         return;
       }
       key = k;
-      grid.innerHTML = shown.length ? shown.map((c) => `<div class="cab-card">${api.cabinet.mini(c)}<button type="button" class="cab-out" data-out="${esc(c.id)}" aria-label="${tr('lab.cab.out.aria', 'Take {name}’s card out of the cabinet', { name: esc(c.name) })}" data-hint="${tr('lab.cab.out.hint', 'Out of the cabinet')}"><svg aria-hidden="true"><use href="#i-close"/></svg></button></div>`).join('')
-        : `<div class="pip-empty"><b>${all.length ? tr('lab.cab.none', 'No card matches.') : tr('lab.cab.empty', 'The cabinet is empty.')}</b><span>${all.length ? tr('lab.cab.none.sub', 'Try other filters.') : tr('lab.cab.empty.sub', 'Save a species from the specimen panel (Save), or drop a species card’s PNG on the page: its card comes here, to be carried to any world.')}</span></div>`;
+      grid.innerHTML = shown.length ? shown.map((c) => `<div class="cab-card">${api.cabinet.mini(c)}<button type="button" class="cab-out" data-out="${esc(c.id)}" aria-label="${tr('lab.cab.out.aria', 'Remove {name}’s card from the cabinet', { name: esc(c.name) })}" data-hint="${tr('lab.cab.out.hint', 'Remove from the cabinet')}"><svg aria-hidden="true"><use href="#i-close"/></svg></button></div>`).join('')
+        : `<div class="pip-empty"><b>${all.length ? tr('lab.cab.none', 'No card matches.') : tr('lab.cab.empty', 'The cabinet is empty.')}</b><span>${all.length ? tr('lab.cab.none.sub', 'Try other filters.') : tr('lab.cab.empty.sub', 'Save a species from the specimen panel (Save), or drop a species card’s PNG on the page. Cards here can be carried and inserted into any world.')}</span></div>`;
     }
     return { ...p, update };
   }

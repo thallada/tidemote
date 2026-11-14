@@ -11,7 +11,7 @@ export const MOB_COL = { anchored: '#7fe0b0', crawler: '#ffb45e', swimmer: '#6e9
 // i18n: a species' facets as the page names them, lower case: its diet, movement, body and preferred temperature
 // (the Lab's species list and census, the specimen panel's tags, the log's lines)
 export const FACET_NAME = {
-  photosynth: tr('facet.photosynth', 'photosynth'), grazer: tr('facet.grazer', 'grazer'), scavenger: tr('facet.scavenger', 'scavenger'), predator: tr('facet.predator', 'predator'),
+  photosynth: tr('facet.photosynth', 'producer'), grazer: tr('facet.grazer', 'grazer'), scavenger: tr('facet.scavenger', 'scavenger'), predator: tr('facet.predator', 'predator'),
   anchored: tr('facet.anchored', 'anchored'), crawler: tr('facet.crawler', 'crawler'), swimmer: tr('facet.swimmer', 'swimmer'), drifter: tr('facet.drifter', 'drifter'),
   multicellular: tr('facet.multicellular', 'multicellular'), 'single-cell': tr('facet.single-cell', 'single-cell'),
   'cold-loving': tr('facet.cold-loving', 'cold-loving'), temperate: tr('facet.temperate', 'temperate'), 'warmth-loving': tr('facet.warmth-loving', 'warmth-loving'), thermophile: tr('facet.thermophile', 'thermophile'),
@@ -56,7 +56,7 @@ export function tagsOf(g, K) {
   else tags.push(self > 0.3 ? [tr('facet.tag.swarming', 'swarming'), 'colonial'] : self < -0.1 ? [tr('facet.tag.solitary', 'solitary'), 'solitary'] : [tr('facet.tag.loose-knit', 'loose-knit'), 'looseknit']);
   tags.push([N[f.mobility], { anchored: 'anchored', drifter: 'drifting', swimmer: 'swimming', crawler: 'crawler' }[f.mobility]]);
   if (f.schooling) tags.push([tr('facet.tag.schooling', 'schooling'), 'schooling']);
-  if (g.photo > 0.25 && g.photo <= 0.55) tags.push([tr('facet.tag.part-photosynth', 'part photosynth'), 'photosynth']);
+  if (g.photo > 0.25 && g.photo <= 0.55) tags.push([tr('facet.tag.part-photosynth', 'part producer'), 'photosynth']);
   if (g.lifespan > 300) tags.push([tr('facet.tag.long-lived', 'long-lived'), 'lifespan']);
   if (g.mutRate > 0.035) tags.push([tr('facet.tag.fast-mutating', 'fast-mutating'), 'mutation']);
   if (K.heat && g.topt != null) {

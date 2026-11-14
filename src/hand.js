@@ -9,15 +9,15 @@ import { tr } from './i18n.js';
 // i18n: the bench's tools: each one's name, its hint (shown under the tiles while it is in hand) and, where it differs, its
 // hint on a touch screen
 export const TOOLS = [
-  { id: 'none', name: tr('tool.none.name', 'Pan'), hint: tr('tool.none.hint', 'Nothing in hand: drag to pan, click a cell to examine it') },
-  { id: 'loupe', name: tr('tool.loupe.name', 'Loupe'), hint: tr('tool.loupe.hint', 'The lens follows the pointer: click a cell to examine it · Reach sizes it, [ ] magnify'), touch: tr('tool.loupe.touch', 'A tap examines a cell and sets the lens over it · drag the lens to move it, outside it to pan') },
-  { id: 'touch', name: tr('tool.touch.name', 'Touch'), hint: tr('tool.touch.hint', 'A glass rod from above: pressed, it pushes the cells and grains under it aside, drag it to plow them · a tap rings the water') },
-  { id: 'lamp', name: tr('tool.lamp.name', 'Lamp'), hint: tr('tool.lamp.hint', 'More sun where it points, a little; hold for the full lamp') },
-  { id: 'shade', name: tr('tool.shade.name', 'Shade'), hint: tr('tool.shade.hint', 'Shade where it points, a little; hold to darken it') },
-  { id: 'warm', name: tr('tool.warm.name', 'Warm'), hint: tr('tool.warm.hint', 'The heated stage: hold to warm the water under it, as far as a boil') },
-  { id: 'cold', name: tr('tool.cold.name', 'Cold'), hint: tr('tool.cold.hint', 'The cold probe: hold to chill the water under it, as far as ice') },
-  { id: 'needle', name: tr('tool.needle.name', 'Needle'), hint: tr('tool.needle.hint', 'Pressed, it goes into the water: its point pricks the cells it touches (a tap, the nearest), its shaft pushes the rest aside · drag: cut through') },
-  { id: 'pipette', name: tr('tool.pipette.name', 'Pipette'), hint: tr('tool.pipette.hint', 'Load: a click draws up a few at the tip, held: all in reach · Dispense (or ⇧ click) sets the tip card’s cells down, faster held'), touch: tr('tool.pipette.touch', 'Load: a touch draws up a few at the tip, held: all in reach · Dispense: a touch sets the tip card’s cells down') },
+  { id: 'none', name: tr('tool.none.name', 'Pan'), hint: tr('tool.none.hint', 'Drag to pan, click a cell to examine it') },
+  { id: 'loupe', name: tr('tool.loupe.name', 'Loupe'), hint: tr('tool.loupe.hint', 'Magnifying lens: click a cell to examine it · [ ] zoom lens'), touch: tr('tool.loupe.touch', 'Tap to examine a cell and position the lens · drag the lens to move it, drag outside it to pan') },
+  { id: 'touch', name: tr('tool.touch.name', 'Touch'), hint: tr('tool.touch.hint', 'A glass rod: pressed, it pushes the cells and grains under it aside · a tap ripples the water') },
+  { id: 'lamp', name: tr('tool.lamp.name', 'Lamp'), hint: tr('tool.lamp.hint', 'Increases light; hold to brighten to 100%') },
+  { id: 'shade', name: tr('tool.shade.name', 'Shade'), hint: tr('tool.shade.hint', 'Decreases light; hold to darken to 100%') },
+  { id: 'warm', name: tr('tool.warm.name', 'Warm'), hint: tr('tool.warm.hint', 'The heated stage: warms the water; hold to heat to a boil') },
+  { id: 'cold', name: tr('tool.cold.name', 'Cold'), hint: tr('tool.cold.hint', 'The cold probe: chills the water; hold to freeze to ice') },
+  { id: 'needle', name: tr('tool.needle.name', 'Needle'), hint: tr('tool.needle.hint', 'Pricks the cells it touches, its shaft pushes the rest aside') },
+  { id: 'pipette', name: tr('tool.pipette.name', 'Pipette'), hint: tr('tool.pipette.hint', 'Load: a click draws up a few cells, held: all in reach · Dispense (or ⇧ click) ejects cells at the tip, held: continuously dispenses faster'), touch: tr('tool.pipette.touch', 'Load: a touch draws up a few cells, held: all in reach · Dispense: a touch ejects cells at the tip') },
 ];
 export const toolOf = (id) => TOOLS.find((t) => t.id === id) || TOOLS[0];
 // (Pan, nothing in hand, is 0, the tools 1 to 8)

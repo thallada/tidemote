@@ -25,13 +25,13 @@
 <meta property="og:image" content="https://tidemote.com/og.jpg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta data-i18n="meta.og-image-alt" property="og:image:alt" content="Glowing colonies of particle cells, bonded into multicellular bodies, drifting in dark water.">
+<meta data-i18n="meta.og-image-alt" property="og:image:alt" content="Glowing colonies of cells, bonded into multicellular bodies, drifting in dark water.">
 <meta property="og:locale" content="en_US">
 <meta name="twitter:card" content="summary_large_image">
 <meta data-i18n="meta.twitter-title" name="twitter:title" content="Tidemote — artificial life evolving on your GPU">
 <meta data-i18n="meta.twitter-description" name="twitter:description" content="An artificial-life ecology of up to millions of particles on your GPU. Cells hunt and evolve into multicellular bodies, each species singing its own song.">
 <meta name="twitter:image" content="https://tidemote.com/og.jpg">
-<meta data-i18n="meta.twitter-image-alt" name="twitter:image:alt" content="Glowing colonies of particle cells, bonded into multicellular bodies, drifting in dark water.">
+<meta data-i18n="meta.twitter-image-alt" name="twitter:image:alt" content="Glowing colonies of cells, bonded into multicellular bodies, drifting in dark water.">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -1603,14 +1603,14 @@ svg.niche .n-dot { fill: var(--cyan); }
   <symbol id="i-ev-cold" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2"><path d="M8 3.5a1.5 1.5 0 0 1 3 0v8.2a3.2 3.2 0 1 1-3 0Z"/><path d="M15 3.5V9m-2-2 2 2 2-2"/></g></symbol>
 </svg>
 
-<canvas data-i18n="stage" id="stage" aria-label="The world. Click or tap a particle to examine it; drag to pan, scroll or pinch to zoom."></canvas>
+<canvas data-i18n="stage" id="stage" aria-label="The world viewport. Click or tap a particle to examine it; drag to pan, scroll or pinch to zoom."></canvas>
 <canvas id="overlay" aria-hidden="true"></canvas>
 
 <div class="hud" id="hud">
   <!-- status rail: when and under what sky -->
   <header class="rail" id="rail">
     <button data-i18n="rail.brand" type="button" class="brand" id="brand" aria-label="About Tidemote" data-hint="About Tidemote"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 9.5c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".45"/></svg><span translate="no">Tidemote</span></button>
-    <div data-i18n="rail.clock" class="clock" role="timer" aria-label="Simulated time"><span data-i18n="rail.epoch" class="lbl">Epoch</span><b id="epoch" translate="no">0:00</b></div>
+    <div data-i18n="rail.clock" class="clock" role="timer" aria-label="Simulated time"><span data-i18n="rail.epoch" class="lbl">Time</span><b id="epoch" translate="no">0:00</b></div>
     <div class="era-box" id="era-box"><span data-i18n="rail.era-n" class="lbl" id="era-n">Era 01</span><b data-i18n="rail.era" id="era">The First Tides</b><span class="era-tide" id="era-tide" aria-hidden="true"><svg viewBox="0 0 60 6" preserveAspectRatio="none"><path/></svg><i></i></span></div>
     <div class="gauge term" data-tip="light" tabindex="0" id="g-light"><span data-i18n="rail.light" class="lbl">Light</span><span class="seg" id="light-seg" aria-hidden="true"></span><b id="light-v" translate="no">–</b></div>
     <div class="gauge term" data-tip="water" tabindex="0" id="g-heat"><span data-i18n="rail.temp" class="lbl">Temp</span><svg class="thermo" id="thermo" viewBox="0 0 68 18" aria-hidden="true"></svg><svg class="thermo-i" id="thermo-i" viewBox="0 0 12 20" aria-hidden="true"></svg><b id="heat-v" translate="no">–</b></div>
@@ -1627,10 +1627,11 @@ svg.niche .n-dot { fill: var(--cyan); }
 
   <!-- transport dock -->
   <nav data-i18n="dock.nav" class="dock" id="dock" aria-label="Controls">
-    <div data-i18n="dock.time" class="grp time" role="group" aria-label="Time">
+    <div data-i18n="dock.time" class="grp time" role="group" aria-label="Time Controls">
       <button data-i18n="dock.t-play" type="button" class="ico" id="t-play" aria-label="Pause" data-hint="Pause · Space"><svg><use id="t-play-i" href="#i-pause"/></svg><span data-i18n="dock.play-label" id="t-play-l">Pause</span></button>
       <button data-i18n="dock.t-slower" type="button" class="ico step" id="t-slower" aria-label="Slower" data-hint="Slower · ,"><svg><use href="#i-slower"/></svg></button>
-      <button data-i18n="dock.t-speed" type="button" class="speed" id="t-speed" aria-label="Speed ×1" aria-haspopup="listbox" aria-expanded="false" aria-controls="ladder" data-hint="Speed · hold and drag, or , . / &gt;&#10;Double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-rate"></small></button>
+      <button data-i18n="dock.t-speed" type="button" class="speed" id="t-speed" aria-label="Speed ×1" aria-haspopup="listbox" aria-expanded="false" aria-controls="ladder" data-hint="Speed · slower: , · faster: . · real time: / · max: >
+Double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-rate"></small></button>
       <button data-i18n="dock.t-faster" type="button" class="ico step" id="t-faster" aria-label="Faster" data-hint="Faster · ."><svg><use href="#i-faster"/></svg></button>
     </div>
     <div data-i18n="dock.tools" class="grp tools" id="tools" role="toolbar" aria-label="Tools"></div>
@@ -1674,7 +1675,7 @@ svg.niche .n-dot { fill: var(--cyan); }
         <div><b id="ro-ms" translate="no">–</b><span data-i18n="readout.gpu-ms">GPU ms</span></div>
         <!-- how the world is drawn -->
         <div><b id="ro-res" translate="no">–</b><span data-i18n="readout.render" class="term" data-tip="renderres" tabindex="0">Render</span></div>
-        <div><b id="ro-dens" translate="no">–</b><span data-i18n="readout.density" class="term" data-tip="density" tabindex="0">Density</span></div>
+        <div><b id="ro-dens" translate="no">–</b><span data-i18n="readout.density" class="term" data-tip="density" tabindex="0">Px density</span></div>
         <div class="w2"><b id="ro-px" translate="no">–</b><span data-i18n="readout.scene-px">Scene px</span></div>
         <div><b id="ro-n" translate="no">–</b><span data-i18n="readout.particles">Particles</span></div>
         <div><b id="ro-audio" translate="no">–</b><span data-i18n="readout.audio" class="term" data-tip="audioload" tabindex="0">Audio</span></div>
@@ -1696,9 +1697,9 @@ svg.niche .n-dot { fill: var(--cyan); }
   <div class="recframe" id="recframe" hidden aria-hidden="true"><i></i><i></i><i></i><i></i></div>
   <!-- floating bars: filming, the species highlight, and the map a gauge opened; each closes on its own -->
   <div class="floats" id="floats">
-    <div data-i18n="film.bar" class="focus rec" id="recbar" hidden role="group" aria-label="Filming"><i class="rec-sq" aria-hidden="true"></i><span class="lbl" aria-live="polite"><span data-i18n="film.state" id="rec-l">Recording</span></span><b id="rec-t" translate="no">0:00</b><small data-i18n="film.size" id="rec-mb" translate="no" data-hint="The film's size so far">0 MB</small><small class="rec-left" id="rec-left" hidden></small><button data-i18n="film.stop" type="button" class="ghost" id="rec-stop" aria-label="Stop filming" data-hint="Stop · R"><i class="rec-stop-i" aria-hidden="true"></i><span data-i18n="film.stop-label" id="rec-stop-l">Stop</span></button></div>
+    <div data-i18n="film.bar" class="focus rec" id="recbar" hidden role="group" aria-label="Filming"><i class="rec-sq" aria-hidden="true"></i><span class="lbl" aria-live="polite"><span data-i18n="film.state" id="rec-l">Recording</span></span><b id="rec-t" translate="no">0:00</b><small data-i18n="film.size" id="rec-mb" translate="no" data-hint="Film size">0 MB</small><small class="rec-left" id="rec-left" hidden></small><button data-i18n="film.stop" type="button" class="ghost" id="rec-stop" aria-label="Stop filming" data-hint="Stop · R"><i class="rec-stop-i" aria-hidden="true"></i><span data-i18n="film.stop-label" id="rec-stop-l">Stop</span></button></div>
     <div class="focus" id="focus" hidden><span data-i18n="highlight.label" class="lbl">Highlight</span><b id="focus-label"></b><button data-i18n="highlight.clear" type="button" class="ghost" id="focus-clear" aria-label="Clear highlight" data-hint="Clear · Esc"><svg><use href="#i-close"/></svg></button></div>
-    <div class="focus warm" id="warm" hidden role="status"><span data-i18n="warm.label" class="lbl">Warming up</span><b data-i18n="warm.what" data-hint="A new world starts with a few colonies in open water: its first two minutes run fast while they spread">The first two minutes, fast</b><small id="warm-t"></small><button data-i18n="warm.end" type="button" class="ghost" id="warm-end" data-hint="Real time · /">Real time</button></div>
+    <div class="focus warm" id="warm" hidden role="status"><span data-i18n="warm.label" class="lbl">Warming up</span><b data-i18n="warm.what" data-hint="The first two minutes of a new world are run fast so the initial seeded colonies spread out and start to interact quicker">Seeding world</b><small id="warm-t"></small><button data-i18n="warm.end" type="button" class="ghost" id="warm-end" data-hint="Real time · /">Real time</button></div>
     <div class="focus maps" id="maps" hidden><span data-i18n="maps.label" class="lbl">Map</span><b id="maps-label"></b><div id="maps-ramp"></div><button data-i18n="maps.clear" type="button" class="ghost" id="maps-clear" aria-label="Close the map" data-hint="Close · Esc"><svg><use href="#i-close"/></svg></button></div>
   </div>
 </div>
@@ -1718,7 +1719,7 @@ svg.niche .n-dot { fill: var(--cyan); }
   <div class="viewer" id="viewer">
     <canvas data-i18n="spec.specimen" id="specimen" aria-label="Live close-up of the selected particle"></canvas>
     <canvas id="spec-ui" aria-hidden="true"></canvas>
-    <div data-i18n="spec.close-up-zoom" class="vz" role="group" aria-label="Close-up zoom">
+    <div data-i18n="spec.close-up-zoom" class="vz" role="group" aria-label="Close-up zoom controls">
       <button data-i18n="spec.vz-in" type="button" class="ghost" id="vz-in" aria-label="Zoom in"><svg><use href="#i-plus"/></svg></button>
       <button data-i18n="spec.vz-out" type="button" class="ghost" id="vz-out" aria-label="Zoom out"><svg><use href="#i-minus"/></svg></button>
     </div>
@@ -1737,9 +1738,9 @@ svg.niche .n-dot { fill: var(--cyan); }
     <div class="lab-title">
       <h2 data-i18n="lab.heading"><span>Field</span> Lab</h2>
       <span class="world-sum" id="world-sum" aria-hidden="true"></span>
-      <button data-i18n="lab.close" type="button" class="ghost lab-fold" id="lab-close" aria-expanded="true" aria-controls="lab-body" aria-label="Collapse the Lab" data-hint="Collapse · K"><svg><use href="#i-chev"/></svg></button>
+      <button data-i18n="lab.close" type="button" class="ghost lab-fold" id="lab-close" aria-expanded="true" aria-controls="lab-body" aria-label="Collapse the Field Lab" data-hint="Collapse · K"><svg><use href="#i-chev"/></svg></button>
     </div>
-    <div data-i18n="lab.tabs" class="tabs" role="tablist" id="lab-tabs" aria-label="Lab sections">
+    <div data-i18n="lab.tabs" class="tabs" role="tablist" id="lab-tabs" aria-label="Field Lab sections">
       <button data-i18n="lab.census" type="button" role="tab" data-tab="census">Census</button>
       <button data-i18n="lab.species" type="button" role="tab" data-tab="species">Species</button>
       <button data-i18n="lab.lineage" type="button" role="tab" data-tab="lineage">Lineage</button>
@@ -1753,8 +1754,8 @@ svg.niche .n-dot { fill: var(--cyan); }
     <div class="pane census" id="pane-census">
       <div class="scroll ov">
         <div class="blk">
-          <div class="sub-h"><span data-i18n="census.matter">Matter</span><span data-i18n="census.matter-aside" class="sub-a">of every particle</span></div>
-          <div data-i18n="census.mix" class="mix" id="mix" role="group" aria-label="Matter: choose one to highlight it"></div>
+          <div class="sub-h"><span data-i18n="census.matter">Matter</span><span data-i18n="census.matter-aside" class="sub-a">% of total</span></div>
+          <div data-i18n="census.mix" class="mix" id="mix" role="group" aria-label="Matter breakdown"></div>
         </div>
         <div class="nums">
           <div><b id="n-alive" translate="no">–</b><span data-i18n="census.species" class="term" data-tip="alive" tabindex="0">Species</span></div>
@@ -1764,7 +1765,7 @@ svg.niche .n-dot { fill: var(--cyan); }
         </div>
         <div class="blk">
           <div class="sub-h"><span data-i18n="census.chart-heading">Living cells by species</span></div>
-          <canvas data-i18n="census.chart" id="chart" class="chart" aria-label="Living cells by species over time. Point at a band to name its species; click to open it."></canvas>
+          <canvas data-i18n="census.chart" id="chart" class="chart" aria-label="Living cells by species over time"></canvas>
         </div>
         <div class="ov-census stack" id="ov-census"></div>
       </div>
@@ -1777,30 +1778,30 @@ svg.niche .n-dot { fill: var(--cyan); }
   </div>
 </aside>
 
-<div data-i18n="help.panel" class="help panel float" id="help" hidden role="dialog" aria-label="Keyboard shortcuts">
-  <div class="sec-h"><h2 data-i18n="help.heading"><span>Keyboard</span> Shortcuts</h2><button data-i18n="help.close" type="button" class="ghost" id="help-close" aria-label="Close"><svg><use href="#i-close"/></svg></button></div>
+<div data-i18n="help.panel" class="help panel float" id="help" hidden role="dialog" aria-label="Controls">
+  <div class="sec-h"><h2 data-i18n="help.heading">Controls</h2><button data-i18n="help.close" type="button" class="ghost" id="help-close" aria-label="Close"><svg><use href="#i-close"/></svg></button></div>
   <dl class="keys">
-    <dt data-i18n="help.k1.keys">Click</dt><dd data-i18n="help.k1">Examine a cell or grain</dd>
+    <dt data-i18n="help.k1.keys">Click</dt><dd data-i18n="help.k1">Examine a cell or particle</dd>
     <dt data-i18n="help.k2.keys">Drag · Wheel</dt><dd data-i18n="help.k2">Pan · zoom</dd>
-    <dt data-i18n="help.k3.keys">Space</dt><dd data-i18n="help.k3">Pause</dd>
+    <dt data-i18n="help.k3.keys">Space</dt><dd data-i18n="help.k3">Pause · resume</dd>
     <dt>, . / &gt;</dt><dd data-i18n="help.k4">Slower · faster · real time · max</dd>
-    <dt>P · X</dt><dd data-i18n="help.k5">Auto camera · on to its next scene</dd>
-    <dt>R</dt><dd data-i18n="help.k6">Film until R again</dd>
-    <dt data-i18n="help.k8.keys">Enter · Tab</dt><dd data-i18n="help.k8">Ride the specimen: the view follows it · on to its newest kin</dd>
-    <dt>W A S D · ↑ ← ↓ →</dt><dd data-i18n="help.k-steer">Steer the specimen, riding it from the first press (held, it gathers speed; tapped, it edges); a held click or finger steers too, a click on another cell gets off</dd>
-    <dt data-i18n="help.k9.keys">Esc</dt><dd data-i18n="help.k9">Close, then clear the highlight, then the map</dd>
-    <dt>K</dt><dd data-i18n="help.k10">Fold or open the Field Lab</dd>
-    <dt data-i18n="help.k-lineage-back.keys">Esc · ⌫</dt><dd data-i18n="help.k-lineage-back">In the Lab’s Lineage view: back the way you came</dd>
+    <dt>P · X</dt><dd data-i18n="help.k5">Auto camera · go to next scene</dd>
+    <dt>R</dt><dd data-i18n="help.k6">Start · stop filming</dd>
+    <dt data-i18n="help.k8.keys">Enter · Tab</dt><dd data-i18n="help.k8">Ride the specimen: follow and control it · switch to newest kin</dd>
+    <dt>W A S D · ↑ ← ↓ →</dt><dd data-i18n="help.k-steer">Steer the specimen (gathers speed when held); tapping around the specimen also steers</dd>
+    <dt data-i18n="help.k9.keys">Esc</dt><dd data-i18n="help.k9">Closes the bench and specimen panel, then clears the highlight and map</dd>
+    <dt>K</dt><dd data-i18n="help.k10">Collapse or open the Field Lab</dd>
+    <dt data-i18n="help.k-lineage-back.keys">Esc · ⌫</dt><dd data-i18n="help.k-lineage-back">In the Lab’s Lineage view: go back up a species in the lineage tree</dd>
     <dt>V</dt><dd data-i18n="help.k11">Settings</dd>
     <dt>M · − =</dt><dd data-i18n="help.k12">Sound · volume</dd>
-    <dt>T</dt><dd data-i18n="help.k13">Trails</dd>
+    <dt>T</dt><dd data-i18n="help.k13">Cycle cell trails rendering</dd>
     <dt>G · E · H · C</dt><dd data-i18n="help.k14">Light map · heat map · tide map (again: no map) · currents</dd>
-    <dt>Y · O</dt><dd data-i18n="help.k15">Glow · microscope</dd>
-    <dt>1–8 · 0</dt><dd data-i18n="help.k16">The tools: loupe, touch, lamp, shade, warm, cold, needle, pipette (held down: for a moment; again: put it down) · pan, nothing in hand</dd>
-    <dt data-i18n="help.k17.keys">B · Esc</dt><dd data-i18n="help.k17">The bench · put the tool down</dd>
-    <dt data-i18n="help.k18.keys">[ ] · ⇧ Wheel</dt><dd data-i18n="help.k18">The tool’s reach (with the loupe: its magnification)</dd>
+    <dt>Y · O</dt><dd data-i18n="help.k15">Toggle: glow · microscope</dd>
+    <dt>1–8 · 0</dt><dd data-i18n="help.k16">Swap tools: 1. loupe, 2. touch, 3. lamp, 4. shade, 5. warm, 6. cold, 7. needle, 8. pipette · 0. pan</dd>
+    <dt data-i18n="help.k17.keys">B · Esc</dt><dd data-i18n="help.k17">The bench · drop tool</dd>
+    <dt data-i18n="help.k18.keys">[ ] · ⇧ Wheel</dt><dd data-i18n="help.k18">Adjust tool effect radius (with the loupe: its magnification)</dd>
     <dt>Z · F · I · U</dt><dd data-i18n="help.k19">Reset zoom · fullscreen · hide readouts · hide everything</dd>
-    <dt>⇧R ⇧R</dt><dd data-i18n="help.k20">Discard this world and begin again</dd>
+    <dt>⇧R ⇧R</dt><dd data-i18n="help.k20">Discard this world and start a new one</dd>
   </dl>
   <p data-i18n="help.license" class="help-src">Free software under the <a class="sp" target="_blank" rel="noopener" href="https://www.gnu.org/licenses/gpl-3.0.html">GPL-3.0</a>, sound after <a class="sp" target="_blank" rel="noopener" href="https://supercollider.github.io/">SuperCollider</a> · <a class="sp" target="_blank" rel="noopener" href="https://github.com/thallada/tidemote">Source code</a></p>
 </div>
@@ -1811,23 +1812,23 @@ svg.niche .n-dot { fill: var(--cyan); }
   <canvas data-i18n="card.canvas" class="card-cv" id="card-cv" width="660" height="1050" role="img" aria-label="The species card"></canvas>
   <img class="card-cv" id="card-img" alt="" hidden>
   <div class="card-row" id="card-name-row">
-    <label data-i18n="card.name-label" class="lbl" for="card-name">Your name for it</label>
-    <input data-i18n="card.name" type="text" id="card-name" maxlength="48" autocomplete="off" spellcheck="false" data-hint="Named, it keeps your name in this world and its saves; clear it to restore its own">
+    <label data-i18n="card.name-label" class="lbl" for="card-name">Custom name</label>
+    <input data-i18n="card.name" type="text" id="card-name" maxlength="48" autocomplete="off" spellcheck="false" data-hint="Change the name of this species in this world and its saves; clear it to restore the original generated name">
   </div>
   <div class="card-row card-btns">
-    <button data-i18n="card.inspect" type="button" class="btn" id="card-inspect" hidden data-hint="Open it in the specimen panel, here in this world">Inspect in this world</button>
-    <button data-i18n="card.save" type="button" class="btn" id="card-save" data-hint="Keep it in the cabinet (Field Lab → Cabinet), to carry to any world">Save to cabinet</button>
+    <button data-i18n="card.inspect" type="button" class="btn" id="card-inspect" hidden data-hint="Open the species in the specimen panel and highlight in world">Inspect in this world</button>
+    <button data-i18n="card.save" type="button" class="btn" id="card-save" data-hint="Save the species card to the cabinet (Field Lab → Cabinet), where it persists across new worlds">Save to cabinet</button>
     <button data-i18n="card.load" type="button" class="btn" id="card-load" data-hint="A colony of it into the pipette, to set down in this world">Load the pipette</button>
-    <button data-i18n="card.png" type="button" class="btn" id="card-png" data-hint="The card as a PNG image: dropped on any Tidemote, its species comes with it">PNG</button>
-    <button data-i18n="card.remove" type="button" class="btn" id="card-remove" hidden data-hint="Take its card out of the cabinet (Undo there puts it back)">Remove from cabinet</button>
+    <button data-i18n="card.png" type="button" class="btn" id="card-png" data-hint="Save the card as a PNG image">Save as PNG</button>
+    <button data-i18n="card.remove" type="button" class="btn" id="card-remove" hidden data-hint="Remove this species card from the cabinet">Remove from cabinet</button>
     <span class="note" id="card-note" role="status"></span>
   </div>
   <div class="card-row card-tune">
-    <div class="sub-h"><span data-i18n="card.song-heading" class="lbl">Its song</span><span class="song-read" id="card-song-read"></span></div>
+    <div class="sub-h"><span data-i18n="card.song-heading" class="lbl">Species song</span><span class="song-read" id="card-song-read"></span></div>
     <div class="song-wrap" id="card-roll"></div>
     <div class="card-tune-acts">
       <button data-i18n="card.play" type="button" class="btn" id="card-play"><svg aria-hidden="true"><use href="#i-play"/></svg>Play</button>
-      <button data-i18n="card.song" type="button" class="btn" id="card-song" aria-label="Download its song as a WAV" data-hint="Its song as a WAV file, a short clip in this world's key"><svg aria-hidden="true"><use href="#i-down"/></svg>WAV</button>
+      <button data-i18n="card.song" type="button" class="btn" id="card-song" aria-label="Download species song as a WAV" data-hint="Download species song as a WAV file"><svg aria-hidden="true"><use href="#i-down"/></svg>WAV</button>
     </div>
   </div>
 </div>
@@ -1846,7 +1847,7 @@ svg.niche .n-dot { fill: var(--cyan); }
     <button data-i18n="intro.begin" type="button" class="begin" id="begin">Begin</button>
     <!-- for those who know Tidemote: the new world's particle count, or a saved world in its place (main.js, the menu) -->
     <div class="menu" id="menu" hidden>
-      <div data-i18n="menu.row" class="menu-row" role="group" aria-label="Before the world begins">
+      <div data-i18n="menu.row" class="menu-row" role="group" aria-label="World parameters">
         <button type="button" class="menu-tab" id="menu-n" aria-expanded="false" aria-controls="menu-panel"><span data-i18n="menu.particles">Particles</span><b id="menu-n-v"></b></button>
         <button type="button" class="menu-tab" id="menu-w" aria-expanded="false" aria-controls="menu-panel"><span data-i18n="menu.saved-worlds">Saved worlds</span><b id="menu-w-v"></b></button>
       </div>
@@ -1870,17 +1871,17 @@ svg.niche .n-dot { fill: var(--cyan); }
   <div class="nogpu-in">
     <div class="lbl" translate="no">Tidemote</div>
     <h1 data-i18n="nogpu.title" id="nogpu-title">WebGPU unavailable</h1>
-    <p data-i18n="nogpu.detail" id="nogpu-detail">Tidemote simulates its world on your graphics card through WebGPU, with JavaScript turned on. Try a current Chrome or Edge, Safari on macOS 26 or iOS 26, or Firefox on Windows.</p>
+    <p data-i18n="nogpu.detail" id="nogpu-detail">Tidemote simulates its world on your graphics card through WebGPU. JavaScript is required. Try a current version of Chrome or Edge, Safari on macOS 26 or iOS 26, or Firefox on Windows.</p>
     <div class="nogpu-act" id="nogpu-act" hidden></div>
     <section class="about" aria-labelledby="about-h">
       <h2 data-i18n="nogpu.about.heading" id="about-h">Artificial life, evolving on your GPU</h2>
-      <p data-i18n="nogpu.about.p1">Tidemote is a sealed biosphere of hundreds of thousands to millions of particles, simulated live in the browser with WebGPU. Cells photosynthesize in the tide's moving light, graze, hunt and scavenge, and build their children out of silt. Children mutate into new species, bonded species grow into multicellular bodies, and the climate turns every 10–18 minutes. Leave it running and it keeps changing.</p>
-      <p data-i18n="nogpu.about.p2">Every rule is local: each particle reacts only to what is near it, and the ecology that appears is never steered from above.</p>
+      <p data-i18n="nogpu.about.p1">Tidemote is a sealed biosphere of up to millions of particles, and all of them live, eat, breed, and die in your browser, simulated on the GPU with WebGPU. Some cells drink the moving light of the tide. Others graze on the producers, and others hunt the grazers. Scavengers break down the dead and return them to the water as silt, and from that silt the next generation builds its children. Children mutate into new species. Species that bond grow into bodies: filaments, branched fronds, spirals, packed tissues. Some of these bodies grow beating tails and swim. Every 10 to 18 minutes the climate turns, and the world has to begin again in its own way. It makes its own music, too: each cell sings its species' song, over a chorus of the births, kills, and deaths in view. Leave the simulation running and it keeps changing for hours.</p>
+      <p data-i18n="nogpu.about.p2">No hand steers any of this: every ecological rule is local. The complex interacting colonies emerge from simple rules acting on the mutating genome each cell carries.</p>
       <ul>
         <li data-i18n="nogpu.about.li1">Food webs of producers, grazers, hunters and scavengers, evolving as you watch</li>
         <li data-i18n="nogpu.about.li2">A Field Lab of census charts, lineages and a specimen view of any cell</li>
         <li data-i18n="nogpu.about.li3">Climate eras of light, heat waves, cold snaps and tides</li>
-        <li data-i18n="nogpu.about.li4">An auto camera that films the world, and a soundtrack played by the species themselves</li>
+        <li data-i18n="nogpu.about.li4">An auto camera that films and annotates the world, and a soundtrack played by the species themselves</li>
       </ul>
       <p data-i18n="nogpu.about.source"><a class="sp" href="https://github.com/thallada/tidemote">Source code on GitHub</a> · free software under the <a class="sp" href="https://www.gnu.org/licenses/gpl-3.0.html">GPL-3.0</a></p>
     </section>
@@ -22655,8 +22656,8 @@ ${e.message}` : String(e?.message || e));
     null,
     // (kind 1, once glint: no longer made; kept so the kinds index this)
     { name: tr("matter.husk", "Husk"), css: "#9a6c4c", blurb: tr("matter.husk.blurb", "The remains of a dead cell. Scavengers feed on what energy is left; the rest crumbles back into silt.") },
-    { name: tr("matter.stone", "Stone"), css: "#c2b8a8", blurb: tr("matter.stone.blurb", "Bedrock, or the skeleton a calcifying cell left where it settled. Stone never drifts and the living cannot pass through it. Prey shelters in its crevices, and it slowly wears back into silt.") },
-    { name: tr("matter.framboid", "Framboid"), css: "#ccb373", blurb: tr("matter.framboid.blurb", "A pyrite framboid: a sphere of tiny iron sulfide crystals, grown from the sulfide a pile of rotting husks releases in cool mud. As it oxidizes it warms the water around it, faster the warmer that water is, until it is spent and crumbles to silt. Solid, like stone.") }
+    { name: tr("matter.stone", "Stone"), css: "#c2b8a8", blurb: tr("matter.stone.blurb", "Sand, or the skeleton a calcifying cell left where it settled. Stone sits anchored in the currents and the living cannot pass through it. Prey can shelter in its crevices for protection. It slowly wears back into silt over time.") },
+    { name: tr("matter.framboid", "Framboid"), css: "#ccb373", blurb: tr("matter.framboid.blurb", "A pyrite framboid: a sphere of tiny iron sulfide crystals, grown from the sulfide a pile of rotting husks releases in cool mud. As it oxidizes it warms the water around it, faster the warmer that water is, until it is spent and crumbles to silt. Solid and anchored in the currents, like stone.") }
   ];
   var GRAIN = {
     quartz: tr("matter.grain.quartz", "Quartz"),
@@ -22691,81 +22692,81 @@ ${e.message}` : String(e?.message || e));
   // src/guide.js
   var GLOSSARY = {
     silt: tr("gloss.silt", "Inert grit, most of the world’s matter. It drifts on currents, every newborn cell is built out of one grain of it, and now and then life sparks from it in the light."),
-    husk: tr("gloss.husk", "A dead cell’s remains. Starved, elderly, killed and scalded cells all leave one, and eaters drop dung (smaller olive pellets). Holds leftover energy for scavengers and crumbles back into silt after about half a minute: cold water keeps carcasses for the scavengers, warm water rots them fast, and a rotting pile warms its water a little."),
+    husk: tr("gloss.husk", "A dead cell’s remains. Starved, elderly, killed and scalded cells all leave one. Eaters drop dung (smaller olive pellets), a variant of husk. Husk holds leftover energy for scavengers and crumbles back into silt after about half a minute. Cold water keeps carcasses for the scavengers, warm water rots them fast, and a rotting pile warms the water a little."),
     living: tr("gloss.living", "Cells: particles with a genome. They feed, pay upkeep, divide by building a child out of silt, and die into husks."),
-    tide: tr("gloss.tide", "Four slow waves summed across the wrap-around world. Where they add up, bright bands form and drift. Inside them the light is brighter, so producers bloom where the bands pass."),
+    tide: tr("gloss.tide", "Four slow waves that drift across the wrap-around world. The light is brightest where the waves peak, so producers bloom where they pass. The light level in the tide bands varies throughout the season."),
     light: tr("gloss.light", "What plants feed on. It is dim everywhere (how dim depends on the era) and brighter inside tide bands, most of all at the height of the season. You can see it: cells, silt and stone in the bands are lit warm and bright, those outside them dim and cool, and the floor glows faintly where the light falls."),
-    season: tr("gloss.season", "A 5-minute cycle that swings tide strength between 10% and 100%. This is the Tide percentage in the gauge and graphs: the bands keep their shape and only brighten or fade. Light in the bands follows it, which drives booms and busts."),
+    season: tr("gloss.season", "A 5-minute cycle that swings tide strength between 10% and 100%. The light intensity in the tide bands follows the tide strength."),
     era: tr("gloss.era", "Every 10–18 minutes the climate turns: the baseline light and the water’s temperature change, one tide wave is replaced, and the currents shift. In about one era in six the water stands low and the highest ground shows as islands; the next full-water era covers them again. Each era is named for what marks it as it begins."),
-    water: tr("gloss.water", "The water’s background temperature, set by the climate: it walks from era to era between 4° and 28°, swings ±2.5° with the season, and now and then a heat wave or cold snap passes. Life warms its own water above this: every cell’s spent energy becomes heat, so crowds, bodies and reefs sit in warm patches."),
-    tidemap: tr("gloss.tidemap", "The light the Tide brings, right now: dark where it is dim, through violet to pale blue where the bands are brightest. Thin lines trace the bands’ shape at every season, so they still show at low tide, and a dashed line shows where the bands will be in 20 seconds, so you can see where the producers’ light is heading. Tap the Tide gauge (on phones, the era name) to open it."),
+    water: tr("gloss.water", "The water’s background temperature, set by the climate: it walks from era to era between 4° and 28°, swings ±2.5° with the season, and now and then a heat wave or cold snap passes. Life warms its own water above the background temperature: every cell’s spent energy becomes heat, so crowds create warm patches."),
+    tidemap: tr("gloss.tidemap", "Render the tide bands: violet to pale blue where the bands are brightest. A dashed line shows where the bands will be in 20 seconds."),
     maps: tr("gloss.maps", "One map over the view at a time. Light colors every point by the light a photosynthesizing cell would get there; Heat is a thermal camera, deep blue to teal to amber to white over a span from 2° below the background water to 10° above it, with a line every 2°; Tide shows the light the Tide brings and where its bands are heading. Its key (G, E, H) or gauge opens it, and again closes it."),
     haze: tr("gloss.haze", "Warm water bends light like the air over a hot road, so plumes, colony halos and fronts waver. Off, the view holds still over warm water (boiling water still roils). Auto draws it, and Adaptation may turn it off while frames run late (what Auto holds now is underlined)."),
-    thermal: tr("gloss.thermal", "How well a cell works at its temperature: a rate that scales its photosynthesis, digestion and swimming. It is at its best within half a tolerance of the species’ optimum (higher the narrower its tolerance), then falls slowly on the cold side and steeply on the warm side. Away from its optimum a cell also pays extra upkeep for the stress."),
+    thermal: tr("gloss.thermal", "How well a cell works at its temperature: a rate that scales its photosynthesis, digestion and swimming. It is at its best within a narrow tolerance of the species’ optimum. Away from its optimum a cell also pays extra upkeep for the stress."),
     optimum: tr("gloss.optimum", "The temperature a species works best at (a gene, 0–45°). It drifts by mutation, so lineages can follow the climate or find a warm or cold refuge. A spark of life founds a species suited to the water it sparked in."),
-    tolerance: tr("gloss.tolerance", "How far from its optimum a species still works (a gene, ±2–15°). Narrow specialists work up to 25% better at their optimum than broad generalists, but a few degrees away they falter."),
-    heatmaker: tr("gloss.heatmaker", "A species that burns extra energy (up to 0.03 per second) as heat. Its cells run warmer than the water, more so in a body, and its colonies warm the water around them: lifeboats for itself and for warmth-lovers in a cold snap, overheating traps in a heat wave."),
+    tolerance: tr("gloss.tolerance", "How far from its optimum a species still works (±2–15°). Narrow specialists work up to 25% better at their optimum than broad generalists, but falter a few degrees off optimum."),
+    heatmaker: tr("gloss.heatmaker", "A species that burns extra energy (up to 0.03 per second) as heat. Its cells run warmer than the water, more so in a body, and its colonies warm the water around them. They can serve as lifeboats for warmth-lovers in a cold snap, but they may easily overheat in a heat wave."),
     torpor: tr("gloss.torpor", "Far below its optimum (more than 1.25 tolerances) a cell goes torpid: it neither feeds, swims nor divides, pays a quarter of its upkeep, dims, its pulse stops and it falls silent, until the water warms."),
-    scalding: tr("gloss.scalding", "Far above its optimum a cell begins to die of the heat: a chance each second, rising steeply. A scalded cell leaves a husk. Heat-stressed cells bleach toward pale bone first."),
-    phototaxis: tr("gloss.phototaxis", "Some species sense which way the light grows and push themselves toward it, or, shunning it, away into the dim water. It is a motility of its own, paid for in upkeep, so even a drifting producer can follow the bands of light as they travel; grazers and hunters that follow the light find the meadows there."),
-    thermotaxis: tr("gloss.thermotaxis", "Swimmers away from their optimum steer up or down the warmth of the water toward it, harder the further off they are. Drifters and anchored cells cannot steer; heat sorts them by who survives where."),
-    framboid: tr("gloss.framboid", "A pyrite framboid: a sphere of tiny iron sulfide crystals, a few microns across like the cells. Framboids grow where a pile of husks rots in cool water (the rot releases the sulfide), and a few lie in the mud from the start. As one oxidizes it warms its water, burning faster the warmer that water is, so a crowded, hot cluster burns itself out; spent, it crumbles to silt. Sparks of life favor their warmth, and heat-loving species gather round them. Framboids are solid like stone."),
-    poolevents: tr("gloss.poolevents", "Now and then (about once an hour of world time) the pool suffers an event: a drought, a storm, duckweed or a frost. Each lasts a few minutes, is announced in the log, and is survived by life resting as cysts. Turn them all off here, or each kind on its own."),
-    evdrought: tr("gloss.evdrought", "A drought: the water falls over several minutes until a third to two thirds of the floor lies dry, parting the pool into separate pools. Cells stranded on the mud shrivel; most rest as cysts. Then rain refills it, cold and dim, and the cysts wake."),
-    evstorm: tr("gloss.evstorm", "A storm: cold rain for a few minutes. Raindrops ring the surface and shove the water outward, currents run rough and the light dims under the cloud."),
-    evduckweed: tr("gloss.evduckweed", "Duckweed (Lemna, among the smallest flowering plants): a few fronds, each 1 to 5 mm long, drift onto the pool for several minutes, turning slowly. Their shade starves the producers under them; each frond hangs a single root down into the water, sharp where it reaches the focal plane."),
-    evfrost: tr("gloss.evfrost", "A frost: a cold night chills the water to near 0° and ice grows over most of the pool from the shallows, pushing cells into the veins of water between its crystals. Cells caught in the ice freeze as cysts or die. Then it thaws."),
-    evstart: tr("gloss.evstart", "Start an event of that kind now, to watch it. Only the kinds turned on above."),
-    cystdry: tr("gloss.cystdry", "A cell stranded on the mud or caught in the ice cannot move or feed. It shows dried (shrivelled, dull brown) or frozen (pale, frosted); most rest as cysts, losing energy very slowly until the water returns, and the rest starve."),
+    scalding: tr("gloss.scalding", "Far above its optimum temperature a cell begins to die of the heat. The longer a cell is scalding the higher chance of its death. A scalded cell leaves a husk. Heat-stressed cells bleach toward a pale bone color."),
+    phototaxis: tr("gloss.phototaxis", "Some species sense which way the light grows and push themselves toward it, or, shunning it, away into the dim water (phototaxis)."),
+    thermotaxis: tr("gloss.thermotaxis", "Cells that can swim that are not at their optimum temperature may steer up or down the warmth of the water toward more temperate waters."),
+    framboid: tr("gloss.framboid", "A pyrite framboid: a sphere of tiny iron sulfide crystals, a few microns across like the cells. Framboids grow where a pile of husks rots in cool water (the rot releases the sulfide), and a few lie in the mud from the start. As one oxidizes it warms its water, burning faster the warmer that water is, so a crowded, hot cluster burns itself out. Once spent, it crumbles to silt. Framboids are solid and anchored in the currents like stone."),
+    poolevents: tr("gloss.poolevents", "Now and then (about once an hour of world time) the pool suffers an event: a drought, a storm, duckweed, or a frost. Each lasts a few minutes, testing the resiliency of the cells in the pool."),
+    evdrought: tr("gloss.evdrought", "A drought: the water falls over several minutes until a third to two thirds of the floor lies dry, parting the pool into separate pools. Cells stranded on the mud shrivel; most rest as cysts. After a while, rain refills it, cold and dim, and the cysts that survived wake."),
+    evstorm: tr("gloss.evstorm", "A storm: cold rain for a few minutes. Raindrops ripple the surface and shove the water outward, currents run rough and the light dims under the cloud."),
+    evduckweed: tr("gloss.evduckweed", "Duckweed (Lemna, among the smallest flowering plants): a few fronds, each 1 to 5 mm long, drift onto the pool for several minutes, turning slowly. Their shade starves the producers under them; each frond hangs a single root down into the water."),
+    evfrost: tr("gloss.evfrost", "A frost: a cold night chills the water to near 0° and ice grows over most of the pool from the shallows, pushing cells into the veins of water between ice sheets. Cells caught in the ice freeze as cysts or die. After some time the ice thaws."),
+    evstart: tr("gloss.evstart", "Start a specified event now."),
+    cystdry: tr("gloss.cystdry", "A cell stranded on the mud or caught in the ice cannot move or feed. It shows dried (shriveled, dull brown) or frozen (pale, frosted). Cysts lose energy very slowly until the water returns, or starve."),
     heatwave: tr("gloss.heatwave", "An excursion of the climate: for a few minutes the water rises (a heat wave) or falls (a cold snap) by 5–8°. Heat waves scald and bleach; cold snaps still the world except where heat-makers keep colonies warm."),
-    epoch: tr("gloss.epoch", "Simulated time since this universe began."),
-    abiogenesis: tr("gloss.abiogenesis", "Life sparking from silt: a completely random new species suited to the water it sparks in, about once every 30 simulated seconds, mostly in the light and more in hot water. A world whose life has died begins again this way."),
-    flesh: tr("gloss.flesh", "Eating other living cells. A cell can only eat species whose surface signature looks unlike its own. Caught animal prey is killed outright and leaves a husk; this takes time, so a hunter manages at most one kill every few seconds. Plant cells are cropped a 0.25-energy bite at a time. Bonded bodies are armored and shrug off some attacks, and an animal hiding among dense producers often escapes."),
-    diet: tr("gloss.diet", "The share of energy a species takes from each food. Food is worth its energy × share × 1.5, less for partly photosynthetic species."),
-    photosynth: tr("gloss.photosynth", "Takes energy directly from light. Light is shared: each photosynthesizing neighbor shades a cell, so a crowded meadow divides its patch of light among many and a thinned one regrows fast (a bonded body barely shades itself). It needs minerals (silt nearby), and runs faster for anchored cells with current flowing past them. Photosynthesis makes a cell heavy: less thrust, no swimming, worse at eating."),
-    grazer: tr("gloss.grazer", "Crops photosynthesizing cells a bite at a time: the herbivores of this world."),
-    scavenger: tr("gloss.scavenger", "Mostly eats husks: carcasses, dead producers and the dung of eaters."),
+    epoch: tr("gloss.epoch", "Simulated time since this world began."),
+    abiogenesis: tr("gloss.abiogenesis", "Life sparking from silt: a completely random new species suited to the water it sparks in. Happens about once every 30 simulated seconds, mostly in bright and hot water."),
+    flesh: tr("gloss.flesh", "Eating other living cells. A cell can only eat species whose surface signature looks unlike its own. Caught animal cell prey are killed and leave a husk. This takes time, so a hunter manages at most one kill every few seconds. Bonded bodies are armored and shrug off some attacks, and animal cells hiding among dense producers or stone often escape."),
+    diet: tr("gloss.diet", "The share of energy a species takes from each type of food. Food is worth its energy × share × 1.5, less for partly photosynthetic species."),
+    photosynth: tr("gloss.photosynth", "Takes energy directly from light. Light is shared: each photosynthesizing organism produces shade, so a crowded meadow divides its patch of light among neighbors. It needs minerals (silt nearby), and runs faster for anchored cells with current flowing past them. Photosynthesis makes a cell heavy: less thrust, no swimming, worse at eating."),
+    grazer: tr("gloss.grazer", "Crops photosynthesizing cells a bite at a time until there's nothing left of them and they die and turn into husks. The herbivores of this world."),
+    scavenger: tr("gloss.scavenger", "Mostly eats husks: carcasses of dead cells and the dung of predators and grazers."),
     predator: tr("gloss.predator", "Mostly eats flesh: hunts animal cells, and crops plants only reluctantly. A well-fed hunter rests rather than kill (satiety)."),
-    dung: tr("gloss.dung", "What an eater cannot digest of a meal fills its gut and is dropped as a small olive pellet, a husk the scavengers live on: grazers feed the scavengers this way."),
+    dung: tr("gloss.dung", "What an eater cannot digest of a meal fills its gut and is dropped as a small olive pellet, a form of husk which the scavengers live on."),
     cyst: tr("gloss.cyst", "A dormant cell. An animal running out of energy with nothing to eat in reach may go dormant: it leaves its body, stops swimming and pulsing, grays and holds still unless jostled, leaking a little energy, and wakes at random, after about 45 seconds on average. Nothing can eat a cyst. Cysts are the seed bank that carries a lineage through hard times."),
-    flee: tr("gloss.flee", "Animals that are not hunters swim away from hunters close by, harder the closer they are, if they can swim at all."),
+    flee: tr("gloss.flee", "Animal cells that are not hunters swim away from hunters close by. They swim harder the closer the hunter is, if they can swim at all."),
     satiety: tr("gloss.satiety", "A hunter attacks animals less the fuller it is, until it holds a little more than it needs to divide: fed hunters rest instead of killing, which keeps them from eating each other out."),
-    celltype: tr("gloss.celltype", "α, β and γ cells of one species share a genome but each has its own surface and receptor signature, so each type is pulled toward and away from things differently. Types also differ in color tint, size and shape."),
-    bodyplan: tr("gloss.bodyplan", "The long-run mix of cell types a species produces. Each child’s type is chosen by a developmental rule from its parent’s type; this is where that rule settles."),
+    celltype: tr("gloss.celltype", "α, β and γ cells of one species share a genome but each has its own surface and receptor signature, so each type is pulled toward and away from things differently. Types also differ in color tint, size, and shape."),
+    bodyplan: tr("gloss.bodyplan", "The long-run mix of cell types a species produces. Each child’s type is chosen by this developmental rule from its parent’s type."),
     stone: tr("gloss.stone", "Bedrock, and the skeletons of calcifying cells. Stone never drifts and the living cannot pass through it. Attacks made from among stone sometimes miss, so prey shelters in reefs, and calcifying cells settle on their own reef while everything else must go around it. Bedrock lasts nearly an hour. A loose grain of reef stone crumbles within minutes, a grain packed into a reef lasts far longer, and a neighborhood that is mostly reef wears fast, so reefs grow as separate patches and persist only while they are being built."),
-    calcify: tr("gloss.calcify", "How much of a skeleton a cell lays down. Calcifying costs upkeep. When a settled calcifying cell dies of hunger or old age it may leave stone instead of a husk, far more often beside stone already there, so reefs grow outward from rock and from the rare place one starts. Drifting cells seldom leave stone. Calcifiers can settle on stone; to everything else it is solid."),
-    adhesion: tr("gloss.adhesion", "How strongly cells of one species bond. Above 15%, each cell keeps up to two same-species partners with springs. Empty slots find the nearest neighbors within bond range; children start bonded to their parent if they are the same species. Bonds last until a partner dies, changes kind or stretches too far away. Bonds are the links you see and they hold bodies together. Bonded cells share the cost of living (up to 15% less upkeep), shade each other less and are armored against attack. They still pay crowding beyond their bond partners, disperse poorly and their inner cells struggle to reach silt to divide. Species without adhesion are single-celled."),
-    bond: tr("gloss.bond", "A persistent spring between two cells of the same species. Drawn as a link. It breaks if a partner dies, changes kind or stretches beyond 1.25 times the range at which bonds form. A connected web of bonds is one organism."),
-    growth: tr("gloss.growth", "How a bonded species builds its body, inherited and mutated like every other gene. Some grow as trees: each new cell buds from a tip at the angle the plan sets, branching every few cells (alternate, one-sided, opposite or forking), a set number of orders deep, curling or zigzagging as they go, the way filamentous algae, branched cyanobacteria and colonial ciliates grow. The tips are fed by the cells behind them. Others pack into a body as their cells meet."),
-    organism: tr("gloss.organism", "A body: all same-species cells connected through bonds. A species only forms bodies if its adhesion is above 15%; otherwise every cell is its own organism, even when the species has several cell types or gathers into swarms. Selecting a cell of a body follows the whole body: if the watched cell dies the watch passes to another of its cells, and if the body splits it follows the larger part."),
+    calcify: tr("gloss.calcify", "How much of a skeleton a cell lays down. Calcifying costs upkeep. When a settled calcifying cell dies of hunger or old age it may leave stone instead of a husk, far more often beside stone already there, so reefs grow outward from rock. Drifting cells seldom leave stone. Calcifiers can settle on stone; to everything else it is solid."),
+    adhesion: tr("gloss.adhesion", "How strongly cells of one species bond. Above 15%, each cell keeps up to two same-species partners with springs. Empty slots find the nearest neighbors within bond range; children start bonded to their parent if they are the same species. Bonds last until a partner dies, changes kind, or stretches too far away. Bonds form visible links and they physically hold bodies together. Bonded cells share the cost of living (up to 15% less upkeep), shade each other less, and are armored against attack. They still pay crowding beyond their bond partners, disperse poorly, and their inner cells struggle to reach silt to divide. Species without adhesion are single-celled."),
+    bond: tr("gloss.bond", "A persistent spring between two cells of the same species. Drawn as a link. Bonds break if a partner dies, changes kind, or stretches too far. A connected web of bonds forms an organism."),
+    growth: tr("gloss.growth", "How a bonded species builds its body, inherited and mutated like every other gene. Some grow as trees: each new cell buds from a tip at the angle the plan sets, branching every few cells (alternate, one-sided, opposite, or forking), a set number of orders deep, curling or zigzagging as they go, the way filamentous algae, branched cyanobacteria, and colonial ciliates grow. The tips are fed by the cells behind them. Others pack into a tiled mat."),
+    organism: tr("gloss.organism", "A body: all same-species cells connected through bonds. A species only forms bodies if its adhesion is above 15%; otherwise every cell is its own organism, even when the species has several cell types or gathers into swarms. Selecting a cell of a body selects the whole body: if the watched cell dies the watch passes to another of its cells, and if the body splits it follows the larger part."),
     swimming: tr("gloss.swimming", "Self-propulsion: a steady push in the direction the cell is already moving. Reduced by photosynthesis."),
     schooling: tr("gloss.schooling", "Steering toward the average velocity of nearby cells of the same species. Makes schools and coherent bodies move together."),
-    reach: tr("gloss.reach", "How far a cell’s attraction and repulsion forces extend, in micrometers (at most about 60 µm, six cell widths)."),
-    personalspace: tr("gloss.personalspace", "The inner part of the reach where any living cell is pushed away. Sets how tightly packed bodies are."),
+    reach: tr("gloss.reach", "How far a cell’s attraction and repulsion forces extend, in micrometers (at most about 60 µm)."),
+    personalspace: tr("gloss.personalspace", "The inner part of the cell's reach where any living cell is pushed away. This defines how tightly packed bodies are."),
     thrust: tr("gloss.thrust", "How strongly a cell responds to attractions and repulsions."),
     glide: tr("gloss.glide", "How long momentum lasts (the half-life of velocity). Short glide stops quickly; long glide coasts."),
-    currentpull: tr("gloss.currentpull", "How much the ocean currents carry the cell. Low values are anchored: they pay a little upkeep to hold on, but anchored photosynthesizers are fed by the water flowing past. High values drift for free."),
+    currentpull: tr("gloss.currentpull", "How much the ocean currents carry the cell. Low values are anchored: they pay a little upkeep to hold on. High values drift for free."),
     lifespan: tr("gloss.lifespan", "Age at which a cell dies of old age."),
-    dividesat: tr("gloss.dividesat", "Energy a cell needs before it can divide: its own threshold plus the energy in its child’s body, and enough to keep the child going for its first minute. It also needs a grain of silt within reach to build the child from, and to be past its youth (a fifth of its lifespan)."),
+    dividesat: tr("gloss.dividesat", "Energy a cell needs before it can divide: its own threshold plus the energy in its child’s body, and enough to keep the child going for its first minute. It also needs a grain of silt within reach to build the child from, and it must be old enough (a fifth of its lifespan)."),
     childshare: tr("gloss.childshare", "Fraction of the parent’s energy handed to each child."),
-    upkeep: tr("gloss.upkeep", "Energy burned per second. Grows with thrust, reach, swimming, schooling, adhesion, lifespan, size and anchoring. Starving cells burn slower. Crowding raises it: a cell packed among more than four of its own kind (not counting its bond partners) pays extra."),
-    mutation: tr("gloss.mutation", "Chance per division that the child founds a new species with a nudged genome. Rarely, a whole cell type is reinvented or copied."),
-    size: tr("gloss.size", "Drawn size has a small upkeep cost; physics uses reach and personal space. Shape is cosmetic: twelve families with species-specific proportions and irregular, slowly deforming outlines."),
+    upkeep: tr("gloss.upkeep", "Energy burned per second. Grows with thrust, reach, swimming, schooling, adhesion, lifespan, size, and anchoring. Starving cells burn slower. Crowding raises it: a cell packed among more than four of its own kind (not counting its bond partners) pays extra."),
+    mutation: tr("gloss.mutation", "Chance per division that the child creates a new species with a slightly altered genome. Rarely, a whole cell type is reinvented or copied."),
+    size: tr("gloss.size", "Physical size of the cell. Larger cells have a small upkeep cost. Shape is cosmetic: twelve families with species-specific proportions and irregular, slowly deforming outlines."),
     share: tr("gloss.share", "This species’ fraction of all living cells."),
     genus: tr("gloss.genus", "A family of species within a set genetic distance of the genus founder. A lineage that drifts far enough founds a new genus."),
     species: tr("gloss.species", "Every mutant founds a new species. Most die out unseen; a species counts as thriving once it reaches a population threshold."),
     thriving: tr("gloss.thriving", "Species that have reached the population threshold (scaled to world size) and are still alive."),
     alive: tr("gloss.alive", "Every species with at least one living cell, including brand-new mutants."),
-    ever: tr("gloss.ever", "Total number of species that have ever existed in this epoch."),
+    ever: tr("gloss.ever", "Total number of species that have ever existed in this world."),
     stepms: tr("gloss.stepms", "GPU time one simulation step takes."),
-    saves: tr("gloss.saves", "A save keeps the whole world: every particle, each species with its name and lineage, the chronicle, the history and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download one to keep it safe or to open it on another device."),
-    profile: tr("gloss.profile", "Times three seconds of frames on the GPU, pass by pass, and one simulation step, and copies the result with this device’s details: a report of how the page runs here."),
-    worldfps: tr("gloss.worldfps", "How many times a second the world itself is redrawn. Normally that is every frame. At Max, or a fast speed the device can only just keep, it is redrawn about 30 times a second so the GPU’s time goes to steps, while the camera, the loupe and the panels keep the full frame rate. Fast is as fast as the device goes too, but redrawn every frame, its motion drawn smoothly between steps."),
+    saves: tr("gloss.saves", "A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download one to keep it safe or to open it on another device."),
+    profile: tr("gloss.profile", "Times three seconds of frames on the GPU and one simulation step, and copies the result with this device’s details. This is a shareable report on how the simulation runs on this device."),
+    worldfps: tr("gloss.worldfps", "How many times a second the world itself is redrawn. Normally this equals the target frame rate. At Max, the maximum simulation speed, it is redrawn about 30 times a second so more GPU time can be reserved for simulation steps. The camera, the loupe, and the UI panels always keep the full frame rate."),
     adapting: tr("gloss.adapting", "Why the page is drawing less than it could, if it is: frames running late, the GPU busy for nearly the whole frame, the device under pressure (hot or busy, where the browser reports it), or the browser’s own pace (it hands out frames more slowly than the screen refreshes while the page has little to do: only the frame rate is lowered then). With Target fps on Auto it lowers the frame rate to 30 first, then eases what Adaptation may (work done less often, effects, the render scale), and below 30 only once nothing else is left. It climbs back after a stretch with room to spare, 60 fps last. Running fast it does not adapt."),
-    renderres: tr("gloss.renderres", "The render scale the world is drawn at right now, on top of the pixel density (Density; Scene px is the two together). With Render scale on Auto it drops when frames run late and climbs back when there is room."),
-    drawms: tr("gloss.drawms", "GPU time drawing the world once takes: cells, stone, bloom and the final image. At high speeds it is drawn about thirty times a second."),
-    stride: tr("gloss.stride", "How much simulated time each step moves the world forward. Normally a step is 1/60 s, the most exact. When you ask for a speed the GPU can’t reach in steps that small, it takes bigger ones instead, up to 6/60 s; so does a device that can’t draw 60 frames a second, one step a frame (2/60 s at 30 fps). Bigger steps are a little coarser, but births, deaths and the variety of species stay the same over long runs."),
-    stepsps: tr("gloss.stepsps", "How many steps the GPU takes each real second. With Stride it makes the speed: Now is Steps/s × Stride. At 1× it is 60 steps of 1/60 s; at fast speeds it climbs as high as the GPU can go, and when it can go no higher the steps grow longer instead."),
+    renderres: tr("gloss.renderres", "The render scale the world is drawn at right now, on top of the pixel density (Scene px is the two together). With Render scale on Auto it drops when frames run late and climbs back when conditions improve."),
+    drawms: tr("gloss.drawms", "GPU time drawing the world once takes: cells, stone, bloom and the final image."),
+    stride: tr("gloss.stride", "How much simulated time each step moves the world forward. Normally a step is 1/60 s, the most exact. At higher simulation speeds when the GPU can’t keep up, it takes bigger strides per step instead, up to 6/60 s. A device that runs the world at 30 fps needs to double the stride to keep the same speed (2/60 s). Bigger steps are a little coarser and interpolate cell actions, but births, deaths and the variety of species stay roughly the same over long runs."),
+    stepsps: tr("gloss.stepsps", "How many steps the GPU takes each real second. Combined with Stride it defines the simulation speed: Steps/s × Stride. At 1× it is 60 steps of 1/60 s; at fast speeds it climbs as high as the GPU can go, and when it can go no higher the stride increases instead."),
     simrate: tr("gloss.simrate", "How fast the world is running right now, as a multiple of real time."),
     deepest: tr("gloss.deepest", "The most speciation steps between any living species and its founder."),
     generation: tr("gloss.generation", "How many divisions separate this cell from the beginning of the world."),
@@ -22775,36 +22776,36 @@ ${e.message}` : String(e?.message || e));
     touching: tr("gloss.touching", "Other species whose cells sit within bond range of this organism."),
     energy: tr("gloss.energy", "Stored energy. Gained from food or light, spent on upkeep and on building children. A cell starves at zero."),
     origin: tr("gloss.origin", "How this particle came to be what it is now."),
-    crowding: tr("gloss.crowding", "Packed among more than four of its own kind (bond partners aside), a cell pays extra upkeep: the more crowded, the more."),
+    crowding: tr("gloss.crowding", "Packed among more than four of its own kind (bond partners aside), a cell pays extra upkeep increasing with the severity of crowding."),
     bondthrift: tr("gloss.bondthrift", "Bonded cells share the cost of living: each bond partner takes a little off a cell’s upkeep, up to 15%."),
     lean: tr("gloss.lean", "A cell low on energy slows its metabolism and burns only part of its full upkeep, so it lasts longer between meals."),
-    affinity: tr("gloss.affinity", "How strongly each of the species’ cell types is drawn toward (warm, +) or pushed away from (cool, −) what it meets within reach: its own cell types, other species and matter. It is read from the cell type’s receptors against the other’s surface signature; −1 to +1. A picked cell’s own type is marked. Diet adds its own pull toward food on top of this."),
+    affinity: tr("gloss.affinity", "How strongly each of the species’ cell types is drawn toward (warm, +) or pushed away from (cool, −) what it meets within reach: its own cell types, other species, and matter. It is read from the cell type’s receptors against the other’s surface signature; −1 to +1. Diet adds its own pull toward food on top of this."),
     lighthere: tr("gloss.lighthere", "Light at this cell’s position right now: baseline plus tide, scaled by the season."),
-    mind: tr("gloss.mind", "What this cell is doing, read from a replay of its latest decision. A cell has no brain: every frame it adds up the pulls and pushes of everything within reach (its receptors against their surface signatures, appetite for the foods its diet favors, schooling, bonds, stone), moves, then eats, divides or neither. The mode names which pull wins; hover it for the reasoning. The compass draws each pull as an arrow, its length the pull’s strength, with the cell’s heading dashed and its target as a diamond on the rim. The lamps light for conditions that shape what it does. Fleeing is an evolved aversion: no cell knows what a predator is, but lineages whose receptors happened to push them away from their hunters survived."),
-    "mind-food": tr("gloss.mind-food", "Appetite: a hungry cell is drawn toward the foods its diet favors. Flesh-eaters are drawn to animal cells, grazers (and, reluctantly, flesh-eaters) to plant cells, and husk-eaters to husks. It lets living food inside its personal space so it can reach it. A sated cell feels no appetite."),
+    mind: tr("gloss.mind", "What this cell is doing, read from a replay of its latest decision. A cell has no brain: every frame it adds up the pulls and pushes of everything within reach (its receptors against their surface signatures, appetite for the foods its diet favors, schooling, bonds, stone), moves, then eats, divides, or idles. The mode names which pull wins. The compass draws each pull as an arrow, its length the pull’s strength, with the cell’s heading dashed and its target as a diamond on the rim. Fleeing is an evolved aversion: no cell knows what a predator is, but lineages whose receptors happened to push them away from their hunters survived."),
+    "mind-food": tr("gloss.mind-food", "Appetite: a hungry cell is drawn toward the foods its diet favors. Flesh-eaters are drawn to animal cells, grazers (and, reluctantly, flesh-eaters) to plant cells, and scavengers to husks. It lets living food inside its personal space so it can reach it. A sated cell feels no appetite."),
     "mind-other": tr("gloss.mind-other", "The pull or push of other species’ cells on this one: its receptors against their surface signatures. Evolved, not chosen: it is how prey comes to avoid hunters and how species come to live side by side."),
     "mind-kin": tr("gloss.mind-kin", "The pull or push of its own species’ cells (beyond personal space and bonds). Attraction gathers swarms and packs bodies; repulsion spreads them out."),
-    "mind-matter": tr("gloss.mind-matter", "The pull or push of silt, husks and stone on its receptors (apart from appetite), plus stone’s solid push on any cell but a calcifier."),
+    "mind-matter": tr("gloss.mind-matter", "The pull or push of silt, husks and stone on its receptors (apart from appetite). Stone solidly pushes on any non-calcifying cell."),
     "mind-flee": tr("gloss.mind-flee", "Flight: an animal that is not a hunter swims away from hunters near it, the harder the closer they come and the better a swimmer it is."),
     "mind-gut": tr("gloss.mind-gut", "What it ate but could not digest. When its gut is full it drops it beside a grain of silt as dung: a husk for scavengers."),
     "mind-net": tr("gloss.mind-net", "Light minus upkeep, per second. Below zero the cell is living on its reserves until it eats."),
-    "mind-near": tr("gloss.mind-near", "Every species with cells within this cell’s reach, its own kind first; a species keeps its row while it stays. Cells: how many are in reach. Role: predator, a species built to catch this one; prey, one this cell is built to eat. The last column is how they pull on this cell: right, drawn toward them; left, pushed away."),
+    "mind-near": tr("gloss.mind-near", "Every species with cells within this cell’s reach, its own kind first. Cells: how many are in reach. Role: predator, a species built to catch this one; prey, one this cell is built to eat. The last column is how they pull on this cell: left, pushed away; right, drawn toward them."),
     colonial: tr("gloss.colonial", "On average its cells attract each other. In a bonded species this packs the body tight; in a single-celled species the cells gather into swarms without ever joining."),
     solitary: tr("gloss.solitary", "On average its cells repel each other, so they spread out (or, if bonded, stretch into strands)."),
     looseknit: tr("gloss.looseknit", "Its cells barely attract or repel each other."),
     morphs: tr("gloss.morphs", "A single-celled species whose genome makes more than one cell type. The types never bond into a body: they are separate individuals of one species with different shapes and behaviours, like castes or life stages. Their children can be any type the developmental rule allows."),
     singlecelled: tr("gloss.singlecelled", "Its cells never bond: each one is a whole organism, however closely they crowd. A species bonds into multicellular bodies only once its adhesion passes 15%."),
-    anchored: tr("gloss.anchored", "Barely moves and holds against the currents: a reef or a mat."),
+    anchored: tr("gloss.anchored", "Barely moves and holds against the currents."),
     drifting: tr("gloss.drifting", "Carried by the currents."),
     crawler: tr("gloss.crawler", "Moves under its own power, but too weakly to count as a swimmer, and is not simply carried by the currents. Any species that is not anchored, a swimmer or a drifter is a crawler."),
     focus: tr("gloss.focus", "A highlight: everything outside the chosen filter is dimmed in the simulation."),
     links: tr("gloss.links", "Bonds between cells of one multicellular body. Single-celled species never show links."),
     chronicler: tr("gloss.chronicler", "The chronicler reads the census and a ledger of who ate whom, how each species died and where it lives, and now and then writes what happened in the log: a death worth remembering and its cause, an arms race, hunters and hunted cycling, a lineage following the water, the last of a guild, what an era or an event did. It speaks only when something notable has happened, a few times an hour at most. Lab → Log → Chronicler shows its entries alone."),
     card: tr("gloss.card", "A species card: its portrait, sigil, song, lineage and natural history on one image, with the chronicler’s latest line about it. Save it as a PNG, and its song as a short clip. You can give the species a name of your own there."),
-    film: tr("gloss.film", "Records the view as a video, with the auto camera’s captions and the soundtrack, until you stop it (R, or Stop on the red strip); the strip shows its time and size. Where it can, it is written to disk as it is made; it stops itself before it grows too big to keep (up to 8 GB, an hour or more at 1080p; less where it has to wait in memory)."),
-    autoidle: tr("gloss.autoidle", "Left alone for a minute (three with a panel open), the camera starts filming the world on its own. Drag, scroll or tap to take it back."),
-    renderscale: tr("gloss.renderscale", "The share of the screen’s resolution the world is drawn at. Auto lowers it while frames run late and raises it again when there is room, and shows the scale it is using now (the choice it matches underlined, or the scale beside Auto); it may go as low as Auto lowest, and in an emergency lower still, to 25%. A fixed value never changes."),
-    autofloor: tr("gloss.autofloor", "The lowest render scale Auto may drop to."),
+    film: tr("gloss.film", "Records the view as a video, with the auto camera’s captions and the soundtrack, until you stop it (R, or Stop on the red strip). On devices that support it, the film is written to disk as it is recorded. It stops itself before it grows too big (up to 8 GB, an hour or more at 1080p)."),
+    autoidle: tr("gloss.autoidle", "Left alone for a minute (three with a panel open), the camera starts exploring the world on its own. Drag, scroll or tap to take it back."),
+    renderscale: tr("gloss.renderscale", "The percent of the screen’s full resolution the world is drawn at. Auto mode lowers it while frames run late and raises it again when conditions improve. In Auto mode, it may go as low as the Auto lowest setting, and in an emergency lower still, to 25%. Select a fixed value to disable Auto mode and ensure the resolution always stays at that percent."),
+    autofloor: tr("gloss.autofloor", "The lowest render scale Auto mode may drop to."),
     icescale: tr("gloss.icescale", "The resolution the ice is drawn at: Full, or Half (a quarter of the pixels, its fine lines softer). It costs nothing until ice is in view, then much of a phone’s frame. Auto draws it in full, and Adaptation may halve it while frames run late (what Auto holds now is underlined). A value chosen is held."),
     seaevery: tr("gloss.seaevery", "How often the water’s waves are worked out: every frame (Full), every second frame or every fourth, carried along their drift in between. Less often costs less and shows only as a little less motion in the light. Auto works them out every frame, and Adaptation may slow them while frames run late (what Auto holds now is underlined). A rate chosen is held, and then the surface is never turned off for speed. Display → Surface sets how strong it is."),
     contactsevery: tr("gloss.contactsevery", "How much of the world looks again each frame for which cells touch, what draws them pressed together into tissue: half of it, or a quarter. In between, the contacts are carried along, a few frames old at most. Auto looks at half each frame, and Adaptation may take it to a quarter while frames run late (what Auto holds now is underlined). A rate chosen is held."),
@@ -25121,7 +25122,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
   var DIET_COL = { photosynth: "#d9f27a", grazer: "#b9e6ff", scavenger: "#a87b5c", predator: "#ff5e7a" };
   var MOB_COL = { anchored: "#7fe0b0", crawler: "#ffb45e", swimmer: "#6e96ff", drifter: "#9aa3b8" };
   var FACET_NAME = {
-    photosynth: tr("facet.photosynth", "photosynth"),
+    photosynth: tr("facet.photosynth", "producer"),
     grazer: tr("facet.grazer", "grazer"),
     scavenger: tr("facet.scavenger", "scavenger"),
     predator: tr("facet.predator", "predator"),
@@ -25170,7 +25171,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     else tags.push(self > 0.3 ? [tr("facet.tag.swarming", "swarming"), "colonial"] : self < -0.1 ? [tr("facet.tag.solitary", "solitary"), "solitary"] : [tr("facet.tag.loose-knit", "loose-knit"), "looseknit"]);
     tags.push([N[f2.mobility], { anchored: "anchored", drifter: "drifting", swimmer: "swimming", crawler: "crawler" }[f2.mobility]]);
     if (f2.schooling) tags.push([tr("facet.tag.schooling", "schooling"), "schooling"]);
-    if (g.photo > 0.25 && g.photo <= 0.55) tags.push([tr("facet.tag.part-photosynth", "part photosynth"), "photosynth"]);
+    if (g.photo > 0.25 && g.photo <= 0.55) tags.push([tr("facet.tag.part-photosynth", "part producer"), "photosynth"]);
     if (g.lifespan > 300) tags.push([tr("facet.tag.long-lived", "long-lived"), "lifespan"]);
     if (g.mutRate > 0.035) tags.push([tr("facet.tag.fast-mutating", "fast-mutating"), "mutation"]);
     if (K.heat && g.topt != null) {
@@ -25236,14 +25237,14 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     const nm = `<span class="mc-name" translate="no"><b>${esc2(genus)}</b><span>${esc2(rest)}</span></span>`;
     const label3 = tr(
       "minicard.aria",
-      "{name}, {diet, select, photosynth {photosynth} grazer {grazer} scavenger {scavenger} predator {predator} other {{diet}}}, {mobility, select, anchored {anchored} crawler {crawler} swimmer {swimmer} drifter {drifter} other {{mobility}}}{from, select, yes {, from {home}} other {}}{n, plural, =0 {} one {, {n} cell} other {, {n} cells}}{tip, select, yes {, at the tip} other {}}",
+      "{name}, {diet, select, photosynth {producer} grazer {grazer} scavenger {scavenger} predator {predator} other {{diet}}}, {mobility, select, anchored {anchored} crawler {crawler} swimmer {swimmer} drifter {drifter} other {{mobility}}}{from, select, yes {, from {home}} other {}}{n, plural, =0 {} one {, {n} cell} other {, {n} cells}}{tip, select, yes {, at the tip} other {}}",
       { name, diet: f2.diet, mobility: f2.mobility, from: home ? "yes" : "no", home: eraName(home), n, tip: tip ? "yes" : "no" }
     );
     const tipMark = `<span class="mc-tip">${tr("minicard.tip", "Tip")}</span>`;
     const open = `<button type="button" class="minicard${flat ? " flat" : ""}${tip ? " at-tip" : ""}" data-key="${esc2(key)}"${thumb ? ` data-thumb="${esc2(thumb)}"` : ""} aria-label="${esc2(label3)}">`;
     if (flat) return `${open}${ph}${nm}<span class="mc-end">${tip ? tipMark : ""}${count}${keptMark}</span></button>`;
     const kind = `<span class="mc-kind" aria-hidden="true"><svg style="color:${DIET_COL[f2.diet]}"><use href="#i-d-${f2.diet}"/></svg><svg><use href="#i-m-${f2.mobility}"/></svg></span>`;
-    const sub = status ? `<span class="mc-sub mc-st${status[0] === "live" ? "" : ` ${status[0]}`}">${statusText(status)}</span>` : home ? `<span class="mc-sub from">${fromText(home)}</span>` : `<span class="mc-sub">${tr("minicard.kind", "<d>{diet, select, photosynth {photosynth} grazer {grazer} scavenger {scavenger} predator {predator} other {{diet}}}</d> · {mobility, select, anchored {anchored} crawler {crawler} swimmer {swimmer} drifter {drifter} other {{mobility}}}", { diet: f2.diet, mobility: f2.mobility, d: (c) => `<span style="color:${DIET_COL[f2.diet]}">${[].concat(c).join("")}</span>` })}</span>`;
+    const sub = status ? `<span class="mc-sub mc-st${status[0] === "live" ? "" : ` ${status[0]}`}">${statusText(status)}</span>` : home ? `<span class="mc-sub from">${fromText(home)}</span>` : `<span class="mc-sub">${tr("minicard.kind", "<d>{diet, select, photosynth {producer} grazer {grazer} scavenger {scavenger} predator {predator} other {{diet}}}</d> · {mobility, select, anchored {anchored} crawler {crawler} swimmer {swimmer} drifter {drifter} other {{mobility}}}", { diet: f2.diet, mobility: f2.mobility, d: (c) => `<span style="color:${DIET_COL[f2.diet]}">${[].concat(c).join("")}</span>` })}</span>`;
     return `${open}${ph}${tip ? tipMark : ""}${count}${keptMark}${kind}${nm}${sub}</button>`;
   }
   var HOLD2 = 350;
@@ -25348,7 +25349,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       document.body.classList.toggle("lab-open", st.open);
       document.body.classList.toggle("lab-wide", st.open && st.tab !== "census");
       fold.setAttribute("aria-expanded", String(st.open));
-      fold.setAttribute("aria-label", st.open ? tr("lab.close.aria", "Collapse the Lab") : tr("lab.fold.open.aria", "Open the Lab"));
+      fold.setAttribute("aria-label", st.open ? tr("lab.close.aria", "Collapse the Field Lab") : tr("lab.fold.open.aria", "Open the Lab"));
       fold.dataset.hint = titleBar.dataset.hint = st.open ? tr("lab.close.hint", "Collapse · K") : tr("lab.fold.open.hint", "Open the Lab · K");
       $3("lab-open").setAttribute("aria-expanded", String(st.open));
     }
@@ -25434,7 +25435,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     }
     const hovering = (el2) => el2.matches(":hover");
     const ANY = tr("lab.filter.any", "Any");
-    const DIETS = [["all", ANY], ["photosynth", tr("lab.filter.photosynth", "Photosynth")], ["grazer", tr("lab.filter.grazer", "Grazer")], ["scavenger", tr("lab.filter.scavenger", "Scavenger")], ["predator", tr("lab.filter.predator", "Predator")]];
+    const DIETS = [["all", ANY], ["photosynth", tr("lab.filter.photosynth", "Producer")], ["grazer", tr("lab.filter.grazer", "Grazer")], ["scavenger", tr("lab.filter.scavenger", "Scavenger")], ["predator", tr("lab.filter.predator", "Predator")]];
     const MOBS = [["all", ANY], ["anchored", tr("lab.filter.anchored", "Anchored")], ["crawler", tr("lab.filter.crawler", "Crawler")], ["swimmer", tr("lab.filter.swimmer", "Swimmer")], ["drifter", tr("lab.filter.drifter", "Drifter")]];
     const TEMPS = [["all", ANY], ["cold-loving", tr("lab.filter.cold", "Cold")], ["temperate", tr("lab.filter.temperate", "Temperate")], ["warmth-loving", tr("lab.filter.warm", "Warm")], ["thermophile", tr("lab.filter.hot", "Hot")]];
     const BODIES = [["all", ANY], ["multicellular", tr("lab.filter.multicellular", "Multicellular")], ["single-cell", tr("lab.filter.single-cell", "Single-cell")]];
@@ -25613,11 +25614,11 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       ${subHead(tr("lab.lin.plot.head", "Cells by lineage"), `<span class="lin-key">${tr("lab.lin.key", "drag across to zoom")}</span>`)}
       <div class="lin-muller"><canvas id="lin-muller" aria-label="${tr("lab.lin.plot.aria", "Cells by lineage over time")}"></canvas><div class="lin-brush" hidden></div></div>`, "lineage");
       const treeHead = document.createElement("div");
-      treeHead.innerHTML = subHead(tr("lab.lin.tree.head", "Lineages"), `<span class="hov">${tr("lab.lin.tree.how", "click one to explore it · its <ret></ret> shows it in the water", { ret: () => '<svg class="ret-i" aria-hidden="true"><use href="#i-ret"/></svg>' })}</span><span class="tch">${tr("lab.lin.tree.how-touch", "tap one to explore it")}</span>`);
+      treeHead.innerHTML = subHead(tr("lab.lin.tree.head", "Lineages"), `<span class="hov">${tr("lab.lin.tree.how", "click to explore · <ret></ret> shows species in the water", { ret: () => '<svg class="ret-i" aria-hidden="true"><use href="#i-ret"/></svg>' })}</span><span class="tch">${tr("lab.lin.tree.how-touch", "tap to explore")}</span>`);
       const descent = document.createElement("div");
       descent.className = "lin-descent";
       descent.hidden = true;
-      descent.innerHTML = block(tr("lab.lin.descent", "Line of descent"), '<ol class="lin-chain"></ol>', { aside: tr("lab.lin.descent.aside", "a name shows it in the water") });
+      descent.innerHTML = block(tr("lab.lin.descent", "Line of descent"), '<ol class="lin-chain"></ol>', { aside: tr("lab.lin.descent.aside", "click species to highlight") });
       const chainOl = descent.querySelector("ol");
       const treeCv = document.createElement("canvas");
       treeCv.className = "lin-tree";
@@ -25909,7 +25910,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         }
         setHTML(list, c.units.map((u, i) => {
           const n = strandLead(u.strand), tg = target(u);
-          return `<li>${u.strand !== r ? `<button type="button" data-u="${i}" data-do="explore">${tr("lab.lin.item.explore", "Explore {name}’s lineage: {count, plural, other {# species}}, {alive, select, yes {living} other {extinct}}", { name: esc2(n.name), count: u.count, alive: u.alive ? "yes" : "no" })}</button>` : ""}<button type="button" data-u="${i}" data-sp="${tg.serial}">${tr("lab.lin.item.show", "Show {name} in the water", { name: esc2(tg.name) })}</button></li>`;
+          return `<li>${u.strand !== r ? `<button type="button" data-u="${i}" data-do="explore">${tr("lab.lin.item.explore", "Explore {name}’s lineage: {count, plural, other {# species}}, {alive, select, yes {living} other {extinct}}", { name: esc2(n.name), count: u.count, alive: u.alive ? "yes" : "no" })}</button>` : ""}<button type="button" data-u="${i}" data-sp="${tg.serial}">${tr("lab.lin.item.show", "Highlight {name} in the water", { name: esc2(tg.name) })}</button></li>`;
         }).join(""));
       }
       return { ...p2, update };
@@ -26002,7 +26003,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     function buildCharts() {
       const p2 = pane("");
       p2.scroll.classList.add("stack");
-      p2.scroll.innerHTML = `<div class="legend"><span><i style="background:var(--sun);height:6px;width:1px"></i>${tr("lab.graph.era-key", "dotted lines mark a new era")}</span></div>` + CHARTS.map(([t, tip, s], i) => block(t, `<canvas class="dyn chart" data-i="${i}" aria-label="${esc2(t)}"></canvas><div class="legend">${s.map((x) => `<span><i style="background:${x.col}"></i>${x.label}</span>`).join("")}</div>`, { tip })).join("") + (api.eng.K.heat ? block(tr("lab.graph.niches", "Thermal niches"), `<canvas class="niches chart" aria-label="${tr("lab.graph.niches.aria", "Each species by the temperature it prefers and its population. Point at a dot to name its species; click to open it.")}"></canvas><div class="legend"><span><i style="background:#ff8a3a;opacity:.4"></i>${tr("lab.graph.niches.felt", "warmth the living feel")}</span><span><i style="background:#ff8a3a;height:6px;width:1px"></i>${tr("lab.graph.niches.water", "background temperature")}</span><span>${tr("lab.graph.niches.dots", "dot size: tolerance · ring: <term>heat-maker</term>", { term: (c) => term("heatmaker", c.join("")) })}</span></div>`, { tip: "optimum" }) : "") + block(tr("lab.graph.eras", "Eras"), '<ol class="eras" id="eras"></ol>');
+      p2.scroll.innerHTML = `<div class="legend"><span><i style="background:var(--sun);height:6px;width:1px"></i>${tr("lab.graph.era-key", "dotted lines mark a new era")}</span></div>` + CHARTS.map(([t, tip, s], i) => block(t, `<canvas class="dyn chart" data-i="${i}" aria-label="${esc2(t)}"></canvas><div class="legend">${s.map((x) => `<span><i style="background:${x.col}"></i>${x.label}</span>`).join("")}</div>`, { tip })).join("") + (api.eng.K.heat ? block(tr("lab.graph.niches", "Thermal niches"), `<canvas class="niches chart" aria-label="${tr("lab.graph.niches.aria", "Each species by the temperature it prefers and its population. Hover over a dot to display the species name; click to inspect it.")}"></canvas><div class="legend"><span><i style="background:#ff8a3a;opacity:.4"></i>${tr("lab.graph.niches.felt", "warmth the living feel")}</span><span><i style="background:#ff8a3a;height:6px;width:1px"></i>${tr("lab.graph.niches.water", "background temperature")}</span><span>${tr("lab.graph.niches.dots", "dot size: tolerance · ring: <term>heat-maker</term>", { term: (c) => term("heatmaker", c.join("")) })}</span></div>`, { tip: "optimum" }) : "") + block(tr("lab.graph.eras", "Eras"), '<ol class="eras" id="eras"></ol>');
       const cvs = [...p2.scroll.querySelectorAll("canvas.dyn")];
       const niches = p2.scroll.querySelector("canvas.niches");
       let erasKey = "";
@@ -26141,7 +26142,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         undoKey = k;
         el2.hidden = !c;
         p2.ctl.querySelector("#cab-order").hidden = !!c;
-        el2.innerHTML = c ? `<span>${tr("lab.cab.taken-out", "{name} taken out", { name: esc2(c.name) })}</span> <button type="button" class="link">${tr("lab.cab.undo", "Undo")}</button>` : "";
+        el2.innerHTML = c ? `<span>${tr("lab.cab.taken-out", "{name} removed", { name: esc2(c.name) })}</span> <button type="button" class="link">${tr("lab.cab.undo", "Undo")}</button>` : "";
       }
       let key = "";
       function update(force) {
@@ -26163,7 +26164,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
           return;
         }
         key = k;
-        grid2.innerHTML = shown.length ? shown.map((c) => `<div class="cab-card">${api.cabinet.mini(c)}<button type="button" class="cab-out" data-out="${esc2(c.id)}" aria-label="${tr("lab.cab.out.aria", "Take {name}’s card out of the cabinet", { name: esc2(c.name) })}" data-hint="${tr("lab.cab.out.hint", "Out of the cabinet")}"><svg aria-hidden="true"><use href="#i-close"/></svg></button></div>`).join("") : `<div class="pip-empty"><b>${all.length ? tr("lab.cab.none", "No card matches.") : tr("lab.cab.empty", "The cabinet is empty.")}</b><span>${all.length ? tr("lab.cab.none.sub", "Try other filters.") : tr("lab.cab.empty.sub", "Save a species from the specimen panel (Save), or drop a species card’s PNG on the page: its card comes here, to be carried to any world.")}</span></div>`;
+        grid2.innerHTML = shown.length ? shown.map((c) => `<div class="cab-card">${api.cabinet.mini(c)}<button type="button" class="cab-out" data-out="${esc2(c.id)}" aria-label="${tr("lab.cab.out.aria", "Remove {name}’s card from the cabinet", { name: esc2(c.name) })}" data-hint="${tr("lab.cab.out.hint", "Remove from the cabinet")}"><svg aria-hidden="true"><use href="#i-close"/></svg></button></div>`).join("") : `<div class="pip-empty"><b>${all.length ? tr("lab.cab.none", "No card matches.") : tr("lab.cab.empty", "The cabinet is empty.")}</b><span>${all.length ? tr("lab.cab.none.sub", "Try other filters.") : tr("lab.cab.empty.sub", "Save a species from the specimen panel (Save), or drop a species card’s PNG on the page. Cards here can be carried and inserted into any world.")}</span></div>`;
       }
       return { ...p2, update };
     }
@@ -26413,9 +26414,9 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     } else if (K.heat && m.torpid) {
       st = { key: "torpid", text: tr("mind.state.torpid", "Torpid in the cold"), why: tr("mind.state.torpid.why", "At {t}° it is {below}° below the range it can work in (it prefers {range}): it neither feeds, swims nor divides, and burns {cost}% of its upkeep until the water warms.", { t: deg(m.warmth), below: belowRange(g, K, m.warmth), range, cost: Math.round(K.torporCost * 100) }) };
     } else if (E >= need && !m.mature) {
-      st = { key: "young", text: tr("mind.state.young", "Growing up"), why: tr("mind.state.young.why", "It has the energy to divide ({e} of {need}) but is too young: a cell divides only once it is {at}% through its lifespan ({age} s). Full, it has stopped feeding.", { e, need: needs, at: Math.round(K.mature * 100), age: Math.round(K.mature * g.lifespan) }) };
+      st = { key: "young", text: tr("mind.state.young", "Growing up"), why: tr("mind.state.young.why", "It has the energy to divide ({e} of {need}) but is too young: a cell divides only once it is {at}% through its lifespan ({age} s). It is full and has stopped feeding.", { e, need: needs, at: Math.round(K.mature * 100), age: Math.round(K.mature * g.lifespan) }) };
     } else if (E >= need) {
-      st = m.siltNear ? { key: "divide", matter: tr("mind.target.silt", "Silt"), text: tr("mind.state.divide", "Dividing"), why: tr("mind.state.divide.why", "Its energy ({e}) has reached the {need} it needs, and a grain of silt is in reach to build a child from.", { e, need: needs }) } : { key: "seeksilt", matter: tr("mind.target.silt-none", "Silt, none in reach"), text: tr("mind.state.seeksilt", "Ready to divide"), why: tr("mind.state.seeksilt.why", "It has the energy to divide ({e} of {need}) but no grain of silt within reach to build a child from, so it waits. Full, it has stopped feeding.", { e, need: needs }) };
+      st = m.siltNear ? { key: "divide", matter: tr("mind.target.silt", "Silt"), text: tr("mind.state.divide", "Dividing"), why: tr("mind.state.divide.why", "Its energy ({e}) has reached the {need} it needs, and a grain of silt is in reach to build a child from.", { e, need: needs }) } : { key: "seeksilt", matter: tr("mind.target.silt-none", "Silt, none in reach"), text: tr("mind.state.seeksilt", "Ready to divide"), why: tr("mind.state.seeksilt.why", "It has the energy to divide ({e} of {need}) but no grain of silt within reach to build a child from, so it waits. It is full and has stopped feeding.", { e, need: needs }) };
     } else if (m.gut >= 0.98 && m.siltNear) {
       st = { key: "dung", matter: tr("mind.target.silt", "Silt"), text: tr("mind.state.dung", "Dropping dung"), why: tr("mind.state.dung.why", "Its gut is full of what it ate but could not digest; it drops it beside a grain of silt as dung, a husk for scavengers.") };
     } else if (m.food && m.hungry) {
@@ -26431,7 +26432,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         const unfamiliar = m.image !== 0 && m.image !== fk && K.searchImage > 0;
         const hidden = !plant && gq && gq.photo <= 0.4 && m.plantN * K.plantRefuge >= 0.1;
         const odds = { p: p2, every, verb: plant ? "bite" : "kill", unfamiliar, attack };
-        st = plant ? { key: "graze", target: fk, odds, text: tr("mind.state.graze", "Grazing on {sp}", { sp }), why: tr("mind.state.graze.why", "Hungry (energy {e} of the {need} it needs to divide), with a {sp} cell in reach to crop. A bite lands about {p}% of the time, one try every {every} s.", { e, need: needs, sp, p: pct(p2), every: every.toFixed(1) }) } : attack < 0.5 ? { key: "rest", target: fk, odds, text: tr("mind.state.rest", "Fed, letting {sp} pass", { sp }), why: tr("mind.state.rest.why", "Well fed (energy {e} of the {need} it needs to divide): a fed hunter strikes only as often as it is short of food, now at about {attack}% of its chances, so {sp} in reach is mostly left alone. When it does strike, it kills about {strike}% of the time.", { e, need: needs, attack: pct(attack), sp, strike: pct(strike) }) } : { key: "hunt", target: fk, odds, text: tr("mind.state.hunt", "Hunting {sp}", { sp }), why: tr("mind.state.hunt.why", "Hungry (energy {e} of the {need} it needs to divide), with {sp} in reach. {fed, select, part {Part fed, it takes about {attack}% of its chances; a} other {A}} strike kills about {strike}% of the time, one try every {every} s{unfamiliar, select, yes {; it is used to other prey, so it often misses this one} other {}}{hidden, select, yes {; the producers around hide some of its prey} other {}}.", { e, need: needs, sp, fed: attack < 0.99 ? "part" : "hungry", attack: pct(attack), strike: pct(strike), every: every.toFixed(1), unfamiliar: unfamiliar ? "yes" : "no", hidden: hidden ? "yes" : "no" }) };
+        st = plant ? { key: "graze", target: fk, odds, text: tr("mind.state.graze", "Grazing on {sp}", { sp }), why: tr("mind.state.graze.why", "Hungry (energy {e} of the {need} it needs to divide), with a {sp} cell in reach to crop. A bite lands about {p}% of the time, one try every {every} s.", { e, need: needs, sp, p: pct(p2), every: every.toFixed(1) }) } : attack < 0.5 ? { key: "rest", target: fk, odds, text: tr("mind.state.rest", "Fed, letting {sp} pass", { sp }), why: tr("mind.state.rest.why", "Well fed (energy {e} of the {need} it needs to divide): a fed hunter strikes only as often as it is short of food, now at about {attack}% of its chances, so {sp} in reach is mostly left alone. When it does strike, it kills about {strike}% of the time.", { e, need: needs, attack: pct(attack), sp, strike: pct(strike) }) } : { key: "hunt", target: fk, odds, text: tr("mind.state.hunt", "Hunting {sp}", { sp }), why: tr("mind.state.hunt.why", "Hungry (energy {e} of the {need} it needs to divide), with {sp} in reach. {fed, select, part {Partly fed, it takes about {attack}% of its chances; a} other {A}} strike kills about {strike}% of the time, one try every {every} s{unfamiliar, select, yes {; it is used to other prey, so it often misses this one} other {}}{hidden, select, yes {; the producers around hide some of its prey} other {}}.", { e, need: needs, sp, fed: attack < 0.99 ? "part" : "hungry", attack: pct(attack), strike: pct(strike), every: every.toFixed(1), unfamiliar: unfamiliar ? "yes" : "no", hidden: hidden ? "yes" : "no" }) };
       }
     }
     const left = net < 0 ? E / -net : Infinity;
@@ -26443,7 +26444,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     }
     const chaser = others.filter((s) => s.flee > 0).sort((a, b) => b.flee - a.flee)[0];
     if (!st && chaser && share2("flee") >= 0.15) {
-      st = { key: "flee", target: chaser.kind, text: tr("mind.state.flee", "Fleeing {sp}", { sp }), why: tr("mind.state.flee.why-chased", "{sp} is a hunter, and this cell swims away from hunters near it, the harder the closer they come{known, select, yes {: about {danger}% of their strikes would land} other {}}.", { sp, known: threat && threat.kind === chaser.kind ? "yes" : "no", danger: threat ? pct(threat.danger) : 0 }) };
+      st = { key: "flee", target: chaser.kind, text: tr("mind.state.flee", "Fleeing {sp}", { sp }), why: tr("mind.state.flee.why-chased", "{sp} is a hunter, and this cell swims away from hunters near it. It swims harder the closer the hunter gets{known, select, yes {: about {danger}% of their strikes would land} other {}}.", { sp, known: threat && threat.kind === chaser.kind ? "yes" : "no", danger: threat ? pct(threat.danger) : 0 }) };
     }
     if (!st && threat && g.photo <= 0.4 && -threat.sig > 0.2 * total) {
       st = { key: "flee", target: threat.kind, text: tr("mind.state.flee", "Fleeing {sp}", { sp }), why: tr("mind.state.flee.why-repelled", "{sp} hunts cells like this one: about {danger}% of their strikes would land. This cell's receptors are repelled by {sp}'s surface signature, so it is pushed away from them.", { sp, danger: pct(threat.danger) }) };
@@ -26467,7 +26468,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       st = up ? { key: "seeklight", text: tr("mind.state.seeklight", "Following the light"), why: tr("mind.state.seeklight.why", "At {light}% light, it pushes itself up the light's slope toward the brightest water{producer, select, yes {, where it photosynthesizes best} other {, where producers bloom}}.", { light: pct(m.light), producer: g.photo > 0.4 ? "yes" : "no" }) } : { key: "shunlight", text: tr("mind.state.shunlight", "Seeking shade"), why: tr("mind.state.shunlight.why", "At {light}% light, it pushes itself down the light's slope, away from the bright bands where producers bloom and their grazers and hunters gather.", { light: pct(m.light) }) };
     }
     if (!st && K.heat && (g.thermo || 0) > 0.2 && m.bonds > 0 && m.x < 0 && m.water < g.topt - 1) {
-      st = { key: "huddle", text: tr("mind.state.huddle", "Keeping warm"), why: tr("mind.state.huddle.why", "A heat-maker in a body: it burns {rate}/s to run {above}° above the {water}° water, and its body holds the warmth in.", { rate: heatMaking.toFixed(3), above: deg(m.warmth - m.water), water: deg(m.water) }) };
+      st = { key: "huddle", text: tr("mind.state.huddle", "Keeping warm"), why: tr("mind.state.huddle.why", "A heat-maker: it burns {rate}/s to run {above}° above the {water}° water, and its body holds the warmth in.", { rate: heatMaking.toFixed(3), above: deg(m.warmth - m.water), water: deg(m.water) }) };
     }
     if (!st && repel && -repel.sig > 0.35 * total) {
       st = { key: "avoid", target: repel.kind, text: tr("mind.state.avoid", "Keeping away from {sp}", { sp }), why: tr("mind.state.avoid.why", "Its receptors are repelled by the surface signature of {sp}, so it is pushed away from them.", { sp }) };
@@ -26486,7 +26487,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       else if (top && top.key === "bond") st = { key: "body", text: tr("mind.state.body", "Holding its body together"), why: tr("mind.state.body.why", "Its bonds are the strongest pull on it: the body keeps its shape.") };
       else if (top && top.key === "kin") st = kinSig >= 0 ? { key: "gather", text: tr("mind.state.gather", "Gathering with its kind"), why: tr("mind.state.gather.why", "Drawn toward cells of its own species.") } : { key: "spread", text: tr("mind.state.spread", "Spreading from its kind"), why: tr("mind.state.spread.why", "Its own species repels it, so it keeps its distance.") };
       else if (top && top.key === "space") st = { key: "jostle", text: tr("mind.state.jostle", "Jostled in a crowd"), why: tr("mind.state.jostle.why", "Packed in tight: the strongest push on it is other cells' personal space.") };
-      else if (top && top.key === "stone") st = { key: "blocked", text: tr("mind.state.blocked", "Pressed against stone"), why: tr("mind.state.blocked.why", "Stone is solid to it; it is being pushed around a grain.") };
+      else if (top && top.key === "stone") st = { key: "blocked", text: tr("mind.state.blocked", "Pressed against stone"), why: tr("mind.state.blocked.why", "It is being pushed around a stone grain.") };
       else if (flowing) st = { key: "drift", text: tr("mind.state.drift", "Drifting on the current"), why: tr("mind.state.drift.why", "Nothing nearby pulls on it much; the current carries it.") };
       else if (top && top.key === "swim") st = { key: "cruise", text: tr("mind.state.cruise", "Cruising"), why: m.hungry ? tr("mind.state.cruise.why-hungry", "Hungry (energy {e} of the {need} it needs to divide) but nothing it eats is near, so it swims on.", { e, need: needs }) : tr("mind.state.cruise.why", "Swimming on, with nothing nearby pulling on it much.") };
       else st = { key: "idle", text: tr("mind.state.idle", "Idling"), why: m.hungry ? tr("mind.state.idle.why-hungry", "Hungry (energy {e} of the {need} it needs to divide), but nothing it eats is in sight.", { e, need: needs }) : tr("mind.state.idle.why", "Nothing nearby pulls on it much.") };
@@ -26500,7 +26501,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       { key: "hungry", label: tr("mind.lamp.hungry", "Hungry"), on: m.hungry, hint: m.hungry ? tr("mind.lamp.hungry.on", "Hungry: energy {e} of the {need} it needs to divide. It is drawn to food and eats what comes in reach.", { e, need: needs }) : g.photo > 0.4 && m.eatEff <= 0.1 ? tr("mind.lamp.hungry.light", "Lives on light alone: too committed to photosynthesis to eat.") : tr("mind.lamp.hungry.off", "Not hungry: energy {e} of the {need} it needs to divide.", { e, need: needs }) },
       // i18n: {age} seconds; {own} the energy it divides at for itself, to two decimals
       { key: "full", label: tr("mind.lamp.full", "Ready to divide"), on: E >= need && m.mature && !m.cyst, hint: E >= need ? m.mature ? tr("mind.lamp.full.on", "Has the energy to divide; {silt, select, yes {a grain of silt is in reach.} other {needs a grain of silt within reach to build a child from.}}", { silt: m.siltNear ? "yes" : "no" }) : tr("mind.lamp.full.young", "Has the energy, but divides only once {age} s old.", { age: Math.round(K.mature * g.lifespan) }) : tr("mind.lamp.full.off", "Divides at {need} energy: its own {own} and its child's body.", { need: needs, own: g.reproE.toFixed(2) }) },
-      { key: "threat", label: tr("mind.lamp.threat", "Predator in reach"), on: !!threat, target: threat ? threat.kind : null, hint: threat ? tr("mind.lamp.threat.on", "{sp}, within reach, hunts cells like this one: about {danger}% of their strikes would land.", { sp, danger: pct(threat.danger) }) : tr("mind.lamp.threat.off", "Nothing within reach is built to catch cells like this one.") },
+      { key: "threat", label: tr("mind.lamp.threat", "Predator in reach"), on: !!threat, target: threat ? threat.kind : null, hint: threat ? tr("mind.lamp.threat.on", "{sp}, within reach, hunts cells like this one: about {danger}% of their strikes would land.", { sp, danger: pct(threat.danger) }) : tr("mind.lamp.threat.off", "Nothing within reach has learned to catch cells like this one.") },
       // i18n: {left} seconds
       { key: "low", label: tr("mind.lamp.low", "Energy running out"), on: left < 30, hint: left < 30 ? tr("mind.lamp.low.on", "About {left} s of energy left without {producer, select, yes {more light} other {a meal}}.", { left: low, producer: g.photo > 0.4 ? "yes" : "no" }) : tr("mind.lamp.low.off", "Energy reserves are not running out.") },
       { key: "lean", label: tr("mind.lamp.lean", "Saving energy"), on: lean < 0.8, hint: tr("mind.lamp.lean.hint", "A cell low on energy slows its metabolism: this one burns {lean}% of its full upkeep.", { lean: pct(lean) }) },
@@ -26759,7 +26760,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
   }
 
   // src/specimen.js
-  var RIDE_REL = `<button type="button" class="btn" data-act="riderel" data-hint="${tr("spec.act.ride-relative.hint", "Ride the nearest of its kind · Enter")}">${tr("spec.act.ride-relative", "Ride a relative")}</button>`;
+  var RIDE_REL = `<button type="button" class="btn" data-act="riderel" data-hint="${tr("spec.act.ride-relative.hint", "Ride the nearest of its kin · Enter")}">${tr("spec.act.ride-relative", "Ride a kin")}</button>`;
   function createSpecimen(api) {
     const { eng, K } = api;
     const $3 = (id) => document.getElementById(id);
@@ -26893,7 +26894,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       st.actKey = "";
       render(true);
     });
-    const cardBtn = (serial) => api.saved(serial) ? `<button type="button" class="btn" data-act="card" data-hint="${tr("spec.act.card.hint", "Its card: name it, share it, load the pipette with it")}">${tr("spec.act.card", "Card")}</button>` : `<button type="button" class="btn" data-act="save" data-hint="${tr("spec.act.save.hint", "Save its card to the cabinet, to carry it to any world")}">${tr("spec.act.save", "Save")}</button>`;
+    const cardBtn = (serial) => api.saved(serial) ? `<button type="button" class="btn" data-act="card" data-hint="${tr("spec.act.card.hint", "Species card: name it, share it, load the pipette with it")}">${tr("spec.act.card", "Card")}</button>` : `<button type="button" class="btn" data-act="save" data-hint="${tr("spec.act.save.hint", "Save its card to the cabinet, to carry it to any world")}">${tr("spec.act.save", "Save")}</button>`;
     const comp2 = (label3, tip, shares, g, hint) => {
       const types = [0, 1, 2].filter((r) => shares[r] > 5e-4);
       const pct = (v) => v < 0.01 ? "<1" : String(Math.round(v * 100));
@@ -27034,7 +27035,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       const diff = av ? compareMotifs(av.motif, v.motif) : null;
       const slot = (sp ? sp.alive : true) && g.slot != null ? g.slot : -1;
       const m = v.motif, pad22 = (n) => String(n).padStart(2, "0");
-      let h = subHead(tr("spec.song", "Song"), `<span class="song-read"><span>${tr("spec.song.notes", "<b>{n}</b> notes", { n: pad22(m.notes.length) })}</span><span>${tr("spec.song.seconds", "<b>{s}</b> s", { s: (m.cycle * 0.18).toFixed(1) })}</span>${m.voice2 ? `<span>${tr("spec.song.voices", "<b>{n}</b> voices", { n: 2 })}</span>` : ""}</span><button type="button" class="btn mini" data-song="${g.serial}" data-hint="${tr("spec.song.play.hint", "Hear it alone")}">${tr("spec.song.play", "Play")}</button>`, "song");
+      let h = subHead(tr("spec.song", "Song"), `<span class="song-read"><span>${tr("spec.song.notes", "<b>{n}</b> notes", { n: pad22(m.notes.length) })}</span><span>${tr("spec.song.seconds", "<b>{s}</b> s", { s: (m.cycle * 0.18).toFixed(1) })}</span>${m.voice2 ? `<span>${tr("spec.song.voices", "<b>{n}</b> voices", { n: 2 })}</span>` : ""}</span><button type="button" class="btn mini" data-song="${g.serial}" data-hint="${tr("spec.song.play.hint", "Hear the whole species' song alone")}">${tr("spec.song.play", "Play")}</button>`, "song");
       h += `<div class="song-wrap">${songSVG(v.motif, { col: cssCol(g.col), col2: cssRgb(roleColor(g, 1)), ghost: compact ? null : av && av.motif, h: compact ? 46 : 68, label: tr("spec.song.label", "{tags}: {line}", { tags: d.tags.join(", "), line: d.line }) })}</div>`;
       h += `<div class="song-tags">${d.tags.map((t, i) => `<span class="term" data-tip="${["instrument", "register", "tempo"][i]}" tabindex="0">${esc2(t)}</span>`).join("<i>·</i>")}</div>`;
       if (!compact) {
@@ -27243,7 +27244,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
             plainGlyph(16 + grain.kind, (4278190080 | c[2] << 16 | c[1] << 8 | c[0]) >>> 0);
           } else plainGlyph(MATTER_GLYPH[p2.kind][0], MATTER_GLYPH[p2.kind][1]);
           const re2 = api.rideEnded();
-          setActs(`m${!!mem}${re2}`, mem ? (re2 ? RIDE_REL : "") + `<button type="button" class="btn" data-act="relative">${tr("spec.act.relative", "Watch a relative")}</button>` : "");
+          setActs(`m${!!mem}${re2}`, mem ? (re2 ? RIDE_REL : "") + `<button type="button" class="btn" data-act="relative">${tr("spec.act.relative", "Watch a kin")}</button>` : "");
           const q10 = (q) => K.heat ? q ** ((eng.tbg - K.tRef) / 10) : 1;
           if (p2.kind === 2) v += vital(tr("spec.vital.energy-left", "Energy left"), p2.energy / 1.2, "sun", tr("spec.vital.crumbles", "{fast, select, yes {rotting fast · } other {}}crumbles in {dur}", { fast: q10(K.rotQ10) > 1.3 ? "yes" : "no", dur: fmtDur(Math.max(0, (p2.energy - K.huskMin) / (K.decay * q10(K.rotQ10)))) }), "husk");
           else if (framboid) v += vital(tr("spec.vital.fuel", "Fuel"), clamp6(p2.energy / K.framboidLife, 0, 1), "warm", tr("spec.vital.burns-out", "burns out in about {dur}", { dur: fmtDur(Math.max(0, p2.energy / q10(2))) }), "framboid");
@@ -27724,7 +27725,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     sunLine: "rgba(241, 227, 160, 0.5)"
   };
   var KINDS = [
-    ["#cfe86a", tr("loader.kind.photosynth", "PHOTOSYNTH"), tr("loader.kind-short.photosynth", "PHOTO")],
+    ["#cfe86a", tr("loader.kind.photosynth", "PRODUCER"), tr("loader.kind-short.photosynth", "PHOTO")],
     ["#7fd6df", tr("loader.kind.grazer", "GRAZER"), tr("loader.kind-short.grazer", "GRAZER")],
     ["#ff8a6a", tr("loader.kind.predator", "PREDATOR"), tr("loader.kind-short.predator", "PRED")],
     ["#c3a2f0", tr("loader.kind.scavenger", "SCAVENGER"), tr("loader.kind-short.scavenger", "SCAV")]
@@ -34563,7 +34564,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     const origin = sp.founder ? sp.serial > founders ? tr("card.origin.spark", "sparked from silt at {time}", { time: fmtClock(sp.born || 0) }) : tr("card.origin.founder", "a founding lineage") : tr("card.origin.unknown", "an ancestor too rare to be named");
     const swim = g.swim * (1 - g.photo), div = divEnergy(g, K);
     const tags = [
-      tr("card.tag.diet", "{diet, select, photosynth {PHOTOSYNTH} grazer {GRAZER} scavenger {SCAVENGER} predator {PREDATOR} other {{diet}}}", { diet: f2.diet }),
+      tr("card.tag.diet", "{diet, select, photosynth {PRODUCER} grazer {GRAZER} scavenger {SCAVENGER} predator {PREDATOR} other {{diet}}}", { diet: f2.diet }),
       tr("card.tag.motion", "{motion, select, schooling {SCHOOLING} anchored {ANCHORED} crawler {CRAWLER} swimmer {SWIMMER} drifter {DRIFTER} other {{motion}}}", { motion: f2.schooling ? "schooling" : f2.mobility }),
       tr("card.tag.body", "{body, select, types {{n, plural, one {# CELL TYPE} other {# CELL TYPES}}} many {MANY-CELLED} other {SINGLE CELLS}}", { body: f2.body === "multicellular" ? f2.types > 1 ? "types" : "many" : "single", n: f2.types })
     ];
@@ -35788,15 +35789,15 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
 
   // src/hand.js
   var TOOLS = [
-    { id: "none", name: tr("tool.none.name", "Pan"), hint: tr("tool.none.hint", "Nothing in hand: drag to pan, click a cell to examine it") },
-    { id: "loupe", name: tr("tool.loupe.name", "Loupe"), hint: tr("tool.loupe.hint", "The lens follows the pointer: click a cell to examine it · Reach sizes it, [ ] magnify"), touch: tr("tool.loupe.touch", "A tap examines a cell and sets the lens over it · drag the lens to move it, outside it to pan") },
-    { id: "touch", name: tr("tool.touch.name", "Touch"), hint: tr("tool.touch.hint", "A glass rod from above: pressed, it pushes the cells and grains under it aside, drag it to plow them · a tap rings the water") },
-    { id: "lamp", name: tr("tool.lamp.name", "Lamp"), hint: tr("tool.lamp.hint", "More sun where it points, a little; hold for the full lamp") },
-    { id: "shade", name: tr("tool.shade.name", "Shade"), hint: tr("tool.shade.hint", "Shade where it points, a little; hold to darken it") },
-    { id: "warm", name: tr("tool.warm.name", "Warm"), hint: tr("tool.warm.hint", "The heated stage: hold to warm the water under it, as far as a boil") },
-    { id: "cold", name: tr("tool.cold.name", "Cold"), hint: tr("tool.cold.hint", "The cold probe: hold to chill the water under it, as far as ice") },
-    { id: "needle", name: tr("tool.needle.name", "Needle"), hint: tr("tool.needle.hint", "Pressed, it goes into the water: its point pricks the cells it touches (a tap, the nearest), its shaft pushes the rest aside · drag: cut through") },
-    { id: "pipette", name: tr("tool.pipette.name", "Pipette"), hint: tr("tool.pipette.hint", "Load: a click draws up a few at the tip, held: all in reach · Dispense (or ⇧ click) sets the tip card’s cells down, faster held"), touch: tr("tool.pipette.touch", "Load: a touch draws up a few at the tip, held: all in reach · Dispense: a touch sets the tip card’s cells down") }
+    { id: "none", name: tr("tool.none.name", "Pan"), hint: tr("tool.none.hint", "Drag to pan, click a cell to examine it") },
+    { id: "loupe", name: tr("tool.loupe.name", "Loupe"), hint: tr("tool.loupe.hint", "Magnifying lens: click a cell to examine it · [ ] zoom lens"), touch: tr("tool.loupe.touch", "Tap to examine a cell and position the lens · drag the lens to move it, drag outside it to pan") },
+    { id: "touch", name: tr("tool.touch.name", "Touch"), hint: tr("tool.touch.hint", "A glass rod: pressed, it pushes the cells and grains under it aside · a tap ripples the water") },
+    { id: "lamp", name: tr("tool.lamp.name", "Lamp"), hint: tr("tool.lamp.hint", "Increases light; hold to brighten to 100%") },
+    { id: "shade", name: tr("tool.shade.name", "Shade"), hint: tr("tool.shade.hint", "Decreases light; hold to darken to 100%") },
+    { id: "warm", name: tr("tool.warm.name", "Warm"), hint: tr("tool.warm.hint", "The heated stage: warms the water; hold to heat to a boil") },
+    { id: "cold", name: tr("tool.cold.name", "Cold"), hint: tr("tool.cold.hint", "The cold probe: chills the water; hold to freeze to ice") },
+    { id: "needle", name: tr("tool.needle.name", "Needle"), hint: tr("tool.needle.hint", "Pricks the cells it touches, its shaft pushes the rest aside") },
+    { id: "pipette", name: tr("tool.pipette.name", "Pipette"), hint: tr("tool.pipette.hint", "Load: a click draws up a few cells, held: all in reach · Dispense (or ⇧ click) ejects cells at the tip, held: continuously dispenses faster"), touch: tr("tool.pipette.touch", "Load: a touch draws up a few cells, held: all in reach · Dispense: a touch ejects cells at the tip") }
   ];
   var toolOf = (id) => TOOLS.find((t) => t.id === id) || TOOLS[0];
   var keyOf = (id) => String(TOOLS.findIndex((t) => t.id === id));
@@ -36021,7 +36022,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
   var icon = (id) => `<svg aria-hidden="true"><use href="#i-t-${id}"/></svg>`;
   var toSlider = (r, { min, max }) => Math.round(1e3 * Math.log(r / min) / Math.log(max / min));
   var fromSlider = (v, { min, max }) => min * Math.exp(v / 1e3 * Math.log(max / min));
-  var modes = (id) => `<span class="pip-mode segs" role="group" aria-label="${tr("bench.mode.aria", "The pipette's press")}"><button type="button" class="chip" data-mode="0" id="${id}-load" aria-pressed="true" data-hint="${tr("bench.mode.load.hint", "A press draws up cells at the tip, all in reach as it is held")}">${tr("bench.mode.load", "Load")}</button><button type="button" class="chip" data-mode="1" id="${id}-dispense" aria-pressed="false" data-hint="${tr("bench.mode.dispense.hint", "A press sets the tip card’s cells down")}">${tr("bench.mode.dispense", "Dispense")}</button></span>`;
+  var modes = (id) => `<span class="pip-mode segs" role="group" aria-label="${tr("bench.mode.aria", "The pipette's mode toggle")}"><button type="button" class="chip" data-mode="0" id="${id}-load" aria-pressed="true" data-hint="${tr("bench.mode.load.hint", "A single press sucks up a few cells at the tip. Holding draws in all cells within reach")}">${tr("bench.mode.load", "Load")}</button><button type="button" class="chip" data-mode="1" id="${id}-dispense" aria-pressed="false" data-hint="${tr("bench.mode.dispense.hint", "A single press dispenses the cells at the tip. Holding continually dispenses all cells in the pipette")}">${tr("bench.mode.dispense", "Dispense")}</button></span>`;
   var toolHint = (t, i) => tr("bench.tool.hint", "{tool} · {key}", { tool: t.name, key: i });
   function swipeDown(el2, close) {
     let drag = null, swiped = 0;
@@ -36072,13 +36073,13 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     const drawer = $("bench"), btn = $("bench-open"), held = $("held"), dock = $("tools");
     dock.innerHTML = TOOLS.map((t, i) => `<button type="button" class="tool" data-tool="${t.id}" aria-pressed="false" aria-label="${t.name}" data-hint="${toolHint(t, i)}">${icon(t.id)}<kbd>${i}</kbd></button>`).join("");
     drawer.innerHTML = `<div class="grab" aria-hidden="true"><i></i></div><div class="bench-tools">
-      <div class="sub-h"><span class="bench-t">${tr("bench.tools", "Tools<note>tap to pick one up · hold its key for a moment’s use</note>", { note: (c) => `<i class="bench-note">${[].concat(c).join("")}</i>` })}</span><span class="sub-a" id="bench-held"></span></div>
+      <div class="sub-h"><span class="bench-t">${tr("bench.tools", "Tools<note>tap to select · hold tool shortcut key to use temporarily</note>", { note: (c) => `<i class="bench-note">${[].concat(c).join("")}</i>` })}</span><span class="sub-a" id="bench-held"></span></div>
       <div class="tiles" role="radiogroup" aria-label="${tr("bench.tools.aria", "Tools")}">${TOOLS.map((t, i) => `<button type="button" role="radio" class="tile" data-tool="${t.id}" aria-checked="false" aria-label="${t.name}" data-hint="${toolHint(t, i)}"><kbd>${i}</kbd>${icon(t.id)}<span>${t.name}</span></button>`).join("")}</div>
       <p class="bench-hint" id="bench-hint" aria-live="polite"></p>
       <label class="reach"><span class="lbl term" data-tip="toolreach" tabindex="0">${tr("bench.reach", "Reach")}</span><input type="range" id="reach" min="0" max="1000" step="1" aria-label="${tr("bench.reach.aria", "Reach")}"><b id="reach-v" translate="no"></b></label>
     </div>
     <div class="bench-pip">
-      <div class="sub-h"><span class="bench-t">${tr("bench.pipette", "Pipette")}</span><span class="sub-a" id="pip-n"></span>${modes("pip")}<button type="button" class="chip" id="pip-sort" data-hint="${tr("bench.sort.hint", "Each species’ cells together, one card each")}">${tr("bench.sort", "Sort")}</button><button type="button" class="chip" id="pip-keep" data-hint="${tr("bench.save-all.hint", "Every card not saved yet into the cabinet")}">${tr("bench.save-all", "Save all")}</button></div>
+      <div class="sub-h"><span class="bench-t">${tr("bench.pipette", "Pipette")}</span><span class="sub-a" id="pip-n"></span>${modes("pip")}<button type="button" class="chip" id="pip-sort" data-hint="${tr("bench.sort.hint", "Sorts each species’ cells together into one card per species")}">${tr("bench.sort", "Sort")}</button><button type="button" class="chip" id="pip-keep" data-hint="${tr("bench.save-all.hint", "Saves all species cards here not yet saved into the cabinet")}">${tr("bench.save-all", "Save all")}</button></div>
       <div class="strip" id="pip-strip"></div>
     </div>`;
     held.innerHTML = `<kbd id="held-k"></kbd><b id="held-n"></b><span class="held-reach"><button type="button" class="ghost" data-d="-1" aria-label="${tr("bench.held.less.aria", "Less reach")}"><svg><use href="#i-minus"/></svg></button><b id="held-r" translate="no"></b><button type="button" class="ghost" data-d="1" aria-label="${tr("bench.held.more.aria", "More reach")}"><svg><use href="#i-plus"/></svg></button></span>${modes("held")}<button type="button" class="ghost" id="held-down" aria-label="${tr("bench.held.down.aria", "Put the tool down")}" data-hint="${tr("bench.held.down.hint", "Put it down · Esc")}"><svg><use href="#i-close"/></svg></button><div class="strip flat" id="held-strip"></div>`;
@@ -36143,14 +36144,14 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         if (on && b.getAttribute("aria-checked") !== "true" && !drawer.hidden) b.scrollIntoView({ block: "nearest", inline: "nearest" });
         b.setAttribute("aria-checked", String(on));
       }
-      $("bench-held").innerHTML = up ? tr("bench.in-hand", "{tool} in hand<note> · Esc puts it down</note>", { tool: t.name, note: (c) => `<i class="bench-esc">${[].concat(c).join("")}</i>` }) : t.id === "loupe" ? tr("bench.in-hand.loupe", "The loupe in hand") : tr("bench.in-hand.none", "Nothing in hand");
+      $("bench-held").innerHTML = up ? tr("bench.in-hand", "{tool} selected<note> · Esc puts it down</note>", { tool: t.name, note: (c) => `<i class="bench-esc">${[].concat(c).join("")}</i>` }) : t.id === "loupe" ? tr("bench.in-hand.loupe", "Loupe selected") : tr("bench.in-hand.none", "Panning");
       $("bench-hint").innerHTML = tr("bench.hint", "<b>{tool}</b> · {hint}", { tool: t.name, hint: coarse && t.touch || t.hint });
       if (document.activeElement !== slider) slider.value = toSlider(sz.v, sz);
       $("reach-v").textContent = t.id === "needle" ? tr("bench.reach.point", "a point") : t.id === "none" ? "–" : sz.text;
       slider.disabled = t.id === "needle" || t.id === "none";
       $("bench-i").setAttribute("href", t.id !== "none" ? `#i-t-${t.id}` : "#i-bench");
       $("bench-l").textContent = t.id !== "none" ? t.name : tr("dock.bench-l", "Bench");
-      btn.setAttribute("aria-label", t.id !== "none" ? tr("bench.open.aria-held", "Bench · {tool} in hand", { tool: t.name }) : tr("bench.open.aria", "Bench"));
+      btn.setAttribute("aria-label", t.id !== "none" ? tr("bench.open.aria-held", "Bench · {tool} selected", { tool: t.name }) : tr("bench.open.aria", "Bench"));
       btn.classList.toggle("in-hand", up);
       held.hidden = !(up && drawer.hidden && innerWidth <= 980);
       $("held-k").textContent = keyOf(t.id);
@@ -36178,7 +36179,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         return;
       }
       pipKey = key;
-      strip.innerHTML = v.keys.length ? pip.cards(false) : `<div class="pip-empty">${tr("bench.pip.none", "<b>Nothing in the pipette.</b><span>Draw cells up from the world with the pipette (8), or bring cards from the cabinet.</span>")}<button type="button" class="link" data-cabinet>${tr("bench.pip.cabinet", "Open the cabinet")}</button></div>`;
+      strip.innerHTML = v.keys.length ? pip.cards(false) : `<div class="pip-empty">${tr("bench.pip.none", "<b>Nothing in the pipette.</b><span>Draw cells up from the world with the pipette (8), or insert species cards from the cabinet.</span>")}<button type="button" class="link" data-cabinet>${tr("bench.pip.cabinet", "Open the cabinet")}</button></div>`;
       hstrip.innerHTML = inHand ? pip.cards(true) : "";
     }
     addEventListener("resize", render);
@@ -37159,9 +37160,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const ua = navigator.userAgent;
       const ios = /iPhone|iPad|iPod/.test(ua) || /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
       const safari = /AppleWebKit/.test(ua) && /Safari\//.test(ua) && !/Chrome|Chromium|CriOS|FxiOS|EdgiOS|Edg\/|OPR\/|Android/.test(ua);
-      if (safari && ios) fail(tr("err.no-webgpu.safari-ios", "Safari has WebGPU from iOS 26"), tr("err.no-webgpu.safari-ios.detail", "Tidemote simulates its world on your graphics card through WebGPU, which Safari offers from iOS and iPadOS 26. Update the system to run it here."));
-      else if (safari) fail(tr("err.no-webgpu.safari-mac", "Safari has WebGPU from macOS 26"), tr("err.no-webgpu.safari-mac.detail", "Tidemote simulates its world on your graphics card through WebGPU, which Safari offers only on macOS 26 Tahoe and later, whatever its own version. On an earlier macOS, open Tidemote in Chrome or Edge, or update macOS."));
-      else fail(tr("err.no-webgpu", "This browser has no WebGPU"), tr("err.no-webgpu.detail", "Tidemote simulates its world on your graphics card through WebGPU. Try a current Chrome or Edge, Safari on macOS 26 or iOS 26, or Firefox on Windows."));
+      if (safari && ios) fail(tr("err.no-webgpu.safari-ios", "Safari has WebGPU in iOS 26 or later"), tr("err.no-webgpu.safari-ios.detail", "Tidemote simulates its world on your graphics card through WebGPU, which Safari offers from iOS and iPadOS 26 and onwards. Update the system to run it here or use another browser with WebGPU support like Chrome."));
+      else if (safari) fail(tr("err.no-webgpu.safari-mac", "Safari has WebGPU from macOS 26 onwards"), tr("err.no-webgpu.safari-mac.detail", "Tidemote simulates its world on your graphics card through WebGPU, which Safari offers only on macOS 26 Tahoe and later. Update the system to run it here or use another browser with WebGPU support like Chrome."));
+      else fail(tr("err.no-webgpu", "This browser doesn't support WebGPU"), tr("err.no-webgpu.detail", "Tidemote simulates its world on your graphics card through WebGPU. Try a current version of Chrome or Edge, Safari on macOS 26 or iOS 26, or Firefox on Windows."));
       return;
     }
     const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
@@ -37185,7 +37186,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       if (started && info.reason !== "destroyed") fail(
         tr("err.device-lost", "The GPU device was lost"),
         // i18n: {why} is the driver's own words (English, from the browser) or err.device-lost.reset
-        tr("err.device-lost.detail", "{why} The world was on it and is gone; reload the page to start a new one.", { why: info.message || tr("err.device-lost.reset", "The driver reset the device.") }),
+        tr("err.device-lost.detail", "{why} The world running on the device was lost; reload the page to start a new one.", { why: info.message || tr("err.device-lost.reset", "The driver reset the device.") }),
         [RELOAD]
       );
     });
@@ -37759,11 +37760,11 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         if (ev.type === "drought") {
           if (phase === "drying") {
             begin();
-            pushEvent(tr("log.drought-drying", "<b>The pool is drying</b>: over {dur} the water will fall until {pct}% of the floor lies dry", { dur: fmtDur(ev.fall), pct: Math.round((1 - ev.low) * 100) }), col, "pond");
+            pushEvent(tr("log.drought-drying", "<b>The pool is drying</b>: over {dur} the water will fall until {pct}% of the world is dry land", { dur: fmtDur(ev.fall), pct: Math.round((1 - ev.low) * 100) }), col, "pond");
             flash(tr("flash.drought-drying", "The pool is drying"));
           } else if (phase === "dry") {
             const p2 = eng.relief ? countPools(eng.relief, eng.grid[0], eng.grid[1], eng.level) : null;
-            pushEvent(p2 && p2.pools > 1 ? tr("log.drought-dry-parted", "The water has fallen: the pool has parted into <b>{pools} pools</b>; stranded cells rest as cysts and spores", { pools: p2.pools }) : tr("log.drought-dry", "The water has fallen; stranded cells rest as cysts and spores"), col, "pond");
+            pushEvent(p2 && p2.pools > 1 ? tr("log.drought-dry-parted", "The water has fallen: the pool has parted into <b>{pools} pools</b>; stranded cells rest as dormant cysts", { pools: p2.pools }) : tr("log.drought-dry", "The water has fallen; stranded cells rest as dormant cysts"), col, "pond");
             flash(p2 && p2.pools > 1 ? tr("flash.drought-pools", "{n} pools", { n: p2.pools }) : tr("flash.drought-dry", "Low water"));
           } else if (phase === "rain") {
             pushEvent(tr("log.drought-rain", "<b>Rain</b>: the pool refills, cold under the cloud, and the cysts on the drying mud wake"), col, "pond");
@@ -37781,7 +37782,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
             pushEvent(tr("log.frost", "<b>A frost</b>: night falls and the water chills toward freezing"), col, "pond");
             flash(tr("flash.frost", "A frost"));
           } else if (phase === "freezing") {
-            pushEvent(tr("log.frost-ice", "Ice grows over the pool: grains spreading from the shallows will freeze {pct}% of it, pushing cells into the veins of water between them", { pct: Math.round(ev.max * 100) }), col, "pond");
+            pushEvent(tr("log.frost-ice", "Ice grows over the pool: ice crystals will freeze {pct}% of the pool, pushing cells into the veins of water between ice sheets", { pct: Math.round(ev.max * 100) }), col, "pond");
             flash(tr("flash.frost-ice", "Ice"));
           } else if (phase === "thaw") {
             pushEvent(tr("log.frost-thaw", "The ice thaws"), col, "pond");
@@ -37789,7 +37790,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         } else if (ev.type === "duckweed") {
           if (phase === "duckweed") {
             begin();
-            pushEvent(tr("log.duckweed", "<b>Duckweed drifts onto the pool</b>: {n} fronds, the water under them in their shade, their roots trailing below", { n: ev.buds + 1 }), col, "pond");
+            pushEvent(tr("log.duckweed", "<b>Duckweed drifts onto the pool</b>: {n} fronds, the water under them dims in their shade", { n: ev.buds + 1 }), col, "pond");
             flash(tr("flash.duckweed", "Duckweed"));
           } else if (!phase) pushEvent(tr("log.duckweed-passed", "The duckweed has drifted off{tally}", { tally: tally() }), col, "pond");
         }
@@ -38672,7 +38673,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       if (key === feedKey) return;
       feedKey = key;
       const feedEl = $2("feed");
-      setHTML(feedEl, ch.length ? ch.slice(0, 40).map((e) => `<li${e.type === "story" ? ' class="story"' : ""}><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join("") : `<li class="quiet">${tr("log.empty", "New species, extinctions and eras are logged here, and now and then the chronicler’s stories.")}</li>`);
+      setHTML(feedEl, ch.length ? ch.slice(0, 40).map((e) => `<li${e.type === "story" ? ' class="story"' : ""}><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join("") : `<li class="quiet">${tr("log.empty", "New species, extinctions, eras, and the chronicler’s narrations are logged here.")}</li>`);
       relabel(feedEl);
     }
     $2("feed-all").addEventListener("click", () => lab.open("log"));
@@ -38741,7 +38742,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const held = way[0] !== 0 || way[1] !== 0;
       if (fast && held && !ride.warned) {
         ride.warned = true;
-        flash(tr("flash.ride-too-fast", "Steering only at ×2 or slower"));
+        flash(tr("flash.ride-too-fast", "Steering only works at ×2 speed or slower"));
       }
       if (!fast) ride.warned = false;
       const u = stepThrottle(ride.th, live ? way : [0, 0], dt / 1e3);
@@ -38776,25 +38777,25 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       if (!ride.on || !sel) return;
       const { res, young, next } = await nearestKin(sel.particle.kind, predicted(), sel.id);
       if (!next) {
-        flash(tr("flash.ride-none-near", "None of its kind near"));
+        flash(tr("flash.ride-none-near", "None of its kin near"));
         return;
       }
       if (!ride.on) return;
       beginTracking(next, res, true);
       dirty = true;
-      flash(young ? tr("flash.ride-newest", "On to its newest kin") : tr("flash.ride-nearest", "On to the nearest of its kind"));
+      flash(young ? tr("flash.ride-newest", "Switching to newest kin") : tr("flash.ride-nearest", "Switching to nearest kin"));
     }
     async function rideRelative() {
       if (!sel || !sel.memory) return;
       const kind = sel.memory.kind, at = [sel.particle.x, sel.particle.y];
       const { res, next } = await nearestKin(kind, at, sel.id);
       if (!next) {
-        flash(tr("flash.ride-none-nearby", "None of its kind nearby"));
+        flash(tr("flash.ride-none-nearby", "None of its kin nearby"));
         return;
       }
       beginTracking(next, res, true);
       toggleRide(true, false);
-      flash(tr("flash.ride-relative", "Ride On · a relative"));
+      flash(tr("flash.ride-relative", "Ride On · a kin"));
     }
     function story(text2) {
       if (!sel) return;
@@ -38892,7 +38893,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         }
       }
       if (!best) {
-        flash(tr("flash.no-relatives", "No surviving relatives nearby"));
+        flash(tr("flash.no-relatives", "No surviving kin nearby"));
         return;
       }
       beginTracking(best, sel.nbr, true);
@@ -39103,7 +39104,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         }
         if (sel.rehome) {
           story(rehomeText(sel.particle, sel.rehome.cell));
-          if (ride.on) flash(tr("flash.ride-rehome", "Its cell died · riding on in its body"));
+          if (ride.on) flash(tr("flash.ride-rehome", "Cell died · riding on another cell in its body"));
         } else story(tr("story.organism-split", "Its organism split: following the larger part."));
         sel.rehome = null;
         sel.id = idAt(best);
@@ -39494,13 +39495,13 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const live = ours && life.reg.get(serial);
       const run2 = pipette.load({ card: card?.id, serial, words, name, home: ours ? void 0 : card.home, slot: live?.alive ? live.slot : null, stranger: !ours }, n, !!at);
       if (!run2) {
-        flash(tr("flash.pipette-full", "The pipette is full · {n, plural, other {# cells}} · set some down", { n: PIPE_LIMIT }));
+        flash(tr("flash.pipette-full", "The pipette is full · {n, plural, other {# cells}}", { n: PIPE_LIMIT }));
         return;
       }
       if (at) {
         startSpit(...at, run2);
         flash(tr("flash.colony-set-down", "A colony of {name} set down", { name }));
-      } else flash(tr("flash.colony-loaded", "A colony of {name} in the pipette · Dispense sets it down", { name }));
+      } else flash(tr("flash.colony-loaded", "A colony of {name} in the pipette", { name }));
       bench.render();
     }
     async function receiveCard(bytes, png = null) {
@@ -39596,7 +39597,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       lab.render(true);
       bench.render();
       cards.refresh();
-      flash(tr("flash.card-removed", "{name} is out of the cabinet", { name: card.name }));
+      flash(tr("flash.card-removed", "{name} removed from the cabinet", { name: card.name }));
     }
     async function undoRemove() {
       const r = cabinet.removed;
@@ -39874,9 +39875,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         const off = wBusy || state.phase !== "running" ? " disabled" : "";
         const save2 = `<div class="w-save"><input type="text" id="w-name" maxlength="60" autocomplete="off" spellcheck="false" placeholder="${esc2(defaultName())}" value="${esc2(wName)}" aria-label="${tr("worlds.name.aria", "Name this save")}"${off}><button type="button" class="btn hot-btn" data-o="w-save" data-v="0"${off}>${wBusy === "save" ? tr("worlds.saving", "Saving") : tr("worlds.save", "Save")}</button></div>`;
         const own2 = saves && saves.filter((m) => m.from !== "workshop"), ws = saves && saves.filter((m) => m.from === "workshop");
-        const list = saves == null ? `<p class="note">${tr("worlds.reading", "Reading the saved worlds…")}</p>` : own2.length ? own2.map(saveRow).join("") : `<p class="note">${tr("worlds.none", "No saved worlds yet. A save keeps everything: every particle, each species and its name, the chronicle and the history.")}</p>`;
+        const list = saves == null ? `<p class="note">${tr("worlds.reading", "Reading the saved worlds…")}</p>` : own2.length ? own2.map(saveRow).join("") : `<p class="note">${tr("worlds.none", "No saved worlds yet.")}</p>`;
         const browse = `<div class="w-more"><button type="button" class="link" data-o="w-browse" data-v="0">${tr("worlds.browse", "Browse the Workshop")}</button></div>`;
-        const wsList = !steamOn.on || saves == null ? "" : section("w-ws", tr("worlds.workshop", "From the Workshop"), block("", (ws.length ? ws.map(saveRow).join("") : `<p class="note">${tr("worlds.workshop-none", "Worlds others have shared. Subscribe to one on the Steam Workshop and it appears here, ready to load.")}</p>`) + browse));
+        const wsList = !steamOn.on || saves == null ? "" : section("w-ws", tr("worlds.workshop", "From the Workshop"), block("", (ws.length ? ws.map(saveRow).join("") : `<p class="note">${tr("worlds.workshop-none", "Subscribed worlds from the Steam Workshop.")}</p>`) + browse));
         return group("w-save", tr("worlds.save-heading", "Save this world"), save2) + section("w-list", tr("worlds.saved-heading", "Saved worlds"), block("", list, { aside: own2 && own2.length ? tr("worlds.used", "{n} · {size}", { n: own2.length, size: mb(used) }) : "", tip: "saves" })) + wsList;
       }
       async function refreshSaves() {
@@ -39975,9 +39976,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const ext = (href, text2) => `<a class="sp" target="_blank" rel="noopener" href="${href}">${text2}</a>`;
       function about_() {
         const link = (href) => (c) => ext(href, c.join(""));
-        return group("intro", "", `<div class="about"><p>${tr("settings.about.p1", "A sealed biosphere of up to millions of particles, and all of them live, eat, breed, and die in your browser, simulated on the GPU with WebGPU. Some cells drink the moving light of the tide. Others graze on the photosynthesizers, and others hunt the grazers. Scavengers break down the dead and return them to the water as silt, and from that silt the next generation builds its children. Children mutate into new species. Species that bond grow into bodies: filaments, branched fronds, spirals, packed tissues. Some of these bodies grow beating tails and swim. Every 10 to 18 minutes the climate turns, and the world has to begin again in its own way. It makes its own music, too: each cell sings its species' song, over a chorus of the births, kills, and deaths in view.")}</p>
-<p>${tr("settings.about.p2", "No hand steers any of this: every ecological rule is local. The complex interacting colonies emerge from simple rules acting on the mutating genome each cell carries. The Field Lab's <guide>Guide</guide> explains how it works.", { guide: (c) => `<button type="button" class="link" data-o="guide" data-v="0">${c.join("")}</button>` })}</p></div>`) + group("made", tr("settings.about.made-by", "Made by"), `<div class="about"><p>${tr("settings.about.credits", "Directed by <a1>Tyler Hallada</a1> and implemented mostly by <a2>Claude</a2>, Anthropic's AI model. The soundtrack is procedurally generated using a port of <a3>SuperCollider</a3> to the browser.", { a1: link("https://www.hallada.net"), a2: link("https://www.anthropic.com/claude"), a3: link("https://supercollider.github.io/") })}</p></div>`) + group("src", tr("settings.about.source", "Source"), `<div class="about"><p>${tr("settings.about.license", "Free software under the <a1>GPL-3.0</a1>: the code, the design notes and the headless tools used to balance the ecology are on <a2>GitHub</a2>, where bugs and ideas are welcome as issues.", { a1: link("https://www.gnu.org/licenses/gpl-3.0.html"), a2: link("https://github.com/thallada/tidemote") })}</p>
-<p>${tr("settings.about.privacy", "Everything runs on this device: there is no account and no analytics, and saved worlds stay in this browser.")}</p></div>`);
+        return group("intro", "", `<div class="about"><p>${tr("settings.about.p1", "A sealed biosphere of up to millions of particles, and all of them live, eat, breed, and die in your browser, simulated on the GPU with WebGPU. Some cells drink the moving light of the tide. Others graze on the producers, and others hunt the grazers. Scavengers break down the dead and return them to the water as silt, and from that silt the next generation builds its children. Children mutate into new species. Species that bond grow into bodies: filaments, branched fronds, spirals, packed tissues. Some of these bodies grow beating tails and swim. Every 10 to 18 minutes the climate turns, and the world has to begin again in its own way. It makes its own music, too: each cell sings its species' song, over a chorus of the births, kills, and deaths in view.")}</p>
+<p>${tr("settings.about.p2", "No hand steers any of this: every ecological rule is local. The complex interacting colonies emerge from simple rules acting on the mutating genome each cell carries. The Field Lab's <guide>Guide</guide> explains how it works.", { guide: (c) => `<button type="button" class="link" data-o="guide" data-v="0">${c.join("")}</button>` })}</p></div>`) + group("made", tr("settings.about.made-by", "Made by"), `<div class="about"><p>${tr("settings.about.credits", "Developed by <a1>Tyler Hallada</a1> using <a2>Claude Code</a2> and Codex. Most of the code was written using LLMs. Graphics and sounds in this game are procedurally generated from code written by LLMs. No generative image or sound AI model content is used in this game. The soundtrack is a dynamic algorithm that is orchestrated by the state of the simulation and the cells in view, programmed by a custom port of <a3>SuperCollider</a3> for the browser. All text displayed in the UI has been manually reviewed and edited by hand.", { a1: link("https://www.hallada.net"), a2: link("https://www.anthropic.com/claude"), a3: link("https://supercollider.github.io/") })}</p></div>`) + group("src", tr("settings.about.source", "Source"), `<div class="about"><p>${tr("settings.about.license", "Free software under the <a1>GPL-3.0</a1>: the code, design notes, and tools used in development are on <a2>GitHub</a2>. Feedback, bug reports, and ideas are welcome as issues.", { a1: link("https://www.gnu.org/licenses/gpl-3.0.html"), a2: link("https://github.com/thallada/tidemote") })}</p>
+<p>${tr("settings.about.privacy", "Everything runs on this device: there is no account and no analytics. Saved worlds are stored locally unless downloaded or synced to Steam Cloud.")}</p></div>`);
       }
       const keysNote = `<span class="keys-note">${tr("settings.keys-note", "Keyboard: <kbd>?</kbd> lists every shortcut.")}</span>`;
       function foot() {
@@ -40782,7 +40783,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         if (it.org ? it.org.out >= it.org.cells.length : !it.sp.made) spit.org = null;
         spit.fails = 0;
       } else if (++spit.fails > 2) {
-        pull.note = { text: tr("hand.pipette.no-silt", "No silt left to make them of"), t: now };
+        pull.note = { text: tr("hand.pipette.no-silt", "No silt left to create dispensed cells"), t: now };
         if (!spit.held) spit.on = false;
         spit.next = now + 200;
       }
@@ -41354,8 +41355,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         const sizes2 = PARTICLE_SIZES.filter((n) => n <= maxParticles());
         const chip = (v, label3, on, hint2, cls = "") => `<button type="button" class="chip${cls}" data-n="${v}" aria-pressed="${on}" data-hint="${esc2(hint2)}"${off}>${label3}</button>`;
         const autoHint = measuredN ? tr("menu.auto.hint-measured", "As many as this GPU draws smoothly\nMeasured just now: {n, number}", { n: measuredN }) : tr("menu.auto.hint", "As many as this GPU draws smoothly\nMeasured as the world starts");
-        const hint = (n) => heavy(n) ? tr("menu.count.hint-heavy", "{n, plural, other {# particles}}\nMore than this GPU drew smoothly ({measured}): a richer world, in slower frames", { n, measured: kfmt(measuredN) }) : tr("menu.count.hint", "{n, plural, other {# particles}}\nKept for later visits", { n });
-        return `<div class="menu-h"><span>${tr("menu.new-world", "The new world")}</span><b>${busy === "n" ? tr("menu.seeding", "Seeding") : fmt(eng.count)}</b></div><div class="menu-chips" role="group" aria-label="${tr("menu.particles.aria", "Particles")}">${chip("auto", measuredN ? tr("menu.auto-measured", "Auto <b>{n}</b>", { n: kfmt(measuredN) }) : tr("menu.auto", "Auto"), !P.particles, autoHint, " auto")}` + sizes2.map((n) => chip(n, kfmt(n), P.particles === n, hint(n), heavy(n) ? " heavy" : "")).join("") + "</div>" + (err ? `<p class="menu-note"><em>${esc2(err)}</em></p>` : "");
+        const hint = (n) => heavy(n) ? tr("menu.count.hint-heavy", "{n, plural, other {# particles}}\nMore than this GPU's measured capability ({measured})", { n, measured: kfmt(measuredN) }) : tr("menu.count.hint", "{n, plural, other {# particles}}\nPreference is saved as the default for future world starts", { n });
+        return `<div class="menu-h"><span>${tr("menu.new-world", "Size of new world")}</span><b>${busy === "n" ? tr("menu.seeding", "Seeding") : fmt(eng.count)}</b></div><div class="menu-chips" role="group" aria-label="${tr("menu.particles.aria", "Particles")}">${chip("auto", measuredN ? tr("menu.auto-measured", "Auto <b>{n}</b>", { n: kfmt(measuredN) }) : tr("menu.auto", "Auto"), !P.particles, autoHint, " auto")}` + sizes2.map((n) => chip(n, kfmt(n), P.particles === n, hint(n), heavy(n) ? " heavy" : "")).join("") + "</div>" + (err ? `<p class="menu-note"><em>${esc2(err)}</em></p>` : "");
       }
       function row(m) {
         const sw = [0, 1, 2, 3].map((i) => `<i${m.cols?.[i] != null ? ` style="background:${cssCol(m.cols[i])}"` : ""}></i>`).join("");
@@ -41366,7 +41367,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       function wPanel() {
         const ws = listed();
         const list = saves == null ? `<p class="menu-note">${tr("worlds.reading", "Reading the saved worlds…")}</p>` : ws.length ? `<div class="menu-list">${ws.map(row).join("")}</div>` : `<p class="menu-note">${tr("menu.no-saves", "No saved worlds yet. Save one from Settings → Worlds.")}</p>`;
-        return `<div class="menu-h"><span>${tr("menu.open-saved", "Open a saved world")}</span><b>${ws.length || ""}</b></div>${list}` + (err ? `<p class="menu-note"><em>${esc2(err)}</em></p>` : "") + `<div class="menu-foot"><span class="lbl">${desk ? tr("menu.kept-computer", "On this computer") : tr("menu.kept-browser", "In this browser")}</span><button type="button" class="btn" data-m="file" data-hint="${tr("menu.file.hint", "Open a .tidemote file\nSaved from Settings → Worlds, on any device")}"${busy ? " disabled" : ""}>${busy === "file" ? tr("menu.opening", "Opening") : tr("menu.file", "Open a file")}</button></div>`;
+        return `<div class="menu-h"><span>${tr("menu.open-saved", "Open a saved world")}</span><b>${ws.length || ""}</b></div>${list}` + (err ? `<p class="menu-note"><em>${esc2(err)}</em></p>` : "") + `<div class="menu-foot"><span class="lbl">${desk ? tr("menu.kept-computer", "On this computer") : tr("menu.kept-browser", "In this browser")}</span><button type="button" class="btn" data-m="file" data-hint="${tr("menu.file.hint", "Open a .tidemote file\nSaved from Settings → Worlds")}"${busy ? " disabled" : ""}>${busy === "file" ? tr("menu.opening", "Opening") : tr("menu.file", "Open a file")}</button></div>`;
       }
       function render() {
         $2("menu-n-v").textContent = countText2();
@@ -42194,15 +42195,15 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const t = hand.tool;
       if (t === "lamp" || t === "shade" || t === "warm" || t === "cold") return tr("hand.doing.level", "{doing, select, lamp {Brightening} shade {Darkening} warm {Warming toward a boil} cold {Chilling toward ice} other {Over the water}} · {pct}%{held, select, yes {} other { · hold for more}}", { doing: hand.held ? t : "over", pct: Math.min(100, Math.round(hand.level * 100)), held: hand.held ? "yes" : "no" });
       if (t === "touch") return !hand.held ? tr("hand.doing.touch-over", "Press: the rod into the water") : ptr.dragging ? tr("hand.doing.touch-drag", "Plowing") : tr("hand.doing.touch-in", "In the water · pushing aside");
-      if (t === "needle") return !hand.held ? tr("hand.doing.needle-over", "Press: into the water") : ptr.dragging ? tr("hand.doing.needle-drag", "Cutting through") : tr("hand.doing.needle-in", "In the water · its point pricks");
+      if (t === "needle") return !hand.held ? tr("hand.doing.needle-over", "Press: the needle into the water") : ptr.dragging ? tr("hand.doing.needle-drag", "Cutting through") : tr("hand.doing.needle-in", "Pricking");
       if (t === "pipette") {
         const tip = pipette.tip, now = performance.now();
         if (pull.on || hand.suck) return tr("hand.doing.drawing-up", "Drawing up · {n, number} in", { n: pull.got.length });
-        if (spit.on) return tr("hand.doing.setting-down", "Setting down {name}", { name: (spit.sp || tip)?.name ?? "" });
+        if (spit.on) return tr("hand.doing.setting-down", "Dispensing {name}", { name: (spit.sp || tip)?.name ?? "" });
         if (pull.note && now - pull.note.t < 2e3) return pull.note.text;
         const d = pipDispensing(), act = isCoarse ? "tap" : "click", shift = isCoarse || shiftHeld ? "none" : d ? "load" : "dispense";
         if (!d) return pipette.fits(1) ? tr("hand.doing.load", "{act, select, tap {a tap} other {a click}}: a few at the tip · held: all in reach{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}", { act, shift }) : tr("hand.doing.full", "no room for more{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}", { shift });
-        return tip ? tr("hand.doing.dispense", "{act, select, tap {a tap} other {a click}} sets down {name}{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}", { act, name: tip.name, shift }) : tr("hand.doing.empty", "nothing in it to set down{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}", { shift });
+        return tip ? tr("hand.doing.dispense", "{act, select, tap {a tap} other {a click}} dispenses {name}{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}", { act, name: tip.name, shift }) : tr("hand.doing.empty", "nothing in it to dispense{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}", { shift });
       }
     }
     const MARK_MS = 650;
@@ -42599,16 +42600,16 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         const EV2 = {
           drought: {
             drying: [tr("caption.drought.drying", "The pool is drying"), tr("caption.drought.drying-sub", "Cells crowd the shrinking water; the edge drags stragglers with it")],
-            dry: [tr("caption.drought.dry", "Low water"), tr("caption.drought.dry-sub", "Stranded on the mud, cells rest as cysts and spores")],
+            dry: [tr("caption.drought.dry", "Low water"), tr("caption.drought.dry-sub", "Stranded on the mud, cells rest as dormant cysts")],
             rain: [tr("caption.drought.rain", "Rain"), tr("caption.drought.rain-sub", "The water returns, and the cysts on the mud wake")]
           },
-          storm: { storm: [tr("caption.storm", "A storm"), tr("caption.storm-sub", "Raindrops ring the surface and the water runs rough")] },
+          storm: { storm: [tr("caption.storm", "A storm"), tr("caption.storm-sub", "Raindrops ripple the surface and the water runs rough")] },
           duckweed: { duckweed: [tr("caption.duckweed", "Duckweed"), tr("caption.duckweed-sub", "In the shade of its fronds the producers go hungry")] },
           frost: {
             cooling: [tr("caption.frost.cooling", "Nightfall"), tr("caption.frost.cooling-sub", "The water chills toward freezing")],
-            freezing: [tr("caption.frost.freezing", "Ice"), tr("caption.frost.freezing-sub", "Its fronts push cells into the veins of water between the grains")],
-            frozen: [tr("caption.frost.frozen", "Frozen"), tr("caption.frost.frozen-sub", "Life waits in the veins of water between the ice grains")],
-            thaw: [tr("caption.frost.thaw", "Thaw"), tr("caption.frost.thaw-sub", "The ice gives the pool back")]
+            freezing: [tr("caption.frost.freezing", "Ice"), tr("caption.frost.freezing-sub", "Its crystals push cells into the veins of water between the ice sheets")],
+            frozen: [tr("caption.frost.frozen", "Frozen"), tr("caption.frost.frozen-sub", "Life waits in the veins of water between the ice sheets")],
+            thaw: [tr("caption.frost.thaw", "Thaw"), tr("caption.frost.thaw-sub", "The ice melts back into the pool")]
           }
         };
         const [m, sb] = (EV2[w.type] || {})[w.phase] || [tr("caption.pool", "The pool"), ""];
@@ -42944,7 +42945,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       if (s === "recording" && Number.isFinite(cap3)) {
         $2("rec-mb").dataset.hint = tr(
           "film.size.hint-limit",
-          "The film's size so far, {sink, select, desktop {written to Videos › Tidemote as it is made} disk {written to disk as it is made, downloaded when it ends} memory {kept in memory until it ends} other {}}. It stops itself at {cap}{soon, select, yes {, about {left} from now} other {}}.",
+          "The film's size so far, {sink, select, desktop {written to Videos › Tidemote as it is recorded} disk {written to disk as it is recorded, downloaded when it ends} memory {kept in memory until it ends} other {}}. It stops itself at {cap}{soon, select, yes {, about {left} from now} other {}}.",
           { sink: film.sink() || "none", cap: fmtBytes(cap3), soon: Number.isFinite(left) ? "yes" : "no", left: Number.isFinite(left) ? fmtDur(left) : "" }
         );
       }
@@ -43393,7 +43394,7 @@ Tidemote ${SAVE_VERSION} · world time ${fmtClock(eng.simTime)} · ${eng.count} 
     show(await strangerPng(bytes));
     img.alt = tr("linked.img.alt", "The species card of {name}", { name: c.name });
     $2("linked-h").textContent = c.name;
-    $2("linked-note").textContent = tr("linked.note", "A species from {home}. Open Tidemote to keep its card in your cabinet and set it down in a world of your own.", { home: eraName(c.home) });
+    $2("linked-note").textContent = tr("linked.note", "A species from {home}. Open Tidemote to save its card in your cabinet so you can insert it in a world.", { home: eraName(c.home) });
     $2("linked-png").onclick = () => saveFile(new Blob([linkedPng], { type: "image/png" }), `${c.name.replace(/[^\w -]+/g, "").trim() || tr("linked.file-name", "species")}.png`);
     pageTips();
     $2("linked").hidden = false;
@@ -43412,7 +43413,7 @@ Tidemote ${SAVE_VERSION} · world time ${fmtClock(eng.simTime)} · ${eng.count} 
       console.warn("[tidemote] the linked card's portrait:", e);
       if (!left) portraitStatus(
         "fail",
-        e?.noGpu ? tr("linked.portrait.no-gpu", "Its sigil stands in: no GPU here to draw its portrait") : tr("linked.portrait.failed", "Its sigil stands in: its portrait could not be drawn"),
+        e?.noGpu ? tr("linked.portrait.no-gpu", "Species sigil displayed: no GPU available to draw its portrait") : tr("linked.portrait.failed", "Species sigil displayed: its portrait could not be drawn"),
         tr("linked.portrait.fail-hint", "Its portrait is drawn on the GPU, through WebGPU.\n{error}", { error: e?.message || e })
       );
     });

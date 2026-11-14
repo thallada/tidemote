@@ -212,13 +212,13 @@ export function interpretMind(m, g, kind, { K, genomeOf, ridden = false }) {
     st = { key: 'torpid', text: tr('mind.state.torpid', 'Torpid in the cold'), why: tr('mind.state.torpid.why', 'At {t}° it is {below}° below the range it can work in (it prefers {range}): it neither feeds, swims nor divides, and burns {cost}% of its upkeep until the water warms.', { t: deg(m.warmth), below: belowRange(g, K, m.warmth), range, cost: Math.round(K.torporCost * 100) }) };
   } else if (E >= need && !m.mature) {
     // i18n: {at} a percentage of its lifespan, {age} that age in seconds
-    st = { key: 'young', text: tr('mind.state.young', 'Growing up'), why: tr('mind.state.young.why', 'It has the energy to divide ({e} of {need}) but is too young: a cell divides only once it is {at}% through its lifespan ({age} s). Full, it has stopped feeding.', { e, need: needs, at: Math.round(K.mature * 100), age: Math.round(K.mature * g.lifespan) }) };
+    st = { key: 'young', text: tr('mind.state.young', 'Growing up'), why: tr('mind.state.young.why', 'It has the energy to divide ({e} of {need}) but is too young: a cell divides only once it is {at}% through its lifespan ({age} s). It is full and has stopped feeding.', { e, need: needs, at: Math.round(K.mature * 100), age: Math.round(K.mature * g.lifespan) }) };
   } else if (E >= need) {
     // i18n: matter: what the Target row names when the target is matter, not a species
     st = m.siltNear
       ? { key: 'divide', matter: tr('mind.target.silt', 'Silt'), text: tr('mind.state.divide', 'Dividing'), why: tr('mind.state.divide.why', 'Its energy ({e}) has reached the {need} it needs, and a grain of silt is in reach to build a child from.', { e, need: needs }) }
       // i18n: {e} its energy and {need} the energy it divides at, to two decimals
-      : { key: 'seeksilt', matter: tr('mind.target.silt-none', 'Silt, none in reach'), text: tr('mind.state.seeksilt', 'Ready to divide'), why: tr('mind.state.seeksilt.why', 'It has the energy to divide ({e} of {need}) but no grain of silt within reach to build a child from, so it waits. Full, it has stopped feeding.', { e, need: needs }) };
+      : { key: 'seeksilt', matter: tr('mind.target.silt-none', 'Silt, none in reach'), text: tr('mind.state.seeksilt', 'Ready to divide'), why: tr('mind.state.seeksilt.why', 'It has the energy to divide ({e} of {need}) but no grain of silt within reach to build a child from, so it waits. It is full and has stopped feeding.', { e, need: needs }) };
   } else if (m.gut >= 0.98 && m.siltNear) {
     st = { key: 'dung', matter: tr('mind.target.silt', 'Silt'), text: tr('mind.state.dung', 'Dropping dung'), why: tr('mind.state.dung.why', 'Its gut is full of what it ate but could not digest; it drops it beside a grain of silt as dung, a husk for scavengers.') };
   } else if (m.food && m.hungry) {
@@ -242,7 +242,7 @@ export function interpretMind(m, g, kind, { K, genomeOf, ridden = false }) {
         : attack < 0.5
           // i18n: {sp} is a species' name; {e} its energy and {need} the energy it divides at, to two decimals; {attack} and {strike} percentages
           ? { key: 'rest', target: fk, odds, text: tr('mind.state.rest', 'Fed, letting {sp} pass', { sp }), why: tr('mind.state.rest.why', 'Well fed (energy {e} of the {need} it needs to divide): a fed hunter strikes only as often as it is short of food, now at about {attack}% of its chances, so {sp} in reach is mostly left alone. When it does strike, it kills about {strike}% of the time.', { e, need: needs, attack: pct(attack), sp, strike: pct(strike) }) }
-          : { key: 'hunt', target: fk, odds, text: tr('mind.state.hunt', 'Hunting {sp}', { sp }), why: tr('mind.state.hunt.why', 'Hungry (energy {e} of the {need} it needs to divide), with {sp} in reach. {fed, select, part {Part fed, it takes about {attack}% of its chances; a} other {A}} strike kills about {strike}% of the time, one try every {every} s{unfamiliar, select, yes {; it is used to other prey, so it often misses this one} other {}}{hidden, select, yes {; the producers around hide some of its prey} other {}}.', { e, need: needs, sp, fed: attack < 0.99 ? 'part' : 'hungry', attack: pct(attack), strike: pct(strike), every: every.toFixed(1), unfamiliar: unfamiliar ? 'yes' : 'no', hidden: hidden ? 'yes' : 'no' }) };
+          : { key: 'hunt', target: fk, odds, text: tr('mind.state.hunt', 'Hunting {sp}', { sp }), why: tr('mind.state.hunt.why', 'Hungry (energy {e} of the {need} it needs to divide), with {sp} in reach. {fed, select, part {Partly fed, it takes about {attack}% of its chances; a} other {A}} strike kills about {strike}% of the time, one try every {every} s{unfamiliar, select, yes {; it is used to other prey, so it often misses this one} other {}}{hidden, select, yes {; the producers around hide some of its prey} other {}}.', { e, need: needs, sp, fed: attack < 0.99 ? 'part' : 'hungry', attack: pct(attack), strike: pct(strike), every: every.toFixed(1), unfamiliar: unfamiliar ? 'yes' : 'no', hidden: hidden ? 'yes' : 'no' }) };
     }
   }
   const left = net < 0 ? E / -net : Infinity;
@@ -257,7 +257,7 @@ export function interpretMind(m, g, kind, { K, genomeOf, ridden = false }) {
   const chaser = others.filter((s) => s.flee > 0).sort((a, b) => b.flee - a.flee)[0];
   if (!st && chaser && share('flee') >= 0.15) {
     // i18n: {danger} a percentage, shown when the hunter is also one that could catch it
-    st = { key: 'flee', target: chaser.kind, text: tr('mind.state.flee', 'Fleeing {sp}', { sp }), why: tr('mind.state.flee.why-chased', '{sp} is a hunter, and this cell swims away from hunters near it, the harder the closer they come{known, select, yes {: about {danger}% of their strikes would land} other {}}.', { sp, known: threat && threat.kind === chaser.kind ? 'yes' : 'no', danger: threat ? pct(threat.danger) : 0 }) };
+    st = { key: 'flee', target: chaser.kind, text: tr('mind.state.flee', 'Fleeing {sp}', { sp }), why: tr('mind.state.flee.why-chased', '{sp} is a hunter, and this cell swims away from hunters near it. It swims harder the closer the hunter gets{known, select, yes {: about {danger}% of their strikes would land} other {}}.', { sp, known: threat && threat.kind === chaser.kind ? 'yes' : 'no', danger: threat ? pct(threat.danger) : 0 }) };
   }
   // a producer does not swim away: its receptors' push from a grazer is avoidance (below)
   if (!st && threat && g.photo <= 0.4 && -threat.sig > 0.2 * total) {
@@ -292,7 +292,7 @@ export function interpretMind(m, g, kind, { K, genomeOf, ridden = false }) {
   }
   if (!st && K.heat && (g.thermo || 0) > 0.2 && m.bonds > 0 && m.x < 0 && m.water < g.topt - 1) {
     // i18n: {rate} energy a second, to three decimals; {above} degrees warmer than the water; {water} the water's temperature
-    st = { key: 'huddle', text: tr('mind.state.huddle', 'Keeping warm'), why: tr('mind.state.huddle.why', 'A heat-maker in a body: it burns {rate}/s to run {above}° above the {water}° water, and its body holds the warmth in.', { rate: heatMaking.toFixed(3), above: deg(m.warmth - m.water), water: deg(m.water) }) };
+    st = { key: 'huddle', text: tr('mind.state.huddle', 'Keeping warm'), why: tr('mind.state.huddle.why', 'A heat-maker: it burns {rate}/s to run {above}° above the {water}° water, and its body holds the warmth in.', { rate: heatMaking.toFixed(3), above: deg(m.warmth - m.water), water: deg(m.water) }) };
   }
   if (!st && repel && -repel.sig > 0.35 * total) {
     // i18n: {sp} is a species' name
@@ -316,7 +316,7 @@ export function interpretMind(m, g, kind, { K, genomeOf, ridden = false }) {
     else if (top && top.key === 'bond') st = { key: 'body', text: tr('mind.state.body', 'Holding its body together'), why: tr('mind.state.body.why', 'Its bonds are the strongest pull on it: the body keeps its shape.') };
     else if (top && top.key === 'kin') st = kinSig >= 0 ? { key: 'gather', text: tr('mind.state.gather', 'Gathering with its kind'), why: tr('mind.state.gather.why', 'Drawn toward cells of its own species.') } : { key: 'spread', text: tr('mind.state.spread', 'Spreading from its kind'), why: tr('mind.state.spread.why', 'Its own species repels it, so it keeps its distance.') };
     else if (top && top.key === 'space') st = { key: 'jostle', text: tr('mind.state.jostle', 'Jostled in a crowd'), why: tr('mind.state.jostle.why', "Packed in tight: the strongest push on it is other cells' personal space.") };
-    else if (top && top.key === 'stone') st = { key: 'blocked', text: tr('mind.state.blocked', 'Pressed against stone'), why: tr('mind.state.blocked.why', 'Stone is solid to it; it is being pushed around a grain.') };
+    else if (top && top.key === 'stone') st = { key: 'blocked', text: tr('mind.state.blocked', 'Pressed against stone'), why: tr('mind.state.blocked.why', 'It is being pushed around a stone grain.') };
     else if (flowing) st = { key: 'drift', text: tr('mind.state.drift', 'Drifting on the current'), why: tr('mind.state.drift.why', 'Nothing nearby pulls on it much; the current carries it.') };
     // i18n: {e} its energy and {need} the energy it divides at, to two decimals
     else if (top && top.key === 'swim') st = { key: 'cruise', text: tr('mind.state.cruise', 'Cruising'), why: m.hungry ? tr('mind.state.cruise.why-hungry', 'Hungry (energy {e} of the {need} it needs to divide) but nothing it eats is near, so it swims on.', { e, need: needs }) : tr('mind.state.cruise.why', 'Swimming on, with nothing nearby pulling on it much.') };
@@ -335,7 +335,7 @@ export function interpretMind(m, g, kind, { K, genomeOf, ridden = false }) {
     { key: 'hungry', label: tr('mind.lamp.hungry', 'Hungry'), on: m.hungry, hint: m.hungry ? tr('mind.lamp.hungry.on', 'Hungry: energy {e} of the {need} it needs to divide. It is drawn to food and eats what comes in reach.', { e, need: needs }) : (g.photo > 0.4 && m.eatEff <= 0.1 ? tr('mind.lamp.hungry.light', 'Lives on light alone: too committed to photosynthesis to eat.') : tr('mind.lamp.hungry.off', 'Not hungry: energy {e} of the {need} it needs to divide.', { e, need: needs })) },
     // i18n: {age} seconds; {own} the energy it divides at for itself, to two decimals
     { key: 'full', label: tr('mind.lamp.full', 'Ready to divide'), on: E >= need && m.mature && !m.cyst, hint: E >= need ? (m.mature ? tr('mind.lamp.full.on', 'Has the energy to divide; {silt, select, yes {a grain of silt is in reach.} other {needs a grain of silt within reach to build a child from.}}', { silt: m.siltNear ? 'yes' : 'no' }) : tr('mind.lamp.full.young', 'Has the energy, but divides only once {age} s old.', { age: Math.round(K.mature * g.lifespan) })) : tr('mind.lamp.full.off', "Divides at {need} energy: its own {own} and its child's body.", { need: needs, own: g.reproE.toFixed(2) }) },
-    { key: 'threat', label: tr('mind.lamp.threat', 'Predator in reach'), on: !!threat, target: threat ? threat.kind : null, hint: threat ? tr('mind.lamp.threat.on', '{sp}, within reach, hunts cells like this one: about {danger}% of their strikes would land.', { sp, danger: pct(threat.danger) }) : tr('mind.lamp.threat.off', 'Nothing within reach is built to catch cells like this one.') },
+    { key: 'threat', label: tr('mind.lamp.threat', 'Predator in reach'), on: !!threat, target: threat ? threat.kind : null, hint: threat ? tr('mind.lamp.threat.on', '{sp}, within reach, hunts cells like this one: about {danger}% of their strikes would land.', { sp, danger: pct(threat.danger) }) : tr('mind.lamp.threat.off', 'Nothing within reach has learned to catch cells like this one.') },
     // i18n: {left} seconds
     { key: 'low', label: tr('mind.lamp.low', 'Energy running out'), on: left < 30, hint: left < 30 ? tr('mind.lamp.low.on', 'About {left} s of energy left without {producer, select, yes {more light} other {a meal}}.', { left: low, producer: g.photo > 0.4 ? 'yes' : 'no' }) : tr('mind.lamp.low.off', 'Energy reserves are not running out.') },
     { key: 'lean', label: tr('mind.lamp.lean', 'Saving energy'), on: lean < 0.8, hint: tr('mind.lamp.lean.hint', 'A cell low on energy slows its metabolism: this one burns {lean}% of its full upkeep.', { lean: pct(lean) }) },

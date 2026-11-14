@@ -156,9 +156,9 @@ async function boot(tries = 4) {
     const ua = navigator.userAgent;
     const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
     const safari = /AppleWebKit/.test(ua) && /Safari\//.test(ua) && !/Chrome|Chromium|CriOS|FxiOS|EdgiOS|Edg\/|OPR\/|Android/.test(ua);
-    if (safari && ios) fail(tr('err.no-webgpu.safari-ios', 'Safari has WebGPU from iOS 26'), tr('err.no-webgpu.safari-ios.detail', 'Tidemote simulates its world on your graphics card through WebGPU, which Safari offers from iOS and iPadOS 26. Update the system to run it here.'));
-    else if (safari) fail(tr('err.no-webgpu.safari-mac', 'Safari has WebGPU from macOS 26'), tr('err.no-webgpu.safari-mac.detail', 'Tidemote simulates its world on your graphics card through WebGPU, which Safari offers only on macOS 26 Tahoe and later, whatever its own version. On an earlier macOS, open Tidemote in Chrome or Edge, or update macOS.'));
-    else fail(tr('err.no-webgpu', 'This browser has no WebGPU'), tr('err.no-webgpu.detail', 'Tidemote simulates its world on your graphics card through WebGPU. Try a current Chrome or Edge, Safari on macOS 26 or iOS 26, or Firefox on Windows.'));
+    if (safari && ios) fail(tr('err.no-webgpu.safari-ios', 'Safari has WebGPU in iOS 26 or later'), tr('err.no-webgpu.safari-ios.detail', 'Tidemote simulates its world on your graphics card through WebGPU, which Safari offers from iOS and iPadOS 26 and onwards. Update the system to run it here or use another browser with WebGPU support like Chrome.'));
+    else if (safari) fail(tr('err.no-webgpu.safari-mac', 'Safari has WebGPU from macOS 26 onwards'), tr('err.no-webgpu.safari-mac.detail', 'Tidemote simulates its world on your graphics card through WebGPU, which Safari offers only on macOS 26 Tahoe and later. Update the system to run it here or use another browser with WebGPU support like Chrome.'));
+    else fail(tr('err.no-webgpu', 'This browser doesn\'t support WebGPU'), tr('err.no-webgpu.detail', 'Tidemote simulates its world on your graphics card through WebGPU. Try a current version of Chrome or Edge, Safari on macOS 26 or iOS 26, or Firefox on Windows.'));
     return;
   }
   const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
@@ -177,7 +177,7 @@ async function boot(tries = 4) {
   let started = false;
   device.lost.then((info) => { if (started && info.reason !== 'destroyed') fail(tr('err.device-lost', 'The GPU device was lost'),
     // i18n: {why} is the driver's own words (English, from the browser) or err.device-lost.reset
-    tr('err.device-lost.detail', '{why} The world was on it and is gone; reload the page to start a new one.', { why: info.message || tr('err.device-lost.reset', 'The driver reset the device.') }), [RELOAD]); });
+    tr('err.device-lost.detail', '{why} The world running on the device was lost; reload the page to start a new one.', { why: info.message || tr('err.device-lost.reset', 'The driver reset the device.') }), [RELOAD]); });
   device.addEventListener('uncapturederror', (e) => console.error('[tidemote]', e.error.message));
 
   const format = navigator.gpu.getPreferredCanvasFormat();
@@ -675,12 +675,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
         if (phase === 'drying') {
           begin();
           // i18n: the log: {dur} how long the water falls (a duration); {pct} how much of the floor will lie dry (%)
-          pushEvent(tr('log.drought-drying', '<b>The pool is drying</b>: over {dur} the water will fall until {pct}% of the floor lies dry', { dur: fmtDur(ev.fall), pct: Math.round((1 - ev.low) * 100) }), col, 'pond');
+          pushEvent(tr('log.drought-drying', '<b>The pool is drying</b>: over {dur} the water will fall until {pct}% of the world is dry land', { dur: fmtDur(ev.fall), pct: Math.round((1 - ev.low) * 100) }), col, 'pond');
           flash(tr('flash.drought-drying', 'The pool is drying'));
         } else if (phase === 'dry') {
           const p = eng.relief ? countPools(eng.relief, eng.grid[0], eng.grid[1], eng.level) : null;
-          pushEvent(p && p.pools > 1 ? tr('log.drought-dry-parted', 'The water has fallen: the pool has parted into <b>{pools} pools</b>; stranded cells rest as cysts and spores', { pools: p.pools })
-            : tr('log.drought-dry', 'The water has fallen; stranded cells rest as cysts and spores'), col, 'pond');
+          pushEvent(p && p.pools > 1 ? tr('log.drought-dry-parted', 'The water has fallen: the pool has parted into <b>{pools} pools</b>; stranded cells rest as dormant cysts', { pools: p.pools })
+            : tr('log.drought-dry', 'The water has fallen; stranded cells rest as dormant cysts'), col, 'pond');
           // i18n: the drought at its lowest: the pool parted into {n} pools, or not
           flash(p && p.pools > 1 ? tr('flash.drought-pools', '{n} pools', { n: p.pools }) : tr('flash.drought-dry', 'Low water'));
         } else if (phase === 'rain') {
@@ -702,7 +702,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
           flash(tr('flash.frost', 'A frost'));
         } else if (phase === 'freezing') {
           // i18n: {pct} how much of the pool will freeze (%)
-          pushEvent(tr('log.frost-ice', 'Ice grows over the pool: grains spreading from the shallows will freeze {pct}% of it, pushing cells into the veins of water between them', { pct: Math.round(ev.max * 100) }), col, 'pond');
+          pushEvent(tr('log.frost-ice', 'Ice grows over the pool: ice crystals will freeze {pct}% of the pool, pushing cells into the veins of water between ice sheets', { pct: Math.round(ev.max * 100) }), col, 'pond');
           flash(tr('flash.frost-ice', 'Ice'));
         } else if (phase === 'thaw') {
           pushEvent(tr('log.frost-thaw', 'The ice thaws'), col, 'pond');
@@ -712,7 +712,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         if (phase === 'duckweed') {
           begin();
           // i18n: {n} how many fronds
-          pushEvent(tr('log.duckweed', '<b>Duckweed drifts onto the pool</b>: {n} fronds, the water under them in their shade, their roots trailing below', { n: ev.buds + 1 }), col, 'pond');
+          pushEvent(tr('log.duckweed', '<b>Duckweed drifts onto the pool</b>: {n} fronds, the water under them dims in their shade', { n: ev.buds + 1 }), col, 'pond');
           flash(tr('flash.duckweed', 'Duckweed'));
         // i18n: {tally} is log.event-tally, or nothing
         } else if (!phase) pushEvent(tr('log.duckweed-passed', 'The duckweed has drifted off{tally}', { tally: tally() }), col, 'pond');
@@ -1544,7 +1544,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (key === feedKey) return;
     feedKey = key;
     const feedEl = $('feed');
-    setHTML(feedEl, ch.length ? ch.slice(0, 40).map((e) => `<li${e.type === 'story' ? ' class="story"' : ''}><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join('') : `<li class="quiet">${tr('log.empty', 'New species, extinctions and eras are logged here, and now and then the chronicler’s stories.')}</li>`);
+    setHTML(feedEl, ch.length ? ch.slice(0, 40).map((e) => `<li${e.type === 'story' ? ' class="story"' : ''}><i style="background:${cssCol(e.col)}"></i><time>${fmtClock(e.t)}</time><span>${e.html}</span></li>`).join('') : `<li class="quiet">${tr('log.empty', 'New species, extinctions, eras, and the chronicler’s narrations are logged here.')}</li>`);
     relabel(feedEl);
   }
   $('feed-all').addEventListener('click', () => lab.open('log'));
@@ -1615,7 +1615,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const [px, py] = predicted(), [W, H] = eng.grid;
     const way = ride.at ? pointerWay(wrapD(ride.at[0] - px, W), wrapD(ride.at[1] - py, H)) : keyWay(ride.keys);
     const held = way[0] !== 0 || way[1] !== 0;
-    if (fast && held && !ride.warned) { ride.warned = true; flash(tr('flash.ride-too-fast', 'Steering only at ×2 or slower')); }
+    if (fast && held && !ride.warned) { ride.warned = true; flash(tr('flash.ride-too-fast', 'Steering only works at ×2 speed or slower')); }
     if (!fast) ride.warned = false;
     const u = stepThrottle(ride.th, live ? way : [0, 0], dt / 1000);
     const s = live ? throttleGrip(u) : 0;
@@ -1649,21 +1649,21 @@ function run(eng, device, ctx, specCtx, hasTS) {
   async function hopRide() {
     if (!ride.on || !sel) return;
     const { res, young, next } = await nearestKin(sel.particle.kind, predicted(), sel.id);
-    if (!next) { flash(tr('flash.ride-none-near', 'None of its kind near')); return; }
+    if (!next) { flash(tr('flash.ride-none-near', 'None of its kin near')); return; }
     if (!ride.on) return;
     beginTracking(next, res, true);
     dirty = true;
-    flash(young ? tr('flash.ride-newest', 'On to its newest kin') : tr('flash.ride-nearest', 'On to the nearest of its kind'));
+    flash(young ? tr('flash.ride-newest', 'Switching to newest kin') : tr('flash.ride-nearest', 'Switching to nearest kin'));
   }
   // After a ride ended in its death: ride the nearest of its kind
   async function rideRelative() {
     if (!sel || !sel.memory) return;
     const kind = sel.memory.kind, at = [sel.particle.x, sel.particle.y];
     const { res, next } = await nearestKin(kind, at, sel.id);
-    if (!next) { flash(tr('flash.ride-none-nearby', 'None of its kind nearby')); return; }
+    if (!next) { flash(tr('flash.ride-none-nearby', 'None of its kin nearby')); return; }
     beginTracking(next, res, true);
     toggleRide(true, false);
-    flash(tr('flash.ride-relative', 'Ride On · a relative'));
+    flash(tr('flash.ride-relative', 'Ride On · a kin'));
   }
   function story(text) {
     if (!sel) return;
@@ -1756,7 +1756,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const d = Math.hypot(wrapD(e.x - me.x, W), wrapD(e.y - me.y, H));
       if (d < bd) { bd = d; best = e; }
     }
-    if (!best) { flash(tr('flash.no-relatives', 'No surviving relatives nearby')); return; }
+    if (!best) { flash(tr('flash.no-relatives', 'No surviving kin nearby')); return; }
     beginTracking(best, sel.nbr, true);
   }
 
@@ -1960,7 +1960,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (best < 0) { if (sel.rehome) organismGone(); return; }
       if (sel.rehome) {
         story(rehomeText(sel.particle, sel.rehome.cell));
-        if (ride.on) flash(tr('flash.ride-rehome', 'Its cell died · riding on in its body'));
+        if (ride.on) flash(tr('flash.ride-rehome', 'Cell died · riding on another cell in its body'));
       } else story(tr('story.organism-split', 'Its organism split: following the larger part.'));
       sel.rehome = null;
       sel.id = idAt(best);
@@ -2323,9 +2323,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const live = ours && life.reg.get(serial);
     const run = pipette.load({ card: card?.id, serial, words, name, home: ours ? undefined : card.home, slot: live?.alive ? live.slot : null, stranger: !ours }, n, !!at);
     // i18n: {n} the most cells the pipette holds
-    if (!run) { flash(tr('flash.pipette-full', 'The pipette is full · {n, plural, other {# cells}} · set some down', { n: PIPE_LIMIT })); return; }
+    if (!run) { flash(tr('flash.pipette-full', 'The pipette is full · {n, plural, other {# cells}}', { n: PIPE_LIMIT })); return; }
     // i18n: {name} is a species' name
-    if (at) { startSpit(...at, run); flash(tr('flash.colony-set-down', 'A colony of {name} set down', { name })); } else flash(tr('flash.colony-loaded', 'A colony of {name} in the pipette · Dispense sets it down', { name }));
+    if (at) { startSpit(...at, run); flash(tr('flash.colony-set-down', 'A colony of {name} set down', { name })); } else flash(tr('flash.colony-loaded', 'A colony of {name} in the pipette', { name }));
     bench.render();
   }
   // a card arriving from elsewhere: a link's #c=, or a card's PNG dropped on the page
@@ -2384,7 +2384,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     cabinet.cards = cabinet.cards.filter((c) => c.id !== card.id);
     cabinet.removed = { card, at: performance.now() };
     lab.render(true); bench.render(); cards.refresh();
-    flash(tr('flash.card-removed', '{name} is out of the cabinet', { name: card.name }));
+    flash(tr('flash.card-removed', '{name} removed from the cabinet', { name: card.name }));
   }
   async function undoRemove() {
     const r = cabinet.removed;
@@ -2713,10 +2713,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const own = saves && saves.filter((m) => m.from !== 'workshop'), ws = saves && saves.filter((m) => m.from === 'workshop');
       const list = saves == null ? `<p class="note">${tr('worlds.reading', 'Reading the saved worlds…')}</p>`
         : own.length ? own.map(saveRow).join('')
-        : `<p class="note">${tr('worlds.none', 'No saved worlds yet. A save keeps everything: every particle, each species and its name, the chronicle and the history.')}</p>`;
+        : `<p class="note">${tr('worlds.none', 'No saved worlds yet.')}</p>`;
       const browse = `<div class="w-more"><button type="button" class="link" data-o="w-browse" data-v="0">${tr('worlds.browse', 'Browse the Workshop')}</button></div>`;
       const wsList = !steamOn.on || saves == null ? '' : section('w-ws', tr('worlds.workshop', 'From the Workshop'), block('', (ws.length ? ws.map(saveRow).join('')
-        : `<p class="note">${tr('worlds.workshop-none', 'Worlds others have shared. Subscribe to one on the Steam Workshop and it appears here, ready to load.')}</p>`) + browse));
+        : `<p class="note">${tr('worlds.workshop-none', 'Subscribed worlds from the Steam Workshop.')}</p>`) + browse));
       // i18n: beside "Saved worlds": {n} how many, {size} the space they take (worlds.mb)
       return group('w-save', tr('worlds.save-heading', 'Save this world'), save) + section('w-list', tr('worlds.saved-heading', 'Saved worlds'), block('', list, { aside: own && own.length ? tr('worlds.used', '{n} · {size}', { n: own.length, size: mb(used) }) : '', tip: 'saves' })) + wsList;
     }
@@ -2802,12 +2802,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const ext = (href, text) => `<a class="sp" target="_blank" rel="noopener" href="${href}">${text}</a>`;
     function about_() {
       const link = (href) => (c) => ext(href, c.join(''));
-      return group('intro', '', `<div class="about"><p>${tr('settings.about.p1', "A sealed biosphere of up to millions of particles, and all of them live, eat, breed, and die in your browser, simulated on the GPU with WebGPU. Some cells drink the moving light of the tide. Others graze on the photosynthesizers, and others hunt the grazers. Scavengers break down the dead and return them to the water as silt, and from that silt the next generation builds its children. Children mutate into new species. Species that bond grow into bodies: filaments, branched fronds, spirals, packed tissues. Some of these bodies grow beating tails and swim. Every 10 to 18 minutes the climate turns, and the world has to begin again in its own way. It makes its own music, too: each cell sings its species' song, over a chorus of the births, kills, and deaths in view.")}</p>
+      return group('intro', '', `<div class="about"><p>${tr('settings.about.p1', "A sealed biosphere of up to millions of particles, and all of them live, eat, breed, and die in your browser, simulated on the GPU with WebGPU. Some cells drink the moving light of the tide. Others graze on the producers, and others hunt the grazers. Scavengers break down the dead and return them to the water as silt, and from that silt the next generation builds its children. Children mutate into new species. Species that bond grow into bodies: filaments, branched fronds, spirals, packed tissues. Some of these bodies grow beating tails and swim. Every 10 to 18 minutes the climate turns, and the world has to begin again in its own way. It makes its own music, too: each cell sings its species' song, over a chorus of the births, kills, and deaths in view.")}</p>
 <p>${tr('settings.about.p2', "No hand steers any of this: every ecological rule is local. The complex interacting colonies emerge from simple rules acting on the mutating genome each cell carries. The Field Lab's <guide>Guide</guide> explains how it works.", { guide: (c) => `<button type="button" class="link" data-o="guide" data-v="0">${c.join('')}</button>` })}</p></div>`)
         // i18n: the credits: <a1> a link to the director's site, <a2> to Claude's page, <a3> to SuperCollider's
-        + group('made', tr('settings.about.made-by', 'Made by'), `<div class="about"><p>${tr('settings.about.credits', "Directed by <a1>Tyler Hallada</a1> and implemented mostly by <a2>Claude</a2>, Anthropic's AI model. The soundtrack is procedurally generated using a port of <a3>SuperCollider</a3> to the browser.", { a1: link('https://www.hallada.net'), a2: link('https://www.anthropic.com/claude'), a3: link('https://supercollider.github.io/') })}</p></div>`)
-        + group('src', tr('settings.about.source', 'Source'), `<div class="about"><p>${tr('settings.about.license', 'Free software under the <a1>GPL-3.0</a1>: the code, the design notes and the headless tools used to balance the ecology are on <a2>GitHub</a2>, where bugs and ideas are welcome as issues.', { a1: link('https://www.gnu.org/licenses/gpl-3.0.html'), a2: link('https://github.com/thallada/tidemote') })}</p>
-<p>${tr('settings.about.privacy', 'Everything runs on this device: there is no account and no analytics, and saved worlds stay in this browser.')}</p></div>`);
+        + group('made', tr('settings.about.made-by', 'Made by'), `<div class="about"><p>${tr('settings.about.credits', "Developed by <a1>Tyler Hallada</a1> using <a2>Claude Code</a2> and Codex. Most of the code was written using LLMs. Graphics and sounds in this game are procedurally generated from code written by LLMs. No generative image or sound AI model content is used in this game. The soundtrack is a dynamic algorithm that is orchestrated by the state of the simulation and the cells in view, programmed by a custom port of <a3>SuperCollider</a3> for the browser. All text displayed in the UI has been manually reviewed and edited by hand.", { a1: link('https://www.hallada.net'), a2: link('https://www.anthropic.com/claude'), a3: link('https://supercollider.github.io/') })}</p></div>`)
+        + group('src', tr('settings.about.source', 'Source'), `<div class="about"><p>${tr('settings.about.license', 'Free software under the <a1>GPL-3.0</a1>: the code, design notes, and tools used in development are on <a2>GitHub</a2>. Feedback, bug reports, and ideas are welcome as issues.', { a1: link('https://www.gnu.org/licenses/gpl-3.0.html'), a2: link('https://github.com/thallada/tidemote') })}</p>
+<p>${tr('settings.about.privacy', 'Everything runs on this device: there is no account and no analytics. Saved worlds are stored locally unless downloaded or synced to Steam Cloud.')}</p></div>`);
     }
     // the keyboard note, and this tab's reset (which asks first)
     const keysNote = `<span class="keys-note">${tr('settings.keys-note', 'Keyboard: <kbd>?</kbd> lists every shortcut.')}</span>`;
@@ -3440,7 +3440,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       // (none placed: again the next frame, as a few grains of silt may just not have been taken; failing again and
       // again, there is no silt left in all the world to make them of: a word by the tip, a click's or a card's work
       // ends, and a moment between tries)
-      pull.note = { text: tr('hand.pipette.no-silt', 'No silt left to make them of'), t: now };
+      pull.note = { text: tr('hand.pipette.no-silt', 'No silt left to create dispensed cells'), t: now };
       if (!spit.held) spit.on = false;
       spit.next = now + 200;
     }
@@ -3925,8 +3925,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       // i18n: the menu's particle counts, their hints (two lines): Auto, {n} the count measured; a count {n}, past what
       // the GPU drew smoothly ({measured}, short: 64k) or not
       const autoHint = measuredN ? tr('menu.auto.hint-measured', 'As many as this GPU draws smoothly\nMeasured just now: {n, number}', { n: measuredN }) : tr('menu.auto.hint', 'As many as this GPU draws smoothly\nMeasured as the world starts');
-      const hint = (n) => (heavy(n) ? tr('menu.count.hint-heavy', '{n, plural, other {# particles}}\nMore than this GPU drew smoothly ({measured}): a richer world, in slower frames', { n, measured: kfmt(measuredN) }) : tr('menu.count.hint', '{n, plural, other {# particles}}\nKept for later visits', { n }));
-      return `<div class="menu-h"><span>${tr('menu.new-world', 'The new world')}</span><b>${busy === 'n' ? tr('menu.seeding', 'Seeding') : fmt(eng.count)}</b></div>`
+      const hint = (n) => (heavy(n) ? tr('menu.count.hint-heavy', '{n, plural, other {# particles}}\nMore than this GPU\'s measured capability ({measured})', { n, measured: kfmt(measuredN) }) : tr('menu.count.hint', '{n, plural, other {# particles}}\nPreference is saved as the default for future world starts', { n }));
+      return `<div class="menu-h"><span>${tr('menu.new-world', 'Size of new world')}</span><b>${busy === 'n' ? tr('menu.seeding', 'Seeding') : fmt(eng.count)}</b></div>`
         // i18n: the Auto count, with the count measured ({n}, short: 64k)
         + `<div class="menu-chips" role="group" aria-label="${tr('menu.particles.aria', 'Particles')}">${chip('auto', measuredN ? tr('menu.auto-measured', 'Auto <b>{n}</b>', { n: kfmt(measuredN) }) : tr('menu.auto', 'Auto'), !P.particles, autoHint, ' auto')}`
         + sizes.map((n) => chip(n, kfmt(n), P.particles === n, hint(n), heavy(n) ? ' heavy' : '')).join('') + '</div>'
@@ -3948,7 +3948,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         : `<p class="menu-note">${tr('menu.no-saves', 'No saved worlds yet. Save one from Settings → Worlds.')}</p>`;
       return `<div class="menu-h"><span>${tr('menu.open-saved', 'Open a saved world')}</span><b>${ws.length || ''}</b></div>${list}`
         + (err ? `<p class="menu-note"><em>${esc(err)}</em></p>` : '')
-        + `<div class="menu-foot"><span class="lbl">${desk ? tr('menu.kept-computer', 'On this computer') : tr('menu.kept-browser', 'In this browser')}</span><button type="button" class="btn" data-m="file" data-hint="${tr('menu.file.hint', 'Open a .tidemote file\nSaved from Settings → Worlds, on any device')}"${busy ? ' disabled' : ''}>${busy === 'file' ? tr('menu.opening', 'Opening') : tr('menu.file', 'Open a file')}</button></div>`;
+        + `<div class="menu-foot"><span class="lbl">${desk ? tr('menu.kept-computer', 'On this computer') : tr('menu.kept-browser', 'In this browser')}</span><button type="button" class="btn" data-m="file" data-hint="${tr('menu.file.hint', 'Open a .tidemote file\nSaved from Settings → Worlds')}"${busy ? ' disabled' : ''}>${busy === 'file' ? tr('menu.opening', 'Opening') : tr('menu.file', 'Open a file')}</button></div>`;
     }
     function render() {
       $('menu-n-v').textContent = countText();
@@ -4808,13 +4808,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // percent of its strength (more while held)
     if (t === 'lamp' || t === 'shade' || t === 'warm' || t === 'cold') return tr('hand.doing.level', '{doing, select, lamp {Brightening} shade {Darkening} warm {Warming toward a boil} cold {Chilling toward ice} other {Over the water}} · {pct}%{held, select, yes {} other { · hold for more}}', { doing: hand.held ? t : 'over', pct: Math.min(100, Math.round(hand.level * 100)), held: hand.held ? 'yes' : 'no' });
     if (t === 'touch') return !hand.held ? tr('hand.doing.touch-over', 'Press: the rod into the water') : ptr.dragging ? tr('hand.doing.touch-drag', 'Plowing') : tr('hand.doing.touch-in', 'In the water · pushing aside');
-    if (t === 'needle') return !hand.held ? tr('hand.doing.needle-over', 'Press: into the water') : ptr.dragging ? tr('hand.doing.needle-drag', 'Cutting through') : tr('hand.doing.needle-in', 'In the water · its point pricks');
+    if (t === 'needle') return !hand.held ? tr('hand.doing.needle-over', 'Press: the needle into the water') : ptr.dragging ? tr('hand.doing.needle-drag', 'Cutting through') : tr('hand.doing.needle-in', 'Pricking');
     if (t === 'pipette') {
       const tip = pipette.tip, now = performance.now();
       // i18n: the pipette drawing up, {n} cells in so far
       if (pull.on || hand.suck) return tr('hand.doing.drawing-up', 'Drawing up · {n, number} in', { n: pull.got.length });
       // i18n: {name} the species being set down
-      if (spit.on) return tr('hand.doing.setting-down', 'Setting down {name}', { name: (spit.sp || tip)?.name ?? '' });
+      if (spit.on) return tr('hand.doing.setting-down', 'Dispensing {name}', { name: (spit.sp || tip)?.name ?? '' });
       if (pull.note && now - pull.note.t < 2000) return pull.note.text;
       // i18n: the pipette's readout: {act} how it is used (a tap on a touch screen, else a click), {shift} the key
       // that turns it to its other mode (none on a touch screen or while Shift is held)
@@ -4822,8 +4822,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (!d) return pipette.fits(1) ? tr('hand.doing.load', '{act, select, tap {a tap} other {a click}}: a few at the tip · held: all in reach{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}', { act, shift })
         : tr('hand.doing.full', 'no room for more{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}', { shift });
       // i18n: {name} the species at the pipette's tip
-      return tip ? tr('hand.doing.dispense', '{act, select, tap {a tap} other {a click}} sets down {name}{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}', { act, name: tip.name, shift })
-        : tr('hand.doing.empty', 'nothing in it to set down{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}', { shift });
+      return tip ? tr('hand.doing.dispense', '{act, select, tap {a tap} other {a click}} dispenses {name}{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}', { act, name: tip.name, shift })
+        : tr('hand.doing.empty', 'nothing in it to dispense{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}', { shift });
     }
   }
   // Song marks: a faint ring spreads from each cell as it sings its species' note (the picked
@@ -5205,11 +5205,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     } else if (w.kind === 'event') {
       // i18n: the auto camera at the pool's event: a title, and a line on what happens
       const EV = { drought: { drying: [tr('caption.drought.drying', 'The pool is drying'), tr('caption.drought.drying-sub', 'Cells crowd the shrinking water; the edge drags stragglers with it')],
-        dry: [tr('caption.drought.dry', 'Low water'), tr('caption.drought.dry-sub', 'Stranded on the mud, cells rest as cysts and spores')], rain: [tr('caption.drought.rain', 'Rain'), tr('caption.drought.rain-sub', 'The water returns, and the cysts on the mud wake')] },
-        storm: { storm: [tr('caption.storm', 'A storm'), tr('caption.storm-sub', 'Raindrops ring the surface and the water runs rough')] },
+        dry: [tr('caption.drought.dry', 'Low water'), tr('caption.drought.dry-sub', 'Stranded on the mud, cells rest as dormant cysts')], rain: [tr('caption.drought.rain', 'Rain'), tr('caption.drought.rain-sub', 'The water returns, and the cysts on the mud wake')] },
+        storm: { storm: [tr('caption.storm', 'A storm'), tr('caption.storm-sub', 'Raindrops ripple the surface and the water runs rough')] },
         duckweed: { duckweed: [tr('caption.duckweed', 'Duckweed'), tr('caption.duckweed-sub', 'In the shade of its fronds the producers go hungry')] },
-        frost: { cooling: [tr('caption.frost.cooling', 'Nightfall'), tr('caption.frost.cooling-sub', 'The water chills toward freezing')], freezing: [tr('caption.frost.freezing', 'Ice'), tr('caption.frost.freezing-sub', 'Its fronts push cells into the veins of water between the grains')],
-          frozen: [tr('caption.frost.frozen', 'Frozen'), tr('caption.frost.frozen-sub', 'Life waits in the veins of water between the ice grains')], thaw: [tr('caption.frost.thaw', 'Thaw'), tr('caption.frost.thaw-sub', 'The ice gives the pool back')] } };
+        frost: { cooling: [tr('caption.frost.cooling', 'Nightfall'), tr('caption.frost.cooling-sub', 'The water chills toward freezing')], freezing: [tr('caption.frost.freezing', 'Ice'), tr('caption.frost.freezing-sub', 'Its crystals push cells into the veins of water between the ice sheets')],
+          frozen: [tr('caption.frost.frozen', 'Frozen'), tr('caption.frost.frozen-sub', 'Life waits in the veins of water between the ice sheets')], thaw: [tr('caption.frost.thaw', 'Thaw'), tr('caption.frost.thaw-sub', 'The ice melts back into the pool')] } };
       const [m, sb] = (EV[w.type] || {})[w.phase] || [tr('caption.pool', 'The pool'), ''];
       eyebrow = going ? tr('caption.heading', 'HEADING TO') : tr('caption.watching', 'WATCHING'); main = m; sub = going ? '' : sb;
     } else if (w.kind === 'linger') {
@@ -5465,7 +5465,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     recBar.classList.toggle('near', s === 'recording' && left < 60);
     if (s === 'recording' && Number.isFinite(cap)) {
       // i18n: the film's size's hint: where it goes as it is made, the size it stops itself at ({cap}), and when ({left}, a duration)
-      $('rec-mb').dataset.hint = tr('film.size.hint-limit', "The film's size so far, {sink, select, desktop {written to Videos › Tidemote as it is made} disk {written to disk as it is made, downloaded when it ends} memory {kept in memory until it ends} other {}}. It stops itself at {cap}{soon, select, yes {, about {left} from now} other {}}.",
+      $('rec-mb').dataset.hint = tr('film.size.hint-limit', "The film's size so far, {sink, select, desktop {written to Videos › Tidemote as it is recorded} disk {written to disk as it is recorded, downloaded when it ends} memory {kept in memory until it ends} other {}}. It stops itself at {cap}{soon, select, yes {, about {left} from now} other {}}.",
         { sink: film.sink() || 'none', cap: fmtBytes(cap), soon: Number.isFinite(left) ? 'yes' : 'no', left: Number.isFinite(left) ? fmtDur(left) : '' });
     }
   }
@@ -5902,7 +5902,7 @@ async function linkedCard(bytes) {
   // i18n: a card's link opened: {name} its species
   img.alt = tr('linked.img.alt', 'The species card of {name}', { name: c.name });
   $('linked-h').textContent = c.name;
-  $('linked-note').textContent = tr('linked.note', 'A species from {home}. Open Tidemote to keep its card in your cabinet and set it down in a world of your own.', { home: eraName(c.home) });
+  $('linked-note').textContent = tr('linked.note', 'A species from {home}. Open Tidemote to save its card in your cabinet so you can insert it in a world.', { home: eraName(c.home) });
   // i18n: a card's file name when its species' name has no letters to keep
   $('linked-png').onclick = () => saveFile(new Blob([linkedPng], { type: 'image/png' }), `${c.name.replace(/[^\w -]+/g, '').trim() || tr('linked.file-name', 'species')}.png`);
   pageTips();
@@ -5922,7 +5922,7 @@ async function linkedCard(bytes) {
     .catch((e) => {
       console.warn('[tidemote] the linked card\'s portrait:', e);
       // i18n: a card's link opened and its portrait not drawn: why its sigil stands in, and in its hint, how a portrait is drawn and the error ({error})
-      if (!left) portraitStatus('fail', e?.noGpu ? tr('linked.portrait.no-gpu', 'Its sigil stands in: no GPU here to draw its portrait') : tr('linked.portrait.failed', 'Its sigil stands in: its portrait could not be drawn'),
+      if (!left) portraitStatus('fail', e?.noGpu ? tr('linked.portrait.no-gpu', 'Species sigil displayed: no GPU available to draw its portrait') : tr('linked.portrait.failed', 'Species sigil displayed: its portrait could not be drawn'),
         tr('linked.portrait.fail-hint', 'Its portrait is drawn on the GPU, through WebGPU.\n{error}', { error: e?.message || e }));
     });
   await new Promise((res) => { $('linked-go').onclick = res; });

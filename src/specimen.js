@@ -21,7 +21,7 @@ import { tr } from './i18n.js';
  * sheet that peeks above the dock and is pulled up for the details.
  */
 // after a ride that ended in its death (or lost track of it): ride the nearest of its kind instead
-const RIDE_REL = `<button type="button" class="btn" data-act="riderel" data-hint="${tr('spec.act.ride-relative.hint', 'Ride the nearest of its kind · Enter')}">${tr('spec.act.ride-relative', 'Ride a relative')}</button>`;
+const RIDE_REL = `<button type="button" class="btn" data-act="riderel" data-hint="${tr('spec.act.ride-relative.hint', 'Ride the nearest of its kin · Enter')}">${tr('spec.act.ride-relative', 'Ride a kin')}</button>`;
 
 export function createSpecimen(api) {
   const { eng, K } = api;
@@ -143,7 +143,7 @@ export function createSpecimen(api) {
   // ------------------------------------------------------------ pieces
   // its card: Save keeps it in the cabinet (to carry to any world); once kept, Card opens it (to name it, share it)
   const cardBtn = (serial) => (api.saved(serial)
-    ? `<button type="button" class="btn" data-act="card" data-hint="${tr('spec.act.card.hint', 'Its card: name it, share it, load the pipette with it')}">${tr('spec.act.card', 'Card')}</button>`
+    ? `<button type="button" class="btn" data-act="card" data-hint="${tr('spec.act.card.hint', 'Species card: name it, share it, load the pipette with it')}">${tr('spec.act.card', 'Card')}</button>`
     : `<button type="button" class="btn" data-act="save" data-hint="${tr('spec.act.save.hint', 'Save its card to the cabinet, to carry it to any world')}">${tr('spec.act.save', 'Save')}</button>`);
   // A mix of cell types on one row, like the traits around it: a dotted meter split into each type's
   // share in its color, and the shares as α54 β41 γ5 (a sliver under 1% reads <1). hint: the
@@ -314,7 +314,7 @@ export function createSpecimen(api) {
     const slot = (sp ? sp.alive : true) && g.slot != null ? g.slot : -1;
     const m = v.motif, pad2 = (n) => String(n).padStart(2, '0');
     // i18n: the song's figures: {n} notes (two digits, 04), {s} seconds a cycle, and 2 voices when it has a second
-    let h = subHead(tr('spec.song', 'Song'), `<span class="song-read"><span>${tr('spec.song.notes', '<b>{n}</b> notes', { n: pad2(m.notes.length) })}</span><span>${tr('spec.song.seconds', '<b>{s}</b> s', { s: (m.cycle * 0.18).toFixed(1) })}</span>${m.voice2 ? `<span>${tr('spec.song.voices', '<b>{n}</b> voices', { n: 2 })}</span>` : ''}</span><button type="button" class="btn mini" data-song="${g.serial}" data-hint="${tr('spec.song.play.hint', 'Hear it alone')}">${tr('spec.song.play', 'Play')}</button>`, 'song');
+    let h = subHead(tr('spec.song', 'Song'), `<span class="song-read"><span>${tr('spec.song.notes', '<b>{n}</b> notes', { n: pad2(m.notes.length) })}</span><span>${tr('spec.song.seconds', '<b>{s}</b> s', { s: (m.cycle * 0.18).toFixed(1) })}</span>${m.voice2 ? `<span>${tr('spec.song.voices', '<b>{n}</b> voices', { n: 2 })}</span>` : ''}</span><button type="button" class="btn mini" data-song="${g.serial}" data-hint="${tr('spec.song.play.hint', 'Hear the whole species\' song alone')}">${tr('spec.song.play', 'Play')}</button>`, 'song');
     // i18n: the song's aria label: {tags} its instrument, register and tempo; {line} a sentence on it
     h += `<div class="song-wrap">${songSVG(v.motif, { col: cssCol(g.col), col2: cssRgb(roleColor(g, 1)), ghost: compact ? null : av && av.motif, h: compact ? 46 : 68, label: tr('spec.song.label', '{tags}: {line}', { tags: d.tags.join(', '), line: d.line }) })}</div>`;
     h += `<div class="song-tags">${d.tags.map((t, i) => `<span class="term" data-tip="${['instrument', 'register', 'tempo'][i]}" tabindex="0">${esc(t)}</span>`).join('<i>·</i>')}</div>`;
@@ -553,7 +553,7 @@ export function createSpecimen(api) {
           plainGlyph(16 + grain.kind, (0xff000000 | (c[2] << 16) | (c[1] << 8) | c[0]) >>> 0);
         } else plainGlyph(MATTER_GLYPH[p.kind][0], MATTER_GLYPH[p.kind][1]);
         const re = api.rideEnded();
-        setActs(`m${!!mem}${re}`, mem ? (re ? RIDE_REL : '') + `<button type="button" class="btn" data-act="relative">${tr('spec.act.relative', 'Watch a relative')}</button>` : '');
+        setActs(`m${!!mem}${re}`, mem ? (re ? RIDE_REL : '') + `<button type="button" class="btn" data-act="relative">${tr('spec.act.relative', 'Watch a kin')}</button>` : '');
         // in water at the background temperature (warm water wears husks faster)
         const q10 = (q) => (K.heat ? q ** ((eng.tbg - K.tRef) / 10) : 1);
         // i18n: the vitals of matter: {dur} a duration (3m 05s); {fast} yes when warm water rots a husk fast
