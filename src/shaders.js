@@ -5335,7 +5335,7 @@ const SHAPE_R = 1.25;
 @group(0) @binding(23) var shapePlans: texture_2d<u32>;
 @group(0) @binding(24) var shapeOut: texture_storage_2d<rgba8snorm, write>;
 @group(0) @binding(25) var shapePlanOut: texture_storage_2d<r32uint, write>;
-// [unused, cap, then the slots listed]; shapeArgs: shapeBake's dispatch, its third word how many are listed (so a frame
+// [cap, then the slots listed]; shapeArgs: shapeBake's dispatch, its third word how many are listed (so a frame
 // with nothing to bake runs no workgroup of it: sixty-five thousand invocations returning at once cost a Pixel 3 0.6 ms)
 @group(0) @binding(26) var<storage, read_write> shapeList: array<atomic<u32>>;
 @group(0) @binding(28) var<storage, read_write> shapeArgs: array<atomic<u32>, 3>;
@@ -5347,12 +5347,12 @@ fn shapeDirty(@builtin(global_invocation_id) gid: vec3u) {
   let serial = genomes[k].serial;
   if (serial == shapeBaked[k]) { return; }
   let n = atomicAdd(&shapeArgs[2], 1u);
-  if (n < atomicLoad(&shapeList[1])) { atomicStore(&shapeList[2u + n], k); shapeBaked[k] = serial; }
+  if (n < atomicLoad(&shapeList[0])) { atomicStore(&shapeList[1u + n], k); shapeBaked[k] = serial; }
   else { atomicSub(&shapeArgs[2], 1u); }
 }
 @compute @workgroup_size(8, 8)
 fn shapeBake(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) lid: vec3u) {
-  let k = atomicLoad(&shapeList[2u + wg.z]);
+  let k = atomicLoad(&shapeList[1u + wg.z]);
   let g = genomes[k];
   let s = morphOf(g);
   let x = wg.xy * 8u + lid.xy;

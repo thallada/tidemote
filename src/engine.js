@@ -415,7 +415,7 @@ class Engine {
     this.shapeTex = d.createTexture({ size: [SHAPE_TILE * SHAPE_COLS, SHAPE_TILE * Math.ceil(MAXK / SHAPE_COLS)], format: 'rgba8snorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING, label: 'shapes' });
     this.shapePlansTex = d.createTexture({ size: [SHAPE_COLS, Math.ceil(MAXK / SHAPE_COLS)], format: 'r32uint', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING, label: 'shapePlans' });
     this.shapeSampler = d.createSampler({ magFilter: 'linear', minFilter: 'linear' });
-    b.shapeList = d.createBuffer({ size: (2 + MAXK) * 4, usage: U.STORAGE | U.COPY_DST });
+    b.shapeList = d.createBuffer({ size: (1 + MAXK) * 4, usage: U.STORAGE | U.COPY_DST });
     b.shapeArgs = d.createBuffer({ size: 12, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
     b.shapeBaked = d.createBuffer({ size: MAXK * 4, usage: U.STORAGE | U.COPY_DST });
     this._shapeGen = -1;
@@ -2886,7 +2886,7 @@ class Engine {
     const fresh = this._shapeGen !== this.worldGeneration;
     if (fresh) { this._shapeGen = this.worldGeneration; enc.clearBuffer(b.shapeBaked); }
     const cap = fresh ? MAXK : SHAPE_CAP;
-    d.queue.writeBuffer(b.shapeList, 0, new Uint32Array([0, cap]));
+    d.queue.writeBuffer(b.shapeList, 0, new Uint32Array([cap]));
     d.queue.writeBuffer(b.shapeArgs, 0, new Uint32Array([SHAPE_TILE / 8, SHAPE_TILE / 8, 0]));
     const pass = enc.beginComputePass();
     pass.setPipeline(this.cpShapeDirty); pass.setBindGroup(0, this.shapeDirtyBG); pass.dispatchWorkgroups(Math.ceil(MAXK / 64));
