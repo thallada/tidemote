@@ -9368,12 +9368,12 @@ fn duckRoot(p: vec2f, o: vec2f, dir: vec2f, len: f32, wr: f32, seed: f32, ppu: f
 }
 // The pool's edge (pondPost) and the ice (iceSeen) at wp, in the world's own coordinates, each only while there is
 // any: read once a pixel for both waterRoom and poolOver.
-struct PoolAt { pd: vec3f, ic: IceSeen, ice: vec3f, iceIn: bool }
+struct PoolAt { pd: vec3f, ic: IceSeen, ice: vec3f }
 fn poolAt(wpIn: vec2f) -> PoolAt {
   let wp = wpIn - post.world * floor(wpIn / post.world);
   var o: PoolAt;
   if (!LEAN && post.pond.x < 1.0) { o.pd = pondPost(wp); }
-  if ((!LEAN || ICE) && iceShownAny()) { o.ic = iceSeen(wp); }
+  if (!LEAN && iceShownAny()) { o.ic = iceSeen(wp); }
   return o;
 }
 // How far a point lies into open water (units), from its poolAt: to the nearer of the pool's edge and the ice's, by
@@ -9385,7 +9385,7 @@ fn waterRoom(pool: PoolAt) -> f32 {
     let pd = pool.pd;
     room = min(room, pd.x / max(length(pd.yz), 1e-4));
   }
-  if ((!LEAN || ICE) && iceShownAny()) {
+  if (!LEAN && iceShownAny()) {
     let ic = pool.ic;
     room = min(room, ic.sd - (ICE_LEAD + ICE_OWN) * ic.reach);
   }
@@ -9783,9 +9783,9 @@ fn landLit(l: Lit) -> vec3f {
   return l.k * litGain(l, 0.0) * (1.0 + vec3f(1.0, 0.9, 0.7) * (LAND_SUN * sun) + vec3f(1.0, 0.7, 0.38) * (LAND_LAMP * l.lamp * s));
 }
 // What lies on and over the focal plane at world point wp, seen at ppu pixels per unit, in the main view and the
-// loupe alike: the pool's dry floor and edge, ice, the rain's waves and duckweed. pool: poolAt(wpIn); k: optics;
-// behind: how little light the cells here give (they hide the floor); surf: the water's slope (surfaceAt, nothing
-// off open water).
+// loupe alike: the pool's dry floor and edge, ice, the rain's waves and duckweed. pool: poolAt(wpIn) and the ice's look
+// (ice); k: optics; behind: how little light the cells here give (they hide the floor); surf: the water's slope
+// (surfaceAt, nothing off open water).
 fn poolOver(cIn: vec3f, wpIn: vec2f, pool: PoolAt, ppu: f32, k: f32, behind: f32, surf: vec2f, l: Lit) -> vec3f {
   var c = cIn;
   let lit = litGain(l, 0.0);
@@ -9824,14 +9824,9 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, pool: PoolAt, ppu: f32, k: f32, behind: f32
     let sheen = select(0.0, exp(-sd / 0.9), sd > 0.0);
     c += (vec3f(0.16, 0.17, 0.18) * rim + vec3f(0.035, 0.040, 0.046) * rise * along + vec3f(0.006, 0.008, 0.010) * sheen) * (0.35 + 0.65 * behind);
   }
-  // ice (a frost's, the cold probe's): over what is frozen in it, its front a crisp bright line, crystals
-  // (frazil) in the near-freezing water ahead of it while it grows
-  // (the main view's from fsIce's texture, pool.ice; the loupe's worked out here)
-  if ((!LEAN || ICE) && iceShownAny()) {
-    var ice = pool.ice;
-    if (!pool.iceIn) { ice = iceOver(wp, pool.ic, ppu); }
-    c += ice * (0.35 + 0.65 * behind);
-  }
+  // ice (a frost's, the cold probe's): its look (iceOver: the main view's from fsIce's texture, the loupe's worked out
+  // for it), under what the cells hide
+  if ((!LEAN || ICE) && iceShownAny()) { c += pool.ice * (0.35 + 0.65 * behind); }
   // the waves seen in themselves, on open water only: a surface tilted toward the lamp throws a little of its light
   // into the objective, a pale sheen on the crests' near flanks, while the far flanks bend light away and dim what
   // lies under them; steep water of any tilt scatters a little more. The crests catch the scene's light (lit: litGain's
@@ -10013,7 +10008,6 @@ fn fieldWater(c: vec4f) -> vec3f { return vec3f(c.z, c.w, 0.0); }
   var pool: PoolAt;
   if (!LEAN && post.pond.x < 1.0) { pool.pd = pondPost(wp - post.world * floor(wp / post.world)); }
   if (!LEAN || ICE) { pool.ice = textureSampleLevel(iceTex, samp, i.uv, 0.0).rgb; }
-  pool.iceIn = true;
   c = poolOver(c, wp, pool, post.ppu, k, behind, fc.xy, lit);
   c = extremes(c, fieldWater(fc), behind, bub);
   c = shadeOver(c, wp);
@@ -10065,7 +10059,8 @@ fn loupeScene(r: vec2f) -> vec3f {
   let toR = microView.ppu / (microView.res * 0.5);
   let r0 = r;
   let wp = microView.cam + r0 / toR;
-  let pool = poolAt(wp);
+  var pool = poolAt(wp);
+  if (iceShownAny()) { pool.ice = iceOver(wp - post.world * floor(wp / post.world), pool.ic, loupe.ppu); }
   let surf = surfaceAt(wp, loupe.ppu, max(microView.res.x, microView.res.y) / microView.ppu, waterRoom(pool));
   var bend = surf.shift;
   var water = vec3f(post.heat.x, 0.0, 0.0);
