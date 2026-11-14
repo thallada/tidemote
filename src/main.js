@@ -488,6 +488,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   // ------------------------------------------------------------ loupe
   const hover = { x: 0, y: 0, on: false };
+  // (where the mouse is anywhere on the page, the intro too, which keeps the canvas's own moves from it)
+  const mouseAt = { x: 0, y: 0, on: false };
+  addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') Object.assign(mouseAt, { x: e.clientX, y: e.clientY, on: true }); }, true);
   // (where a tap set the lens, on a touch screen: a world point, so it goes with the world as the view pans, off the
   // screen and back; dragged, it moves)
   let lensAt = null;
@@ -3879,7 +3882,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
   matchMedia('(max-width: 720px)').addEventListener('change', renderTime);
 
   let introHidden = false;
-  function hideIntro() { if (introHidden || state.phase !== 'running') return; introHidden = true; $('intro').classList.add('gone'); setTimeout(stopLoader, 1300); document.body.classList.add('live'); }
+  function hideIntro() {
+    if (introHidden || state.phase !== 'running') return;
+    introHidden = true; $('intro').classList.add('gone'); setTimeout(stopLoader, 1300); document.body.classList.add('live');
+    // (a mouse resting over the world has the loupe at once, without first moving)
+    if (mouseAt.on && document.elementFromPoint(mouseAt.x, mouseAt.y) === canvas) Object.assign(hover, mouseAt);
+  }
   // ------------------------------------------------------------ the menu
   // The intro is the main menu. Begin starts the new world, as a click or a key anywhere else does; under it,
   // for those who know Tidemote, the new world's particle count and the saved worlds, each opening a framed
