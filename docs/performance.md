@@ -753,50 +753,60 @@ the microscope and the insides (p95 frame interval 17.3 against 26-33 ms); held 
 
 On a Pixel 3 code that never runs still costs (the composite above: 7.0-7.5 ms full, 1.9-2.1 with its rare parts
 compiled out), and `lifeMain` carries code for things idle in most worlds most of the time. The engine now picks, step
-by step, `lifeMain` compiled without them where this step's uniforms show them idle, an identical world whenever it is
-picked.
+by step, `lifeMain` compiled without them where this step's uniforms show them idle: the same world whenever it is
+picked, `lifeMain` 3.3 → 2.85 ms at 1 tick and 3.6 → 2.2 at 2 on the Pixel 3 (a 2-tick step 12.9-13.3 → 11.4-11.7 ms).
 
-- **What it leaves out** (WGSL `override`s, `IDLE_*` in simWGSL, folded as constants where the pipeline sets them):
-  the viewer's hand (the lamp's light and slope, the rod's push and wake, the needle's cut and shaft, the ridden cell's
-  will, the pipette's draw: `IDLE_HAND`), the annotations' event records (`note`: `IDLE_NOTES`), the shore (the floor's
-  relief, the edge's sway, stranding: `IDLE_DRY`; the ice keeps its own run-time test, `iceOn`), raindrops' rings
-  (`IDLE_RAIN`) and duckweed's shade (`IDLE_DUCK`). Each is code its own test already skips when idle; the override
-  only takes the test's answer as known.
+- **What it leaves out** (WGSL `override`s, `IDLE_*` in simWGSL, folded as constants where a pipeline sets them): the
+  viewer's hand (the lamp's light and slope, the rod's push and wake, the needle's cut and shaft, the ridden cell's
+  will, the pipette's draw: `IDLE_HAND`), dry ground (the floor's relief, the edge's sway, stranding: `IDLE_DRY`; the
+  ice keeps its own run-time test, `iceOn`), raindrops' rings (`IDLE_RAIN`) and duckweed's shade (`IDLE_DUCK`). Each
+  is code its own test already skips when idle; the override only takes the test's answer as known.
 - **What picks it** (`Engine._stepLean`, `leanRan`): the uniforms the step was just given (`simData`), tested as the
-  WGSL tests them: the hand's words at rest, `sim.watch` empty (or no event asked for), `sim.pond.x` at 1 or above, no
-  raindrop alive (with 0.05 s of margin about its life for the clock's rounding), `sim.duck.w` 0. A split step's second
-  half keeps the first's choice (its uniforms are the first half's). Headless runs (no hand, no notes) take it wherever
-  no low water, rain or duckweed is about. The pipelines (`lifeMainLean`, `lifeMainCoarseLean`) compile in the page's second wave
-  right after the coarse ones, the full ones running until they land; headless runs compile them with the rest. Copy
-  profile's `world.lean` says whether the last step took it; a profile names it `lifeMain` either way.
+  WGSL tests them: the hand's words at rest, `sim.pond.x` at 1 or above, no raindrop alive (with 0.05 s of margin about
+  its life for the clock's rounding), `sim.duck.w` 0. A split step's second half keeps the first's choice (its uniforms
+  are the first half's). Headless runs (no hand) take it wherever no low water, rain or duckweed is about. The
+  pipelines (`lifeMainLean`, `lifeMainCoarseLean`) compile in the page's second wave right after the coarse ones, the
+  full ones running until they land; headless runs compile them with the rest. Copy profile's `world.lean` says
+  whether the last step took it; a profile names it `lifeMain` either way.
 - **The phone, knock-outs first** (`p8`, 8192 particles, 6361 living, `kind: step`; the overrides set on the page's own
   pipelines through an init script, every variant on one page build; ms, two page loads each, A/B interleaved, thermal
-  state 0-1; `runs/night/lk1`, `lk2`):
+  state 0-1; `runs/night/lk1`-`lk3`, plans made by a one-off kept outside the repo):
 
   | `lifeMain` built with | 1 tick | 2 ticks (coarse) |
   |---|---|---|
   | everything (as main) | 3.15-3.41 | 3.54-3.74 |
-  | all of hand, notes, dry, ice, rain, duckweed compiled out (the bound) | 2.56-2.75 | 2.03-2.16 |
-  | the same less the ice (as shipped, picked by the engine itself: `prod`) | 2.82-2.88 | 2.16-2.23 |
+  | the hand, notes, dry ground, ice, rain and duckweed compiled out (the bound) | 2.56-2.75 | 2.03-2.16 |
+  | the same less the ice (picked by the engine itself, the overrides as first built) | 2.82-2.88 | 2.16-2.23 |
+  | the same less the ice and the notes (as kept) | 2.82 | 2.16-2.23 |
   | the hand alone / the ice alone | 3.15-3.21 / 3.15 | 2.29-2.36 / 2.42 |
   | the notes alone / dry ground alone | 3.21-3.41 / 3.28-3.34 | 3.47-3.67 / 3.74 |
 
   The parts do not add: in the coarse kernel the hand alone or the ice alone takes most of it (a cliff, as the
-  composite's), all of them a little more. Mesa's count (`regs.sh`) has the coarse `lifeMain` at 43.6 → 37.9 vec4
-  registers, 65k → 56k instructions, no spills; the fine one 43.9 → 38.0.
-- **senseMain lean: slower, left out.** The same overrides in `senseMain` (the hand's cut, the coarse grains'
-  currents and shore) took it 4.26 → 4.52 ms at 1 tick and 5.96 → 6.03-6.16 at 2, in every load; with `lifeMain` alone
-  lean the step is 8.8-9.2 ms against 9.5-9.8 at 1 tick, 11.4-12.0 against 12.9-13.3 at 2. The ice's own run-time test
-  stays: compiled out it saves 0.13 ms more, but the CPU cannot know exactly that a world holds no ice (its count,
-  `ICE_N`, is the GPU's, from the step before; the frost's and the cold probe's state does not say when the last ice
-  has thawed), so the pick would have to be made on the GPU (two dispatches, one of them empty), not worth 0.13 ms.
+  composite's), all of them a little more. Mesa's count (`regs.sh`) has the coarse `lifeMain` at 43.6 → 38.1 vec4
+  registers, 65k → 58k instructions, no spills; the fine one 43.9 → 38.2.
+- **Left out of it.** The annotations' event records (`note`; on with the auto camera, Settings → Annotations): with
+  them kept the lean kernel is as fast (the row above), so it serves while they show. `senseMain` lean (the hand's
+  cut, a coarse grain's currents and shore) ran slower, 4.26 → 4.52 ms at 1 tick and 5.96 → 6.03-6.16 at 2, in every
+  load. The ice's test: compiled out it saves 0.13 ms more, but the CPU cannot know exactly that a world holds no ice
+  (its count, `ICE_N`, is the GPU's, from the step before; the frost's and the cold probe's state does not say when the
+  last ice has thawed), so the pick would have to be made on the GPU (two dispatches, one of them empty).
+  `bodyTick` (a coarse step's beating bodies) with the hand, or the hand and the ice, compiled out: 1.31-1.38 ms
+  either way (`runs/night/lk4`).
+- **What rare events' code costs** (each knocked out of the full `lifeMain`, so the world runs wrong; timing only, the
+  same runs): a birth (the claim of a grain, `mutateInto`, a new species' slot) 0.15-0.25 ms at 1 tick, 0.2-0.3 at 2;
+  a death (starving, age, scalding, a cyst, the gut's dung, a reef's stone) 0.1 at 1 tick, nothing at 2; a meal 0.25 at
+  1 tick and **1.4 at 2** (3.54-3.67 → 2.16: the coarse kernel's walk over its four best foods, `mealMissed`, the
+  claims, as much as everything world-idle together). Meals are not rare (every hungry cell with food in reach, each
+  `eatEvery` ticks), and a coarse step's meals are woven into its tick-by-tick energy (a birth or a death ends the
+  walk), so moving them to a kernel of their own over the cells that have a meal due would need that walk split in
+  two; not tried. The likeliest next gain in the coarse step.
 - **The same world** (`tools/leancheck.mjs`: one world, the same moment run on with the full kernel twice and with the
   lean one, the buffers a save keeps compared word for word, particles by id): on lavapipe single-threaded, 4096
-  particles, every word the same at 1, 2 and 6 ticks (lean in every step); with the lamp lit or the water low, the
-  engine takes the full kernel (lean in no step), and forced to take the lean one all the same, a third of the
-  particles' words differ: the check sees what it should.
-- **The RTX 4070 Ti** (Windows Chrome, `runs/night/lk-desk`, two loads each): `lifeMain` 0.033 → 0.030 ms at 32k, 0.17 →
-  0.158 at 262k (fine), the coarse ones 0.028 → 0.026, 0.193 → 0.179; the step no slower at 1, 2 and 6 ticks.
+  particles (1240-1450 living), 40 steps, every word the same at 1, 2 and 6 ticks (lean in every step); with the lamp
+  lit or the water low, the engine takes the full kernel (lean in no step), and forced to take the lean one all the
+  same, a third of the particles' words differ: the check sees what it should.
+- **The RTX 4070 Ti** (Windows Chrome, `runs/night/lk-desk`, two loads each): `lifeMain` 0.033 → 0.030 ms at 32k, 0.17
+  → 0.158 at 262k (fine), the coarse ones 0.028 → 0.026, 0.193 → 0.179; the step no slower at 1, 2 and 6 ticks.
 
 ## Where to look next (left off 2026-11-04, branch mac-perf merged; 2026-11-12 above)
 

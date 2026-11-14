@@ -91,7 +91,7 @@ const LATE = new Set([...COARSE_PIPES, 'mindMain', 'mindMainCoarse', 'rangeMain'
 // step where the uniforms show it idle (_stepLean); docs/performance.md, Lean step kernels. (senseMain lean ran no
 // faster on a Pixel 3.)
 const LEAN_PIPES = ['lifeMainLean', 'lifeMainCoarseLean'];
-const LEAN_IDLE = { IDLE_HAND: 1, IDLE_NOTES: 1, IDLE_DRY: 1, IDLE_RAIN: 1, IDLE_DUCK: 1 };
+const LEAN_IDLE = { IDLE_HAND: 1, IDLE_DRY: 1, IDLE_RAIN: 1, IDLE_DUCK: 1 };
 const COMPILE_COST = { lifeMain: 26, fsPoint: 15, 'fsPointLive+live': 13, fsComposite: 11, fsLoupe: 8, matterMain: 5 };
 
 
@@ -1820,13 +1820,12 @@ class Engine {
 
   // Whether this step's uniforms (simData, just filled) leave idle everything the lean kernels compile out (LEAN_IDLE,
   // IDLE_* in simWGSL), as the WGSL asks it: then the code they leave out would do nothing, and they make the same world.
-  // The hand (Hand: its lamp, the rod, the needle's cut and shaft, the ridden cell, the pipette, the rod's wake); no
-  // stretch annotated (sim.watch); no dry ground (sim.pond.x); no raindrop's ring alive (sim.drops, with a margin
-  // around its life for the clock's rounding); no duckweed (sim.duck.w).
+  // The hand (Hand: its lamp, the rod, the needle's cut and shaft, the ridden cell, the pipette, the rod's wake); no dry
+  // ground (sim.pond.x); no raindrop's ring alive (sim.drops, with a margin around its life for the clock's rounding);
+  // no duckweed (sim.duck.w).
   _stepLean() {
     const f = this.simF, u = this.simU, H = 96;
     if (f[H + 3] !== 0 || f[H + 16] > 0 || f[H + 17] > 0 || u[H + 21] !== 0xffffffff || f[H + 26] > 0 || f[H + 30] !== 0 || f[H + 31] !== 0 || f[H + 32] > 0) return false;
-    if (f[214] > 0 && u[216] !== 0) return false;
     if (f[64] < 1) return false;
     for (let k = 0; k < 4; k++) {
       const age = f[7] - f[82 + 4 * k];

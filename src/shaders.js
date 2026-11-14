@@ -1482,10 +1482,8 @@ override SUBSTEP = false;
 // lifeMain lean (lifeMainLean, lifeMainCoarseLean): what is idle across the whole world this step compiled out, the
 // engine picking it only where the code it leaves out would do nothing (engine.js _stepLean); on a Pixel 3 code never
 // run still costs (docs/performance.md, Lean step kernels). IDLE_HAND: the viewer's hand, all its words at rest;
-// IDLE_NOTES: no stretch annotated; IDLE_DRY: no dry ground (sim.pond.x at 1 or above); IDLE_RAIN: no raindrop's ring
-// alive; IDLE_DUCK: no duckweed.
+// IDLE_DRY: no dry ground (sim.pond.x at 1 or above); IDLE_RAIN: no raindrop's ring alive; IDLE_DUCK: no duckweed.
 override IDLE_HAND = false;
-override IDLE_NOTES = false;
 override IDLE_DRY = false;
 override IDLE_RAIN = false;
 override IDLE_DUCK = false;
@@ -1608,7 +1606,7 @@ fn watched(pos: vec2f) -> bool {
 // one event in view: what happened (EV_*, | NOTE_LITTER) to which cell (its kind, id and place), and who did it
 // (its kind, id and place; id NONE: no one)
 fn note(ev: u32, kind: u32, id: u32, pos: vec2f, ak: u32, aid: u32, apos: vec2f) {
-  if (IDLE_NOTES || !watched(pos) || (sim.watchEv.x & (1u << (ev & 31u))) == 0u) { return; }
+  if (!watched(pos) || (sim.watchEv.x & (1u << (ev & 31u))) == 0u) { return; }
   if ((ev & 31u) == EV_BITE && pcg(id ^ (sim.tick * 2654435761u)) > sim.watchEv.y) { return; }
   let b = noteAt();
   let o = b + 4u + (atomicAdd(&ledger[b], 1u) % NOTE_MAX) * NOTE_W;
