@@ -3320,7 +3320,7 @@ ${w ? "" : "    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }"}
   // (its cost is in upkeep, below)
   var will = vec2f(0.0);
   let rider = sim.hand.ids.y;
-  if (rider != NONE && !stranded) {
+  if (!IDLE_HAND && rider != NONE && !stranded) {
     var on = p.id == rider;
     // (the two it keeps, then those that keep it; then, a cell with a bond, the rest of the body the page traced)
     for (var b = 0u; b < 2u + nBack && !on; b++) {
@@ -3339,7 +3339,7 @@ ${w ? "" : "    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }"}
       }
     }
   }
-  let willOn = any(will != vec2f(0.0)) && bitcast<f32>(sim.hand.ids.z) > 0.0;
+  let willOn = !IDLE_HAND && any(will != vec2f(0.0)) && bitcast<f32>(sim.hand.ids.z) > 0.0;
   // A coarse step holds the pair and stone forces gathered at its start, and a dense clump is too stiff
   // for that: it would overshoot, heat and loosen. So they carry a correction, implicit in the stiffness.
   // The cell and its neighborhood are taken as two bodies sharing momentum: the reaction to this cell's
@@ -3515,6 +3515,14 @@ override COARSE = false;
 const LIFE_WG = ${lifeWG}u;
 // bodyTick's pipeline: tree functions read where its substeps have moved the cells (treePos, treeVel)
 override SUBSTEP = false;
+// lifeMain lean (lifeMainLean, lifeMainCoarseLean): what is idle across the whole world this step compiled out, the
+// engine picking it only where the code it leaves out would do nothing (engine.js _stepLean); on a Pixel 3 code never
+// run still costs (docs/performance.md, Lean step kernels). IDLE_HAND: the viewer's hand, all its words at rest;
+// IDLE_DRY: no dry ground (sim.pond.x at 1 or above); IDLE_RAIN: no raindrop's ring alive; IDLE_DUCK: no duckweed.
+override IDLE_HAND = false;
+override IDLE_DRY = false;
+override IDLE_RAIN = false;
+override IDLE_DUCK = false;
 struct Sim {
   world: vec2f, grid: vec2u,
   count: u32, frame: u32, dt: f32, time: f32,
@@ -3779,14 +3787,14 @@ fn discSlope(d: vec2f, r: f32) -> vec2f {
 ${HAND_SHAPES}// The light l at p under the hand's lamp (added) or shade (taken away).
 fn lampLight(p: vec2f, l: f32) -> f32 {
   let lp = sim.hand.lamp;
-  if (lp.w == 0.0) { return l; }
+  if (IDLE_HAND || lp.w == 0.0) { return l; }
   let b = lp.w * disc(handD(p, lp.xy), lp.z);
   return select(l * (1.0 + b), l + b, b > 0.0);
 }
 // Whether the needle's stroke this step passes within its half-width of p (a bond there is cut).
 fn cutAt(p: vec2f) -> bool {
   let w = sim.hand.more.y;
-  if (w <= 0.0) { return false; }
+  if (IDLE_HAND || w <= 0.0) { return false; }
   let a = handD(p, sim.hand.cut.xy);
   let ab = handD(sim.hand.cut.zw, sim.hand.cut.xy);
   let t = clamp(dot(a, ab) / max(dot(ab, ab), 1e-8), 0.0, 1.0);
@@ -3800,7 +3808,7 @@ const PIPE_DRAW = 6.0;
 const PIPE_HOLD = 2.0;
 fn suckFlow(id: u32, p: vec2f, h: f32) -> vec2f {
   let sk = sim.hand.suck;
-  if (sk.z <= 0.0) { return vec2f(0.0); }
+  if (IDLE_HAND || sk.z <= 0.0) { return vec2f(0.0); }
   let d = handD(sk.xy, p);
   let l = length(d);
   var v = 0.0;
@@ -3812,7 +3820,7 @@ fn suckFlow(id: u32, p: vec2f, h: f32) -> vec2f {
 // (half at its size away), so a stroke leaves a current along it, a circling one a vortex, fading as they do.
 fn wakeFlow(p: vec2f) -> vec2f {
   let R = sim.hand.wake.x;
-  if (R <= 0.0) { return vec2f(0.0); }
+  if (IDLE_HAND || R <= 0.0) { return vec2f(0.0); }
   var v = vec2f(0.0);
   for (var k = 0u; k < 20u; k++) {
     let e = sim.hand.eddies[k];
@@ -3824,7 +3832,7 @@ fn wakeFlow(p: vec2f) -> vec2f {
 // How far the needle and Touch's rod in the water push a cell or a grain at p aside, out of their way: each moved
 // from where it was when the world last stepped to where it is, it sweeps what lies between, so a fast stroke
 // carries along what it passes rather than leaping over it. Nothing in a headless run, where both are out.
-fn handPush(p: vec2f) -> vec2f { return needlePush(p) + rodPush(p); }
+fn handPush(p: vec2f) -> vec2f { if (IDLE_HAND) { return vec2f(0.0); } return needlePush(p) + rodPush(p); }
 // The needle: its shaft, tapering to its point, a cell's breadth wider than the steel as the cells see it. What
 // lies within it is pushed out the near way; what the shaft crossed since the last step (on one side of it then,
 // on the other now) is kept on its own side, at the shaft's edge.
@@ -3889,7 +3897,7 @@ fn openFlow(p: vec2f) -> vec2f {
     let ph = w.x * p.x + w.y * p.y + w.z * sim.time + wph[k];
     v += vec2f(w.y, -w.x) * (cos(ph) * w.w / max(length(w.xy), 1e-4));
   }
-  return v * sim.weather.x + dropFlow(p) + wakeFlow(p);
+  return v * sim.weather.x + select(dropFlow(p), vec2f(0.0), IDLE_RAIN) + wakeFlow(p);
 }
 ${pondFlowWGSL("sim", "sim.time", K)}fn flowAt(p: vec2f) -> vec2f {
   let open = openFlow(p);
@@ -3917,7 +3925,7 @@ fn flowWith(open: vec2f, pd: vec3f) -> vec2f {
 // a cell is frozen. pondWith gives whichever edge, the water's or the ice's, lies nearer, in the same terms: a
 // depth (below 0: dry or frozen) and the slope toward it.
 fn iceOn() -> bool { return HEAT_ON && bitcast<u32>(thermal[4u * MAX_CELLS]) != 0u; }
-fn pondOn() -> bool { return (POND && sim.pond.x < 1.0) || iceOn(); }
+fn pondOn() -> bool { return (!IDLE_DRY && POND && sim.pond.x < 1.0) || iceOn(); }
 fn blockCell(block: u32, x: i32, y: i32) -> f32 { return thermal[block * MAX_CELLS + wrapCell(x, y)]; }
 // A thermal block's field at grid cell i + t: its value read bilinearly, and its slope from central differences
 // at the four corners read bilinearly too, so the slope's direction turns smoothly across cell edges (a slope
@@ -3937,7 +3945,7 @@ fn pondWith(p: vec2f, open: vec2f) -> vec3f {
   let u = p - 0.5;
   let i = vec2i(floor(u));
   let t = u - floor(u);
-  if (sim.pond.x < 1.0) {
+  if (!IDLE_DRY && sim.pond.x < 1.0) {
     let r = smoothField(1u, i, t);
     e = vec3f(sim.pond.x - r.x, r.yz);
     let gl = length(r.yz);
@@ -3965,7 +3973,7 @@ fn inIce(p: vec2f) -> bool {
 fn shoreDist(pd: vec3f) -> f32 { return pd.x / max(length(pd.yz), 1e-4); }
 // The light at p: the baseline and the tide's bands by the season, under the sky (clouds) and any duckweed's shade.
 fn lightAt(p: vec2f) -> f32 {
-  return lampLight(p, (sim.ambient + (1.0 - sim.ambient) * tideAt(p, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season) * sim.pond.z * (1.0 - duckShade(p, sim.duck, sim.duckB, sim.world)));
+  return lampLight(p, (sim.ambient + (1.0 - sim.ambient) * tideAt(p, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season) * sim.pond.z * (1.0 - select(duckShade(p, sim.duck, sim.duckB, sim.world), 0.0, IDLE_DUCK)));
 }
 
 // Which way the light grows at p, for phototaxis: the slope of the tide's waves, taken before their bands are
@@ -3982,7 +3990,7 @@ fn lightSlope(p: vec2f) -> vec2f {
     gm += w.w * length(w.xy / sim.world);
   }
   var dir = gs / max(length(gs), max(gm * ${f(K.photoSoft)}, 1e-9));
-  if (sim.duck.w > 0.0) {
+  if (!IDLE_DUCK && sim.duck.w > 0.0) {
     let e = vec2f(0.5, 0.0);
     let sh = duckShade(p, sim.duck, sim.duckB, sim.world);
     let ds = vec2f(duckShade(p + e.xy, sim.duck, sim.duckB, sim.world) - duckShade(p - e.xy, sim.duck, sim.duckB, sim.world),
@@ -3991,7 +3999,7 @@ fn lightSlope(p: vec2f) -> vec2f {
   }
   // (and up the slope of the hand's lamp, or out of its shade)
   let lp = sim.hand.lamp;
-  if (lp.w != 0.0) { dir += discSlope(handD(p, lp.xy), lp.z) * (0.5 * lp.z * lp.w); }
+  if (!IDLE_HAND && lp.w != 0.0) { dir += discSlope(handD(p, lp.xy), lp.z) * (0.5 * lp.z * lp.w); }
   return dir / max(length(dir), 1.0);
 }
 
@@ -10326,11 +10334,18 @@ fn flowNoise(wp: vec2f, scale: f32) -> vec2f {
   return n;
 }
 
-// The water's temperature at world point p, bilinear between cell centers, and its gradient.
-fn waterCell(x: i32, y: i32) -> f32 {
+// The grid cell (x, y) wrapped into the world, as an index: every caller reads within a period of it (points wrapped
+// into the world first, a few cells about them), so one step wraps it. (Integer % has no instruction on a phone's GPU:
+// two a cell read were 40% of the ice's look, its 60-odd reads a pixel; one step halved a Pixel 3's frost, docs/
+// performance.md, The ice on a phone.)
+fn cellIndex(x: i32, y: i32) -> u32 {
   let g = vec2i(post.world);
-  return heatField[u32(((y % g.y) + g.y) % g.y) * u32(g.x) + u32(((x % g.x) + g.x) % g.x)];
+  let c = vec2i(x, y);
+  let w = select(select(c, c - g, c >= g), c + g, c < vec2i(0));
+  return u32(w.y) * u32(g.x) + u32(w.x);
 }
+// The water's temperature at world point p, bilinear between cell centers, and its gradient.
+fn waterCell(x: i32, y: i32) -> f32 { return heatField[cellIndex(x, y)]; }
 fn waterAt(p: vec2f) -> vec3f {
   let u = p - 0.5;
   let i = vec2i(floor(u));
@@ -10343,10 +10358,7 @@ fn waterAt(p: vec2f) -> vec3f {
 }
 // The pool's floor at world point p (docs/catastrophes.md), as the simulation reads it (pondWith): the water's depth
 // (below 0 dry) and the floor's slope uphill.
-fn gridPost(base: u32, x: i32, y: i32) -> f32 {
-  let g = vec2i(post.world);
-  return heatField[base + u32(((y % g.y) + g.y) % g.y) * u32(g.x) + u32(((x % g.x) + g.x) % g.x)];
-}
+fn gridPost(base: u32, x: i32, y: i32) -> f32 { return heatField[base + cellIndex(x, y)]; }
 // (a cubic B-spline, with its slope: the edge drawn smooth, and never below the lowest cell around p, as a cubic
 // through the cells (Catmull-Rom) would dip beside steep sides, the ice or dry floor showing at once over a patch
 // where the simulation, bilinear, has none; its edge lies within a fraction of a unit of this one)
@@ -10609,8 +10621,11 @@ fn iceGrain(wp: vec2f, cu: vec2f, N: vec2f, Sv: vec2f, near: f32) -> IceGrain {
 }
 // reach: how much of their full lead the dendrites have yet (0 as the ice begins: it grows from nothing); rg: how
 // much farther than sd says the front truly lies (sd measures by a floored slope, the true one may be gentler)
+// (iceRes: the resolution it is drawn at against the view's, each way: fsIce's target may be smaller, and its lines
+// then spread to a pixel of it and dim; what shows at a zoom (ppu) is the view's)
+var<private> iceRes: f32 = 1.0;
 fn iceLook(wp: vec2f, sd: f32, ppu: f32, grow: f32, reach: f32, rg: f32) -> vec3f {
-  let px = 1.0 / max(ppu, 1e-3);
+  let px = 1.0 / max(ppu * iceRes, 1e-3);
   let L = LAMP_L;
   let N = max(tileN(ICE_GS), vec2f(3.0));
   let Sv = post.world / N;
@@ -10624,13 +10639,17 @@ fn iceLook(wp: vec2f, sd: f32, ppu: f32, grow: f32, reach: f32, rg: f32) -> vec3
   var spines = vec2f(0.0);
   if (sd > -(ICE_LEAD + ICE_OWN + 0.75)) {
     let c0 = floor(wp / Sv);
-    var g = iceGrain(wp, c0, N, Sv, near);
-    for (var j = -1; j <= 1; j++) {
-      for (var i = -1; i <= 1; i++) {
-        if (i == 0 && j == 0) { continue; }
-        let h = iceGrain(wp, c0 + vec2f(f32(i), f32(j)), N, Sv, near);
-        if (h.lead > g.lead) { g = h; }
-      }
+    // (the grain here first, then the eight about it row by row)
+    var g: IceGrain;
+    g.lead = -1e9;
+    for (var k = 0; k < 9; k++) {
+      let m = select(k - 1 + select(0, 1, k > 4), 4, k == 0);
+      let cu = c0 + vec2f(f32(m % 3 - 1), f32(m / 3 - 1));
+      // (a grain whose longest stem could not reach farther than the best yet is passed over: the same winner)
+      let dl = length(wp - (cu + vjit(wrapL(cu, N) + 31.0)) * Sv);
+      if (ICE_LEAD + ICE_OWN - ICE_FALL * dl - 10.0 * max(dl - near, 0.0) <= g.lead) { continue; }
+      let h = iceGrain(wp, cu, N, Sv, near);
+      if (h.lead > g.lead) { g = h; }
     }
     e = max(g.lead, 0.0) * reach - sd;
     ed = e / max(select(0.0, g.slope * reach, g.lead > 0.0), 1.0 / rg);
@@ -10702,10 +10721,19 @@ fn iceLook(wp: vec2f, sd: f32, ppu: f32, grow: f32, reach: f32, rg: f32) -> vec3
   }
   return c;
 }
+// The ice's look at wp (in the world's own coordinates) from its iceSeen, seen at ppu pixels a unit: over what is
+// frozen, its front a crisp bright line, and crystals (frazil) in the near-freezing water ahead of it while it grows
+fn iceOver(wp: vec2f, ic: IceSeen, ppu: f32) -> vec3f {
+  let grow = iceGrowth(waterAt(wp).x);
+  var c = vec3f(0.0);
+  if (ic.sd < (ICE_LEAD + ICE_OWN) * ic.reach + 0.3) { c += iceLook(wp, ic.sd, ppu, grow, ic.reach, ic.rg); }
+  if (ic.sd > 0.0 && ic.sd < 9.0 && grow > 0.0) { c += frazil(wp, ic.sd, ppu, grow); }
+  return c;
+}
 // Crystals in the cold water ahead of the ice: here and there a nucleus has frozen on its own and grows as a small
 // six-armed star, its arms uneven, branched, larger the nearer the front has come. sd: world units ahead of it.
 fn frazilStar(wp: vec2f, cu: vec2f, N: vec2f, sp: vec2f, sd: f32, ppu: f32, grow: f32) -> vec3f {
-  let px = 1.0 / max(ppu, 1e-3);
+  let px = 1.0 / max(ppu * iceRes, 1e-3);
   let cell = wrapL(cu, N);
   if (hash12(cell + 0.5) > 0.3) { return vec3f(0.0); }
   let ctr = (cu + vjit(cell + 2.0)) * sp;
@@ -11343,7 +11371,7 @@ fn duckRoot(p: vec2f, o: vec2f, dir: vec2f, len: f32, wr: f32, seed: f32, ppu: f
 }
 // The pool's edge (pondPost) and the ice (iceSeen) at wp, in the world's own coordinates, each only while there is
 // any: read once a pixel for both waterRoom and poolOver.
-struct PoolAt { pd: vec3f, ic: IceSeen }
+struct PoolAt { pd: vec3f, ic: IceSeen, ice: vec3f, iceIn: bool }
 fn poolAt(wpIn: vec2f) -> PoolAt {
   let wp = wpIn - post.world * floor(wpIn / post.world);
   var o: PoolAt;
@@ -11801,11 +11829,11 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, pool: PoolAt, ppu: f32, k: f32, behind: f32
   }
   // ice (a frost's, the cold probe's): over what is frozen in it, its front a crisp bright line, crystals
   // (frazil) in the near-freezing water ahead of it while it grows
+  // (the main view's from fsIce's texture, pool.ice; the loupe's worked out here)
   if ((!LEAN || ICE) && iceShownAny()) {
-    let ic = pool.ic;
-    let grow = iceGrowth(waterAt(wp).x);
-    if (ic.sd < (ICE_LEAD + ICE_OWN) * ic.reach + 0.3) { c += iceLook(wp, ic.sd, ppu, grow, ic.reach, ic.rg) * (0.35 + 0.65 * behind); }
-    if (ic.sd > 0.0 && ic.sd < 9.0 && grow > 0.0) { c += frazil(wp, ic.sd, ppu, grow) * (0.35 + 0.65 * behind); }
+    var ice = pool.ice;
+    if (!pool.iceIn) { ice = iceOver(wp, pool.ic, ppu); }
+    c += ice * (0.35 + 0.65 * behind);
   }
   // the waves seen in themselves, on open water only: a surface tilted toward the lamp throws a little of its light
   // into the objective, a pale sheen on the crests' near flanks, while the far flanks bend light away and dim what
@@ -11901,6 +11929,22 @@ struct FieldOut { @location(0) a: vec4f, @location(1) b: vec4f, @location(2) c: 
   o.c = vec4f(surf.slope, water.x, length(water.yz));
   return o;
 }
+// The ice's look over the main view (iceOver), drawn into a texture of its own before the composite, which adds it
+// (docs/performance.md, The ice on a phone): its arithmetic in the composite took a Pixel 3's composite from 2 ms to
+// 45-52 with a frost in view; in a pass of its own it can be drawn at a lower resolution (Engine.fx.iceScale) where the
+// frame needs it. Drawn only where the composite reads it (compPick).
+@group(0) @binding(29) var iceTex: texture_2d<f32>;
+@fragment fn fsIce(i: CompVO) -> @location(0) vec4f {
+  // (the composite's pixel this one stands at)
+  let wpIn = post.cam + (i.uv * post.res - post.res * 0.5) / post.ppu;
+  let wp = wpIn - post.world * floor(wpIn / post.world);
+  // (lines finer than this target's pixels spread to one and dim, as finer than the view's do: drawn at a lower
+  // resolution it is softer, not broken up)
+  iceRes = round(64.0 * (i.pos.x + i.pos.y) / ((i.uv.x * post.res.x) + (i.uv.y * post.res.y))) / 64.0;
+  var c = vec3f(0.0);
+  if (iceShownAny()) { c = iceOver(wp, iceSeen(wp), post.ppu); }
+  return vec4f(c, 1.0);
+}
 fn fieldAt(t: texture_2d<f32>, uv: vec2f) -> vec4f { return textureSampleLevel(t, samp, uv, 0.0); }
 // the water as bubblesNear and extremes ask of it (its slope's length in place of the slope), from field C
 fn fieldWater(c: vec4f) -> vec3f { return vec3f(c.z, c.w, 0.0); }
@@ -11968,7 +12012,12 @@ fn fieldWater(c: vec4f) -> vec3f { return vec3f(c.z, c.w, 0.0); }
   c = c * mix(0.72, 1.0, v) * mix(1.0, mix(0.88, 1.05, lamp), k) + bg;
   c = pondSpecks(c, hdr, i.pos.xy, min(1.0, live.a), litGain(lit, 0.0));
   let fc = fieldAt(fieldC, i.uv);
-  c = poolOver(c, wp, poolAt(wp), post.ppu, k, behind, fc.xy, lit);
+  // (the ice's look from fsIce, drawn before the composite wherever the ice is in view: not worked out here)
+  var pool: PoolAt;
+  if (!LEAN && post.pond.x < 1.0) { pool.pd = pondPost(wp - post.world * floor(wp / post.world)); }
+  if (!LEAN || ICE) { pool.ice = textureSampleLevel(iceTex, samp, i.uv, 0.0).rgb; }
+  pool.iceIn = true;
+  c = poolOver(c, wp, pool, post.ppu, k, behind, fc.xy, lit);
   c = extremes(c, fieldWater(fc), behind, bub);
   c = shadeOver(c, wp);
   c = instrument(c, wp, post.ppu);
@@ -12147,8 +12196,9 @@ fn loupeScene(r: vec2f) -> vec3f {
   if ((marked == 0u && (iceShownAny() || hotAny())) || (ice != 0u && hot != 0u)) { pick = 0u; }
   else if (ice != 0u) { pick = 2u; }
   else if (hot != 0u) { pick = 3u; }
-  for (var k = 0u; k < 4u; k++) {
-    compArgs[4u * k] = select(0u, 3u, k == pick); compArgs[4u * k + 1u] = 1u; compArgs[4u * k + 2u] = 0u; compArgs[4u * k + 3u] = 0u;
+  for (var k = 0u; k < 5u; k++) {
+    // (the fifth, the ice's look (fsIce), where a composite that adds it draws)
+    compArgs[4u * k] = select(0u, 3u, select(k == pick, pick == 0u || pick == 2u, k == 4u)); compArgs[4u * k + 1u] = 1u; compArgs[4u * k + 2u] = 0u; compArgs[4u * k + 3u] = 0u;
   }
 }
 `;
@@ -17581,6 +17631,8 @@ struct SV {
   }
   var COARSE_PIPES = ["senseMainCoarse", "lifeMainCoarse", "bodyTick", "bodyArgs"];
   var LATE = /* @__PURE__ */ new Set([...COARSE_PIPES, "mindMain", "mindMainCoarse", "rangeMain"]);
+  var LEAN_PIPES = ["lifeMainLean", "lifeMainCoarseLean"];
+  var LEAN_IDLE = { IDLE_HAND: 1, IDLE_DRY: 1, IDLE_RAIN: 1, IDLE_DUCK: 1 };
   var COMPILE_COST = { lifeMain: 26, fsPoint: 15, "fsPointLive+live": 13, fsComposite: 11, fsLoupe: 8, matterMain: 5 };
   var SEA_WIND_EASE = 30;
   var SEA_U_BYTES = 16 * (SEA_CASCADES + SEA.systems.length + 4 + SEA_LAYERS);
@@ -17655,7 +17707,7 @@ struct SV {
       this.seedValue = 1;
       this.censusEvery = 20;
       this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1, tide: 0, heat: 1, bands: 0, optics: 1, specks: true, lod: true };
-      this.fx = { seaEvery: 1, contactsEvery: 2, bloom: true, specks: true, stoneEvery: STONE_EVERY, haze: true, microscope: true, interiors: true };
+      this.fx = { seaEvery: 1, contactsEvery: 2, bloom: true, specks: true, stoneEvery: STONE_EVERY, haze: true, microscope: true, interiors: true, iceScale: 1 };
       this.fxFade = { bloom: 1, sea: 1, look: 1, t: null };
       this.simData = new ArrayBuffer(912);
       this.hand = new Float32Array(116);
@@ -17828,6 +17880,8 @@ struct SV {
       this.cpLerpBack = cPipe({ layout: "auto", compute: { module: lerpModule, entryPoint: "lerpRestore" }, label: "lerpRestore" });
       this.lerp = null;
       this.halfOwed = false;
+      this.leanSteps = true;
+      this.leanRan = false;
       this._lerpN = 0;
       this._lerpOk = false;
       const cullModule = shader({ code: CULL_WGSL, label: "cull" });
@@ -17887,12 +17941,20 @@ struct SV {
       this.cpDefs.senseMainCoarse = this.cpDefs.senseMain;
       this.cpDefs.lifeMainCoarse = this.cpDefs.lifeMain;
       this.cpDefs.mindMainCoarse = this.cpDefs.mindMain;
+      for (const n of LEAN_PIPES) this.cpDefs[n] = this.cpDefs[n.replace(/Coarse|Lean/g, "")];
       this.cp = {};
+      const lateLean = [];
       for (const name of Object.keys(this.cpDefs)) {
-        const coarse2 = name.endsWith("Coarse");
-        const constants = coarse2 ? { COARSE: 1 } : name === "bodyTick" ? { SUBSTEP: 1 } : null;
-        const desc = { layout: "auto", compute: { module: this.simModule, entryPoint: coarse2 ? name.slice(0, -6) : name, ...constants ? { constants } : {} }, label: name };
-        if (late && LATE.has(name)) {
+        const coarse2 = /Coarse/.test(name), lean = name.endsWith("Lean");
+        const constants = { ...coarse2 ? { COARSE: 1 } : name === "bodyTick" ? { SUBSTEP: 1 } : {}, ...lean ? LEAN_IDLE : {} };
+        const desc = { layout: "auto", compute: { module: this.simModule, entryPoint: name.replace(/Coarse|Lean/g, ""), ...Object.keys(constants).length ? { constants } : {} }, label: name };
+        if (late && lean) {
+          const c = this.cp[name] = { pipe: null, bg: null };
+          lateLean.push({ desc, compute: true, set: (p2) => {
+            c.pipe = p2;
+            if (this._cpRes) this._cpBind(name);
+          } });
+        } else if (late && LATE.has(name)) {
           const c = this.cp[name] = { pipe: null, bg: null };
           this._later.unshift({ desc, compute: true, set: (p2) => {
             c.pipe = p2;
@@ -17900,6 +17962,7 @@ struct SV {
           } });
         } else this.cp[name] = { pipe: cPipe(desc), bg: null };
       }
+      this._later.splice([...LATE].filter((n) => this.cpDefs[n]).length, 0, ...lateLean);
       this.cpPick = { pipe: cp(this.pickModule, "pickMain"), bg: null };
       this.cpTrackNear = cp(this.pickModule, "trackNear");
       this.cpTrackArgs = cp(this.pickModule, "trackArgs");
@@ -18012,8 +18075,15 @@ struct SV {
         vertex: { module: this.postModule, entryPoint: "vsComp" },
         fragment: { module: this.postModule, entryPoint: "fsField", targets: [0, 1, 2].map(() => ({ format: "rgba16float" })) }
       });
+      this.pIce = rPipe({
+        layout: "auto",
+        label: "fsIce",
+        primitive: { topology: "triangle-list" },
+        vertex: { module: this.postModule, entryPoint: "vsComp" },
+        fragment: { module: this.postModule, entryPoint: "fsIce", targets: [{ format: "rgba16float" }] }
+      });
       this.cpCompPick = cPipe({ layout: "auto", compute: { module: this.postModule, entryPoint: "compPick" }, label: "compPick" });
-      b.compArgs = d.createBuffer({ size: 64, usage: U.STORAGE | U.INDIRECT });
+      b.compArgs = d.createBuffer({ size: 80, usage: U.STORAGE | U.INDIRECT });
       this.pLoupe = defer(rpDesc(this.postModule, "vsLoupe", "fsLoupe", "triangle-list", over, format), false, (p2) => {
         this.pLoupe = p2;
       });
@@ -18452,6 +18522,19 @@ ${e.message}` : String(e?.message || e));
       this._splatBGs();
       return true;
     }
+    // the ice's target (fsIce) for a view w x h, at fx.iceScale of it each way
+    _iceTarget(w, h) {
+      const s = this.fx.iceScale, size = [Math.max(1, Math.ceil(w * s)), Math.max(1, Math.ceil(h * s))];
+      if (this.iceTex && this.iceTex.width === size[0] && this.iceTex.height === size[1]) return false;
+      this.iceTex?.destroy();
+      this.iceTex = this.device.createTexture({ size, format: "rgba16float", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING, label: "ice" });
+      this.iceView = this.iceTex.createView();
+      this.iceBG = this.device.createBindGroup({ layout: this.pIce.getBindGroupLayout(0), entries: [
+        { binding: 2, resource: { buffer: this.b.post } },
+        { binding: 11, resource: { buffer: this.b.thermal } }
+      ] });
+      return true;
+    }
     // the look lab (tools/looklab.mjs) swaps in a new composite shader while the page runs
     hotComposite(code) {
       const d = this.device;
@@ -18602,6 +18685,7 @@ ${e.message}` : String(e?.message || e));
       this.fieldTex?.forEach((t) => t.destroy());
       this.fieldTex = [0, 1, 2].map(() => d.createTexture({ size: [Math.ceil(w / FIELD_STEP), Math.ceil(h / FIELD_STEP)], format: "rgba16float", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING }));
       this.fieldViews = this.fieldTex.map((t) => t.createView());
+      this._iceTarget(w, h);
       this.fieldBG = d.createBindGroup({ layout: this.pField.getBindGroupLayout(0), entries: [
         { binding: 0, resource: this.sampler },
         { binding: 2, resource: { buffer: this.b.post } },
@@ -18651,7 +18735,8 @@ ${e.message}` : String(e?.message || e));
         { binding: 28, resource: this.fieldViews[2] },
         { binding: 23, resource: this.seaFieldTex[0].createView() },
         { binding: 24, resource: this.seaFieldTex[1].createView() },
-        { binding: 26, resource: this.opticsTex.createView() }
+        { binding: 26, resource: this.opticsTex.createView() },
+        { binding: 29, resource: this.iceView }
       ] });
       this.compBG = this.pComp ? compBG(this.pComp) : null;
       this.compClearBG = this.pCompClear ? compBG(this.pCompClear) : null;
@@ -19387,7 +19472,7 @@ ${e.message}` : String(e?.message || e));
       const run2 = (name, n) => {
         const q = prof ? prof.names.push(name) * 2 - 2 : 0;
         if (prof) pass = enc.beginComputePass({ timestampWrites: { querySet: prof.qs, beginningOfPassWriteIndex: q, endOfPassWriteIndex: q + 1 } });
-        const c = this.cp[name];
+        const l = this.cp[name + "Lean"], c = this.leanRan && l?.bg ? l : this.cp[name];
         pass.setPipeline(c.pipe);
         pass.setBindGroup(0, c.bg);
         if (n == null) pass.dispatchWorkgroupsIndirect(b.frameCtr, 4);
@@ -19468,6 +19553,7 @@ ${e.message}` : String(e?.message || e));
         new Uint8Array(this.ringData, ring2 * SIM_STRIDE, this.simData.byteLength).set(new Uint8Array(this.simData));
         enc.copyBufferToBuffer(b.simRing, ring2 * SIM_STRIDE, b.sim, 0, this.simData.byteLength);
       }
+      this.leanRan = this.leanSteps && this._stepLean();
       this.sorted = true;
       this._clear(enc, b.counts, 0, cells * 4);
       this._clear(enc, b.counts, MAX_CELLS * 4, cells * 4);
@@ -19482,6 +19568,21 @@ ${e.message}` : String(e?.message || e));
       this._clear(enc, b.subL, 0, 4);
       this._clear(enc, b.frameCtr, 36, 4);
       this._clear(enc, b.ledger, 48, 12);
+    }
+    // Whether this step's uniforms (simData, just filled) leave idle everything the lean kernels compile out (LEAN_IDLE,
+    // IDLE_* in simWGSL), as the WGSL asks it: then the code they leave out would do nothing, and they make the same world.
+    // The hand (Hand: its lamp, the rod, the needle's cut and shaft, the ridden cell, the pipette, the rod's wake); no dry
+    // ground (sim.pond.x); no raindrop's ring alive (sim.drops, with a margin around its life for the clock's rounding);
+    // no duckweed (sim.duck.w).
+    _stepLean() {
+      const f2 = this.simF, u = this.simU, H2 = 96;
+      if (f2[H2 + 3] !== 0 || f2[H2 + 16] > 0 || f2[H2 + 17] > 0 || u[H2 + 21] !== 4294967295 || f2[H2 + 26] > 0 || f2[H2 + 30] !== 0 || f2[H2 + 31] !== 0 || f2[H2 + 32] > 0) return false;
+      if (f2[64] < 1) return false;
+      for (let k = 0; k < 4; k++) {
+        const age = f2[7] - f2[82 + 4 * k];
+        if (f2[83 + 4 * k] > 0 && age > -0.05 && age < this.K.dropLife + 0.05) return false;
+      }
+      return !(f2[75] > 0);
     }
     /** Whether coarse steps have compiled (they compile late: until then frame takes one as that many 1/60 s steps). */
     get coarseReady() {
@@ -21191,6 +21292,19 @@ ${e.message}` : String(e?.message || e));
         cp.setBindGroup(0, this.compPickBG);
         cp.dispatchWorkgroups(1);
         cp.end();
+      }
+      if (!leanOnly) {
+        if (this._iceTarget(W2, H2)) {
+          this.compBG = this.compClearBG = this.compLeanBG = this.compClearLeanBG = null;
+          for (const q of this.compParts) q.bg = [null, null];
+          this._rebindLate();
+        }
+        const ip = enc.beginRenderPass({ colorAttachments: [{ view: this.iceView, loadOp: "load", storeOp: "store" }] });
+        ip.setPipeline(this.pIce);
+        ip.setBindGroup(0, this.iceBG);
+        if (lean) ip.drawIndirect(this.b.compArgs, 64);
+        else ip.draw(3);
+        ip.end();
       }
       const pass = enc.beginRenderPass({
         colorAttachments: [{ view: target2, loadOp: "clear", clearValue: [0, 0, 0, 1], storeOp: "store" }],
@@ -36686,7 +36800,12 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     // cautious guess until then). 32 seeds × 30 min found no ecological difference at 64 or 88 in 8k worlds, nor at 88
     // in 16k ones (runs/lowend). Its loss is the simulation's fidelity, weighed above any of the dressing: taken only
     // where it pays much.
-    neighbors: { levels: [64, 88, 112], passes: null, share: (from, to, k) => nbRel(k, to) / nbRel(k, from), loss: [5, 4] }
+    neighbors: { levels: [64, 88, 112], passes: null, share: (from, to, k) => nbRel(k, to) / nbRel(k, from), loss: [5, 4] },
+    // The ice's look (fsIce, Engine.fx.iceScale), drawn at half the view's resolution each way: a quarter of its pixels,
+    // its lines spread to a pixel of it and dimmed, softer (1 - SSIM 0.005-0.02 against full at 80-300 pixels a unit,
+    // about 0.1 at fit, an RTX 4070 Ti, runs/ice/cheap/half2). Its cost is nothing until ice is in view, then much of a
+    // phone's frame (a Pixel 3's fsIce 9-13 ms during a frost): docs/performance.md, The ice on a phone.
+    ice: { levels: [0.5, 1], passes: /^fsIce$/, share: (from, to) => (to / from) ** 2, loss: [0.5] }
   };
   var rate = (every) => every > 0 ? 1 / every : 0;
   var GATHER_SEARCH = 0.65;
@@ -36753,7 +36872,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     if (!down || down.save < 0.25 * need || best.gain / best.loss < 1.5 * (down.loss / down.save)) return null;
     return { id: down.id, to: down.to, rebalance: true };
   }
-  var GUESS = { sea: 0.2, contacts: 0.15, bloom: 0.05, specks: 0.05, stone: 0.03, haze: 0.3, microscope: 0.3, interiors: 0, neighbors: 0 };
+  var GUESS = { sea: 0.2, contacts: 0.15, bloom: 0.05, specks: 0.05, stone: 0.03, haze: 0.3, microscope: 0.3, interiors: 0, neighbors: 0, ice: 0 };
   function fullCost(id, k, draw) {
     const def = KNOBS[id], share2 = def.share(def.levels[def.levels.length - 1], def.levels[k.level], k);
     if (k.cost != null && share2 > 0) return k.cost / share2;
@@ -36958,6 +37077,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     haze: () => tr("settings.perf.held.haze", "Heat haze off"),
     microscope: () => tr("settings.perf.held.microscope", "Microscope off"),
     interiors: () => tr("settings.perf.held.interiors", "Cell insides off"),
+    // i18n: Settings → Perf, one thing held back: the ice drawn at half the resolution of the rest of the view
+    ice: () => tr("settings.perf.held.ice", "Ice at half resolution"),
     // i18n: Settings → Perf, one thing held back: {n} the neighbors a cell weighs each step, fewer than the most
     neighbors: (l) => tr("settings.perf.held.neighbors", "{n} neighbors", { n: KNOBS.neighbors.levels[l] }),
     // i18n: Settings → Perf, one thing held back: the world drawn at {pct} percent of the screen's resolution
@@ -37016,9 +37137,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "bbba3138e81333bd") return;
+      if (localStorage.getItem(key) === "c2cbb6eefd34b426") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "bbba3138e81333bd");
+      if (res) localStorage.setItem(key, "c2cbb6eefd34b426");
     } catch {
     }
   }
@@ -37282,7 +37403,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const on = shown();
       for (const id of Object.keys(tune)) if (id !== "neighbors" && !tuneAuto(id, on)) tune[id].level = pins[id] ?? KNOBS[id].levels.length - 1;
       const at = (id) => KNOBS[id].levels[tune[id].level];
-      Object.assign(eng.fx, { seaEvery: at("sea"), contactsEvery: at("contacts"), bloom: at("bloom"), specks: at("specks"), stoneEvery: at("stone"), haze: at("haze"), microscope: at("microscope"), interiors: at("interiors") });
+      Object.assign(eng.fx, { seaEvery: at("sea"), contactsEvery: at("contacts"), bloom: at("bloom"), specks: at("specks"), stoneEvery: at("stone"), haze: at("haze"), microscope: at("microscope"), interiors: at("interiors"), iceScale: at("ice") });
       eng.maxScan = on.neighbors ? at("neighbors") : state.perf.scan;
     }
     applyTune();
@@ -39650,6 +39771,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         interiors: tr("settings.display.lod", "Cell insides"),
         // i18n: the readout's adapting summary: the stone's light, which the page may work out again less often
         stone: tr("dock.adapt.stone", "Stone light"),
+        // i18n: the readout's adapting summary: the ice's look, which the page may draw at a lower resolution
+        ice: tr("dock.adapt.ice", "Ice"),
         // i18n: the readout's adapting summary: which cells touch which (drawn pressed together), which the page may work out less often
         contacts: tr("dock.adapt.contacts", "Cell contacts"),
         scale: tr("settings.perf.scale", "Render scale"),
@@ -39914,18 +40037,19 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         if (id === "neighbors") return String(eng.maxScan);
         if (id === "stone") return tr("dock.adapt.every", "Every {s} s", { s: KNOBS.stone.levels[v] });
         if (id === "sea" && v > 0 && v < 3) return tr("dock.adapt.rate", "{level, select, 1 {¼ rate} other {½ rate}}", { level: v });
+        if (id === "ice") return v === 0 ? tr("dock.adapt.half", "½ resolution") : NORMAL;
         if (id === "contacts") return v === 0 ? tr("dock.adapt.rate", "{level, select, 1 {¼ rate} other {½ rate}}", { level: 1 }) : NORMAL;
         const row = ROW_OF[id], x = v === 0 ? 0 : rowVal[row]();
         return row === "microlook" || row === "water" ? [OFF, SUBTLE, NORMAL, STRONG][x] : x ? ON : OFF;
       }
-      const SUMMED = [["microscope", "bloom", "sea", "haze", "specks", "interiors", "stone", "contacts"], ["scale", "fps", "neighbors"]];
+      const SUMMED = [["microscope", "bloom", "sea", "haze", "specks", "interiors", "stone", "ice", "contacts"], ["scale", "fps", "neighbors"]];
       tips.rich.eased = () => {
         const all = adaptNow(), at = Object.fromEntries(all.map((r) => [r[0], r])), held = all.some((r) => r[2] === "held");
         const row = (id) => {
           const [, v, st] = at[id];
           return `<div class="am-r" data-s="${st}"><span class="lbl">${NAMES[id]}</span><i></i><b>${adaptValue(id, v, st)}</b><em>${st === "held" ? EASED : st === "fixed" ? FIXED : ""}</em></div>`;
         };
-        return (held ? `<div class="am-h"><span>${tr("dock.adapt.title", "Adapting")}</span><span>${WHY_WORDS[perf.why] ?? ""}</span></div>` : `<div class="am-h calm"><span>${tr("settings.perf.held-none", "Full Quality")}</span></div>`) + SUMMED.map((ids) => `<div class="am-g">${ids.filter((id) => id !== "haze" || K.heat).map(row).join("")}</div>`).join("") + `<div class="am-f">${tr("dock.adapt.open", "{touch, select, yes {Tap again to open Settings → Perf} other {Click to open Settings → Perf}}", { touch: isCoarse ? "yes" : "no" })}</div>`;
+        return (held ? `<div class="am-h"><span>${tr("dock.adapt.title", "Adapting")}</span><span>${WHY_WORDS[perf.why] ?? ""}</span></div>` : `<div class="am-h calm"><span>${tr("settings.perf.held-none", "Full Quality")}</span></div>`) + SUMMED.map((ids) => `<div class="am-g">${ids.filter((id) => id !== "haze" && id !== "ice" || K.heat).map(row).join("")}</div>`).join("") + `<div class="am-f">${tr("dock.adapt.open", "{touch, select, yes {Tap again to open Settings → Perf} other {Click to open Settings → Perf}}", { touch: isCoarse ? "yes" : "no" })}</div>`;
       };
       function adapt() {
         const held = new Set(heldNow().map((r) => r[0]));
@@ -40133,6 +40257,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const world = {
         simTime: Math.round(eng.simTime),
         ticks: eng.ticks,
+        lean: eng.leanRan,
         grid: eng.grid,
         level: +eng.level.toFixed(4),
         frost: +eng.frost.toFixed(3),
