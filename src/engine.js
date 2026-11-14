@@ -471,16 +471,13 @@ class Engine {
       const coarse = /Coarse/.test(name), lean = name.endsWith('Lean');
       const constants = { ...(coarse ? { COARSE: 1 } : name === 'bodyTick' ? { SUBSTEP: 1 } : {}), ...(lean ? LEAN_IDLE : {}) };
       const desc = { layout: 'auto', compute: { module: this.simModule, entryPoint: name.replace(/Coarse|Lean/g, ''), ...(Object.keys(constants).length ? { constants } : {}) }, label: name };
-      if (late && lean) {
-        // (in the second wave after LATE's: the full kernels run in their place until they land)
-        const c = (this.cp[name] = { pipe: null, bg: null });
-        lateLean.push({ desc, compute: true, set: (p) => { c.pipe = p; if (this._cpRes) this._cpBind(name); } });
-      } else if (late && LATE.has(name)) {
+      if (late && (lean || LATE.has(name))) {
         // compiles on after the engine is returned, first in the second wave (not beside the first: lifeMain's compile,
-        // which a first frame waits on, shared the GPU process with these): in place (with its bind group, once
-        // particles are allocated) when ready
+        // which a first frame waits on, shared the GPU process with these), the lean kernels after LATE's (the full ones
+        // run in their place until they land): in place (with its bind group, once particles are allocated) when ready
         const c = (this.cp[name] = { pipe: null, bg: null });
-        this._later.unshift({ desc, compute: true, set: (p) => { c.pipe = p; if (this._cpRes) this._cpBind(name); } });
+        const job = { desc, compute: true, set: (p) => { c.pipe = p; if (this._cpRes) this._cpBind(name); } };
+        if (lean) lateLean.push(job); else this._later.unshift(job);
       } else this.cp[name] = { pipe: cPipe(desc), bg: null };
     }
     this._later.splice([...LATE].filter((n) => this.cpDefs[n]).length, 0, ...lateLean);

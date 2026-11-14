@@ -3799,11 +3799,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // (real time: 1/60 s steps where they fit, fineTicks)
     if (!(s > 1) || !stepCost()) { perf.ticks = 1; perf.held = false; perf.fine = s === 1 ? fineTicks() : 0; perf.split = s === 1 && splitTicks(); return; }
     if (s === Infinity) {
-      // the coarsest step that still fits MAX_STEP_MS of the GPU (a step of m ticks costs about 1 + 0.45 (m - 1) of a
-      // 1/60 s one): a slow phone's 6-tick steps make frames like those its driver judges a hung GPU
-      const S1 = fastCost() / (1 + 0.45 * (perf.ticks - 1));
+      // the coarsest step that still fits MAX_STEP_MS of the GPU (tickCost): a slow phone's 6-tick steps make frames
+      // like those its driver judges a hung GPU
+      const S1 = fastCost() / tickCost(perf.ticks);
       let m = MAX_TICKS;
-      while (m > 1 && S1 * (1 + 0.45 * (m - 1)) > MAX_STEP_MS) m--;
+      while (m > 1 && S1 * tickCost(m) > MAX_STEP_MS) m--;
       perf.ticks = m; perf.held = true; return;
     }
     const ways = WAYS;
