@@ -4482,8 +4482,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
   function drawScale() {
     if (!state.hud || !state.ui || director.active && !phone()) return;
     const p = cssPPU();
-    const y = dockTop - 1;
-    // ticks at round lengths along the dock's top edge
+    // ticks at round lengths along the dock's top edge; a film has no dock, so along its frame's bottom
+    const y = (film.state === 'recording' ? innerHeight : dockTop) - 1;
     const unit = (NICE_UM.find((u) => (u / UM_PER_UNIT) * p >= 14) || 50000) / UM_PER_UNIT;
     const [wx0] = toWorld(0, 0);
     const first = Math.ceil(wx0 / unit) * unit;
@@ -4514,7 +4514,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const marking = markSlot() !== -2 && songEvents.some((e) => now - e.at < MARK_MS);
     const R = reticleAt();
     const key = state.currents || (sel && sel.particle) || L || R || marking || notesShown ? null
-      : `${state.hud}|${state.ui}|${director.active}|${cssPPU()}|${cam.x}|${dockTop}|${innerWidth}|${overlay.width}|${specimen.isOpen() && specInset().right}|${document.fonts.status}`;
+      : `${state.hud}|${state.ui}|${director.active}|${cssPPU()}|${cam.x}|${dockTop}|${film.state}|${innerWidth}|${overlay.width}|${specimen.isOpen() && specInset().right}|${document.fonts.status}`;
     if (key !== null && key === overlayKey) return;
     overlayKey = key;
     octx.setTransform(1, 0, 0, 1, 0, 0);
