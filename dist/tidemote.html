@@ -702,6 +702,9 @@ canvas.chart { cursor: crosshair; }
 .opt .auto-now { color: var(--sun); min-width: 3ch; letter-spacing: .04em; font-variant-numeric: tabular-nums; }
 .opt .segs:has(.auto-pick) .auto-now { display: none; }
 .opt .chip.auto-pick:not([aria-pressed="true"]) { box-shadow: inset 0 -2px 0 var(--sun); }
+/* Auto below its own lowest (the render scale's emergency step when the GPU is overloaded): red, not the sun's */
+.opt .chip.auto-pick.auto-sos:not([aria-pressed="true"]) { box-shadow: inset 0 -2px 0 var(--hot); }
+.opt .auto-now.auto-sos { color: var(--hot); }
 .hot-btn { border-color: var(--hot); color: var(--ink); background: rgba(255, 95, 58, 0.14); justify-self: start; }
 .hot-btn:hover { background: rgba(255, 95, 58, 0.26); border-color: var(--hot); }
 /* a button that is a row's value (Start a new world with ...) may wrap: it grows, padded, rather than crowd its lines */
@@ -37841,7 +37844,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     }
     function seedWorld(n) {
       eng.seed(n, { aspect: innerWidth / Math.max(1, innerHeight) });
-      perf.calmUntil = performance.now() + 2e3;
+      freshAdapt();
       const g = eng.grid;
       cam.x = g[0] / 2;
       cam.y = g[1] / 2;
@@ -37950,6 +37953,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       state.perf.particles = n === "auto" ? null : n;
       persist();
       state.phase = "calibrating";
+      freshAdapt(true);
       flash(n === "auto" ? tr("flash.measuring", "Measuring the GPU") : tr("flash.particles", "{n, plural, other {# particles}}", { n }));
       try {
         await calibrate();
@@ -39747,8 +39751,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       let pendingN = null;
       const choice = (id, title, key, items, cur, tip, cols = 0) => {
         const now = String(cur) === "auto" ? autoNow(id) : null;
-        const label3 = (v, l) => v === "auto" && now ? `${l} <span class="auto-now" data-auto="${id}">${now.text}</span>` : l;
-        return `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ""}</span><div class="row segs${cols ? ` many" style="--cols: ${cols}` : items.length > 7 ? " many" : ""}" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip${now && String(v) === now.pick ? " auto-pick" : ""}" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? " disabled" : ""}>${label3(v, l)}</button>`).join("")}</div></div>`;
+        const sos = now?.sos ? " auto-sos" : "";
+        const label3 = (v, l) => v === "auto" && now ? `${l} <span class="auto-now${sos}" data-auto="${id}">${now.text}</span>` : l;
+        return `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ""}</span><div class="row segs${cols ? ` many" style="--cols: ${cols}` : items.length > 7 ? " many" : ""}" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip${now && String(v) === now.pick ? ` auto-pick${sos}` : ""}" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? " disabled" : ""}>${label3(v, l)}</button>`).join("")}</div></div>`;
       };
       function autoNow(id) {
         if (EASES[id]) return { text: "", pick: String(tune[EASES[id]].level === 0 ? 0 : rowVal[id]()) };
@@ -39758,7 +39763,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           const f2 = Math.round(1e3 / frameTarget());
           return { text: String(f2), pick: String([30, 60].find((v) => Math.abs(v - f2) <= 3) ?? "") };
         }
-        if (id === "scale") return { text: pctOf(Math.round(renderScale * 100)), pick: String(+renderScale.toFixed(2)) };
+        if (id === "scale") return { text: pctOf(Math.round(renderScale * 100)), pick: String(+renderScale.toFixed(2)), sos: scaleSOS() };
         if (id === "density") {
           const d = +density().toFixed(2);
           return { text: timesOf(d), pick: String(d) };
@@ -39772,7 +39777,12 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           const now = autoNow(sp.dataset.auto);
           if (!now) continue;
           setText(sp, now.text);
-          for (const b of sp.closest(".segs").children) b.classList.toggle("auto-pick", b.dataset.v === now.pick);
+          sp.classList.toggle("auto-sos", !!now.sos);
+          for (const b of sp.closest(".segs").children) {
+            const pick4 = b.dataset.v === now.pick;
+            b.classList.toggle("auto-pick", pick4);
+            b.classList.toggle("auto-sos", pick4 && !!now.sos);
+          }
         }
       };
       const onoff = (id, title, key, on, tip) => choice(id, title, key, [[1, tr("settings.on", "On")], [0, tr("settings.off", "Off")]], on ? 1 : 0, tip);
@@ -41663,6 +41673,23 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       perf.raised = null;
       perf.calmUntil = performance.now() + 2e3;
       for (const k of Object.values(tune)) k.hold = 0;
+    }
+    const scaleSOS = () => state.perf.scale === "auto" && renderScale < state.perf.floor - 0.01;
+    function freshAdapt(best = false) {
+      if (best) {
+        for (const [id, k] of Object.entries(tune)) k.level = KNOBS[id].levels.length - 1;
+        applyTune();
+        if (state.perf.scale === "auto" && renderScale < 1) {
+          renderScale = 1;
+          resizeDue = true;
+          perf.renderR = 0;
+        }
+      } else if (scaleSOS()) {
+        renderScale = Math.max(state.perf.floor, filmScale());
+        resizeDue = true;
+        perf.renderR = 0;
+      }
+      resetAdapt();
     }
     let pressure = "nominal";
     try {
