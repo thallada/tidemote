@@ -135,7 +135,7 @@ export const TUBE_K = 16;
 export const STUDIO_N = 64; // a mini-card's portrait drawn alone (setStudio): the most cells it holds
 // The loupe's barrel distortion: its rim shows this many times its radius.
 export const LOUPE_FIELD = 1.1;
-export const ORGANS = 12; // organelles per resolved cell (fsPoint), directions per species (organDirs)
+export const ORGANS = 4; // organelles per resolved cell (cellColor), directions per species (organDirs)
 export const PICK_WORDS = 12; // Particle's 10 words, then two partner IDs (NONE if absent).
 export const G_BYTES = 224;
 export const G_WORDS = 56;
@@ -6541,7 +6541,7 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
       if (fine > 0.0) {
         let photo = clamp(g.photo, 0.0, 1.0);
         let eat = (1.0 - g.photo * 0.65) * clamp(g.dGlint + g.dHusk + g.dFlesh, 0.0, 1.0);
-        for (var j = 0u; j < 4u; j++) {
+        for (var j = 0u; j < ORGANS; j++) {
           let h = fract(seed * (7.0 + f32(j) * 13.0));
           let oq = q - unpack2x16snorm(organDir[p.kind * ORGANS + j]) * (0.22 + h * 0.45);
           let d2 = dot(oq, oq);
