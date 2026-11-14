@@ -1,14 +1,12 @@
 // Do the contacts vsPoint draws each cell flattened against (contactGather's touch) match the cells it truly presses on,
 // on the frames its grid cell does not search (the alternating checkerboard)? Several frames in a row at speed 1, each
 // cell's contacts as drawn against a brute-force search on the CPU over the same positions, by the grid cell's turn.
-//   tools/gpu-node.sh tools/touchcheck.mjs [--n 32768] [--mature 60] [--zoom 150] [--html dist/tidemote.html] [--layout slot|index]
-// layout: index, touch by the particle's sorted index (before 2026-11-13); slot, beside its record in the sway table.
-// Needs a build whose touch buffer has COPY_SRC.
+//   tools/gpu-node.sh tools/touchcheck.mjs [--n 32768] [--mature 60] [--zoom 150] [--html dist/tidemote.html] [--contacts 0|1]
 import { cliArgs, openPage } from './pagelab.mjs';
 
-const v = { n: 32768, mature: 60, zoom: 150, html: 'dist/tidemote.html', frames: 8, layout: 'slot', speed: 1, contacts: '', ...cliArgs() };
+const v = { n: 32768, mature: 60, zoom: 150, html: 'dist/tidemote.html', frames: 8, speed: 1, contacts: '', ...cliArgs() };
 const { page, close } = await openPage({ ...v, tmp: 'touch-' });
-const out = await page.evaluate(async ({ zoom, frames, layout, speed, contacts }) => {
+const out = await page.evaluate(async ({ zoom, frames, speed, contacts }) => {
   const T = globalThis.__tidemote, e = T.eng, d = e.device, cam = T.cam;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const L = T.life();
@@ -29,7 +27,7 @@ const out = await page.evaluate(async ({ zoom, frames, layout, speed, contacts }
   await new Promise((done) => {
     e.frame = (o) => {
       orig(o);
-      if (snaps.length < frames) snaps.push({ odd: e._gatherN ?? +e._gatherOdd, steps: o.steps, cam: { x: cam.x, y: cam.y }, touch: read(e.b.touch, e.b.touch.size), sway: read(e.b.sway, e.b.sway.size), parts: read(e.b.parts, e.count * 40) });
+      if (snaps.length < frames) snaps.push({ odd: e._gatherN, steps: o.steps, cam: { x: cam.x, y: cam.y }, touch: read(e.b.touch, e.b.touch.size), sway: read(e.b.sway, e.b.sway.size), parts: read(e.b.parts, e.count * 40) });
       else { e.frame = orig; done(); }
     };
   });
@@ -73,20 +71,16 @@ const out = await page.evaluate(async ({ zoom, frames, layout, speed, contacts }
       }
       cand.sort((a, b) => a[0] - b[0]);
       const truth = new Set(cand.slice(0, 6).map((c) => c[1]));
-      // drawn: the row vsPoint reads
+      // drawn: the row vsPoint reads (touchRow: beside the cell's record, if it is of just now)
       let row = -1;
-      if (layout === 'index') row = i * 6;
-      else {
-        const id = u[i * 10 + 7], a = id % swN;
-        const b = (() => { const aa = id % swN; const bb = ((Math.imul((id ^ (id >>> 16)) >>> 0, 0x45d9f3b) ^ 0x9e3779b9) >>> 0) % swN; return bb === aa ? (aa + 1) % swN : bb; })();
-        const slot = sw[a * 14] === id ? a : sw[b * 14] === id ? b : -1;
-        if (slot >= 0 && Math.abs(swf[slot * 14 + 3] - now) < 0.2) row = slot * 6;
-      }
+      const id = u[i * 10 + 7], a = id % swN;
+      const b = (() => { const bb = ((Math.imul((id ^ (id >>> 16)) >>> 0, 0x45d9f3b) ^ 0x9e3779b9) >>> 0) % swN; return bb === a ? (a + 1) % swN : bb; })();
+      const slot = sw[a * 14] === id ? a : sw[b * 14] === id ? b : -1;
+      if (slot >= 0 && Math.abs(swf[slot * 14 + 3] - now) < 0.2) row = slot * 6;
       const drawn = new Set();
       if (row >= 0) for (let c = 0; c < 6; c++) { const j = t[row + c]; if (j === NONE) break; if (j < N && u[j * 10 + 4] >= FIRST_LIFE) drawn.add(u[j * 10 + 7]); }
       if ((u[i * 10 + 9] & 15) === 9 && f[i * 10 + 6] < 0.9) {
-        const id = u[i * 10 + 7], k = sw[(id % swN) * 14] === id ? id % swN : -1;
-        let slot = k;
+        let slot = sw[a * 14] === id ? a : -1;
         if (slot < 0) for (let q = 0; q < swN && slot < 0; q++) if (sw[q * 14] === id) slot = q;
         born.cells++;
         if (slot >= 0 && (sw[slot * 14 + 8] & 0x1000)) { born.seenBorn++; if (sw[slot * 14 + 11] !== 0) born.budding++; }
@@ -103,6 +97,6 @@ const out = await page.evaluate(async ({ zoom, frames, layout, speed, contacts }
     res.push({ steps: s.steps, odd: s.odd, searched: fmt(st[1]), notSearched: fmt(st[0]), born });
   }
   return res;
-}, { zoom: +v.zoom, frames: +v.frames, layout: v.layout, speed: +v.speed, contacts: String(v.contacts) });
+}, { zoom: +v.zoom, frames: +v.frames, speed: +v.speed, contacts: String(v.contacts) });
 for (const r of out) console.log(JSON.stringify(r));
 await close();
