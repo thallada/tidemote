@@ -7584,6 +7584,12 @@ override MICRO_SUSPENSION: bool = true;
 // (an M1's composite 2.4 ms faster at 1×). compPick chooses which composite draws, frame by frame (the ice only
 // the GPU knows of); the engine allows the lean one only while the uniforms these test say none is there.
 override LEAN: bool = false;
+// A lean composite with one of them back: the ice (ICE) or warm water's bubbles (HOT), the two only the GPU knows are in
+// view (compPick picks). On a Pixel 3 code that never runs still costs: with no ice or bubbles in view the full
+// composite took 7.2 ms, the lean one 2.0, the lean one with the ice's code 4.0 and with the bubbles' 3.3
+// (docs/performance.md, The composite as a phone draws it).
+override ICE: bool = false;
+override HOT: bool = false;
 const LOUPE_FIELD = ${LOUPE_FIELD};
 ${POST_STRUCT}struct Loupe { center: vec2f, radius: f32, strength: f32, res: vec2f, ppu: f32, p1: f32 };
 // Prefix of DRAW's View: reuse the inspection cameras, without another buffer (lit: 1 where the world's light shows,
@@ -9342,7 +9348,7 @@ fn poolAt(wpIn: vec2f) -> PoolAt {
   let wp = wpIn - post.world * floor(wpIn / post.world);
   var o: PoolAt;
   if (!LEAN && post.pond.x < 1.0) { o.pd = pondPost(wp); }
-  if (!LEAN && iceShownAny()) { o.ic = iceSeen(wp); }
+  if ((!LEAN || ICE) && iceShownAny()) { o.ic = iceSeen(wp); }
   return o;
 }
 // How far a point lies into open water (units), from its poolAt: to the nearer of the pool's edge and the ice's, by
@@ -9354,7 +9360,7 @@ fn waterRoom(pool: PoolAt) -> f32 {
     let pd = pool.pd;
     room = min(room, pd.x / max(length(pd.yz), 1e-4));
   }
-  if (!LEAN && iceShownAny()) {
+  if ((!LEAN || ICE) && iceShownAny()) {
     let ic = pool.ic;
     room = min(room, ic.sd - (ICE_LEAD + ICE_OWN) * ic.reach);
   }
@@ -9795,7 +9801,7 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, pool: PoolAt, ppu: f32, k: f32, behind: f32
   }
   // ice (a frost's, the cold probe's): over what is frozen in it, its front a crisp bright line, crystals
   // (frazil) in the near-freezing water ahead of it while it grows
-  if (!LEAN && iceShownAny()) {
+  if ((!LEAN || ICE) && iceShownAny()) {
     let ic = pool.ic;
     let grow = iceGrowth(waterAt(wp).x);
     if (ic.sd < (ICE_LEAD + ICE_OWN) * ic.reach + 0.3) { c += iceLook(wp, ic.sd, ppu, grow, ic.reach, ic.rg) * (0.35 + 0.65 * behind); }
@@ -9912,9 +9918,9 @@ fn fieldWater(c: vec4f) -> vec3f { return vec3f(c.z, c.w, 0.0); }
   // show them, swaying with what is around them)
   var bend = fa.xy;
   var bub = Bubbles(vec2f(0.0), 1.0, vec3f(0.0));
-  // (none in the lean composite: compPick draws the full one wherever water is warm enough for them, HOT_N; their
+  // (none in the lean composite: compPick draws one with them (HOT) wherever water is warm enough for them, HOT_N; their
   // registers cost every pixel, a Pixel 11 Pro's composite 4.1 → 1.9 ms without them)
-  if (!LEAN && post.heatVis >= 0.0) {
+  if ((!LEAN || HOT) && post.heatVis >= 0.0) {
     bub = bubblesAt(wp + fa.xy + fa.zw / post.ppu, post.ppu, fieldWater(fieldAt(fieldC, i.uv)));
     bend += bub.bend;
   }
@@ -10111,8 +10117,9 @@ fn loupeScene(r: vec2f) -> vec3f {
   return vec4f(lookGrade(pow(max(c, vec3f(0.0)), vec3f(1.0 / 2.2)), i.pos.xy), 1.0);
 }
 
-// Which composite draws this frame (the draws' arguments, full then lean), run only where the engine's uniforms allow
-// the lean one: it, unless water in view is frozen or warm enough for bubbles (which only the GPU knows). In view, not
+// Which composite draws this frame (the draws' arguments: the full one, the lean one, the lean one with the ice, with the
+// bubbles), run only where the engine's uniforms allow the lean one: it, unless water in view is frozen or warm enough
+// for bubbles (which only the GPU knows), then the lean one with that one back, or the full one for both. In view, not
 // anywhere: a few hot cells off screen had the full composite drawn in every pixel. The tiles the view covers, with a
 // margin past what the ice's dendrites and the bubbles reach and the water's bending moves, wrapping round the world.
 @group(0) @binding(20) var<storage, read_write> compArgs: array<u32>;
@@ -10126,17 +10133,23 @@ fn loupeScene(r: vec2f) -> vec3f {
     cols = 0u;
     for (var t = t0.x; t <= t1.x; t++) { cols |= 1u << u32(((t % ${TILES}) + ${TILES}) % ${TILES}); }
   }
-  var seen = 0u;
+  var ice = 0u;
+  var hot = 0u;
   for (var r = 0; r <= min(t1.y - t0.y, ${TILES - 1}); r++) {
     let w = u32((((t0.y + r) % ${TILES}) + ${TILES}) % ${TILES});
-    seen |= (heatTiles[w] | heatTiles[${TILES}u + w]) & cols;
+    ice |= heatTiles[w] & cols;
+    hot |= heatTiles[${TILES}u + w] & cols;
   }
   // (ice or hot water counted with no tile marked: a world just loaded, not yet stepped, whose tiles are not saved)
   var marked = 0u;
   for (var w = 0u; w < ${2 * TILES}u; w++) { marked |= heatTiles[w]; }
-  let lean = seen == 0u && (marked != 0u || (!iceShownAny() && !hotAny()));
-  compArgs[0] = select(3u, 0u, lean); compArgs[1] = 1u; compArgs[2] = 0u; compArgs[3] = 0u;
-  compArgs[4] = select(0u, 3u, lean); compArgs[5] = 1u; compArgs[6] = 0u; compArgs[7] = 0u;
+  var pick = 1u;
+  if ((marked == 0u && (iceShownAny() || hotAny())) || (ice != 0u && hot != 0u)) { pick = 0u; }
+  else if (ice != 0u) { pick = 2u; }
+  else if (hot != 0u) { pick = 3u; }
+  for (var k = 0u; k < 4u; k++) {
+    compArgs[4u * k] = select(0u, 3u, k == pick); compArgs[4u * k + 1u] = 1u; compArgs[4u * k + 2u] = 0u; compArgs[4u * k + 3u] = 0u;
+  }
 }
 `;
 

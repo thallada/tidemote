@@ -89,7 +89,8 @@ under plain node), on a 78k world (`slow-mac-world.tidemote`, 32k living) in a 1
   maps) sit behind uniform branches, but their registers count against every pixel. `LEAN` (POST_WGSL) builds it
   without them, compiled after start; `compPick` writes both composites' draws each frame, the lean one where the
   engine's uniforms allow it and no water is frozen (ICE_N, which only the GPU knows). The same pixels (a frozen frame
-  compared lean against full, with and without ice), 16.8 → 14.0 ms a frame.
+  compared lean against full, with and without ice), 16.8 → 14.0 ms a frame. (Since 2026-11-13 it also draws the lean
+  one with the ice or the bubbles back where only that one is in view: The composite as a phone draws it.)
 - **Timing a pass exactly.** Run a build in `bench.mjs` for a while and attach Instruments for two seconds; the
   `metal-gpu-intervals` table holds every encoder's duration and process (Chrome's GPU process, WindowServer, any
   terminal redrawing, all on one GPU: keep only Chrome's). WebGPU's labels do not reach Metal, so passes are told
@@ -499,7 +500,7 @@ slower. How it was found (`bench.mjs --android`, `kind: step`, the sim module pa
     visits.
   - Helpers given the genome's fields in place of the genome by value (`growAt`, `tailCell`, `cellThermal`,
     `treeCellAt`): 4.7 either way (the driver takes the copies apart itself).
-  - The composite: no one part is its cost. Without the lens, the look, the shadows, the sensor and the grade 2.8 of
+  - The composite (the lean one, as every composite time here: The composite as a phone draws it): no one part is its cost. Without the lens, the look, the shadows, the sensor and the grade 2.8 of
     4.9 ms; without the overlays (pool, extremes, shade, instrument, maps, specks) 6.4 (slower), without those and
     the haze 2.9, without all of them 1.3. Cut after the look (a first pass of two) 4.1, the rest alone 1.4: two
     passes would not pay. The scene's sample at the pixel read once for the lens, the look and the composite (two
@@ -549,8 +550,8 @@ slower. How it was found (`bench.mjs --android`, `kind: step`, the sim module pa
   | `senseMain`, coarse | 35.8 | 4 | 5.9 |
   | `lifeMain`, coarse | 43.6 (51.8 before) | 4 | 3.6 (3.9 before) |
   | `contactGather` | 21.1 | 8 | 3.5 |
-  | `fsComposite` before the field pass (36 spills) | 61.0 | 4 | 4.9 |
-  | `fsComposite`, `LEAN` | 17.5 | 10 | |
+  | `fsComposite` before the field pass (no spills: 61.0 and 36 spills were its unused safe variant's, The composite as a phone draws it) | 32.2 | 4 | |
+  | `fsComposite`, `LEAN`, before the field pass | 16.0 | 12 | 4.9 |
   | `fsPointLive` | 30.8 | 6 | 4.6 at 150 px |
   | `fsPointLive`, no insides or necks | 22.5 | 8 | |
 
@@ -581,12 +582,73 @@ slower. How it was found (`bench.mjs --android`, `kind: step`, the sim module pa
   these kernels, and what runs is what costs again. Do not chase Mesa's widest moment under 48; measure a
   rewrite on the phone. (On the RTX all seven together were no slower: `senseMain` 0.066 against 0.078 ms at 8k,
   2k living.)
-- Tools: `regs.sh` takes fragment shaders (`fsComposite@vsComp`, `fsPointLive@vsPoint/2`) and counts spills
-  Mesa prints typed; with `tools/adreno/ir3-peak.patch` applied to Mesa, `IR3_PEAK` prints each block's pressure
+- Tools: `regs.sh` takes fragment shaders (`fsComposite@vsComp`, `fsPointLive@vsPoint/2`; the variant that draws,
+  the safe one's at the line's end) and counts spills Mesa prints typed; with `tools/adreno/ir3-peak.patch` applied to Mesa, `IR3_PEAK` prints each block's pressure
   and the values live at the widest moment (tools/adreno/README.md).
 - **Next on a phone**: what the step's two kernels run, not what they hold (the scan's pairs: 4.2 ms for 6.4k
   cells); the cells' fragment shader. Heat: a few minutes of benchmarks took the phone to thermal state 2-3
   without a fan, where every pass ran about 1.5 times slower.
+
+## The composite as a phone draws it (2026-11-13)
+
+The composite was thought to be the one shader past a Pixel 3's register cap (`regs.sh`: 59.2 vec4, 25 spills). Two
+things were off, and the phone's own numbers say where its composite's time goes.
+
+- **Mesa's line was the wrong variant.** A fragment shader whose constants (uniforms, and the immediates its
+  instructions cannot encode) pass 100 vec4 is compiled twice by turnip: as it is, and a "safe" variant held to 100
+  constants whose other immediates become `mov`s into registers held from first use to last; the pipeline keeps the
+  safe one only when its stages' constants together pass 512 (`ir3_trim_constlen`). The composite's are 340 + 8 (its
+  vertex stage), so it draws with the first; `regs.sh` printed the last. Its 59.2 and 25 spills (61.0 and 36 before
+  the field pass, `LEAN` 17.5) were the safe variant's. The tool now prints the first and the safe one's at the line's
+  end (tools/adreno/README.md). As drawn, with every effect on (vec4 registers wanted at the widest moment, used, waves):
+
+  | | widest | used | waves | instructions |
+  |---|---|---|---|---|
+  | `fsComposite` (micro / clear, `MICRO_SUSPENSION` 0) | 31.8 / 32.2 | 32 / 48 | 6 / 4 | 30480 |
+  | before the field pass (micro / clear) | 32.2 / 32.8 | 48 / 48 | 4 / 4 | 35081 |
+  | `LEAN` | 15.0 | 16 | 12 | 1935 |
+  | `LEAN` with the ice (`ICE`, below) / with the bubbles (`HOT`) | 30.0 / 24.5 | 32 / 32 | 6 / 6 | 14238 / 4458 |
+
+  No fragment shader the page draws spills as drawn but the loupe's (`fsLoupe`: 67.5, 150 spills, constants 448 + 12,
+  so this is what draws; desktops only, a phone never opens it). The rest (`regs.sh POST_WGSL ...`, `DRAW_WGSL ...`):
+  `fsField` 20.1, `fsPlain` 20.0, `fsStoneCache` 15.2, `fsMurk` 9.0, `fsStoneLit` 4.2, `fsDown`/`fsUp` 5.0/8.0,
+  `fsReproj` 1.0; `fsPointLive` 30.8 (22.5-28.8 without insides or necks), `fsTubeLive` 27.8, `fsStone` 15.6,
+  `fsSpeck` 9.8, `fsSplat`, `fsPointSmall`, `fsLine`, `fsBridge`, `fsGlass` under 5.
+- **The phone had been timing the lean composite.** The page compiles the full composite in its second wave; on the
+  Pixel 3 it lands about 45 s after the page starts (`full=true` in an engine log, every load), past every render
+  scenario's window (a world loads at about 25 s, two scenarios run to about 40). Until it lands the lean one draws
+  alone, and after it, compPick picks the lean one wherever none of the rare things is in view. So the composite's
+  numbers above (4.9 → 2.4 for the field pass, the knock-outs, the lighter microscope) were the lean composite's, which
+  is what a phone draws nearly always. Measured after it lands (a first scenario settling 45 s), `p8`, every effect on,
+  half scale, 80 and 150 pixels a unit, thermal state 0, ms (`runs/night/d1`, `g1`, `o1`, two loads each):
+
+  | the composite drawn | ms |
+  |---|---|
+  | as main draws it, nothing rare in view (compPick: the lean one) | 2.55-2.6 |
+  | the lean one alone (no compPick) | 2.0-2.1 |
+  | the full one, forced | 7.0-7.5 |
+  | the full one without the ice's code / the pool's edge / duckweed / maps / the instrument / the bubbles | 5.7-5.95 / 5.9-6.1 / 5.75-6.0 / 5.25-5.55 / 4.9-5.4 / 4.8-5.4 |
+  | the full one with only the ice's code / only the bubbles' / none of them | 3.9-4.2 / 3.25-3.4 / 1.9-2.1 |
+
+  Every part never run costs 1.3-2.2 ms, and the parts' costs add to twice the whole: a cliff, as the step's single
+  kernel had, in Qualcomm's compiler (Mesa's first variant shows none; its safe variant, holding the immediates in
+  registers, behaves more like the phone: without the ice 44.0 and no spills). The 0.5 ms the composite pass shows
+  over the lean one alone is compPick's dispatch counted into it: the frames' GPU time outside the step is the same
+  (8.2-10.3 ms either way).
+- **Kept: the lean composite with the ice or the bubbles back** (`ICE`, `HOT` in POST_WGSL). compPick told the full
+  composite from the lean one by the tiles of ice and of warm water in view (`heatTiles`); it now tells which of the two
+  is there and picks the lean one with that one back, the full one only for both, or where the engine's uniforms show
+  anything else rare (the pool's edge, duckweed, the instrument, a map). The same arithmetic as the full one wherever
+  it draws (whatever it leaves out is not in view; a frozen frame drawn either way looks the same). They compile in
+  the page's second wave after the full one, which draws in their place until they land; headless runs compile them
+  after the lean one. On the Pixel 3 with a frost in view (`frostMax` 0.85, `runs/night/h1`, two loads each): the
+  composite 51-54 ms → 45.6-52.7. With nothing rare in view, 2.55-2.6 both (the two more pipelines bound with no draw
+  cost nothing).
+- **The ice is the composite's cost during a frost**: 46-53 ms of it with the ice drawn, 4.5-4.9 with the dendrites'
+  and the frazil's look left out (`iceLook`, `frazil`; the front itself, `iceSeen`, still worked out; `runs/night/h2`),
+  and `fsField` 1.4-2.5 against 0.65 (its own `iceSeen`, for `waterRoom`). The Pixel 3 draws a frost at 14-15 fps. Its
+  look on a phone wants another way (once into a texture as the ice changes, as the stone's light is cached, or at a
+  lower resolution), not fewer registers: next.
 
 ## Doing less work: the sea and the contacts (2026-11-13)
 

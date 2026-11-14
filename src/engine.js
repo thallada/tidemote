@@ -533,10 +533,11 @@ class Engine {
     this.pStoneLitM = rp(this.postModule, 'vsFull', 'fsStoneLitMicro', 'triangle-list', undefined);
     this.pUp = rp(this.postModule, 'vsFull', 'fsUp', 'triangle-list', additive);
     this.pMurk = rp(this.postModule, 'vsFull', 'fsMurk', 'triangle-list', undefined);
-    // the full composite and the lean one (LEAN in POST_WGSL), and compPick, which writes both composites' draws each
-    // frame (b.compArgs: full, then lean). Headless runs compile the full one first and the lean one on after the
-    // engine starts (the full one draws until it is ready); the page compiles the lean one first and the full one in
-    // its second wave (the lean one draws alone until then: no ice, bubbles or maps for those seconds)
+    // the full composite and the lean one (LEAN in POST_WGSL), and compPick, which writes the composites' draws each
+    // frame (b.compArgs: full, lean, then the lean one with the ice and with the bubbles, compParts). Headless runs
+    // compile the full one first and the lean one on after the engine starts (the full one draws until it is ready);
+    // the page compiles the lean one first and the full one in its second wave (the lean one draws alone until then: no
+    // ice, bubbles or maps for those seconds)
     const compDesc = (constants) => rpDesc(this.postModule, 'vsComp', 'fsComposite', 'triangle-list', undefined, format, constants);
     this.pComp = defer(compDesc({}), false, (p) => { this.pComp = p; });
     this.pCompClear = defer(compDesc({ MICRO_SUSPENSION: 0 }), false, (p) => { this.pCompClear = p; });
@@ -550,13 +551,22 @@ class Engine {
       if (this.compBGOf) { this.compLeanBG = this.compBGOf(a); this.compClearLeanBG = this.compBGOf(c); }
       this.pCompLean = a; this.pCompClearLean = c;
     }).catch(() => {});
+    // the lean composite with the ice back, and with warm water's bubbles (ICE, HOT in POST_WGSL), which compPick draws
+    // where only that one is in view: [micro, clear] each, in the page's second wave, headless runs' after the lean one
+    // (the full one draws in their place until they land)
+    this.compParts = [{ ICE: 1 }, { HOT: 1 }].map((c) => ({ p: [null, null], bg: [null, null],
+      desc: [compDesc({ LEAN: 1, ...c }), compDesc({ LEAN: 1, MICRO_SUSPENSION: 0, ...c })] }));
+    const partSet = (q, i) => (p) => { if (!this._compHot) { q.p[i] = p; q.bg[i] = null; } };
+    if (late) for (const q of this.compParts) q.desc.forEach((desc, i) => this._later.push({ desc, compute: false, set: partSet(q, i) }));
+    this._partsP = () => late ? null : Promise.all(this.compParts.flatMap((q) => q.desc.map((desc, i) =>
+      d.createRenderPipelineAsync(desc).then(partSet(q, i))))).then(() => this._rebindLate()).catch(() => {});
     // the composite's smooth fields, drawn before it each frame (fsField: three targets at 1 / FIELD_STEP of the view
     // each way); in the first wave, so whichever composite draws has them
     this.pField = rPipe({ layout: 'auto', label: 'fsField', primitive: { topology: 'triangle-list' },
       vertex: { module: this.postModule, entryPoint: 'vsComp' },
       fragment: { module: this.postModule, entryPoint: 'fsField', targets: [0, 1, 2].map(() => ({ format: 'rgba16float' })) } });
     this.cpCompPick = cPipe({ layout: 'auto', compute: { module: this.postModule, entryPoint: 'compPick' }, label: 'compPick' });
-    b.compArgs = d.createBuffer({ size: 32, usage: U.STORAGE | U.INDIRECT });
+    b.compArgs = d.createBuffer({ size: 64, usage: U.STORAGE | U.INDIRECT });
     this.pLoupe = defer(rpDesc(this.postModule, 'vsLoupe', 'fsLoupe', 'triangle-list', over, format), false, (p) => { this.pLoupe = p; });
     this.pPlain = defer(rpDesc(this.postModule, 'vsFull', 'fsPlain', 'triangle-list', undefined, format), false, (p) => { this.pPlain = p; });
     this.sampler = d.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
@@ -668,6 +678,7 @@ class Engine {
     this.iceArgsBG = d.createBindGroup({ layout: this.cpIceArgs.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.thermal } }, { binding: 1, resource: { buffer: b.iceShowU } }, { binding: 3, resource: { buffer: b.iceArgs } }] });
     this._leanP();
+    this._partsP();
     this._rebindLate();
   }
 
@@ -706,6 +717,7 @@ class Engine {
       if (this.pComp && !this.compBG) this.compBG = this.compBGOf(this.pComp);
       if (this.pCompClear && !this.compClearBG) this.compClearBG = this.compBGOf(this.pCompClear);
       if (this.pCompLean && !this.compLeanBG) { this.compLeanBG = this.compBGOf(this.pCompLean); this.compClearLeanBG = this.compBGOf(this.pCompClearLean); }
+      for (const q of this.compParts) q.p.forEach((p, i) => { if (p && !q.bg[i]) q.bg[i] = this.compBGOf(p); });
     }
     if (this.pLoupe && this.loupeTex && !this.loupeBG) this.loupeBG = this._loupeBGOf();
     if (this.pPlain && this.specTex && !this.specBG) this.specBG = this._specBGOf();
@@ -887,6 +899,7 @@ class Engine {
     this.compBG = this.compBGOf(this.pComp); this.compClearBG = this.compBGOf(this.pCompClear);
     // (the lean composite is the old shader's: the full one draws from now on)
     this._compHot = true; this.pCompLean = this.pCompClearLean = null;
+    for (const q of this.compParts) { q.p = [null, null]; q.bg = [null, null]; }
     return mod.getCompilationInfo().then((i) => i.messages.filter((m) => m.type === 'error').map((m) => `${m.lineNum}:${m.linePos} ${m.message}`));
   }
 
@@ -1032,6 +1045,7 @@ class Engine {
     this.compBG = this.pComp ? compBG(this.pComp) : null;
     this.compClearBG = this.pCompClear ? compBG(this.pCompClear) : null;
     if (this.pCompLean) { this.compLeanBG = compBG(this.pCompLean); this.compClearLeanBG = compBG(this.pCompClearLean); }
+    for (const q of this.compParts) q.bg = q.p.map((p) => p && compBG(p));
     this.compBGOf = compBG;
     this.reprojBG = this.accumViews.map((v) => d.createBindGroup({ layout: this.main.reproj.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: v }, { binding: 5, resource: { buffer: this.b.reprojU } }] }));
@@ -3316,8 +3330,13 @@ class Engine {
     });
     const full = () => { pass.setPipeline(micro ? this.pComp : this.pCompClear); pass.setBindGroup(0, micro ? this.compBG : this.compClearBG); };
     const leanP = () => { pass.setPipeline(micro ? this.pCompLean : this.pCompClearLean); pass.setBindGroup(0, micro ? this.compLeanBG : this.compClearLeanBG); };
+    // (the lean one with the ice or the bubbles back, or the full one until that has landed)
+    const part = (q) => { const i = micro ? 0 : 1; if (q.p[i] && q.bg[i]) { pass.setPipeline(q.p[i]); pass.setBindGroup(0, q.bg[i]); } else full(); };
     if (leanOnly) { leanP(); pass.draw(3); }
-    else if (lean) { full(); pass.drawIndirect(this.b.compArgs, 0); leanP(); pass.drawIndirect(this.b.compArgs, 16); }
+    else if (lean) {
+      full(); pass.drawIndirect(this.b.compArgs, 0); leanP(); pass.drawIndirect(this.b.compArgs, 16);
+      part(this.compParts[0]); pass.drawIndirect(this.b.compArgs, 32); part(this.compParts[1]); pass.drawIndirect(this.b.compArgs, 48);
+    }
     else { full(); pass.draw(3); }
     if (loupe && this.loupeBG) { pass.setPipeline(this.pLoupe); pass.setBindGroup(0, this.loupeBG); pass.draw(6); }
     pass.end();
