@@ -17568,7 +17568,7 @@ struct SV {
   // src/look.js
   var LOOK = ["prism", "relief", "rims", "fringe", "halation", "veil", "film", "grain", "sat", "density", "contrast", "black", "dof", "iris"];
   var LOOK_WORDS = 16;
-  var DARKFIELD = { prism: 0.4, relief: 0.4, rims: 0.45, fringe: 0.2, halation: 0.45, veil: 0.5, film: 0.25, grain: 0.25, sat: 0.1, density: 0.25, contrast: 0.3, black: 0.6, dof: 0.9, iris: 0.2 };
+  var DARKFIELD = { prism: 0.4, relief: 0.4, rims: 0.45, fringe: 0.2, halation: 0.45, veil: 0.5, film: 0.25, grain: 0.25, sat: 0.1, density: 0.25, contrast: 0.3, black: 0.6, dof: 0.8, iris: 0.2 };
   function packLook(p2, s = 1) {
     const w = new Float32Array(LOOK_WORDS);
     LOOK.forEach((k, i) => {
@@ -37491,6 +37491,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       return [(innerWidth / 2 - cx) / p2, (innerHeight / 2 - cy) / p2];
     }
     const hover = { x: 0, y: 0, on: false };
+    const mouseAt = { x: 0, y: 0, on: false };
+    addEventListener("pointermove", (e) => {
+      if (e.pointerType === "mouse") Object.assign(mouseAt, { x: e.clientX, y: e.clientY, on: true });
+    }, true);
     let lensAt = null;
     const LOUPE_R = { min: 50, max: 320 };
     const loupeMax = () => Math.min(LOUPE_R.max, Math.min(innerWidth, innerHeight) * 0.46);
@@ -41304,6 +41308,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       $2("intro").classList.add("gone");
       setTimeout(stopLoader, 1300);
       document.body.classList.add("live");
+      if (mouseAt.on && document.elementFromPoint(mouseAt.x, mouseAt.y) === canvas) Object.assign(hover, mouseAt);
     }
     const menu = (() => {
       const el2 = $2("menu"), panel = $2("menu-panel"), tabN = $2("menu-n"), tabW = $2("menu-w");
