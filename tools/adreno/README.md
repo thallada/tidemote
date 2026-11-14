@@ -33,7 +33,7 @@ packages.) `MESA_BUILD` names a build elsewhere.
 
 ## Reading it
 
-    sim senseMain        widest  29.2  used 32  waves  6  instr   5424  spills 0
+    sim senseMain                  widest  29.2  used 32  waves  6  instr   5424  spills 0  const  52
 
 - widest: the vec4 registers the kernel wants at once. Past 48 values spill to memory (the cliff: the single
   `lifeMain` of before wanted 61.5 and spilled 366 times).
@@ -46,6 +46,14 @@ left out; the overrides go to both stages), and its line is the fragment shader'
 
     tools/adreno/regs.sh POST_WGSL fsComposite@vsComp fsComposite@vsComp:LEAN=1
     tools/adreno/regs.sh DRAW_WGSL fsPointLive@vsPoint/2 fsPointLive@vsPoint/2:INTERIOR=0:NECKS=0
+
+- const: the shader's constants (uniforms, and the immediates its instructions cannot encode), in vec4. A fragment
+  shader past 100 is compiled twice by turnip (`tu_shader.cc`, `ir3_trim_constlen`): as it is, which the pipeline draws
+  with while its stages' constants together fit 512 (a vertex stage of the page's holds 8-84), and a "safe" variant
+  held to 100, whose other immediates become `mov`s into registers held from first use to last, which it keeps only for
+  a pipeline past 512. The line is the first; `safe W/S` at its end is the other's widest and spills, not what draws.
+  (Before 2026-11-13 the line was the safe variant's: `fsComposite` "59.2, 25 spills" draws at 31.8 with none.)
+  Compute kernels are compiled once (their own const file).
 
 ## Where a shader holds it (optional)
 
