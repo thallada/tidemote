@@ -162,7 +162,7 @@ and the look, and stone was added after them, so it took neither. Now:
   stone once a pixel instead of once per tap of its fringes and softening.
 - Shallow focus over a pile (`lensScene`): bare stone is blurred by how deep it lies, mostly its cobble's place in
   the pile (the stone color target's alpha past 1) and a little its own height there, up to 9.6 times the look's `dof`
-  (about 7 px at 800 px tall, at Darkfield's 0.9; 24 times when Darkfield's `dof` was 0.4, set so piles kept their
+  (about 6 px at 800 px tall, at Darkfield's 0.8; 24 times when Darkfield's `dof` was 0.4, set so piles kept their
   blur when it rose, chosen by eye with it at 0.9 too), full from 2.5 times the focus's start (200 px per unit on most screens):
   the grains on top sharp and those under them soft. A wide blur takes twelve taps, none from a grain lying higher
   or from the living (both in focus, in front), and only the share of a pixel the living leave bare takes it: the
