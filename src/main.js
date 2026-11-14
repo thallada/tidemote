@@ -2968,9 +2968,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const step = Object.fromEntries((await eng.profileStep(1 / 60)).map(([k, ms]) => [k, +ms.toFixed(3)]));
     const a = device.adapterInfo || {};
     // the state that picks which work a step does: a pool below full (level < 1) or frost runs the shore's
-    // work for every particle, an event its own, a coarse step several ticks' worth
+    // work for every particle, an event its own, a coarse step several ticks' worth; lean: whether the last step took
+    // lifeMain's lean kernel (nothing it leaves out at work: the hand, annotations, dry ground, raindrops, duckweed)
     const ev = climate?.event;
-    const world = { simTime: Math.round(eng.simTime), ticks: eng.ticks, grid: eng.grid, level: +eng.level.toFixed(4), frost: +eng.frost.toFixed(3),
+    const world = { simTime: Math.round(eng.simTime), ticks: eng.ticks, lean: eng.leanRan, grid: eng.grid, level: +eng.level.toFixed(4), frost: +eng.frost.toFixed(3),
       rain: +eng.rain.toFixed(3), temp: +eng.temp.toFixed(1), era: climate?.name, eraLevel: climate?.levelTo,
       event: ev ? { type: ev.type, phase: climate.phase, since: Math.round(eng.simTime - ev.t) } : null };
     const json = JSON.stringify({ ua: navigator.userAgent, gpu: [a.vendor, a.architecture, a.description].filter(Boolean).join(' / '),

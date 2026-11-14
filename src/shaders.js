@@ -1276,7 +1276,7 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
   // (its cost is in upkeep, below)
   var will = vec2f(0.0);
   let rider = sim.hand.ids.y;
-  if (rider != NONE && !stranded) {
+  if (!IDLE_HAND && rider != NONE && !stranded) {
     var on = p.id == rider;
     // (the two it keeps, then those that keep it; then, a cell with a bond, the rest of the body the page traced)
     for (var b = 0u; b < 2u + nBack && !on; b++) {
@@ -1295,7 +1295,7 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
       }
     }
   }
-  let willOn = any(will != vec2f(0.0)) && bitcast<f32>(sim.hand.ids.z) > 0.0;
+  let willOn = !IDLE_HAND && any(will != vec2f(0.0)) && bitcast<f32>(sim.hand.ids.z) > 0.0;
   // A coarse step holds the pair and stone forces gathered at its start, and a dense clump is too stiff
   // for that: it would overshoot, heat and loosen. So they carry a correction, implicit in the stiffness.
   // The cell and its neighborhood are taken as two bodies sharing momentum: the reaction to this cell's
@@ -1479,6 +1479,16 @@ override COARSE = false;
 const LIFE_WG = ${lifeWG}u;
 // bodyTick's pipeline: tree functions read where its substeps have moved the cells (treePos, treeVel)
 override SUBSTEP = false;
+// lifeMain lean (lifeMainLean, lifeMainCoarseLean): what is idle across the whole world this step compiled out, the
+// engine picking it only where the code it leaves out would do nothing (engine.js _stepLean); on a Pixel 3 code never
+// run still costs (docs/performance.md, Lean step kernels). IDLE_HAND: the viewer's hand, all its words at rest;
+// IDLE_NOTES: no stretch annotated; IDLE_DRY: no dry ground (sim.pond.x at 1 or above); IDLE_RAIN: no raindrop's ring
+// alive; IDLE_DUCK: no duckweed.
+override IDLE_HAND = false;
+override IDLE_NOTES = false;
+override IDLE_DRY = false;
+override IDLE_RAIN = false;
+override IDLE_DUCK = false;
 struct Sim {
   world: vec2f, grid: vec2u,
   count: u32, frame: u32, dt: f32, time: f32,
@@ -1598,7 +1608,7 @@ fn watched(pos: vec2f) -> bool {
 // one event in view: what happened (EV_*, | NOTE_LITTER) to which cell (its kind, id and place), and who did it
 // (its kind, id and place; id NONE: no one)
 fn note(ev: u32, kind: u32, id: u32, pos: vec2f, ak: u32, aid: u32, apos: vec2f) {
-  if (!watched(pos) || (sim.watchEv.x & (1u << (ev & 31u))) == 0u) { return; }
+  if (IDLE_NOTES || !watched(pos) || (sim.watchEv.x & (1u << (ev & 31u))) == 0u) { return; }
   if ((ev & 31u) == EV_BITE && pcg(id ^ (sim.tick * 2654435761u)) > sim.watchEv.y) { return; }
   let b = noteAt();
   let o = b + 4u + (atomicAdd(&ledger[b], 1u) % NOTE_MAX) * NOTE_W;
@@ -1743,14 +1753,14 @@ fn discSlope(d: vec2f, r: f32) -> vec2f {
 ${HAND_SHAPES}// The light l at p under the hand's lamp (added) or shade (taken away).
 fn lampLight(p: vec2f, l: f32) -> f32 {
   let lp = sim.hand.lamp;
-  if (lp.w == 0.0) { return l; }
+  if (IDLE_HAND || lp.w == 0.0) { return l; }
   let b = lp.w * disc(handD(p, lp.xy), lp.z);
   return select(l * (1.0 + b), l + b, b > 0.0);
 }
 // Whether the needle's stroke this step passes within its half-width of p (a bond there is cut).
 fn cutAt(p: vec2f) -> bool {
   let w = sim.hand.more.y;
-  if (w <= 0.0) { return false; }
+  if (IDLE_HAND || w <= 0.0) { return false; }
   let a = handD(p, sim.hand.cut.xy);
   let ab = handD(sim.hand.cut.zw, sim.hand.cut.xy);
   let t = clamp(dot(a, ab) / max(dot(ab, ab), 1e-8), 0.0, 1.0);
@@ -1764,7 +1774,7 @@ const PIPE_DRAW = 6.0;
 const PIPE_HOLD = 2.0;
 fn suckFlow(id: u32, p: vec2f, h: f32) -> vec2f {
   let sk = sim.hand.suck;
-  if (sk.z <= 0.0) { return vec2f(0.0); }
+  if (IDLE_HAND || sk.z <= 0.0) { return vec2f(0.0); }
   let d = handD(sk.xy, p);
   let l = length(d);
   var v = 0.0;
@@ -1776,7 +1786,7 @@ fn suckFlow(id: u32, p: vec2f, h: f32) -> vec2f {
 // (half at its size away), so a stroke leaves a current along it, a circling one a vortex, fading as they do.
 fn wakeFlow(p: vec2f) -> vec2f {
   let R = sim.hand.wake.x;
-  if (R <= 0.0) { return vec2f(0.0); }
+  if (IDLE_HAND || R <= 0.0) { return vec2f(0.0); }
   var v = vec2f(0.0);
   for (var k = 0u; k < 20u; k++) {
     let e = sim.hand.eddies[k];
@@ -1788,7 +1798,7 @@ fn wakeFlow(p: vec2f) -> vec2f {
 // How far the needle and Touch's rod in the water push a cell or a grain at p aside, out of their way: each moved
 // from where it was when the world last stepped to where it is, it sweeps what lies between, so a fast stroke
 // carries along what it passes rather than leaping over it. Nothing in a headless run, where both are out.
-fn handPush(p: vec2f) -> vec2f { return needlePush(p) + rodPush(p); }
+fn handPush(p: vec2f) -> vec2f { if (IDLE_HAND) { return vec2f(0.0); } return needlePush(p) + rodPush(p); }
 // The needle: its shaft, tapering to its point, a cell's breadth wider than the steel as the cells see it. What
 // lies within it is pushed out the near way; what the shaft crossed since the last step (on one side of it then,
 // on the other now) is kept on its own side, at the shaft's edge.
@@ -1853,7 +1863,7 @@ fn openFlow(p: vec2f) -> vec2f {
     let ph = w.x * p.x + w.y * p.y + w.z * sim.time + wph[k];
     v += vec2f(w.y, -w.x) * (cos(ph) * w.w / max(length(w.xy), 1e-4));
   }
-  return v * sim.weather.x + dropFlow(p) + wakeFlow(p);
+  return v * sim.weather.x + select(dropFlow(p), vec2f(0.0), IDLE_RAIN) + wakeFlow(p);
 }
 ${pondFlowWGSL('sim', 'sim.time', K)}fn flowAt(p: vec2f) -> vec2f {
   let open = openFlow(p);
@@ -1881,7 +1891,7 @@ fn flowWith(open: vec2f, pd: vec3f) -> vec2f {
 // a cell is frozen. pondWith gives whichever edge, the water's or the ice's, lies nearer, in the same terms: a
 // depth (below 0: dry or frozen) and the slope toward it.
 fn iceOn() -> bool { return HEAT_ON && bitcast<u32>(thermal[4u * MAX_CELLS]) != 0u; }
-fn pondOn() -> bool { return (POND && sim.pond.x < 1.0) || iceOn(); }
+fn pondOn() -> bool { return (!IDLE_DRY && POND && sim.pond.x < 1.0) || iceOn(); }
 fn blockCell(block: u32, x: i32, y: i32) -> f32 { return thermal[block * MAX_CELLS + wrapCell(x, y)]; }
 // A thermal block's field at grid cell i + t: its value read bilinearly, and its slope from central differences
 // at the four corners read bilinearly too, so the slope's direction turns smoothly across cell edges (a slope
@@ -1901,7 +1911,7 @@ fn pondWith(p: vec2f, open: vec2f) -> vec3f {
   let u = p - 0.5;
   let i = vec2i(floor(u));
   let t = u - floor(u);
-  if (sim.pond.x < 1.0) {
+  if (!IDLE_DRY && sim.pond.x < 1.0) {
     let r = smoothField(1u, i, t);
     e = vec3f(sim.pond.x - r.x, r.yz);
     let gl = length(r.yz);
@@ -1929,7 +1939,7 @@ fn inIce(p: vec2f) -> bool {
 fn shoreDist(pd: vec3f) -> f32 { return pd.x / max(length(pd.yz), 1e-4); }
 // The light at p: the baseline and the tide's bands by the season, under the sky (clouds) and any duckweed's shade.
 fn lightAt(p: vec2f) -> f32 {
-  return lampLight(p, (sim.ambient + (1.0 - sim.ambient) * tideAt(p, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season) * sim.pond.z * (1.0 - duckShade(p, sim.duck, sim.duckB, sim.world)));
+  return lampLight(p, (sim.ambient + (1.0 - sim.ambient) * tideAt(p, sim.world, sim.time, sim.tide, sim.tidePh) * sim.season) * sim.pond.z * (1.0 - select(duckShade(p, sim.duck, sim.duckB, sim.world), 0.0, IDLE_DUCK)));
 }
 
 // Which way the light grows at p, for phototaxis: the slope of the tide's waves, taken before their bands are
@@ -1946,7 +1956,7 @@ fn lightSlope(p: vec2f) -> vec2f {
     gm += w.w * length(w.xy / sim.world);
   }
   var dir = gs / max(length(gs), max(gm * ${f(K.photoSoft)}, 1e-9));
-  if (sim.duck.w > 0.0) {
+  if (!IDLE_DUCK && sim.duck.w > 0.0) {
     let e = vec2f(0.5, 0.0);
     let sh = duckShade(p, sim.duck, sim.duckB, sim.world);
     let ds = vec2f(duckShade(p + e.xy, sim.duck, sim.duckB, sim.world) - duckShade(p - e.xy, sim.duck, sim.duckB, sim.world),
@@ -1955,7 +1965,7 @@ fn lightSlope(p: vec2f) -> vec2f {
   }
   // (and up the slope of the hand's lamp, or out of its shade)
   let lp = sim.hand.lamp;
-  if (lp.w != 0.0) { dir += discSlope(handD(p, lp.xy), lp.z) * (0.5 * lp.z * lp.w); }
+  if (!IDLE_HAND && lp.w != 0.0) { dir += discSlope(handD(p, lp.xy), lp.z) * (0.5 * lp.z * lp.w); }
   return dir / max(length(dir), 1.0);
 }
 

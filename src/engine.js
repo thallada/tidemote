@@ -87,6 +87,11 @@ export async function createEngine(device, format, { hasTimestamps = false, K = 
 // and the replay of a watched cell's decision.
 const COARSE_PIPES = ['senseMainCoarse', 'lifeMainCoarse', 'bodyTick', 'bodyArgs'];
 const LATE = new Set([...COARSE_PIPES, 'mindMain', 'mindMainCoarse', 'rangeMain']);
+// lifeMain lean, fine and coarse (IDLE_* in simWGSL): what is idle across the whole world compiled out, picked step by
+// step where the uniforms show it idle (_stepLean); docs/performance.md, Lean step kernels. (senseMain lean ran no
+// faster on a Pixel 3.)
+const LEAN_PIPES = ['lifeMainLean', 'lifeMainCoarseLean'];
+const LEAN_IDLE = { IDLE_HAND: 1, IDLE_NOTES: 1, IDLE_DRY: 1, IDLE_RAIN: 1, IDLE_DUCK: 1 };
 const COMPILE_COST = { lifeMain: 26, fsPoint: 15, 'fsPointLive+live': 13, fsComposite: 11, fsLoupe: 8, matterMain: 5 };
 
 
@@ -382,6 +387,10 @@ class Engine {
     this.lerp = null;
     // a step's second half owed (frame's split): the next frame, or anything that reads the world, runs it first
     this.halfOwed = false;
+    // the lean step kernels taken where the uniforms allow (false: always the full ones, as tools/leancheck.mjs compares),
+    // and whether the last step took them
+    this.leanSteps = true;
+    this.leanRan = false;
     this._lerpN = 0;
     this._lerpOk = false;
     // culling for the main view, the loupe and the specimen (CULL_WGSL): uniforms, segments, draw arguments
@@ -454,12 +463,19 @@ class Engine {
     this.cpDefs.senseMainCoarse = this.cpDefs.senseMain;
     this.cpDefs.lifeMainCoarse = this.cpDefs.lifeMain;
     this.cpDefs.mindMainCoarse = this.cpDefs.mindMain;
+    // and lifeMain's lean forms (LEAN_PIPES)
+    for (const n of LEAN_PIPES) this.cpDefs[n] = this.cpDefs[n.replace(/Coarse|Lean/g, '')];
     this.cp = {};
+    const lateLean = [];
     for (const name of Object.keys(this.cpDefs)) {
-      const coarse = name.endsWith('Coarse');
-      const constants = coarse ? { COARSE: 1 } : name === 'bodyTick' ? { SUBSTEP: 1 } : null;
-      const desc = { layout: 'auto', compute: { module: this.simModule, entryPoint: coarse ? name.slice(0, -6) : name, ...(constants ? { constants } : {}) }, label: name };
-      if (late && LATE.has(name)) {
+      const coarse = /Coarse/.test(name), lean = name.endsWith('Lean');
+      const constants = { ...(coarse ? { COARSE: 1 } : name === 'bodyTick' ? { SUBSTEP: 1 } : {}), ...(lean ? LEAN_IDLE : {}) };
+      const desc = { layout: 'auto', compute: { module: this.simModule, entryPoint: name.replace(/Coarse|Lean/g, ''), ...(Object.keys(constants).length ? { constants } : {}) }, label: name };
+      if (late && lean) {
+        // (in the second wave after LATE's: the full kernels run in their place until they land)
+        const c = (this.cp[name] = { pipe: null, bg: null });
+        lateLean.push({ desc, compute: true, set: (p) => { c.pipe = p; if (this._cpRes) this._cpBind(name); } });
+      } else if (late && LATE.has(name)) {
         // compiles on after the engine is returned, first in the second wave (not beside the first: lifeMain's compile,
         // which a first frame waits on, shared the GPU process with these): in place (with its bind group, once
         // particles are allocated) when ready
@@ -467,6 +483,7 @@ class Engine {
         this._later.unshift({ desc, compute: true, set: (p) => { c.pipe = p; if (this._cpRes) this._cpBind(name); } });
       } else this.cp[name] = { pipe: cPipe(desc), bg: null };
     }
+    this._later.splice([...LATE].filter((n) => this.cpDefs[n]).length, 0, ...lateLean);
     this.cpPick = { pipe: cp(this.pickModule, 'pickMain'), bg: null };
     this.cpTrackNear = cp(this.pickModule, 'trackNear');
     this.cpTrackArgs = cp(this.pickModule, 'trackArgs');
@@ -1711,7 +1728,8 @@ class Engine {
     const run = (name, n) => {
       const q = prof ? prof.names.push(name) * 2 - 2 : 0;
       if (prof) pass = enc.beginComputePass({ timestampWrites: { querySet: prof.qs, beginningOfPassWriteIndex: q, endOfPassWriteIndex: q + 1 } });
-      const c = this.cp[name];
+      // (lifeMain lean where this step allows and its pipeline has landed, timed under the full one's name)
+      const l = this.cp[name + 'Lean'], c = this.leanRan && l?.bg ? l : this.cp[name];
       pass.setPipeline(c.pipe);
       pass.setBindGroup(0, c.bg);
       if (n == null) pass.dispatchWorkgroupsIndirect(b.frameCtr, 4);
@@ -1782,6 +1800,7 @@ class Engine {
       new Uint8Array(this.ringData, ring * SIM_STRIDE, this.simData.byteLength).set(new Uint8Array(this.simData));
       enc.copyBufferToBuffer(b.simRing, ring * SIM_STRIDE, b.sim, 0, this.simData.byteLength);
     }
+    this.leanRan = this.leanSteps && this._stepLean();
     this.sorted = true;
     this._clear(enc, b.counts, 0, cells * 4);
     this._clear(enc, b.counts, MAX_CELLS * 4, cells * 4);
@@ -1797,6 +1816,23 @@ class Engine {
     this._clear(enc, b.subL, 0, 4);
     this._clear(enc, b.frameCtr, 36, 4);
     this._clear(enc, b.ledger, 48, 12);
+  }
+
+  // Whether this step's uniforms (simData, just filled) leave idle everything the lean kernels compile out (LEAN_IDLE,
+  // IDLE_* in simWGSL), as the WGSL asks it: then the code they leave out would do nothing, and they make the same world.
+  // The hand (Hand: its lamp, the rod, the needle's cut and shaft, the ridden cell, the pipette, the rod's wake); no
+  // stretch annotated (sim.watch); no dry ground (sim.pond.x); no raindrop's ring alive (sim.drops, with a margin
+  // around its life for the clock's rounding); no duckweed (sim.duck.w).
+  _stepLean() {
+    const f = this.simF, u = this.simU, H = 96;
+    if (f[H + 3] !== 0 || f[H + 16] > 0 || f[H + 17] > 0 || u[H + 21] !== 0xffffffff || f[H + 26] > 0 || f[H + 30] !== 0 || f[H + 31] !== 0 || f[H + 32] > 0) return false;
+    if (f[214] > 0 && u[216] !== 0) return false;
+    if (f[64] < 1) return false;
+    for (let k = 0; k < 4; k++) {
+      const age = f[7] - f[82 + 4 * k];
+      if (f[83 + 4 * k] > 0 && age > -0.05 && age < this.K.dropLife + 0.05) return false;
+    }
+    return !(f[75] > 0);
   }
 
   /** Whether coarse steps have compiled (they compile late: until then frame takes one as that many 1/60 s steps). */
