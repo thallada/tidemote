@@ -29,6 +29,9 @@
 //   frames every frame's passes kept, up to that many   thermalEvery  (--android) the phone's thermal state every N s
 //   lab    a Field Lab tab to hold open ('species', 'census', ...; closed by default); its updates are timed
 //   auto   true: the auto camera films while measuring (as the p key starts it; zoom is then the director's)
+//   post   a composite shader (a file of runs/perf/pages) swapped in before settling (Engine.hotComposite: it draws
+//          wherever, in place of every composite), to time variants of it on one world in one page load (a desktop's:
+//          a phone compiles it synchronously, holding the page for seconds a frame)
 //   trace  seconds of a Chrome trace and a JS CPU profile taken while measuring (from its start): OUT-WORLD-SCENARIO.trace.json
 //          and .cpuprofile beside the report, summarized by tools/perf/trace.mjs (main thread per frame, tasks, GC)
 // --android runs Chrome on the phone adb is connected to (tools/android.mjs: on USB under WSL through gpu-node.sh), each
@@ -169,8 +172,9 @@ async function world(page, w) {
     const t0 = Date.now();
     await loadBinWorld(page, `${base}/worlds/${w.file || w.name}.bin`);
     // a .bin is raw buffers, unchecked: one saved before a layout change loads as noise, lifeless
-    await page.waitForTimeout(2000);
-    const living = await page.evaluate(() => globalThis.__tidemote.life().counts[3]);
+    // (counted by the census a moment later: on a phone still compiling, some seconds)
+    let living = 0;
+    for (let i = 0; i < 10 && !living; i++) { await page.waitForTimeout(2000); living = await page.evaluate(() => globalThis.__tidemote.life().counts[3]); }
     if (!living) throw new Error(`world ${w.name}: nothing lives in ${file} (saved before a buffer layout changed?): delete it to grow a new one`);
     console.log(`world ${w.name}: loaded in ${((Date.now() - t0) / 1000).toFixed(1)} s, ${living} living`);
     return;
@@ -415,6 +419,12 @@ try {
         await cdp.detach();
         console.log(`  trace: ${stem}.trace.json (${events.length} events), ${stem}.cpuprofile`);
       })();
+      // post: a composite shader of runs/perf/pages swapped in first (Engine.hotComposite: drawn whatever is in view),
+      // to time variants of it on one world in one page
+      if (sc.post) {
+        const errs = await page.evaluate((c) => globalThis.__tidemote.eng.hotComposite(c), fs.readFileSync(path.join(root, 'runs/perf/pages', sc.post), 'utf8'));
+        if (errs.length) console.log(`${w.name}/${sc.name}: ${sc.post} does not compile: ${errs.slice(0, 3).join('; ')}`);
+      }
       const r = await measure(page, sc);
       if (tracer) await tracer;
       if (sc.auto) await page.keyboard.press('p');

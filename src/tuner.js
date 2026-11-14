@@ -64,6 +64,11 @@ export const KNOBS = {
   // in 16k ones (runs/lowend). Its loss is the simulation's fidelity, weighed above any of the dressing: taken only
   // where it pays much.
   neighbors: { levels: [64, 88, 112], passes: null, share: (from, to, k) => nbRel(k, to) / nbRel(k, from), loss: [5, 4] },
+  // The ice's look (fsIce, Engine.fx.iceScale), drawn at half the view's resolution each way: a quarter of its pixels,
+  // its lines spread to a pixel of it and dimmed, softer (1 - SSIM 0.005-0.02 against full at 80-300 pixels a unit,
+  // about 0.1 at fit, an RTX 4070 Ti, runs/ice/cheap/half2). Its cost is nothing until ice is in view, then much of a
+  // phone's frame (a Pixel 3's fsIce 9-13 ms during a frost): docs/performance.md, The ice on a phone.
+  ice: { levels: [0.5, 1], passes: /^fsIce$/, share: (from, to) => (to / from) ** 2, loss: [0.5] },
 };
 const rate = (every) => (every > 0 ? 1 / every : 0);
 // contactGather's share that is the search (a grid cell's every `every` frames), against the records made every frame
@@ -186,7 +191,7 @@ export function decide(s) {
 // last measured at the top (full), else a share of the drawing judged from the phones and desktops measured (the sea
 // about a fifth of it on a phone, bloom a twentieth, contactGather up close a quarter on a Pixel 3, a tenth on an M1;
 // until measured, a Pixel 3 turned the sea off before it took the contacts' cheaper step)
-const GUESS = { sea: 0.2, contacts: 0.15, bloom: 0.05, specks: 0.05, stone: 0.03, haze: 0.3, microscope: 0.3, interiors: 0, neighbors: 0 };
+const GUESS = { sea: 0.2, contacts: 0.15, bloom: 0.05, specks: 0.05, stone: 0.03, haze: 0.3, microscope: 0.3, interiors: 0, neighbors: 0, ice: 0 };
 function fullCost(id, k, draw) {
   const def = KNOBS[id], share = def.share(def.levels[def.levels.length - 1], def.levels[k.level], k);
   if (k.cost != null && share > 0) return k.cost / share;

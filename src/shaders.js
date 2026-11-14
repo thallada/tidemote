@@ -8334,11 +8334,18 @@ fn flowNoise(wp: vec2f, scale: f32) -> vec2f {
   return n;
 }
 
-// The water's temperature at world point p, bilinear between cell centers, and its gradient.
-fn waterCell(x: i32, y: i32) -> f32 {
+// The grid cell (x, y) wrapped into the world, as an index: every caller reads within a period of it (points wrapped
+// into the world first, a few cells about them), so one step wraps it. (Integer % has no instruction on a phone's GPU:
+// two a cell read were 40% of the ice's look, its 60-odd reads a pixel; one step halved a Pixel 3's frost, docs/
+// performance.md, The ice on a phone.)
+fn cellIndex(x: i32, y: i32) -> u32 {
   let g = vec2i(post.world);
-  return heatField[u32(((y % g.y) + g.y) % g.y) * u32(g.x) + u32(((x % g.x) + g.x) % g.x)];
+  let c = vec2i(x, y);
+  let w = select(select(c, c - g, c >= g), c + g, c < vec2i(0));
+  return u32(w.y) * u32(g.x) + u32(w.x);
 }
+// The water's temperature at world point p, bilinear between cell centers, and its gradient.
+fn waterCell(x: i32, y: i32) -> f32 { return heatField[cellIndex(x, y)]; }
 fn waterAt(p: vec2f) -> vec3f {
   let u = p - 0.5;
   let i = vec2i(floor(u));
@@ -8351,10 +8358,7 @@ fn waterAt(p: vec2f) -> vec3f {
 }
 // The pool's floor at world point p (docs/catastrophes.md), as the simulation reads it (pondWith): the water's depth
 // (below 0 dry) and the floor's slope uphill.
-fn gridPost(base: u32, x: i32, y: i32) -> f32 {
-  let g = vec2i(post.world);
-  return heatField[base + u32(((y % g.y) + g.y) % g.y) * u32(g.x) + u32(((x % g.x) + g.x) % g.x)];
-}
+fn gridPost(base: u32, x: i32, y: i32) -> f32 { return heatField[base + cellIndex(x, y)]; }
 // (a cubic B-spline, with its slope: the edge drawn smooth, and never below the lowest cell around p, as a cubic
 // through the cells (Catmull-Rom) would dip beside steep sides, the ice or dry floor showing at once over a patch
 // where the simulation, bilinear, has none; its edge lies within a fraction of a unit of this one)
@@ -8617,8 +8621,11 @@ fn iceGrain(wp: vec2f, cu: vec2f, N: vec2f, Sv: vec2f, near: f32) -> IceGrain {
 }
 // reach: how much of their full lead the dendrites have yet (0 as the ice begins: it grows from nothing); rg: how
 // much farther than sd says the front truly lies (sd measures by a floored slope, the true one may be gentler)
+// (iceRes: the resolution it is drawn at against the view's, each way: fsIce's target may be smaller, and its lines
+// then spread to a pixel of it and dim; what shows at a zoom (ppu) is the view's)
+var<private> iceRes: f32 = 1.0;
 fn iceLook(wp: vec2f, sd: f32, ppu: f32, grow: f32, reach: f32, rg: f32) -> vec3f {
-  let px = 1.0 / max(ppu, 1e-3);
+  let px = 1.0 / max(ppu * iceRes, 1e-3);
   let L = LAMP_L;
   let N = max(tileN(ICE_GS), vec2f(3.0));
   let Sv = post.world / N;
@@ -8632,13 +8639,17 @@ fn iceLook(wp: vec2f, sd: f32, ppu: f32, grow: f32, reach: f32, rg: f32) -> vec3
   var spines = vec2f(0.0);
   if (sd > -(ICE_LEAD + ICE_OWN + 0.75)) {
     let c0 = floor(wp / Sv);
-    var g = iceGrain(wp, c0, N, Sv, near);
-    for (var j = -1; j <= 1; j++) {
-      for (var i = -1; i <= 1; i++) {
-        if (i == 0 && j == 0) { continue; }
-        let h = iceGrain(wp, c0 + vec2f(f32(i), f32(j)), N, Sv, near);
-        if (h.lead > g.lead) { g = h; }
-      }
+    // (the grain here first, then the eight about it row by row)
+    var g: IceGrain;
+    g.lead = -1e9;
+    for (var k = 0; k < 9; k++) {
+      let m = select(k - 1 + select(0, 1, k > 4), 4, k == 0);
+      let cu = c0 + vec2f(f32(m % 3 - 1), f32(m / 3 - 1));
+      // (a grain whose longest stem could not reach farther than the best yet is passed over: the same winner)
+      let dl = length(wp - (cu + vjit(wrapL(cu, N) + 31.0)) * Sv);
+      if (ICE_LEAD + ICE_OWN - ICE_FALL * dl - 10.0 * max(dl - near, 0.0) <= g.lead) { continue; }
+      let h = iceGrain(wp, cu, N, Sv, near);
+      if (h.lead > g.lead) { g = h; }
     }
     e = max(g.lead, 0.0) * reach - sd;
     ed = e / max(select(0.0, g.slope * reach, g.lead > 0.0), 1.0 / rg);
@@ -8710,10 +8721,19 @@ fn iceLook(wp: vec2f, sd: f32, ppu: f32, grow: f32, reach: f32, rg: f32) -> vec3
   }
   return c;
 }
+// The ice's look at wp (in the world's own coordinates) from its iceSeen, seen at ppu pixels a unit: over what is
+// frozen, its front a crisp bright line, and crystals (frazil) in the near-freezing water ahead of it while it grows
+fn iceOver(wp: vec2f, ic: IceSeen, ppu: f32) -> vec3f {
+  let grow = iceGrowth(waterAt(wp).x);
+  var c = vec3f(0.0);
+  if (ic.sd < (ICE_LEAD + ICE_OWN) * ic.reach + 0.3) { c += iceLook(wp, ic.sd, ppu, grow, ic.reach, ic.rg); }
+  if (ic.sd > 0.0 && ic.sd < 9.0 && grow > 0.0) { c += frazil(wp, ic.sd, ppu, grow); }
+  return c;
+}
 // Crystals in the cold water ahead of the ice: here and there a nucleus has frozen on its own and grows as a small
 // six-armed star, its arms uneven, branched, larger the nearer the front has come. sd: world units ahead of it.
 fn frazilStar(wp: vec2f, cu: vec2f, N: vec2f, sp: vec2f, sd: f32, ppu: f32, grow: f32) -> vec3f {
-  let px = 1.0 / max(ppu, 1e-3);
+  let px = 1.0 / max(ppu * iceRes, 1e-3);
   let cell = wrapL(cu, N);
   if (hash12(cell + 0.5) > 0.3) { return vec3f(0.0); }
   let ctr = (cu + vjit(cell + 2.0)) * sp;
@@ -9351,7 +9371,7 @@ fn duckRoot(p: vec2f, o: vec2f, dir: vec2f, len: f32, wr: f32, seed: f32, ppu: f
 }
 // The pool's edge (pondPost) and the ice (iceSeen) at wp, in the world's own coordinates, each only while there is
 // any: read once a pixel for both waterRoom and poolOver.
-struct PoolAt { pd: vec3f, ic: IceSeen }
+struct PoolAt { pd: vec3f, ic: IceSeen, ice: vec3f, iceIn: bool }
 fn poolAt(wpIn: vec2f) -> PoolAt {
   let wp = wpIn - post.world * floor(wpIn / post.world);
   var o: PoolAt;
@@ -9809,11 +9829,11 @@ fn poolOver(cIn: vec3f, wpIn: vec2f, pool: PoolAt, ppu: f32, k: f32, behind: f32
   }
   // ice (a frost's, the cold probe's): over what is frozen in it, its front a crisp bright line, crystals
   // (frazil) in the near-freezing water ahead of it while it grows
+  // (the main view's from fsIce's texture, pool.ice; the loupe's worked out here)
   if ((!LEAN || ICE) && iceShownAny()) {
-    let ic = pool.ic;
-    let grow = iceGrowth(waterAt(wp).x);
-    if (ic.sd < (ICE_LEAD + ICE_OWN) * ic.reach + 0.3) { c += iceLook(wp, ic.sd, ppu, grow, ic.reach, ic.rg) * (0.35 + 0.65 * behind); }
-    if (ic.sd > 0.0 && ic.sd < 9.0 && grow > 0.0) { c += frazil(wp, ic.sd, ppu, grow) * (0.35 + 0.65 * behind); }
+    var ice = pool.ice;
+    if (!pool.iceIn) { ice = iceOver(wp, pool.ic, ppu); }
+    c += ice * (0.35 + 0.65 * behind);
   }
   // the waves seen in themselves, on open water only: a surface tilted toward the lamp throws a little of its light
   // into the objective, a pale sheen on the crests' near flanks, while the far flanks bend light away and dim what
@@ -9909,6 +9929,22 @@ struct FieldOut { @location(0) a: vec4f, @location(1) b: vec4f, @location(2) c: 
   o.c = vec4f(surf.slope, water.x, length(water.yz));
   return o;
 }
+// The ice's look over the main view (iceOver), drawn into a texture of its own before the composite, which adds it
+// (docs/performance.md, The ice on a phone): its arithmetic in the composite took a Pixel 3's composite from 2 ms to
+// 45-52 with a frost in view; in a pass of its own it can be drawn at a lower resolution (Engine.fx.iceScale) where the
+// frame needs it. Drawn only where the composite reads it (compPick).
+@group(0) @binding(29) var iceTex: texture_2d<f32>;
+@fragment fn fsIce(i: CompVO) -> @location(0) vec4f {
+  // (the composite's pixel this one stands at)
+  let wpIn = post.cam + (i.uv * post.res - post.res * 0.5) / post.ppu;
+  let wp = wpIn - post.world * floor(wpIn / post.world);
+  // (lines finer than this target's pixels spread to one and dim, as finer than the view's do: drawn at a lower
+  // resolution it is softer, not broken up)
+  iceRes = round(64.0 * (i.pos.x + i.pos.y) / ((i.uv.x * post.res.x) + (i.uv.y * post.res.y))) / 64.0;
+  var c = vec3f(0.0);
+  if (iceShownAny()) { c = iceOver(wp, iceSeen(wp), post.ppu); }
+  return vec4f(c, 1.0);
+}
 fn fieldAt(t: texture_2d<f32>, uv: vec2f) -> vec4f { return textureSampleLevel(t, samp, uv, 0.0); }
 // the water as bubblesNear and extremes ask of it (its slope's length in place of the slope), from field C
 fn fieldWater(c: vec4f) -> vec3f { return vec3f(c.z, c.w, 0.0); }
@@ -9976,7 +10012,12 @@ fn fieldWater(c: vec4f) -> vec3f { return vec3f(c.z, c.w, 0.0); }
   c = c * mix(0.72, 1.0, v) * mix(1.0, mix(0.88, 1.05, lamp), k) + bg;
   c = pondSpecks(c, hdr, i.pos.xy, min(1.0, live.a), litGain(lit, 0.0));
   let fc = fieldAt(fieldC, i.uv);
-  c = poolOver(c, wp, poolAt(wp), post.ppu, k, behind, fc.xy, lit);
+  // (the ice's look from fsIce, drawn before the composite wherever the ice is in view: not worked out here)
+  var pool: PoolAt;
+  if (!LEAN && post.pond.x < 1.0) { pool.pd = pondPost(wp - post.world * floor(wp / post.world)); }
+  if (!LEAN || ICE) { pool.ice = textureSampleLevel(iceTex, samp, i.uv, 0.0).rgb; }
+  pool.iceIn = true;
+  c = poolOver(c, wp, pool, post.ppu, k, behind, fc.xy, lit);
   c = extremes(c, fieldWater(fc), behind, bub);
   c = shadeOver(c, wp);
   c = instrument(c, wp, post.ppu);
@@ -10155,8 +10196,9 @@ fn loupeScene(r: vec2f) -> vec3f {
   if ((marked == 0u && (iceShownAny() || hotAny())) || (ice != 0u && hot != 0u)) { pick = 0u; }
   else if (ice != 0u) { pick = 2u; }
   else if (hot != 0u) { pick = 3u; }
-  for (var k = 0u; k < 4u; k++) {
-    compArgs[4u * k] = select(0u, 3u, k == pick); compArgs[4u * k + 1u] = 1u; compArgs[4u * k + 2u] = 0u; compArgs[4u * k + 3u] = 0u;
+  for (var k = 0u; k < 5u; k++) {
+    // (the fifth, the ice's look (fsIce), where a composite that adds it draws)
+    compArgs[4u * k] = select(0u, 3u, select(k == pick, pick == 0u || pick == 2u, k == 4u)); compArgs[4u * k + 1u] = 1u; compArgs[4u * k + 2u] = 0u; compArgs[4u * k + 3u] = 0u;
   }
 }
 `;

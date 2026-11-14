@@ -175,7 +175,7 @@ class Engine {
     // haze: the heat haze over warm water allowed; microscope: the optics and the look (about half the composite)
     // interiors: cells drawn large show their insides, in the main view, the loupe and the live close-up (false: the
     // lean pipeline for every cell, outlines, walls and tissue kept)
-    this.fx = { seaEvery: 1, contactsEvery: 2, bloom: true, specks: true, stoneEvery: STONE_EVERY, haze: true, microscope: true, interiors: true };
+    this.fx = { seaEvery: 1, contactsEvery: 2, bloom: true, specks: true, stoneEvery: STONE_EVERY, haze: true, microscope: true, interiors: true, iceScale: 1 };
     // (bloom, the sea and the microscope's optics and look fade in and out over a second or so as fx turns them, never
     // flipping: _fadeFx; the close-up keeps the look whole, so a card's portrait never has it faded)
     this.fxFade = { bloom: 1, sea: 1, look: 1, t: null };
@@ -582,8 +582,14 @@ class Engine {
     this.pField = rPipe({ layout: 'auto', label: 'fsField', primitive: { topology: 'triangle-list' },
       vertex: { module: this.postModule, entryPoint: 'vsComp' },
       fragment: { module: this.postModule, entryPoint: 'fsField', targets: [0, 1, 2].map(() => ({ format: 'rgba16float' })) } });
+    // the ice's look over the view (fsIce), drawn before the composite where the ice is in view, into a target of
+    // fx.iceScale the view's size each way, which the composite adds; in the first wave, with the fields
+    this.pIce = rPipe({ layout: 'auto', label: 'fsIce', primitive: { topology: 'triangle-list' },
+      vertex: { module: this.postModule, entryPoint: 'vsComp' },
+      fragment: { module: this.postModule, entryPoint: 'fsIce', targets: [{ format: 'rgba16float' }] } });
     this.cpCompPick = cPipe({ layout: 'auto', compute: { module: this.postModule, entryPoint: 'compPick' }, label: 'compPick' });
-    b.compArgs = d.createBuffer({ size: 64, usage: U.STORAGE | U.INDIRECT });
+    // (the four composites' draws, then the ice's: compPick)
+    b.compArgs = d.createBuffer({ size: 80, usage: U.STORAGE | U.INDIRECT });
     this.pLoupe = defer(rpDesc(this.postModule, 'vsLoupe', 'fsLoupe', 'triangle-list', over, format), false, (p) => { this.pLoupe = p; });
     this.pPlain = defer(rpDesc(this.postModule, 'vsFull', 'fsPlain', 'triangle-list', undefined, format), false, (p) => { this.pPlain = p; });
     this.sampler = d.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
@@ -906,6 +912,18 @@ class Engine {
     return true;
   }
 
+  // the ice's target (fsIce) for a view w x h, at fx.iceScale of it each way
+  _iceTarget(w, h) {
+    const s = this.fx.iceScale, size = [Math.max(1, Math.ceil(w * s)), Math.max(1, Math.ceil(h * s))];
+    if (this.iceTex && this.iceTex.width === size[0] && this.iceTex.height === size[1]) return false;
+    this.iceTex?.destroy();
+    this.iceTex = this.device.createTexture({ size, format: 'rgba16float', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING, label: 'ice' });
+    this.iceView = this.iceTex.createView();
+    this.iceBG = this.device.createBindGroup({ layout: this.pIce.getBindGroupLayout(0), entries: [
+      { binding: 2, resource: { buffer: this.b.post } }, { binding: 11, resource: { buffer: this.b.thermal } }] });
+    return true;
+  }
+
   // the look lab (tools/looklab.mjs) swaps in a new composite shader while the page runs
   hotComposite(code) {
     const d = this.device;
@@ -1029,6 +1047,7 @@ class Engine {
     this.fieldTex?.forEach((t) => t.destroy());
     this.fieldTex = [0, 1, 2].map(() => d.createTexture({ size: [Math.ceil(w / FIELD_STEP), Math.ceil(h / FIELD_STEP)], format: 'rgba16float', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING }));
     this.fieldViews = this.fieldTex.map((t) => t.createView());
+    this._iceTarget(w, h);
     this.fieldBG = d.createBindGroup({ layout: this.pField.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 2, resource: { buffer: this.b.post } }, { binding: 11, resource: { buffer: this.b.thermal } },
       { binding: 13, resource: this.seaView }, { binding: 14, resource: this.seaSampler },
@@ -1058,7 +1077,7 @@ class Engine {
       { binding: 10, resource: this.microView }, { binding: 11, resource: { buffer: this.b.thermal } }, { binding: 12, resource: this.liveView },
       { binding: 18, resource: this.fieldViews[0] }, { binding: 19, resource: this.fieldViews[1] }, { binding: 28, resource: this.fieldViews[2] },
       { binding: 23, resource: this.seaFieldTex[0].createView() }, { binding: 24, resource: this.seaFieldTex[1].createView() },
-      { binding: 26, resource: this.opticsTex.createView() }] });
+      { binding: 26, resource: this.opticsTex.createView() }, { binding: 29, resource: this.iceView }] });
     this.compBG = this.pComp ? compBG(this.pComp) : null;
     this.compClearBG = this.pCompClear ? compBG(this.pCompClear) : null;
     if (this.pCompLean) { this.compLeanBG = compBG(this.pCompLean); this.compClearLeanBG = compBG(this.pCompClearLean); }
@@ -3358,6 +3377,20 @@ class Engine {
     if (lean && !leanOnly) {
       const cp = enc.beginComputePass();
       cp.setPipeline(this.cpCompPick); cp.setBindGroup(0, this.compPickBG); cp.dispatchWorkgroups(1); cp.end();
+    }
+    // the ice's look, where a composite that adds it draws: the full one, or the lean one with the ice (compPick's fifth
+    // draw); whatever its target held before is read only after it is drawn over whole
+    if (!leanOnly) {
+      // (its target made anew when fx.iceScale changes, and the composites bound to it)
+      if (this._iceTarget(W, H)) {
+        this.compBG = this.compClearBG = this.compLeanBG = this.compClearLeanBG = null;
+        for (const q of this.compParts) q.bg = [null, null];
+        this._rebindLate();
+      }
+      const ip = enc.beginRenderPass({ colorAttachments: [{ view: this.iceView, loadOp: 'load', storeOp: 'store' }] });
+      ip.setPipeline(this.pIce); ip.setBindGroup(0, this.iceBG);
+      if (lean) ip.drawIndirect(this.b.compArgs, 64); else ip.draw(3);
+      ip.end();
     }
     const pass = enc.beginRenderPass({
       colorAttachments: [{ view: target, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }],

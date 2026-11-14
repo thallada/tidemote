@@ -220,7 +220,9 @@ wrap puts them and show no seam at the world's edges. Raindrop ripples bend the 
   faint growth lines and strings of air bubbles drawn out along a grain's axis (`bubLook`, as the warm stage's);
   deeper than any dendrite reaches only that is drawn. Ahead of a growing front, small stellar crystals (frazil: six uneven, branched arms around a hexagonal
   plate) grow in the supercooled water (`iceGrowth`: while a frost freezes, or where the cold probe chills the water,
-  in near-freezing water only). The cold probe's ice is the same ice, drawn the same way.
+  in near-freezing water only). The cold probe's ice is the same ice, drawn the same way. The main view draws it in a
+  pass of its own, at half resolution where a phone's frame needs it (`fsIce`: docs/look.md, after The composite's
+  fields).
 - **Trapped cells** (`DRAW_WGSL`): a cell on dry ground shrivels a little and its color drains to a dull brown,
   darkened; a cell in the ice drains to a pale frosted blue-white. Both read the same relief and ice fields as the
   simulation (the view uniform carries the level; the ice is the heat field's). Most rest as cysts: a cyst loses `cystLeak` energy a

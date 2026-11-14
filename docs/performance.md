@@ -646,9 +646,77 @@ things were off, and the phone's own numbers say where its composite's time goes
   cost nothing).
 - **The ice is the composite's cost during a frost**: 46-53 ms of it with the ice drawn, 4.5-4.9 with the dendrites'
   and the frazil's look left out (`iceLook`, `frazil`; the front itself, `iceSeen`, still worked out; `runs/night/h2`),
-  and `fsField` 1.4-2.5 against 0.65 (its own `iceSeen`, for `waterRoom`). The Pixel 3 draws a frost at 14-15 fps. Its
-  look on a phone wants another way (once into a texture as the ice changes, as the stone's light is cached, or at a
-  lower resolution), not fewer registers: next.
+  and `fsField` 1.4-2.5 against 0.65 (its own `iceSeen`, for `waterRoom`). The Pixel 3 drew a frost at 14-15 fps:
+  The ice on a phone, below.
+
+## The ice on a phone (2026-11-13)
+
+Not a cliff: arithmetic, and most of it integer division. A Pixel 3's ice was its instructions' cost; what made them
+many was `%`.
+
+- **Knock-outs** (each a page, `p8` with `frostMax` 0.85 grown at Max through a 70 s settle that also lands the second
+  wave, then the ice in view at 80 and 150 pixels a unit, half scale; `runs/night/ice-k1`, `ice-k2`, one load each
+  interleaved with main's; the composite's ms):
+
+  | the lean composite with the ice (`ICE`) | ms (80 / 150) |
+  |---|---|
+  | as main draws it | 45.2-46.5 / 50.5-52.1 |
+  | the 3 × 3 grains' loop down to the grain a point lies in | 37.9 / 37.1 |
+  | no grain mosaic (`vborderT`) | 33.5 / 31.6 |
+  | no trapped bubbles | 30.9 / 32.9 |
+  | the grains' axes without the ice field (`gridPost` in `iceGrain`) | 40.5 / 39.6 |
+  | no frazil (none grows during the hold measured) | 46.5 / 49.3 |
+  | the ice alone in the composite (nothing else drawn) | 35.5 / 41.3 |
+  | its loops kept loops (a trip count the compiler cannot know) | 45.0 / 49.7 |
+
+  Every part costs about what its share of the instructions says; nothing is a cliff (not unrolling either: loops
+  the compiler could not unroll changed nothing). The ice is simply 12,000 instructions a pixel on Mesa's count
+  (`regs.sh`: the `ICE` variant 14,238, lean 1,935) over most of the view. And a third of them were `gridPost`'s and
+  `waterCell`'s `((x % n) + n) % n`: an a6xx has no integer divide, so each `%` is a long sequence, four a cell read
+  and some 60 reads a pixel (`iceSeen`'s B-spline 20, each of the nine grains' axis 4).
+- **Kept: one step's wrap** (`cellIndex`: every caller reads within a period of the world, points wrapped first and
+  a few cells about them, so a select either way is the same cell). Exact (frozen frames against main: identical).
+  `ICE` 14,238 → 9,402 instructions on Mesa's count for `gridPost`'s alone, `fsField` 9,647 → 5,603. On the Pixel 3
+  (`runs/night/ice-k3`, the page with its loops kept loops too, which alone changed nothing; two loads each,
+  interleaved with main's): the composite with a frost in view 46.5-51.7 → 24.1-25.0 ms, `fsField` with ice
+  1.36-1.46 → 0.34-0.42, and without 0.64-0.68 → 0.49-0.52; the lean composite with nothing rare 2.6-2.8 → 2.5-2.6.
+- **Kept: a grain passed over that cannot win** (`iceLook`): a grain's lead is at most `ICE_LEAD + ICE_OWN` less its
+  fall with distance; one whose bound does not beat the best so far is not worked out. The same winner, exact.
+- **Kept: the ice in a pass of its own, `fsIce`**, drawn before the composite into an `rgba16float` target where a
+  composite that adds it draws (compPick's fifth draw: the full one, or `ICE`), which the composite adds (`pool.ice`;
+  the loupe still works it out inline). `ICE` is now the lean composite and a texel (1,946 instructions), and the
+  pass can be drawn at a lower resolution: `Engine.fx.iceScale`, the tuner's `ice` knob (`src/tuner.js`, 1 or 0.5),
+  which takes it to half each way when frames run late with ice in view. At half its lines spread to a pixel of the
+  target and dim (`iceRes` in `iceLook`/`frazilStar`), so it is softer, not broken up (drawn as at full, the
+  dendrites came apart into dashes). On the Pixel 3 (`runs/night/ice-k6`, two loads each, interleaved with main's):
+
+  | a frost in view, 80 pixels a unit | composite | `fsIce` | `fsField` | GPU a frame | fps (30 aimed) |
+  |---|---|---|---|---|---|
+  | main | 45.5-45.7 | | 1.40-1.44 | 55.6 | 15.7-16 |
+  | `fsIce` at full resolution | 3.2-3.5 | 7.7-8.3 | 0.50-0.57 | 20.2-21.8 | 29.7-30 |
+  | `fsIce` at half | 4.0-4.6 | 3.0-4.0 | 0.62-0.69 | 18.7-20.5 | 29.9-30.2 |
+
+  The build as kept, the knob pinned (`runs/night/ice-k7`, one load): at 80 pixels a unit the composite 3.2 and
+  `fsIce` 7.3 at full, 3.7 and 2.7 at half; at 150, 3.6 and 7.9, 4.5 and 2.5. Left to adapt (`adapt: 'keep'`,
+  `effects: 'auto'`, 30 fps aimed) its frames were on time at full, and the tuner kept it there. (The composite reads
+  the half target 0.5-0.9 ms slower than the full one, every load: its texels magnified.)
+
+  (Half is a quarter of the pixels but not a quarter of the time: each pixel's `iceSeen` and the waves' coherence
+  stay. The composite with nothing rare in view is 2.5-2.6, so with the ice it is now 1.3x that and the ice's pass 3-8
+  ms more: the whole ice 4.5x the lean composite at full resolution, 3x at half, where it was 18x.)
+  On an RTX 4070 Ti (full scale, a frost in view, `runs/night/ice-d1`): the composite and `fsField` 1.45-1.48 ms →
+  1.22 with `fsIce` 0.83 of it at full, 0.60 at half (`fsIce` 0.22). Against main on frozen frames (`tools/icelook.mjs`,
+  fit, 80, 150, 300 pixels a unit, at the front and deep in the ice, freezing, held and thawing; `runs/ice/cheap/final`):
+  SSIM 0.99998-1.0, a mean difference of 0.004 of 255, two or three pixels a frame off by more than 8 (the target's
+  half floats). At half resolution (`final-half`, `half2`): SSIM 0.97-0.99 at 80, 0.98-0.995 at 150, 0.99-0.997 at 300,
+  0.88-0.9 at fit (where the dendrites are finer than a pixel at full): the seams softer, the grains' edges a little
+  stepped.
+- **Costs left**: the target is the view's size in half floats whether or not there is ice (26 MB at 2544 × 1289,
+  66 MB at 4K); where the full composite draws for something else (a map, duckweed, the instrument) the pass draws
+  every frame, ending at once where no ice is shown anywhere.
+- **Tried**: the Voronoi's second pass over 3 × 3 cells rather than 5 × 5 (no pixel differed in the frozen frames;
+  left out, as its gain was not measured on the phone); a composite swapped in on the phone (`bench.mjs`'s `post`,
+  `Engine.hotComposite`) compiles synchronously there and held the page 16 s a frame: time variants as pages.
 
 ## Doing less work: the sea and the contacts (2026-11-13)
 
@@ -1176,7 +1244,14 @@ and never during a balance gate.
   main thread per frame and per 16.7 ms, task kinds, GC, the longest tasks and what ran in them, the GPU process,
   Chrome's frames presented and dropped, JS self time (the trace's start costs the page one 100-200 ms task). `--dpr N`
   on a shown Chrome forces that many device pixels a CSS pixel (window sizes are then CSS pixels). `m32k.json` and
-  `m32k-mac.json` are the 32k plans of 2026-11-12.
+  `m32k-mac.json` are the 32k plans of 2026-11-12. A scenario's `post` swaps in a composite shader from
+  `runs/perf/pages/` first (`Engine.hotComposite`), to time variants of it in one page load: on a desktop only, a
+  phone compiles it synchronously and holds the page for seconds a frame. A `.bin` world's living are waited for up to
+  20 s (a phone still compiling counts them late).
+- `tools/icelook.mjs --a A.wgsl --b B.wgsl --out DIR` grows a frost, stops it as it freezes, holds and thaws, and
+  photographs each moment at fit, 80, 150 and 300 pixels a unit at its front and deep in the ice with each composite
+  swapped in, the draws' time frozen; SSIM and pixel differences per pair (`--tuneb '{"ice":0}'`: b at half
+  resolution). A composite older than `fsIce` needs `@binding(29) var iceTex` declared and read (times 0) to bind.
 - `bench.mjs --android` runs the same plans in Chrome on a phone adb is connected to (`tools/android.mjs`): over a USB
   cable under WSL through Windows' adb (run it with `tools/gpu-node.sh`; Windows' `platform-tools` in
   `%LOCALAPPDATA%\Android\Sdk`), or over Wi-Fi (Developer options → Wireless debugging, `adb pair`, `adb connect`; pair

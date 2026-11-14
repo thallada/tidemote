@@ -67,6 +67,8 @@ const HELD = {
   // i18n: Settings → Perf, one thing held back: the stone lit again only every {s} seconds
   stone: (l) => tr('settings.perf.held.stone', 'Stone relit every {s} s', { s: KNOBS.stone.levels[l] }), haze: () => tr('settings.perf.held.haze', 'Heat haze off'),
   microscope: () => tr('settings.perf.held.microscope', 'Microscope off'), interiors: () => tr('settings.perf.held.interiors', 'Cell insides off'),
+  // i18n: Settings → Perf, one thing held back: the ice drawn at half the resolution of the rest of the view
+  ice: () => tr('settings.perf.held.ice', 'Ice at half resolution'),
   // i18n: Settings → Perf, one thing held back: {n} the neighbors a cell weighs each step, fewer than the most
   neighbors: (l) => tr('settings.perf.held.neighbors', '{n} neighbors', { n: KNOBS.neighbors.levels[l] }),
   // i18n: Settings → Perf, one thing held back: the world drawn at {pct} percent of the screen's resolution
@@ -380,7 +382,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const on = shown();
     for (const id of Object.keys(tune)) if (id !== 'neighbors' && !tuneAuto(id, on)) tune[id].level = pins[id] ?? KNOBS[id].levels.length - 1;
     const at = (id) => KNOBS[id].levels[tune[id].level];
-    Object.assign(eng.fx, { seaEvery: at('sea'), contactsEvery: at('contacts'), bloom: at('bloom'), specks: at('specks'), stoneEvery: at('stone'), haze: at('haze'), microscope: at('microscope'), interiors: at('interiors') });
+    Object.assign(eng.fx, { seaEvery: at('sea'), contactsEvery: at('contacts'), bloom: at('bloom'), specks: at('specks'), stoneEvery: at('stone'), haze: at('haze'), microscope: at('microscope'), interiors: at('interiors'), iceScale: at('ice') });
     eng.maxScan = on.neighbors ? at('neighbors') : state.perf.scan;
   }
   applyTune();
@@ -2543,6 +2545,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       haze: tr('settings.display.heat-shimmer', 'Heat haze'), specks: tr('settings.display.specks', 'Suspension'), interiors: tr('settings.display.lod', 'Cell insides'),
       // i18n: the readout's adapting summary: the stone's light, which the page may work out again less often
       stone: tr('dock.adapt.stone', 'Stone light'),
+      // i18n: the readout's adapting summary: the ice's look, which the page may draw at a lower resolution
+      ice: tr('dock.adapt.ice', 'Ice'),
       // i18n: the readout's adapting summary: which cells touch which (drawn pressed together), which the page may work out less often
       contacts: tr('dock.adapt.contacts', 'Cell contacts'), scale: tr('settings.perf.scale', 'Render scale'), fps: tr('settings.perf.fps', 'Target fps'), neighbors: tr('settings.perf.neighbors', 'Neighbors') };
     // a group of option rows, under a heading or (text '') none
@@ -2858,18 +2862,20 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (id === 'stone') return tr('dock.adapt.every', 'Every {s} s', { s: KNOBS.stone.levels[v] });
       // i18n: the readout's adapting summary: the water's waves worked out a quarter ({level} 1) or half (2) as often
       if (id === 'sea' && v > 0 && v < 3) return tr('dock.adapt.rate', '{level, select, 1 {¼ rate} other {½ rate}}', { level: v });
+      // i18n: the readout's adapting summary: the ice drawn at half the view's resolution
+      if (id === 'ice') return v === 0 ? tr('dock.adapt.half', '½ resolution') : NORMAL;
       if (id === 'contacts') return v === 0 ? tr('dock.adapt.rate', '{level, select, 1 {¼ rate} other {½ rate}}', { level: 1 }) : NORMAL;
       const row = ROW_OF[id], x = v === 0 ? 0 : rowVal[row]();
       return row === 'microlook' || row === 'water' ? [OFF, SUBTLE, NORMAL, STRONG][x] : x ? ON : OFF;
     }
     // (the effects in Display's order, then Performance's)
-    const SUMMED = [['microscope', 'bloom', 'sea', 'haze', 'specks', 'interiors', 'stone', 'contacts'], ['scale', 'fps', 'neighbors']];
+    const SUMMED = [['microscope', 'bloom', 'sea', 'haze', 'specks', 'interiors', 'stone', 'ice', 'contacts'], ['scale', 'fps', 'neighbors']];
     tips.rich.eased = () => {
       const all = adaptNow(), at = Object.fromEntries(all.map((r) => [r[0], r])), held = all.some((r) => r[2] === 'held');
       const row = (id) => { const [, v, st] = at[id]; return `<div class="am-r" data-s="${st}"><span class="lbl">${NAMES[id]}</span><i></i><b>${adaptValue(id, v, st)}</b><em>${st === 'held' ? EASED : st === 'fixed' ? FIXED : ''}</em></div>`; };
       // i18n: the readout's adapting summary: its heading, then (to its right) why the page adapts, if it says
       return (held ? `<div class="am-h"><span>${tr('dock.adapt.title', 'Adapting')}</span><span>${WHY_WORDS[perf.why] ?? ''}</span></div>` : `<div class="am-h calm"><span>${tr('settings.perf.held-none', 'Full Quality')}</span></div>`)
-        + SUMMED.map((ids) => `<div class="am-g">${ids.filter((id) => id !== 'haze' || K.heat).map(row).join('')}</div>`).join('')
+        + SUMMED.map((ids) => `<div class="am-g">${ids.filter((id) => (id !== 'haze' && id !== 'ice') || K.heat).map(row).join('')}</div>`).join('')
         // i18n: the readout's adapting summary, at its foot: what a click (or on a touch screen, a second tap) does
         + `<div class="am-f">${tr('dock.adapt.open', '{touch, select, yes {Tap again to open Settings → Perf} other {Click to open Settings → Perf}}', { touch: isCoarse ? 'yes' : 'no' })}</div>`;
     };
