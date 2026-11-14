@@ -366,8 +366,8 @@ class Engine {
     };
     const dp4a = !!globalThis.navigator?.gpu?.wgslLanguageFeatures?.has('packed_4x8_integer_dot_product');
     // Apple's GPUs run lifeMain, register-bound, a quarter faster in workgroups of 256 than of 128 (an M1,
-    // 2026-11-04: 3.8 → 2.9 ms in a 78k world; 64 and 32 between; docs/performance.md, Apple), measured on the single
-    // kernel senseMain and lifeMain were then
+    // 2026-11-04: 3.8 → 2.9 ms in a 78k world; 64 and 32 between; docs/performance.md, Apple; measured before the
+    // scan became senseMain)
     const apple = d.adapterInfo?.vendor === 'apple';
     const lifeWG = apple ? 256 : 128;
     // every module made here, for compileErrors
@@ -3198,8 +3198,7 @@ class Engine {
       // a share of the grid cells search for contacts each frame, in turn (fx.contactsEvery: half, or a quarter;
       // contactGather), while the cells gathered stay those of the frame before (and the world the same); the rest
       // take back theirs, kept by id and carried through the steps between (touchCarry, over these grid cells; u[11]
-      // the time the last gathering's records hold), stepped or not (once kept by sorted place, read back after a
-      // step they were other cells', and every cell searched whenever the world had stepped: 3916aa0)
+      // the time the last gathering's records hold), stepped or not
       const key = `${u.subarray(0, 16).join()},${this.worldGeneration}`;
       this._gatherN = ((this._gatherN ?? 0) + 1) % 4;
       u[2] = this._gatherN;

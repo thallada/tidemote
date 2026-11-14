@@ -6372,11 +6372,10 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
       let along = dot(own, axis);
       own = (own - axis * along) * exp(-squashed) + axis * along * exp(squashed);
     }
-    // Its contacts, read once (each was read three times before: the fill, the reach, the planes): the nearest
-    // contact plane at this pixel (its level and softness: the planes only ever cut, and where two meet the crease is
-    // the nearer's alone), and how far a tissue cell fills out toward its kin. A tissue cell fills out toward the
-    // walls it shares with its kin, and only there: facing open water it keeps its own shape. The fill grows as a
-    // neighbor presses closer, so nothing pops.
+    // Its contacts, read once: the nearest contact plane at this pixel (its level and softness: the planes only ever
+    // cut, and where two meet the crease is the nearer's alone), and how far a tissue cell fills out toward its kin. A
+    // tissue cell fills out toward the walls it shares with its kin, and only there: facing open water it keeps its own
+    // shape. The fill grows as a neighbor presses closer, so nothing pops.
     var fill = 0.0;
     var plane = -1e9;
     var planeSoft = 0.05;
@@ -6509,9 +6508,8 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
     // that same normalized light, so there is no bright jump when the nucleus appears.
     var tissue = 1.0;
     var hue = vec3f(1.0);
-    // The insides: a cosmetic layer of light over the cell, kept cheap (an M1 drew a view of tissue at 300 pixels a unit
-    // in 21 ms with the insides of before, value noise and twelve organelles a pixel, 15 without any: docs/performance.md,
-    // 2026-11-13). Soft bumps (insideBump) for gaussians, sines of the cell's seed for noise, four organelles close up.
+    // The insides: a cosmetic layer of light over the cell, kept cheap (docs/performance.md, Zoomed in on the M1): soft
+    // bumps (insideBump) for gaussians, sines of the cell's seed for noise, four organelles close up.
     if (INTERIOR && inside > 0.0 && body > 0.0) {
       // the wall, bright, and the cortex just inside it, darker
       let rim = insideBump((sd + 0.025 + 0.02 * sleep) / (0.025 + 0.03 * sleep + aa));
