@@ -122,7 +122,7 @@ under plain node), on a 78k world (`slow-mac-world.tidemote`, 32k living) in a 1
   sim, so a copy had every field the kernel uses loaded at its start and held; read where used, 5% faster (2.86 →
   2.72 ms, coarse 4.23 → 3.99). Then only on Apple's GPUs (`genomePtr`, simWGSL; everywhere since the step's two kernels, 2026-11-13, below): on an RTX 4070 Ti in Chrome on D3D12
   the pointer made `lifeMain` 15-20% slower (step scenarios, a 1M world: 1.94 → 2.33 ms; 4M: 6.10 → 6.58; 6-tick
-  coarse steps the same), so other GPUs keep the copy. The neighbor scan is three quarters of the kernel (2.4 of 3 ms
+  coarse steps the same), so other GPUs kept the copy. The neighbor scan is three quarters of the kernel (2.4 of 3 ms
   skipped at run time); the mutation path and the hand's and stranding's paths are not where its registers peak.
 - **Close up (slow-mac-world at 71 pixels a unit), the next round.** The composite read the sea from a field from
   about 32 pixels a unit (`seaFieldMain`, 4.0 → 3.3 ms) and the eyepiece's iris and dust from a texture worked out only
@@ -549,7 +549,7 @@ slower. How it was found (`bench.mjs --android`, `kind: step`, the sim module pa
   | `lifeMain` | 43.9 (46.6 before the next entry) | 4 | 3.2 |
   | `senseMain`, coarse | 35.8 | 4 | 5.9 |
   | `lifeMain`, coarse | 43.6 (51.8 before) | 4 | 3.6 (3.9 before) |
-  | `contactGather` | 21.1 | 8 | 3.5 |
+  | `contactGather` (23.5 since the contacts are kept by id: Doing less work) | 21.1 | 8 | 3.5 |
   | `fsComposite` before the field pass (no spills: 61.0 and 36 spills were its unused safe variant's, The composite as a phone draws it) | 32.2 | 4 | |
   | `fsComposite`, `LEAN`, before the field pass | 16.0 | 12 | 4.9 |
   | `fsPointLive` | 30.8 | 6 | 4.6 at 150 px |
@@ -608,9 +608,12 @@ things were off, and the phone's own numbers say where its composite's time goes
   | before the field pass (micro / clear) | 32.2 / 32.8 | 48 / 48 | 4 / 4 | 35081 |
   | `LEAN` | 15.0 | 16 | 12 | 1935 |
   | `LEAN` with the ice (`ICE`, below) / with the bubbles (`HOT`) | 30.0 / 24.5 | 32 / 32 | 6 / 6 | 14238 / 4458 |
+  | now, with the ice in its own pass (The ice on a phone): `fsComposite` (micro / clear) | 26.0 / 26.5 | 32 / 32 | 6 / 6 | 16034 |
+  | now: `LEAN`, `ICE`, `HOT` | 15.0, 15.0, 24.5 | 16, 16, 32 | 12, 12, 6 | 1935, 1946, 3829 |
 
-  No fragment shader the page draws spills as drawn but the loupe's (`fsLoupe`: 67.5, 150 spills, constants 448 + 12,
-  so this is what draws; desktops only, a phone never opens it). The rest (`regs.sh POST_WGSL ...`, `DRAW_WGSL ...`):
+  No fragment shader the page draws spills as drawn. The loupe's did (`fsLoupe`: 67.5, 150 spills, constants 448 + 12,
+  so this is what draws; desktops only, a phone never opens it) until its ice was worked out before `poolOver` rather
+  than inside it: 30.8, none. The rest (`regs.sh POST_WGSL ...`, `DRAW_WGSL ...`):
   `fsField` 20.1, `fsPlain` 20.0, `fsStoneCache` 15.2, `fsMurk` 9.0, `fsStoneLit` 4.2, `fsDown`/`fsUp` 5.0/8.0,
   `fsReproj` 1.0; `fsPointLive` 30.8 (22.5-28.8 without insides or necks), `fsTubeLive` 27.8, `fsStone` 15.6,
   `fsSpeck` 9.8, `fsSplat`, `fsPointSmall`, `fsLine`, `fsBridge`, `fsGlass` under 5.
@@ -940,7 +943,8 @@ take two steps to keep time (main.js's clock), so a world just past the budget s
    after the scan; drop sums only DIAG reads from the non-DIAG build if any survive), or splitting the scan's sums
    between two passes that each walk the neighbors (only if each runs much faster than the whole: probe first with a
    kernel that keeps half the sums). Any of these touches `lifeMain`: ensemble before and after, the gate if
-   arithmetic changes, and 6-tick runs (CLAUDE.md).
+   arithmetic changes, and 6-tick runs (CLAUDE.md). (Since 2026-11-13 the scan is a kernel of its own, `senseMain`,
+   for a phone's registers: The step in two kernels.)
 2. **Cells' shading close up** (3.1 ms at 71 px a unit). Most of it is the cell's own outline (`cellOutline`, six
    sines, `atan2`, `bodySD`'s twelve plans) at every pixel of its quad; quads reach 1.35+ radii for hairs, tails and
    necks. Drawing tighter quads for cells that show none of those (fine LOD 0, no buds) would cut pixels: an earlier
@@ -948,7 +952,8 @@ take two steps to keep time (main.js's clock), so a world just past the budget s
    (`bodySD` with `bodyAspect`, pace, bend, squash, swell) before it is exact. The contact planes' seams cost ~0.44 ms
    (their wandering seam's `cellGrain` noise). `vsPoint` still works out each large sprite at all four corners (1.1 ms
    at that zoom; the partner/contact gathering about half of it): a per-sprite record pass would save ~0.35 ms but
-   needs a record buffer per large sprite (judged not worth it).
+   needs a record buffer per large sprite (judged not worth it). (Since 2026-11-13 the outline is read from the shape
+   atlas, not `bodySD`'s plans, and the necks' code runs only where a neck can show: Zoomed in on the M1.)
 3. **The composite** (3.0 ms close up; ALU-bound). Stage costs at 71 px a unit (early returns, GPU busy): the water's
    surface, heat and pass base 1.0; scene reads and lens 0.4; `lookScene` 0.5 (four more scene taps, relief, rims,
    fringes, rainbow); shadows, tone and grade 0.5 (with the look's film above 0, `lookTone` runs both `tonemap` and
@@ -964,7 +969,8 @@ take two steps to keep time (main.js's clock), so a world just past the budget s
    macOS can skip composing the window.
 6. **`contactGather`** (0.66 ms close up, 1.1 at 40 px a unit): its workgroup arrays (NEAR_N 1024, ~16 KB) limit
    how many run at once; a quarter of them read 0.55 ms but changes contacts in crowded cells. Skipping cells too
-   small for contacts (vsPoint gathers none under 6 px) is untried.
+   small for contacts (vsPoint gathers none under 6 px) is untried. (Since 2026-11-13 half the grid cells search a
+   frame, a quarter when the tuner asks: Doing less work.)
 7. **The stone cache's relighting** (1.2 ms in its first frame every half second): `fsStone`'s grain shading, most
    of it in the top bands. Smaller than it was; shading grains cheaper or relighting only the part of the cache whose
    grains changed would remove the rest.
@@ -1071,7 +1077,9 @@ The weakest GPU at hand (Android 12, Chrome, 393×786 CSS pixels at 2.75). Chrom
   144, 165, 175 and 240 Hz keep their rates.
 - **The full composite only where ice or bubbles are in view.** Any hot or frozen cell anywhere had drawn it in every
   pixel: a warm world with a few hot cells off screen paid 29 ms at half scale against the lean one's 6.
-  `heatMain` marks the tiles (32 × 32) that hold them and `compPick` asks only of those the view covers.
+  `heatMain` marks the tiles (32 × 32) that hold them and `compPick` asks only of those the view covers. (Since
+  2026-11-13 the lean one with that one back where only the ice or only the bubbles are in view: The composite as a
+  phone draws it.)
 - **The composite** (lean, half scale, seen whole) about 8.5 ms against a Pixel 11's 1.2. Cut at stages: the water's
   surface and the scene's reads take most of it, the look and grade little more. The heat map's shimmer noise is about
   1 ms of it (0.17 of a Pixel 11's); leaving it out where the water's slope moves it under a twentieth of a pixel saved

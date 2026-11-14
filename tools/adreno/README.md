@@ -38,7 +38,9 @@ packages.) `MESA_BUILD` names a build elsewhere.
 - widest: the vec4 registers the kernel wants at once. Past 48 values spill to memory (the cliff: the single
   `lifeMain` of before wanted 61.5 and spilled 366 times).
 - waves: how many groups of threads an a630 keeps resident with that many registers (floor(96 / used) × 2): the
-  slope before the cliff. Lines to get under: 32 (6 waves), 24 (8), 19 (10), 16 (12), 12 (16).
+  slope before the cliff, at 32 (6 waves), 24 (8), 19 (10), 16 (12), 12 (16). Under 48 a Pixel 3 did not follow
+  Mesa's count (docs/performance.md, The step in two kernels): keep a kernel from spilling, and measure a rewrite
+  under that on the phone.
 - `RAW=1` prints the disassembly; `PATCH`, `SHADERS` and `SIMOPTS` are in regs.mjs's head.
 
 A fragment shader is named with its vertex stage, `ENTRY@VERTEX[/TARGETS]` (TARGETS rgba16float color targets, 1 if

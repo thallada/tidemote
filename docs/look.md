@@ -47,18 +47,18 @@ the surface's focusing and height, C the surface's slope (the crests' sheen), th
 its slope (all `bubblesNear` asks). The surface is the block that was at the composite's head (`surfaceNear` over the
 sea's field from close up, `surfaceAt` otherwise); the light reaches the composite through `litFrom`, the arithmetic
 of `sceneLit`, which the loupe and the close-up still call, working everything out inline. The bubbles, the pool's
-edge, the ice and the maps stay at full resolution, fed the water from field C. On a phone's GPU a shader's cost
-follows what it holds, run or not (docs/performance.md, The step in two kernels): emulated on a Pixel 3, these out
-of the composite took it from 4.9 to 2.7 ms.
+edge and the maps stay at full resolution, fed the water from field C (the ice has a pass of its own, below). On a
+phone's GPU a shader's cost follows what it holds, run or not (docs/performance.md, The step in two kernels):
+emulated on a Pixel 3, these out of the composite took it from 4.9 to 2.7 ms.
 
 The ice's look (`iceOver`: `iceLook` and `frazil`, docs/catastrophes.md) has a pass of its own (2026-11-13): `fsIce`
 draws it over the main view into an `rgba16float` target before the composite, wherever a composite that adds it draws
-(compPick), and the composite adds that texel where it worked the ice out before (`pool.ice` in `poolOver`, under the
-same weight for what the cells hide); the loupe still works it out inline. At full resolution it is the same picture
-(frozen frames: SSIM 0.99998 or more). Where the frame runs late with ice in view the tuner draws it at half the view's
-resolution each way (`Engine.fx.iceScale`, the `ice` knob): its lines then spread to a pixel of that target and dim
-(`iceRes`), softer rather than broken into dashes, and the grains' edges a little stepped (SSIM 0.97-0.99 at 80 pixels
-a unit, about 0.88 at fit). docs/performance.md, The ice on a phone.
+(compPick), and the composite adds that texel (`pool.ice` in `poolOver`, under the same weight for what the cells
+hide); the loupe works its own out inline and hands it to `poolOver` the same way. At full resolution it is the same
+picture (frozen frames: SSIM 0.99998 or more). Where the frame runs late with ice in view the tuner draws it at half
+the view's resolution each way (`Engine.fx.iceScale`, the `ice` knob): its lines then spread to a pixel of that
+target and dim (`iceRes`), softer rather than broken into dashes, and the grains' edges a little stepped (SSIM
+0.97-0.99 at 80 pixels a unit, about 0.88 at fit). docs/performance.md, The ice on a phone.
 
 Shallow focus (`lensScene`, close up: from `start`, about 80 pixels a unit, full from four times that) blurs what
 lies off the focal plane, and the sea's waves set how far off that is: the water over a point is deeper under a
