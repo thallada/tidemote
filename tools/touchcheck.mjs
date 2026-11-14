@@ -33,7 +33,7 @@ const out = await page.evaluate(async ({ zoom, frames, speed, contacts }) => {
   });
   await genomes.mapAsync(GPUMapMode.READ);
   const gf = new Float32Array(genomes.getMappedRange().slice(0));
-  const [gw, gh] = e.grid, FIRST_LIFE = 3, NONE = 0xffffffff, W = innerWidth, H = innerHeight;
+  const [gw, gh] = e.grid, FIRST_LIFE = 5, NONE = 0xffffffff, W = innerWidth, H = innerHeight;
   const res = [];
   for (const s of snaps) {
     for (const k of ['touch', 'sway', 'parts']) await s[k].mapAsync(GPUMapMode.READ);
