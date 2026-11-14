@@ -380,6 +380,8 @@ class Engine {
     this.cpLerp = cPipe({ layout: 'auto', compute: { module: lerpModule, entryPoint: 'lerpApply' }, label: 'lerpApply' });
     this.cpLerpBack = cPipe({ layout: 'auto', compute: { module: lerpModule, entryPoint: 'lerpRestore' }, label: 'lerpRestore' });
     this.lerp = null;
+    // a step's second half owed (frame's split): the next frame, or anything that reads the world, runs it first
+    this.halfOwed = false;
     this._lerpN = 0;
     this._lerpOk = false;
     // culling for the main view, the loupe and the specimen (CULL_WGSL): uniforms, segments, draw arguments
@@ -562,10 +564,11 @@ class Engine {
     this.timing = null;
     if (hasTimestamps) {
       this.timing = {
-        // 0: start of the frame's first pass, 1: end of its last, 2: end of its last simulation step
-        qs: d.createQuerySet({ type: 'timestamp', count: 3 }),
-        resolve: d.createBuffer({ size: 24, usage: U.QUERY_RESOLVE | U.COPY_SRC }),
-        reads: [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: 24, usage: U.COPY_DST | U.MAP_READ }), busy: false })),
+        // 0: start of the frame's first pass, 1: end of its drawing (or of its last pass), 2: end of its last simulation
+        // step before the drawing, 3: end of a step's first half begun after it (frame's split)
+        qs: d.createQuerySet({ type: 'timestamp', count: 4 }),
+        resolve: d.createBuffer({ size: 32, usage: U.QUERY_RESOLVE | U.COPY_SRC }),
+        reads: [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: 32, usage: U.COPY_DST | U.MAP_READ }), busy: false })),
       };
     }
     this.censusStage = [0, 1].map(() => ({ buf: d.createBuffer({ size: CENSUS_BYTES + SPL_WORDS * 4, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
@@ -742,6 +745,7 @@ class Engine {
 
   /** Allocate particle storage for exactly n particles. Returns false if the GPU refuses. */
   async allocate(n) {
+    this._finishHalf();
     const d = this.device;
     const b = this.b;
     const names = ['parts', 'sortedFull', 'sortedLite', 'aux', 'intent', 'bondsNow', 'sense', 'bondsIn', 'touch', 'sway', 'stoneList', 'ledger', 'livingList', 'quads', 'small', 'smallArgs', 'lerpEnd', 'subL'];
@@ -1204,6 +1208,7 @@ class Engine {
    * K.foundColonies small colonies in empty water, as a world recovering from a collapse begins again.
    */
   seed(n, { aspect = 16 / 9, rng = Math.random } = {}) {
+    this._finishHalf();
     this._lerpN = 0; this._lerpOk = false;
     const d = this.device;
     this.worldGeneration++;
@@ -1679,42 +1684,16 @@ class Engine {
   /**
    * Encode one simulation step whose uniforms are at `ring` (a slot of b.simRing), or written directly.
    * prof: {qs, names}, to time each dispatch in a pass of its own (profileStep).
+   * part: 0 the whole step; 1 its first half, up to and including senseMain (which only read the world and fill the
+   * sort, the grid, the contacts and sense[]); 2 the rest, from lifeMain on, with the uniforms part 1 left in b.sim.
+   * A step split over two frames (frame's split) runs the same passes in the same order as a whole one.
    */
-  _step(enc, simDt, timestampWrites, ring = -1, prof = null) {
+  _step(enc, simDt, timestampWrites, ring = -1, prof = null, part = 0) {
     const b = this.b;
     const N = this.count;
-    this._lerpOk = true;
-    this.dt = simDt;
-    this.simTime += simDt;
-    if (simDt < this._listenDt) this._listenDt = simDt;
-    if (simDt < this._surveyDt) this._surveyDt = simDt;
-    this.frameNo++;
-    this.ticks = Math.max(1, Math.round(simDt * 60));
-    if (this.ticks > SUB_TICKS) throw new Error(`a step of ${this.ticks} ticks: at most ${SUB_TICKS}`);
-    this.tick += this.ticks;
-    if (ring < 0) this._writeSim();
-    else {
-      this._fillSim();
-      new Uint8Array(this.ringData, ring * SIM_STRIDE, this.simData.byteLength).set(new Uint8Array(this.simData));
-      enc.copyBufferToBuffer(b.simRing, ring * SIM_STRIDE, b.sim, 0, this.simData.byteLength);
-    }
     const cells = this.grid[0] * this.grid[1];
-    this.sorted = true;
-    this._clear(enc, b.counts, 0, cells * 4);
-    this._clear(enc, b.counts, MAX_CELLS * 4, cells * 4);
-    this._clear(enc, b.stoneGrid, 0, cells * 4);
-    if (this.K.heat) {
-      this._clear(enc, b.ledger, this._heatAccAt() + MAX_CELLS * 4, cells * 4);
-      this._clear(enc, b.ledger, this._heatAccAt() + 2 * MAX_CELLS * 4, (4 + 2 * TILES) * 4);
-    }
-    this._clear(enc, b.ledger, META_POP * 4, MAXK * 4);
-    // litter on the ground (META_DEATH + 60) and cysts per guild (57-59, 61, 62), counted afresh each step
-    this._clear(enc, b.ledger, (META_DEATH + 57) * 4, 6 * 4);
-    this._clear(enc, b.frameCtr, 0, 4);
-    this._clear(enc, b.subL, 0, 4);
-    this._clear(enc, b.frameCtr, 36, 4);
-    this._clear(enc, b.ledger, 48, 12);
-    let pass = prof ? null : enc.beginComputePass({ timestampWrites });
+    const wg = Math.ceil(N / 256);
+    let pass = null;
     const run = (name, n) => {
       const q = prof ? prof.names.push(name) * 2 - 2 : 0;
       if (prof) pass = enc.beginComputePass({ timestampWrites: { querySet: prof.qs, beginningOfPassWriteIndex: q, endOfPassWriteIndex: q + 1 } });
@@ -1725,20 +1704,24 @@ class Engine {
       else pass.dispatchWorkgroups(n);
       if (prof) pass.end();
     };
-    const wg = Math.ceil(N / 256);
-    run('resolveCount', wg);
-    // Scan only the cells in use (+1 for the one-past-the-end start of the last cell; when the grid
-    // fills MAX_CELLS exactly, scanSums writes that final entry itself).
-    const scanWG = Math.min(MAX_CELLS / 256, Math.ceil((cells + 1) / 256));
-    run('scanBlocks', scanWG);
-    run('scanSums', 1);
-    run('scanAdd', scanWG);
-    run('scatterMain', wg);
-    run('censusMain', Math.ceil(MAXK / 256));
-    run('matterMain', wg);
-    run('contactMain', null);
-    run('bondBackMain', null);
-    run(this.ticks > 1 ? 'senseMainCoarse' : 'senseMain', null);
+    if (part !== 2) {
+      this._stepFirst(enc, simDt, ring, cells);
+      if (!prof) pass = enc.beginComputePass({ timestampWrites });
+      run('resolveCount', wg);
+      // Scan only the cells in use (+1 for the one-past-the-end start of the last cell; when the grid
+      // fills MAX_CELLS exactly, scanSums writes that final entry itself).
+      const scanWG = Math.min(MAX_CELLS / 256, Math.ceil((cells + 1) / 256));
+      run('scanBlocks', scanWG);
+      run('scanSums', 1);
+      run('scanAdd', scanWG);
+      run('scatterMain', wg);
+      run('censusMain', Math.ceil(MAXK / 256));
+      run('matterMain', wg);
+      run('contactMain', null);
+      run('bondBackMain', null);
+      run(this.ticks > 1 ? 'senseMainCoarse' : 'senseMain', null);
+      if (part === 1) { if (!prof) pass.end(); return; }
+    } else if (!prof) pass = enc.beginComputePass({ timestampWrites });
     run(this.ticks > 1 ? 'lifeMainCoarse' : 'lifeMain', null);
     if (this.ticks > 1) {
       // the substeps (timed as one pass): the first over every living cell, listing those lifeMain handed over
@@ -1767,8 +1750,59 @@ class Engine {
     }
   }
 
+  // a step's start: its clock and uniforms, and the counts it gathers afresh cleared
+  _stepFirst(enc, simDt, ring, cells) {
+    const b = this.b;
+    this._lerpOk = true;
+    this.dt = simDt;
+    this.simTime += simDt;
+    if (simDt < this._listenDt) this._listenDt = simDt;
+    if (simDt < this._surveyDt) this._surveyDt = simDt;
+    this.frameNo++;
+    this.ticks = Math.max(1, Math.round(simDt * 60));
+    if (this.ticks > SUB_TICKS) throw new Error(`a step of ${this.ticks} ticks: at most ${SUB_TICKS}`);
+    this.tick += this.ticks;
+    if (ring < 0) this._writeSim();
+    else {
+      this._fillSim();
+      new Uint8Array(this.ringData, ring * SIM_STRIDE, this.simData.byteLength).set(new Uint8Array(this.simData));
+      enc.copyBufferToBuffer(b.simRing, ring * SIM_STRIDE, b.sim, 0, this.simData.byteLength);
+    }
+    this.sorted = true;
+    this._clear(enc, b.counts, 0, cells * 4);
+    this._clear(enc, b.counts, MAX_CELLS * 4, cells * 4);
+    this._clear(enc, b.stoneGrid, 0, cells * 4);
+    if (this.K.heat) {
+      this._clear(enc, b.ledger, this._heatAccAt() + MAX_CELLS * 4, cells * 4);
+      this._clear(enc, b.ledger, this._heatAccAt() + 2 * MAX_CELLS * 4, (4 + 2 * TILES) * 4);
+    }
+    this._clear(enc, b.ledger, META_POP * 4, MAXK * 4);
+    // litter on the ground (META_DEATH + 60) and cysts per guild (57-59, 61, 62), counted afresh each step
+    this._clear(enc, b.ledger, (META_DEATH + 57) * 4, 6 * 4);
+    this._clear(enc, b.frameCtr, 0, 4);
+    this._clear(enc, b.subL, 0, 4);
+    this._clear(enc, b.frameCtr, 36, 4);
+    this._clear(enc, b.ledger, 48, 12);
+  }
+
+  /** Whether coarse steps have compiled (they compile late: until then frame takes one as that many 1/60 s steps). */
+  get coarseReady() { return COARSE_PIPES.every((n) => this.cp[n].bg); }
+
+  // A step begun as a first half (frame's split) finished alone: anything that reads, steps or replaces the world
+  // calls this first, so nothing ever sees or runs between a step's halves (the next frame finishes it anyway).
+  _finishHalf() {
+    if (!this.halfOwed) return;
+    this.halfOwed = false;
+    const enc = this.device.createCommandEncoder();
+    this._step(enc, this.dt, undefined, -1, null, 2);
+    const job = this._censusCopy(enc);
+    this.device.queue.submit([enc.finish()]);
+    if (job) this._censusRead(job, this.worldGeneration);
+  }
+
   /** One simulation step with each dispatch timed on the GPU: [[name, ms], ...]. Needs timestamps. */
   async profileStep(simDt = 1 / 60) {
+    this._finishHalf();
     const d = this.device, U = GPUBufferUsage;
     this.prof ??= { qs: d.createQuerySet({ type: 'timestamp', count: 32 }),
       resolve: d.createBuffer({ size: 256, usage: U.QUERY_RESOLVE | U.COPY_SRC }),
@@ -1791,6 +1825,7 @@ class Engine {
    * with the clock, light and tides), to run the same moment forward again with restore().
    */
   snapshot() {
+    this._finishHalf();
     this._lerpBack();
     const d = this.device, b = this.b, U = GPUBufferUsage;
     const enc = d.createCommandEncoder();
@@ -1817,6 +1852,7 @@ class Engine {
   }
 
   restore(keep) {
+    this._finishHalf();
     const d = this.device, b = this.b;
     const enc = d.createCommandEncoder();
     for (const [k, buf] of Object.entries(keep.gpu)) enc.copyBufferToBuffer(buf, 0, b[k], 0, buf.size);
@@ -1873,6 +1909,7 @@ class Engine {
 
   /** Put back a world from readState() (allocated for at least its count, the page's grid aside). */
   writeState({ cpu, gpu }) {
+    this._finishHalf();
     this._lerpN = 0; this._lerpOk = false;
     for (const [k, data] of Object.entries(gpu)) this.device.queue.writeBuffer(this.b[k], 0, data);
     // the species ledger starts afresh with the world put in place
@@ -1912,6 +1949,7 @@ class Engine {
   }
 
   async readParticles() {
+    this._finishHalf();
     this._lerpBack();
     const d = this.device, U = GPUBufferUsage, size = this.count * P_BYTES;
     const st = d.createBuffer({ size, usage: U.COPY_DST | U.MAP_READ });
@@ -1926,6 +1964,7 @@ class Engine {
 
   /** What bodyCensus (src/bodies.js) reads of readState(), and only that: { cpu: { count }, gpu: { parts, intent, genomes } }. */
   async readBodies() {
+    this._finishHalf();
     this._lerpBack();
     const d = this.device, n = this.count, sizes = { parts: n * P_BYTES, intent: n * 16, genomes: MAXK * G_BYTES };
     const st = d.createBuffer({ size: sizes.parts + sizes.intent + sizes.genomes, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
@@ -1982,6 +2021,7 @@ class Engine {
 
   /** Read the ledger and genomes now (headless forks), in the shape onCensus receives, with K.diag's counters. */
   async readCensus() {
+    this._finishHalf();
     const d = this.device, U = GPUBufferUsage;
     const st = d.createBuffer({ size: CENSUS_BYTES, usage: U.COPY_DST | U.MAP_READ });
     const enc = d.createCommandEncoder();
@@ -2207,8 +2247,11 @@ class Engine {
    * cam: {x,y,ppu}; loupe: {x,y,r (canvas px), ppu, cx, cy (world)} or null.
    * hold (Max and coarse speeds): true draws the world into the held image, false only carries the held
    * image with the camera (a fullscreen blit), so most of the GPU stays on the simulation.
+   * split: a frame's one step spread over two frames: begun after this frame's drawing (its first half, _step part
+   * 1) and finished before the next frame's (or by _finishHalf, before anything else reads or steps the world), so
+   * each frame holds about half its GPU time; both frames draw the last finished step (docs/fast-forward.md, Split).
    */
-  frame({ target = null, targetTex = null, cam = { x: 0, y: 0, ppu: 1 }, paused = false, simDt = 1 / 60, steps = 1, time = 0, dpr = 1, selId = 0xffffffff, loupe = null, specimen = null, hold = null }) {
+  frame({ target = null, targetTex = null, cam = { x: 0, y: 0, ppu: 1 }, paused = false, simDt = 1 / 60, steps = 1, time = 0, dpr = 1, selId = 0xffffffff, loupe = null, specimen = null, hold = null, split = false }) {
     const d = this.device;
     const generation = this.worldGeneration;
     const b = this.b;
@@ -2217,8 +2260,13 @@ class Engine {
     const stepping = !paused && N > 0;
     // until coarse steps have compiled (late), a coarse step is taken as that many fine ones
     const coarse = Math.round(simDt * 60);
-    if (coarse > 1 && !COARSE_PIPES.every((n) => this.cp[n].bg)) { steps *= coarse; simDt /= coarse; }
+    if (coarse > 1 && !this.coarseReady) { steps *= coarse; simDt /= coarse; }
     const nSteps = stepping ? Math.min(MAX_STEPS, Math.max(1, steps | 0)) : 0;
+    // the second half of the step the last frame began, run first; this frame's own step begun after its drawing
+    // (half), or its steps whole before it (pre); done: the steps whose end the drawing shows that this frame ends
+    const finishing = !!this.halfOwed, half = split && nSteps === 1, pre = half ? 0 : nSteps, done = pre + finishing;
+    // the steps' count as reported (onGpuTime, onPassTimes): a half counts half
+    const nRep = pre + (finishing + half) / 2;
     const tm = this.timing;
     // profiling times every pass instead (_profileEncoder)
     const slot = tm && !this.passProfile ? tm.reads.find((r) => !r.busy) : null;
@@ -2245,7 +2293,8 @@ class Engine {
         this._lerpBG = { parts: b.parts, apply: bg(this.cpLerp), back: bg(this.cpLerpBack) };
       }
       const lu = new ArrayBuffer(32), lv = new Uint32Array(lu), lf = new Float32Array(lu);
-      lv[0] = lerpN; lf[1] = Math.min(1, Math.max(0, this.lerp ?? 1)); lf[2] = this.grid[0]; lf[3] = this.grid[1]; lv[4] = this._lerpN;
+      // (lv[4]: the count put back, before anything runs and, on a frame that begins a half, after its drawing)
+      lv[0] = lerpN; lf[1] = Math.min(1, Math.max(0, this.lerp ?? 1)); lf[2] = this.grid[0]; lf[3] = this.grid[1]; lv[4] = this._lerpN || lerpN;
       d.queue.writeBuffer(b.lerpU, 0, lu);
     }
     if (this._lerpN) {
@@ -2254,22 +2303,30 @@ class Engine {
       this._lerpN = 0;
     }
     const censusJobs = [];
-    // the pipette's set-down, between the last frame's steps and this one's (one at a time)
-    const setDown = N > 0 && this.setDownJob && !this.setDownJob.sent ? this._setDown(enc, this.setDownJob) : null;
-    for (let s = 0; s < nSteps; s++) {
-      const last = s === nSteps - 1;
-      const endTs = last && slot ? { querySet: tm.qs, endOfPassWriteIndex: target ? 2 : 1 } : undefined;
-      const begin = tsBegin();
-      this._step(enc, simDt, begin || endTs ? { ...(begin || {}), ...(endTs || {}) } : undefined, nSteps > 1 ? s : -1);
+    // (the steps' passes before the drawing: the last ends with timestamp 2, or 1 when nothing follows)
+    const stepTs = (last) => {
+      const begin = tsBegin(), endTs = last && slot ? { querySet: tm.qs, endOfPassWriteIndex: target || half ? 2 : 1 } : undefined;
+      return begin || endTs ? { ...(begin || {}), ...(endTs || {}) } : undefined;
+    };
+    if (finishing) {
+      this.halfOwed = false;
+      this._step(enc, this.dt, stepTs(!pre), -1, null, 2);
       const job = this._censusCopy(enc);
       if (job) censusJobs.push(job);
     }
-    if (nSteps > 1) d.queue.writeBuffer(b.simRing, 0, this.ringData, 0, nSteps * SIM_STRIDE);
+    // the pipette's set-down, between the last frame's steps and this one's (one at a time)
+    const setDown = N > 0 && this.setDownJob && !this.setDownJob.sent ? this._setDown(enc, this.setDownJob) : null;
+    for (let s = 0; s < pre; s++) {
+      this._step(enc, simDt, stepTs(s === pre - 1), pre > 1 ? s : -1);
+      const job = this._censusCopy(enc);
+      if (job) censusJobs.push(job);
+    }
+    if (pre > 1) d.queue.writeBuffer(b.simRing, 0, this.ringData, 0, pre * SIM_STRIDE);
     // while the pipette draws, what its tip took; while the needle cuts, how many bonds
-    const takeJob = nSteps > 0 && (this.hand[26] > 0 || this.hand[17] > 0) ? this._takenCopy(enc) : null;
-    const listenJob = nSteps > 0 ? this._listenCopy(enc, cam) : null;
+    const takeJob = done > 0 && (this.hand[26] > 0 || this.hand[17] > 0) ? this._takenCopy(enc) : null;
+    const listenJob = done > 0 ? this._listenCopy(enc, cam) : null;
     const mindJob = this._mindCopy(enc);
-    const surveyJob = nSteps > 0 ? this._surveyCopy(enc) : null;
+    const surveyJob = done > 0 ? this._surveyCopy(enc) : null;
     // drawn in between steps: moved now, so what is picked, tracked and watched below is
     // where it is drawn, sampled at the moment drawn (shownTime)
     if (lerpN) {
@@ -2394,13 +2451,26 @@ class Engine {
       pass.setPipeline(this.pHold); pass.setBindGroup(0, this.holdBG); pass.draw(3); pass.end();
     }
     if (target && targetTex && this.glass.length) this._glass(enc, targetTex, target);
-
-    const timed = slot && (stepping || target);
-    if (timed) {
-      enc.resolveQuerySet(tm.qs, 0, 3, tm.resolve, 0);
-      enc.copyBufferToBuffer(tm.resolve, 0, slot.buf, 0, 24);
+    // this frame's step begun, its first half after everything above has read the world as the last step left it (the
+    // true positions back first), its uniforms through the ring (the drawing above read the last step's); timestamp 3
+    if (half) {
+      if (this._lerpN) {
+        const pass = enc.beginComputePass();
+        pass.setPipeline(this.cpLerpBack); pass.setBindGroup(0, this._lerpBG.back); pass.dispatchWorkgroups(Math.ceil(this._lerpN / 256)); pass.end();
+        this._lerpN = 0;
+      }
+      const begin = tsBegin(), endTs = slot ? { querySet: tm.qs, endOfPassWriteIndex: 3 } : undefined;
+      this._step(enc, simDt, endTs ? { ...(begin || {}), ...endTs } : undefined, 0, null, 1);
+      d.queue.writeBuffer(b.simRing, 0, this.ringData, 0, SIM_STRIDE);
+      this.halfOwed = true;
     }
-    if (prof) prof.finish(nSteps, drew, generation);
+
+    const timed = slot && (stepping || finishing || target);
+    if (timed) {
+      enc.resolveQuerySet(tm.qs, 0, 4, tm.resolve, 0);
+      enc.copyBufferToBuffer(tm.resolve, 0, slot.buf, 0, 32);
+    }
+    if (prof) prof.finish(nRep, drew, generation);
     d.queue.submit([enc.finish()]);
     if (prof) prof.read();
     const sh = this._shiftPending;
@@ -2423,17 +2493,18 @@ class Engine {
     if (timed) {
       slot.busy = true;
       slot.buf.mapAsync(GPUMapMode.READ).then(() => {
-        const t = new BigUint64Array(slot.buf.getMappedRange());
-        const ms = Number(t[1] - t[0]) / 1e6;
-        // the simulation's share: up to the end of the last step (the whole frame when nothing is drawn)
-        const simMs = !nSteps ? 0 : target ? Number(t[2] - t[0]) / 1e6 : ms;
+        const t = new BigUint64Array(slot.buf.getMappedRange()), at = (i) => Number(t[i] - t[0]) / 1e6;
+        const ms = at(half ? 3 : 1);
+        // the simulation's share: up to the end of the steps before the drawing, and a half begun after it (the whole
+        // frame when nothing is drawn)
+        const simMs = !nRep ? 0 : !target ? ms : (done ? at(2) : 0) + (half ? at(3) - at(1) : 0);
         slot.buf.unmap();
         slot.busy = false;
-        if (generation === this.worldGeneration && ms > 0 && ms < 5000 && this.onGpuTime) this.onGpuTime(ms, N, nSteps, simMs > 0 && simMs <= ms ? simMs : null, drew);
+        if (generation === this.worldGeneration && ms > 0 && ms < 5000 && this.onGpuTime) this.onGpuTime(ms, N, nRep, simMs > 0 && simMs <= ms ? simMs : null, drew);
       }).catch(() => { slot.busy = false; });
-    } else if (!tm && this.onGpuTime && (stepping || target)) {
+    } else if (!tm && this.onGpuTime && (stepping || finishing || target)) {
       d.queue.onSubmittedWorkDone().then(() => {
-        if (generation === this.worldGeneration && this.onGpuTime) this.onGpuTime(performance.now() - t0, N, nSteps, null, drew);
+        if (generation === this.worldGeneration && this.onGpuTime) this.onGpuTime(performance.now() - t0, N, nRep, null, drew);
       });
     }
 
@@ -2515,7 +2586,8 @@ class Engine {
       const pass = begin({ ...desc, timestampWrites: { querySet: P.qs, beginningOfPassWriteIndex: 2 * k, endOfPassWriteIndex: 2 * k + 1 } });
       const set = pass.setPipeline.bind(pass), used = [];
       pass.setPipeline = (p) => {
-        if (!used.includes(p.label)) { used.push(p.label); names[k] = used[0] === 'resolveCount' ? 'step' : used.slice(0, 3).join('+'); }
+        // (a step's pass, or the second half of one split over two frames)
+        if (!used.includes(p.label)) { used.push(p.label); names[k] = /^resolveCount$|^lifeMain/.test(used[0]) ? 'step' : used.slice(0, 3).join('+'); }
         set(p);
       };
       return pass;

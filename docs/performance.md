@@ -665,6 +665,28 @@ two page loads each, thermal state 0-1 (`runs/night/cad0`-`cad3`):
   the sea's own random draws follow `SEA_N`, so it would be another sea; left for later); blending two turns of the
   sea (a second texture, twice the composite's reads, and a crossfade rather than motion).
 
+## A step over two frames: 60 fps at real time on a Pixel 3 (2026-11-13)
+
+A 1/60 s step of the Pixel 3's 8k world takes 9.4 ms, so a frame at 60 fps had 7 ms for its drawing, and Auto took
+the view to 30 fps in 2-tick steps (13.1 ms, all on one frame) wherever the drawing cost more. Now, where a frame is a
+tick long and a 1/60 s step does not fit beside the drawing, the page takes 2-tick steps and spreads each over two
+frames: up to `senseMainCoarse` after one frame's drawing (8.1 ms), the rest before the next frame's (5.3 ms). The
+step is the same (its passes, order and uniforms; bit for bit on lavapipe), each frame holds 0.87 of a 1/60 s step at
+most and 0.7 on average, and the world drawn advances a tick a frame. docs/fast-forward.md, Split steps, has how and
+what it guards against; the numbers (`runs/night/hs1`, `hs4`, main against it, interleaved): at 150 pixels a unit
+under Auto 59.2-59.7 fps with every effect at its best, where main held 55.6-57.6 having given up the sea, the haze,
+the microscope and the insides (p95 frame interval 17.3 against 26-33 ms); held cheapest at 80 pixels a unit
+59.9-60.5 fps against 46-47; under Auto at 80, 30 fps either way (the tuner gives up the frame rate before the insides).
+
+- **Not split**: 1/60 s steps (two halves of 9.4 ms over two frames would simulate at half speed); 3-tick steps (20
+  fps; the first half alone is 60% of a step, so no three frames hold a third each); frames shorter than a tick (a
+  144 Hz display at its own rate: a 2-tick step every four frames drew the world still for three of them); an RTX
+  4070 Ti's 4M world, whose first half (8.8 of 10.5 ms) is more than a 1/60 s step (the page measures the dearer
+  half's share, `perf.halfShare`, and takes no split where a frame would hold 0.95 of a 1/60 s step or more).
+- **What a human should look at on the phone**: the motion at 150 pixels a unit (each frame a tick on: even, no
+  pulse at 30 Hz), the selection's marker and the notes riding their cells, and a save or the pipette's set-down
+  while it runs.
+
 ## Where to look next (left off 2026-11-04, branch mac-perf merged; 2026-11-12 above)
 
 Where an M1's frame stood when this work paused, at 1×, the GPU about 96% busy (Instruments' encoder table; the

@@ -491,7 +491,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
 
   // ------------------------------------------------------------ perf
   const perf = { samples: [], gpu: 0, fps: 0, frames: 0, worldFps: 0, worldFrames: 0, fpsT: performance.now(), frameDt: [], lastSubmit: 0, rafMs: 0, rafLonger: 0, mainMs: 0, goodWindows: 0, ceiling: 1, ceilingUntil: 0, lastAdjust: performance.now(),
-    stepMs: 0, simS: 0, renderR: 0, presentR: 0, worldAt: 0, stepCredit: 0, ticks: 1, held: false, fine: 0, ticksAt: 0, rate: 1, rateT: performance.now(), rateSim: 0, stepsS: 0, rateSteps: 0,
+    stepMs: 0, simS: 0, renderR: 0, presentR: 0, worldAt: 0, stepCredit: 0, ticks: 1, held: false, fine: 0, split: false, halfShare: 0, half0: null, ticksAt: 0, rate: 1, rateT: performance.now(), rateSim: 0, stepsS: 0, rateSteps: 0,
     slow: 1, slowCeiling: 0, why: '', raisedAt: 0, hold: 0, raised: null, profAt: performance.now(), calmUntil: 0, lateWindows: 0, judged: 1, log: [], waits: 0 };
   // the frames since the adaptation last judged (their intervals, and how many of them waited on the GPU)
   const clearFrames = () => { perf.frameDt.length = 0; perf.waits = 0; };
@@ -503,14 +503,23 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // toward a dearer step and falls slowly: what plans fast speeds' steps (stepCost) must never run low, or a frame
     // packs more steps than its budget (on a slow phone, the kind of frame its driver judges a hung GPU)
     const rise = (a, v, k) => ema(a, v, v > a ? 0.5 : k);
-    if (steps > 0 && drew) perf.stepMs = rise(perf.stepMs, ms / steps, 0.15);
+    if (steps > 0 && drew) perf.stepMs = rise(perf.stepMs, ms / Math.max(1, steps), 0.15);
+    // a frame that ran half a step (a step split over two frames, eng.frame's split): the step's cost is two halves in
+    // a row together, and the dearer half's share of it what such a frame holds (halfShare)
+    let stepSim = steps > 0 && simMs != null ? simMs / steps : null;
+    if (steps === 0.5 && simMs != null) {
+      const h = perf.half0;
+      stepSim = h != null ? h + simMs : null;
+      if (stepSim) perf.halfShare = ema(perf.halfShare, Math.max(h, simMs) / stepSim, 0.1);
+      perf.half0 = h != null ? null : simMs;
+    }
     // with GPU timestamps, the cost of a step and of drawing a frame (or, at Max between draws, of
     // carrying the held image), apart
     if (steps > 0 && simMs != null) {
-      perf.simS = rise(perf.simS, simMs / steps, 0.1);
+      if (stepSim != null) perf.simS = rise(perf.simS, stepSim, 0.1);
       // and the dearest step lately (fading 3% a frame): a step's cost swings with what lives, which an average follows
       // too late for planning fast speeds (fastCost)
-      perf.stepPeak = Math.max((perf.stepPeak || 0) * 0.97, simMs / steps);
+      if (stepSim != null) perf.stepPeak = Math.max((perf.stepPeak || 0) * 0.97, stepSim);
       if (drew) perf.renderR = ema(perf.renderR, ms - simMs, 0.1);
       else perf.presentR = ema(perf.presentR, ms - simMs, 0.1);
     }
@@ -3781,7 +3790,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     perf.ticksAt = now;
     const s = state.speed;
     // (real time: 1/60 s steps where they fit, fineTicks)
-    if (!(s > 1) || !stepCost()) { perf.ticks = 1; perf.held = false; perf.fine = s === 1 ? fineTicks() : 0; return; }
+    if (!(s > 1) || !stepCost()) { perf.ticks = 1; perf.held = false; perf.fine = s === 1 ? fineTicks() : 0; perf.split = s === 1 && splitTicks(); return; }
     if (s === Infinity) {
       // the coarsest step that still fits MAX_STEP_MS of the GPU (a step of m ticks costs about 1 + 0.45 (m - 1) of a
       // 1/60 s one): a slow phone's 6-tick steps make frames like those its driver judges a hung GPU
@@ -4168,7 +4177,16 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // Only where the frame has no room for those 1/60 s steps (perf.fine, fineTicks): a coarse step settles a crowd's
   // pushes once for all its ticks, and crowds drawn in 2-tick steps at 30 fps rattled.
   const ticksFor = (ms) => clamp(Math.ceil(ms * 60 / 1000 - 0.1), 1, MAX_TICKS);
-  const stepTicks = () => { const m = ticksFor(frameTarget()); return perf.fine === m ? 1 : m; };
+  const stepTicks = () => { const m = ticksFor(frameTarget()); return m === 1 && perf.split ? 2 : perf.fine === m ? 1 : m; };
+  // a step of m ticks costs about 1 + 0.45 (m - 1) of a 1/60 s one (docs/performance.md)
+  const tickCost = (m) => 1 + 0.45 * (m - 1);
+  // A frame of a 2-tick step split over two (eng.frame's split) holds its dearer half: senseMainCoarse and the passes
+  // before it, 8.1 of 13.4 ms on a Pixel 3's 8k world (lifeMainCoarse, bodyTick and the heat 5.3; on an RTX 4070 Ti's
+  // 4M world 8.8 of 10.5), guessed so until such frames are measured (perf.halfShare)
+  const SPLIT_HALF = 0.6;
+  const halfShare = () => perf.halfShare || SPLIT_HALF;
+  // what such a frame holds against a 1/60 s step (a step of 2 ticks costs 1.45 of one), or 1 where that is no less
+  const splitPer = () => { const x = halfShare() * tickCost(2); return x > 0.95 ? 1 : x; };
   // At real time, the ticks of a frame of the rate aimed for if it has room to take them as 1/60 s steps, else 0, by
   // the GPU's timestamps (the drawing, and the step last measured taken for a 1/60 s one: a coarse step costs 1.1 to
   // 1.45 times one, docs/performance.md, so from coarse steps the estimate is high and a switch is not undone once the
@@ -4179,6 +4197,19 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const m = ticksFor(frameTarget());
     if (m === 1 || !perf.simS || !perf.renderR) return 0;
     return perf.renderR + m * perf.simS < frameTarget() * (perf.fine === m ? 0.85 : 0.75) ? m : 0;
+  }
+  // At real time with a frame of the rate aimed for a tick long, whether to take 2-tick steps, each spread over two
+  // frames (eng.frame's split: the first half after one frame's drawing, the rest before the next's; the same step as
+  // a whole one), each frame drawn a tick further along (frameWork): where the drawing and a 1/60 s step do not fit in
+  // 85% of the frame, by the GPU's timestamps, until they fit in 75% (the 1/60 s step judged from the 2-tick one's
+  // cost meanwhile), and only where a frame then holds less than a 1/60 s step (the dearer half of a step that costs
+  // 1.45 times one: a Pixel 3's 0.87 of one, an RTX's 1.2 in a 4M world). docs/fast-forward.md, Split steps.
+  function splitTicks() {
+    const T = frameTarget();
+    // (and not before coarse steps have compiled: a Pixel 3's first seconds took each as two 1/60 s steps a frame)
+    if (T < 900 * H || ticksFor(T) !== 1 || !perf.simS || !perf.renderR || splitPer() === 1 || !eng.coarseReady) return false;
+    const S1 = perf.split ? perf.simS / tickCost(2) : perf.simS;
+    return perf.renderR + S1 > T * (perf.split ? 0.75 : 0.85);
   }
   // render scales the auto resolution steps between (down to the floor chosen in Settings)
   const SCALES = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
@@ -4224,8 +4255,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // while a film rolls, the canvas keeps at least the film's size (filmScale): its frames would be
     // stretched up otherwise, and a film's cost is mostly its encoder's, which pixels don't change
     const floor = auto ? Math.max(state.perf.floor, filmScale()) : renderScale;
-    // (paused, a frame is all drawing)
-    const simBound = hasTS && !state.paused && perf.simS > 2 * perf.renderR;
+    // (paused, a frame is all drawing; a step split over two frames is its dearer half a frame)
+    const simBound = hasTS && !state.paused && (perf.split ? halfShare() : 1) * perf.simS > 2 * perf.renderR;
     if (j.behind) {
       perf.why = 'frames late'; // i18n-ignore (a key, shown through WHY_WORDS; the profile keeps it)
       // a level that just proved too slow is not tried again for a while, so the view doesn't keep
@@ -4252,11 +4283,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const held = now < perf.ceilingUntil;
     // A faster frame rate costs a drawing and a shorter step per frame, in less time. A coarse step
     // of m ticks costs about 1 + 0.45 (m - 1) of a 1/60 s one (docs/performance.md): judged by this
-    // frame's cost alone, 30 fps in 2-tick steps never looked able to return to 60.
+    // frame's cost alone, 30 fps in 2-tick steps never looked able to return to 60. A frame one tick long holds a
+    // 1/60 s step, or half of a 2-tick one where that is less (splitTicks).
     if (perf.slow > 1) {
-      const faster = (T * (perf.slow - 1)) / perf.slow;
-      const cost = (m) => 1 + 0.45 * (m - 1);
-      const est = hasTS && perf.simS && perf.renderR ? perf.renderR + perf.simS * cost(ticksFor(faster)) / cost(stepTicks()) : perf.gpu;
+      const faster = (T * (perf.slow - 1)) / perf.slow, m = ticksFor(faster);
+      const per = m === 1 ? splitPer() : tickCost(m);
+      const est = hasTS && perf.simS && perf.renderR ? perf.renderR + perf.simS * per / tickCost(stepTicks()) : perf.gpu;
       if (!(held && perf.slow - 1 <= perf.slowCeiling) && (!est || est < faster * 0.75)) { perf.slow--; perf.goodWindows = 0; perf.raisedAt = now; tuneLog(now, 'fps', perf.slow); }
       if (perf.slow === 1) perf.why = '';
       return;
@@ -5518,7 +5550,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
       perf.gpuHeld = false;
       perf.lastSubmit = now;
       eng.season = seasonAt(eng.simTime);
-      const step = plan(now) || { steps: 0, dt: H };
+      // (a frame that finishes a split step begins none: late frames owed a step every frame, and each ran both halves
+      // at about 1.4 times a 1/60 s step's cost; the clock drops what such a frame cannot take, as at 1/60 s)
+      const step = (perf.split && eng.halfOwed && state.speed === 1 && !state.paused ? null : plan(now)) || { steps: 0, dt: H };
       // the census (naming and lineage) at most about five times a real second, however fast the world runs
       eng.censusEvery = Math.max(20, Math.round((step.steps * 1000) / frameTarget() / 5));
       // Coarse steps drawn every frame are drawn in between (LERP_WGSL): one step behind, part way along the
@@ -5531,9 +5565,17 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (step.steps > 0) { perf.lerpDt = step.dt; perf.lerpTicks = Math.round(step.dt * 60); }
       const lerpOn = !state.paused && state.phase === 'running' && perf.lerpTicks > 1
         && (state.speed === Infinity ? fastMode : !perf.held);
-      eng.lerp = !lerpOn ? null : state.speed === 1 ? 0.5 : clamp(state.speed === Infinity ? perf.stepCredit : clock.owed / perf.lerpDt, 0, 1);
-      // (the moment the frame shows: behind the steps' end when drawn in between)
-      viewSimTime = eng.simTime + (state.paused ? 0 : step.steps * step.dt) - (eng.lerp != null ? (1 - eng.lerp) * perf.lerpDt : 0);
+      // A 2-tick step spread over two frames (perf.split, splitTicks): begun after this frame's drawing, finished
+      // before the next's. Each frame draws the last finished step, a tick further along than the frame before: a
+      // quarter of the way along on the frame that finishes it, three quarters on the one that begins the next (the
+      // halves about a tick apart, a crowd's motion that swaps sign each step drawn at half its size).
+      const split = perf.split && state.speed === 1 && step.steps === 1 && !state.paused;
+      const fresh = eng.halfOwed || (step.steps > 0 && !split && !state.paused);
+      eng.lerp = !lerpOn ? null : perf.split && state.speed === 1 ? (fresh ? 0.25 : 0.75) : state.speed === 1 ? 0.5
+        : clamp(state.speed === Infinity ? perf.stepCredit : clock.owed / perf.lerpDt, 0, 1);
+      // (the moment the frame shows: behind the steps' end when drawn in between; a step begun after the drawing
+      // is not yet shown)
+      viewSimTime = eng.simTime + (state.paused || split ? 0 : step.steps * step.dt) - (eng.lerp != null ? (1 - eng.lerp) * perf.lerpDt : 0);
       if (state.phase === 'running' && !state.paused) climate.tick(step.steps * step.dt);
       autoCamera(now, dt);
       renderCaption(now);
@@ -5609,6 +5651,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         // (a portrait takes the close-up's place for one frame)
         specimen: hold === false ? null : portraitParams() || specimenParams(),
         hold,
+        split,
       });
       // (the needle and the rod sweep from here on)
       if (step.steps && !state.paused) hand.stepped();

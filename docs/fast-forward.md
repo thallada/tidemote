@@ -10,7 +10,8 @@ normal steps, how to measure that, and what did not work, for whoever takes it f
 (a way earlier in the list is taken back only with a fifth of the budget to spare, and a way that no longer
 fits is left at once):
 
-1. 1/60 s steps with the world drawn every display frame;
+1. 1/60 s steps with the world drawn every display frame (at real time, where those do not fit beside the drawing,
+   2-tick steps each spread over two frames: Split steps, below);
 2. coarse steps of 2..`MAX_TICKS` (6) ticks with the world drawn every display frame, in between steps
    (below);
 3. 1/60 s steps with the world drawn about every `MAX_FRAME_MS` (30 ms): the camera, overlay and HUD keep
@@ -158,7 +159,7 @@ frame's picks and drawing, `lerpRestore` before anything else runs or reads the 
 particle's start in `sortedFull[i]` and its end in `parts[i]` (lifeMain writes one from the other slot for
 slot), so the blend needs only the ends kept aside (`lerpEnd`, 8 bytes a particle); a particle whose id
 differs (born in the step) or that jumped half a unit is drawn where it is. How far along: at real time half
-way (What rattles, above), at a chosen fast speed the share of the next step the clock already owes (`clock.owed`),
+way (What rattles, above; a quarter and three quarters in split steps, below), at a chosen fast speed the share of the next step the clock already owes (`clock.owed`),
 at Fast the share of the next step the frame's budget has earned (`perf.stepCredit`).
 
 What the viewer sees is up to one step behind (67-100 ms at real time), so everything that marks or finds a
@@ -174,6 +175,70 @@ fast speeds is less than its age. Now the correction is measured from where the 
 it now, and a sample is carried up to a quarter of a real second's simulated time (`carryMax`): about 1 px
 at real time, about 11 px at 8-16x (more for a moment when the cell turns, as the sample is then 0.3-0.5 s
 of simulated time old).
+
+## Split steps (2026-11-13)
+
+A Pixel 3's 8k world steps in 9.4 ms a tick, and its drawing takes 6-14 ms: at real time it cannot do both in
+1/60 s, and Auto took it to 30 fps in 2-tick steps (13.1 ms each, the whole step on one frame and nothing on the
+next). Where a frame of the rate aimed for is a tick long (60 fps on a 60 Hz display, `T >= 15 ms`) and the drawing
+and a 1/60 s step do not fit in 85% of it (left once they fit in 75%; `splitTicks`, src/main.js, judged each second
+with `fineTicks`), the page now takes 2-tick steps and spreads each over two frames (engine `frame({ split })`):
+
+- **The halves.** `_step(..., part)`: part 1 is the step's start (its clock, its uniforms, the counts cleared:
+  `_stepFirst`) and every pass up to and including `senseMain(Coarse)` (resolveCount, the scans, scatterMain,
+  censusMain, matterMain, contactMain, bondBackMain): they fill the sort, the grid, the contacts and `sense[]` (and
+  move the matter in `parts`); part 2 is `lifeMain(Coarse)`, `bodyTick`, `heatMain`, `touchCarry` and the heat's
+  copies. The same passes in the same order with the same uniforms: only the submit they go in differs.
+- **The order.** A frame that begins a step encodes everything that reads the world first (the lerp, the copies
+  for the mind, notes and picks, the drawing, the glass), puts the true positions back (`lerpRestore`), and then
+  the first half, its uniforms copied in through `simRing` (a `queue.writeBuffer` would land before the frame's
+  drawing, which reads the last step's: the mind's replay does). The next frame runs the second half before
+  anything else (`halfOwed`), then its drawing. So nothing at all runs between the halves on the GPU, and every
+  frame draws a finished step: `sortedFull` still holds the last step's start and `parts` its end while a frame
+  that begins a step draws, and the first half's `scatterMain` overwrites `sortedFull` only after.
+- **Anything else first finishes the half** (`_finishHalf`): `readState`/`snapshot` (saves, forks), `writeState`,
+  `restore`, `seed`, `allocate`, `readParticles`, `readBodies`, `readCensus`, `profileStep`; and the next frame
+  does whatever else it is asked (paused, a speed changed, the tuner's ticks changed, a world loaded) after the
+  half. A pipette's set-down waits for the half too (it goes between steps). `queue.writeBuffer`s the page sends
+  between frames (the ridden body, the pipette's drawn cells, the species watched) can land between the halves:
+  they are the viewer's hand, which lands between some two steps either way.
+- **One half a frame.** A frame that finishes a step begins none (the clock owes on, and drops what a frame cannot
+  take, as at 1/60 s): late frames had owed a step every frame, each frame ran both halves, and an 80 pixels a unit
+  view on the Pixel 3 fell from 46 fps in 1/60 s steps to 30. Nor is a step split before coarse steps have compiled
+  (`eng.coarseReady`; they compile seconds after a page opens, and until then a 2-tick step is taken as two 1/60 s
+  ones, both on one frame: the Pixel 3's first frames ran 50 ms, and Auto, judging the GPU overloaded, took every
+  effect and half the resolution).
+- **Drawn.** The world shown advances a tick a frame, a constant step behind: the frame that finishes a step draws
+  it a quarter of the way along (`eng.lerp` 0.25), the one that begins the next three quarters (0.75), a tick apart
+  either way. (At the middle and the end, 0.5 and 1, motion is as even, but a crowd's rattle that swaps sign each
+  step (What rattles) draws as 0, x, 0, -x; at the quarters as x/2, x/2, -x/2, -x/2.)
+- **Timed.** The frame's timestamps gain a fourth (the half's end); a half counts as half a step to `onGpuTime`, and
+  the page takes the step's cost (`perf.simS`) from two halves in a row and the dearer half's share of it
+  (`perf.halfShare`). A split frame holds that share of a step that costs 1.45 times a 1/60 s one: where that is no
+  less than 0.95 of a 1/60 s step it is not taken (an RTX 4070 Ti's 4M world: 8.8 + 1.7 ms, its first half 1.2
+  times a 1/60 s step). The fps cut's "simulation bound" and the estimate for climbing back to 60 fps use the split
+  frame's share.
+- **Checked** (`tools/splitcheck.mjs`): one world, the same moment run on in whole and in split steps with drawing
+  between, every buffer a save keeps compared (particles by id). On lavapipe with one thread
+  (`LP_NUM_THREADS=0 node tools/splitcheck.mjs --cpu --n 4096 --steps 40 --warm 40`: two worlds, 643 and 722 living, 40 steps, the last one's second half finished by the save) every
+  word of the particles, intents, genomes, ledger and heat is the same, and the clock. On the RTX two whole runs
+  already differ (a step's atomics and float sums in whatever order the GPU takes them: after one step 1828 of
+  81920 particle words), and the split run differs from them as much (1868).
+
+On the Pixel 3 (`p8`, 8k, 6.4k living; `runs/night/hs1`, `hs4`, main against this, page loads interleaved, thermal
+state 0): the halves in their frames take 7.8-8.0 ms (to `senseMainCoarse`) and 4.9-5.3 ms (the rest), as
+`profileStep`'s dispatches add up (8.1 and 5.3): split across submits they cost what they did in one.
+
+| 60 fps aimed for, half scale | main: 1/60 s steps | split 2-tick steps |
+|---|---|---|
+| everything held cheapest, 80 px a unit (`adapt: 'off'`) | 46.0-46.7 fps, frames 19.1-19.4 ms GPU (p95 interval 34) | 59.9-60.5 fps, frames 13.0 / 10.2-10.4 ms (p95 interval 17.0-17.3) |
+| the same at 150 px a unit | 46.9-48.2 fps, 18.4-19.2 ms | 54.0-59.9 fps, 15.2-18.3 / 11.9-13.9 ms |
+| Auto (`adapt: 'keep'`), 30 s at 150 px a unit | 55.6-57.6 fps, p95 interval 26-33 ms, the sea, the haze, the microscope and the insides given up | 59.2-59.7 fps, p95 interval 17.3 ms, every effect kept at its best, 112 neighbors |
+| Auto, 30 s at 80 px a unit | 33.9-34.3 fps (30 aimed for) | 34.7-35.8 fps (30 aimed for) |
+
+At 80 pixels a unit Auto still ends at 30 fps, as main does, with the same dressing: it gives up everything but the
+cells' insides and then the frame rate (`fps` before `interiors` in its log), where held cheapest (insides too) the
+split frames fit at 60. Which of the two to give up first is the tuner's choice, not changed here.
 
 ## How a coarse step works (src/shaders.js)
 
