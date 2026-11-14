@@ -557,8 +557,7 @@ class Engine {
     this.pCompClear = defer(compDesc({ MICRO_SUSPENSION: 0 }), false, (p) => { this.pCompClear = p; });
     this.pCompLean = late ? rPipe(compDesc({ LEAN: 1 })) : null;
     this.pCompClearLean = late ? rPipe(compDesc({ LEAN: 1, MICRO_SUSPENSION: 0 })) : null;
-    const leanP = (constants) => d.createRenderPipelineAsync({ layout: 'auto', label: 'fsComposite', primitive: { topology: 'triangle-list' },
-      vertex: { module: this.postModule, entryPoint: 'vsComp' }, fragment: { module: this.postModule, entryPoint: 'fsComposite', targets: [{ format }], constants: { LEAN: 1, ...constants } } });
+    const leanP = (constants) => d.createRenderPipelineAsync(compDesc({ LEAN: 1, ...constants }));
     this._leanP = () => late ? null : Promise.all([leanP({}), leanP({ MICRO_SUSPENSION: 0 })]).then(([a, c]) => {
       if (this._compHot) return;
       // (its bind groups made with the composite's, here and on every resize)
@@ -581,9 +580,7 @@ class Engine {
       fragment: { module: this.postModule, entryPoint: 'fsField', targets: [0, 1, 2].map(() => ({ format: 'rgba16float' })) } });
     // the ice's look over the view (fsIce), drawn before the composite where the ice is in view, into a target of
     // fx.iceScale the view's size each way, which the composite adds; in the first wave, with the fields
-    this.pIce = rPipe({ layout: 'auto', label: 'fsIce', primitive: { topology: 'triangle-list' },
-      vertex: { module: this.postModule, entryPoint: 'vsComp' },
-      fragment: { module: this.postModule, entryPoint: 'fsIce', targets: [{ format: 'rgba16float' }] } });
+    this.pIce = rp(this.postModule, 'vsComp', 'fsIce', 'triangle-list');
     this.cpCompPick = cPipe({ layout: 'auto', compute: { module: this.postModule, entryPoint: 'compPick' }, label: 'compPick' });
     // (the four composites' draws, then the ice's: compPick)
     b.compArgs = d.createBuffer({ size: 80, usage: U.STORAGE | U.INDIRECT });
