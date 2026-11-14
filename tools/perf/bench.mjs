@@ -268,6 +268,8 @@ async function measure(page, sc) {
     if (sc.effects && T.setEffects) T.setEffects(sc.effects);
     // single knobs fixed ({ id: level index }), after effects
     if (sc.tune && T.setTune) T.setTune(sc.tune);
+    // a 2-tick step spread over two frames where needed ('auto') or never ('off'; Settings → Perf → Split steps)
+    if ('split' in state.perf) state.perf.split = sc.split ?? 'auto';
     if (sc.adapt !== 'keep') { state.perf.fps = sc.fps ?? 0; T.setScale(sc.scale ?? 'auto'); }
     // aim at the commonest species' densest patch (findMember follows it; unfollow unless selecting)
     // ('saved' keeps the camera a .tidemote world was saved with; at: a spot of its own)

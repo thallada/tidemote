@@ -74,13 +74,19 @@ const HELD = {
   // i18n: Settings → Perf, one thing held back: the world drawn at {pct} percent of the screen's resolution
   scale: (v) => tr('settings.perf.held.scale', '{pct}% resolution', { pct: Math.round(v * 100) }),
   // i18n: Settings → Perf, one thing held back: the frame rate aimed lower, {n} frames a second
-  fps: (v) => tr('settings.perf.held.fps', '{n} fps', { n: v }) };
+  fps: (v) => tr('settings.perf.held.fps', '{n} fps', { n: v }),
+  // i18n: Settings → Perf, one thing held back: the world's steps taken two sixtieths of a second at a time, each spread over two frames
+  split: () => tr('settings.perf.held.split', 'Steps split over two frames') };
 // The Display rows the tuner may ease (by their ids), each offering Auto, its default: the effect drawn as Auto's
 // value (its data-v: Normal, or on), which the knob eases while Performance → Adaptation is on. A value the viewer
 // chooses instead is theirs and the tuner leaves it be (state.fixed), as Performance's own Auto choices do.
 const EASES = { water: 'sea', bloom: 'bloom', specks: 'specks', haze: 'haze', microlook: 'microscope', lod: 'interiors' };
 const AUTO_VAL = { water: 2, bloom: 1, specks: 1, haze: 1, microlook: 2, lod: 1 };
 const ROW_OF = Object.fromEntries(Object.entries(EASES).map(([row, knob]) => [knob, row]));
+// The Performance → Pacing rows (by their ids, state.perf's keys: the engine's words, Engine.fx) of the knobs that do
+// work less often or more coarsely, each offering Auto, its default, or a value of the knob's ladder that fixes it
+const PACED = { sea: 'seaEvery', contacts: 'contactsEvery', stone: 'stoneEvery', ice: 'iceScale' };
+const KNOB_OF = Object.fromEntries(Object.entries(PACED).map(([knob, row]) => [row, knob]));
 const NONE = 0xffffffff;
 const TAU = Math.PI * 2;
 const genomeOfWords = (w) => { const u = Uint32Array.from(w); return readGenome(u, new Float32Array(u.buffer), 0); };
@@ -279,9 +285,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
     map: prefs.map ?? 'off', // the one map over the view (applyMap): 'off', 'light', 'heat' or 'tide'
     // what the page may spend: render scale ('auto' adapts between floor and 1), the most device pixels per CSS
     // pixel, the frame rate aimed for (0: the display's), a fixed particle count and neighbor budget, and whether the
-    // tuner may ease what Display shows (adapt; src/tuner.js)
+    // tuner may ease what Display shows (adapt; src/tuner.js); Pacing's rows, the work the tuner may do less often or
+    // more coarsely ('auto', or a value of the knob's ladder: PACED), and whether a 2-tick step may be spread over two
+    // frames ('auto' or 'off': splitTicks)
     perf: { scale: prefs.scale ?? 'auto', floor: prefs.floor ?? 0.5, density: prefs.density ?? 'auto',
-      fps: prefs.fps ?? 'auto', particles: prefs.particles ?? null, scan: prefs.scan ?? null, adapt: prefs.adapt ?? true },
+      fps: prefs.fps ?? 'auto', particles: prefs.particles ?? null, scan: prefs.scan ?? null, adapt: prefs.adapt ?? true,
+      seaEvery: prefs.seaEvery ?? 'auto', contactsEvery: prefs.contactsEvery ?? 'auto', stoneEvery: prefs.stoneEvery ?? 'auto',
+      iceScale: prefs.iceScale ?? 'auto', split: prefs.split ?? 'auto' },
   };
   // the viewer's hand (hand.js, docs/hand.md): the tool in hand and what it does to the world; its record of acts is
   // the world's (life.hand), kept in saves
@@ -375,12 +385,21 @@ function run(eng, device, ctx, specCtx, hasTS) {
     microscope: state.look > 0, interiors: eng.settings.lod, neighbors: state.perf.scan == null });
   // knobs the tools fix at a level of their own (T.setTune, T.setEffects; never saved)
   const pins = {};
-  // A knob moves while Adaptation is on and its Display row is on Auto (the neighbors with their own Auto); any
-  // other sits at its best, or where a tool pinned it
-  const tuneAuto = (id, on = shown()) => (id === 'neighbors' ? on.neighbors : !(id in pins) && state.perf.adapt && on[id] !== false && !state.fixed[ROW_OF[id]]);
+  // the level a Performance → Pacing row fixes (its value's index in the knob's ladder), or null on Auto
+  const chosen = (id) => { const v = state.perf[PACED[id]], i = PACED[id] && v !== 'auto' ? KNOBS[id].levels.indexOf(v) : -1; return i < 0 ? null : i; };
+  // A knob moves while Adaptation is on and its rows are on Auto: its Display row (the effect drawn) and its Pacing
+  // row (the work done less often; the neighbors with their own Auto); any other sits at its best, or where a tool
+  // pinned it or its Pacing row fixed it. The sea has both: with Surface chosen in Display and its pace on Auto, the
+  // tuner may turn it less often but not off (tuneFloor)
+  const tuneAuto = (id, on = shown()) => (id === 'neighbors' ? on.neighbors : !(id in pins) && state.perf.adapt && on[id] !== false && chosen(id) == null && (id === 'sea' || !state.fixed[ROW_OF[id]]));
+  const tuneFloor = (id) => (id === 'sea' && state.fixed.water ? 1 : 0);
   function applyTune() {
     const on = shown();
-    for (const id of Object.keys(tune)) if (id !== 'neighbors' && !tuneAuto(id, on)) tune[id].level = pins[id] ?? KNOBS[id].levels.length - 1;
+    for (const id of Object.keys(tune)) {
+      if (id === 'neighbors') continue;
+      if (!tuneAuto(id, on)) tune[id].level = pins[id] ?? chosen(id) ?? KNOBS[id].levels.length - 1;
+      else tune[id].level = Math.max(tune[id].level, tuneFloor(id));
+    }
     const at = (id) => KNOBS[id].levels[tune[id].level];
     Object.assign(eng.fx, { seaEvery: at('sea'), contactsEvery: at('contacts'), bloom: at('bloom'), specks: at('specks'), stoneEvery: at('stone'), haze: at('haze'), microscope: at('microscope'), interiors: at('interiors'), iceScale: at('ice') });
     eng.maxScan = on.neighbors ? at('neighbors') : state.perf.scan;
@@ -389,9 +408,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // where each setting the page may adapt stands now (tuner.js adaptation): a knob the viewer chose a Display value
   // for, or a tool pinned, and Neighbors, a render scale or a frame rate chosen, are fixed; and of them what the tuner
   // holds back now (Performance's line under Adaptation, the dock's readout)
+  // (the sea with Surface chosen is the viewer's while the tuner leaves its pace at its best)
   const adaptNow = () => adaptation(Object.fromEntries(Object.entries(tune).map(([id, k]) => [id, k.level])), {
-    shown: shown(), fixed: Object.fromEntries(Object.keys(tune).map((id) => [id, id === 'neighbors' ? state.perf.scan != null : id in pins || !!state.fixed[ROW_OF[id]]])),
-    scale: { v: renderScale, auto: state.perf.scale === 'auto' }, fps: { v: Math.round(1000 / frameTarget()), auto: state.perf.fps === 'auto', slow: state.speed > 1 ? 1 : perf.slow } });
+    shown: shown(), fixed: Object.fromEntries(Object.keys(tune).map((id) => [id, id === 'neighbors' ? state.perf.scan != null
+      : id in pins || chosen(id) != null || (!!state.fixed[ROW_OF[id]] && !(id === 'sea' && tune.sea.level < KNOBS.sea.levels.length - 1))])),
+    scale: { v: renderScale, auto: state.perf.scale === 'auto' }, fps: { v: Math.round(1000 / frameTarget()), auto: state.perf.fps === 'auto', slow: state.speed > 1 ? 1 : perf.slow },
+    split: { v: perf.split && state.speed === 1, auto: state.perf.split !== 'off' } });
   const heldNow = () => adaptNow().filter((r) => r[2] === 'held');
   // Auto pixel density draws the scene at 1 device pixel per CSS pixel, always: above 1 the extra pixels are the
   // costliest sharpness the page could give (an M1 at 1.5× spent 18 ms a frame drawing), so only a density chosen
@@ -546,8 +568,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (++overN < 3) return;
     overN = 0;
     const now = performance.now();
-    const spent = Object.keys(tune).every((id) => !tuneAuto(id) || tune[id].level === 0);
-    for (const id of Object.keys(tune)) if (tuneAuto(id)) { if (tune[id].level) tune[id].since = now; tune[id].level = 0; tune[id].hold = now + 60000; }
+    const spent = Object.keys(tune).every((id) => !tuneAuto(id) || tune[id].level <= tuneFloor(id));
+    for (const id of Object.keys(tune)) if (tuneAuto(id)) { const f = tuneFloor(id); if (tune[id].level > f) tune[id].since = now; tune[id].level = f; tune[id].hold = now + 60000; }
     applyTune();
     if (state.perf.scale === 'auto') {
       const floor = Math.max(state.perf.floor, filmScale());
@@ -2515,6 +2537,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // row the tuner may ease as drawn now (off while its knob is at its floor; text unseen, a choice always matching)
     function autoNow(id) {
       if (EASES[id]) return { text: '', pick: String(tune[EASES[id]].level === 0 ? 0 : rowVal[id]()) };
+      // (a Pacing row: the value its knob holds now; the split step, On beside Auto while a step is split)
+      if (KNOB_OF[id]) return { text: '', pick: String(KNOBS[KNOB_OF[id]].levels[tune[KNOB_OF[id]].level]) };
+      if (id === 'split') return perf.split ? { text: tr('settings.on', 'On'), pick: '' } : { text: '', pick: 'off' };
       if (id === 'fps') { const f = Math.round(1000 / frameTarget()); return { text: String(f), pick: String([30, 60].find((v) => Math.abs(v - f) <= 3) ?? '') }; }
       if (id === 'scale') return { text: pctOf(Math.round(renderScale * 100)), pick: String(+renderScale.toFixed(2)) };
       if (id === 'density') { const d = +density().toFixed(2); return { text: timesOf(d), pick: String(d) }; }
@@ -2539,16 +2564,22 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const pctOf = (n) => tr('settings.pct', '{n}%', { n }), timesOf = (n) => tr('settings.times', '{n}×', { n });
     // i18n: Settings' choices, shared by its options
     const OFF = tr('settings.off', 'Off'), NORMAL = tr('settings.normal', 'Normal'), AUTO = tr('settings.auto', 'Auto');
+    // i18n: Settings' choices for a rate or a resolution: in full, or half of it
+    const FULL = tr('settings.full', 'Full'), HALF = tr('settings.half', 'Half');
+    // i18n: Settings → Perf → Pacing's choices: work done at half its full rate, or a quarter
+    const RATE_HALF = tr('settings.rate-half', '½'), RATE_QUARTER = tr('settings.rate-quarter', '¼');
     const SUBTLE = tr('settings.subtle', 'Subtle'), STRONG = tr('settings.strong', 'Strong');
     // the settings the page may adapt, by the names of their rows in Display and Performance (the stone has no row)
     const NAMES = { microscope: tr('settings.display.microscope', 'Microscope'), bloom: tr('settings.display.bloom', 'Glow'), sea: tr('settings.display.water', 'Surface'),
       haze: tr('settings.display.heat-shimmer', 'Heat haze'), specks: tr('settings.display.specks', 'Suspension'), interiors: tr('settings.display.lod', 'Cell insides'),
-      // i18n: the readout's adapting summary: the stone's light, which the page may work out again less often
+      // i18n: Settings → Perf → Pacing's row and the readout's adapting summary: the stone's light, which the page may work out again less often
       stone: tr('dock.adapt.stone', 'Stone light'),
-      // i18n: the readout's adapting summary: the ice's look, which the page may draw at a lower resolution
+      // i18n: Settings → Perf → Resolution's row and the readout's adapting summary: the ice's look, which the page may draw at a lower resolution
       ice: tr('dock.adapt.ice', 'Ice'),
-      // i18n: the readout's adapting summary: which cells touch which (drawn pressed together), which the page may work out less often
-      contacts: tr('dock.adapt.contacts', 'Cell contacts'), scale: tr('settings.perf.scale', 'Render scale'), fps: tr('settings.perf.fps', 'Target fps'), neighbors: tr('settings.perf.neighbors', 'Neighbors') };
+      // i18n: Settings → Perf → Pacing's row and the readout's adapting summary: which cells touch which (drawn pressed together), which the page may work out less often
+      contacts: tr('dock.adapt.contacts', 'Cell contacts'), scale: tr('settings.perf.scale', 'Render scale'), fps: tr('settings.perf.fps', 'Target fps'), neighbors: tr('settings.perf.neighbors', 'Neighbors'),
+      // i18n: Settings → Perf → Pacing's row and the readout's adapting summary: whether the world's step may be taken two sixtieths of a second at a time, spread over two frames, to keep 60 fps
+      split: tr('settings.perf.split', 'Split steps') };
     // a group of option rows, under a heading or (text '') none
     const group = (id, text, rows) => section(id, text, block('', rows));
     let confirming = false; // the reset button asked to confirm
@@ -2606,7 +2637,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + group('res', tr('settings.perf.resolution', 'Resolution'), choice('scale', NAMES.scale, '', [['auto', AUTO], [1, pctOf(100)], [0.75, pctOf(75)], [0.5, pctOf(50)], [0.25, pctOf(25)]], P.scale, 'renderscale')
         + (P.scale === 'auto' ? choice('floor', tr('settings.perf.floor', 'Auto lowest'), '', [[0.75, pctOf(75)], [0.5, pctOf(50)], [0.35, pctOf(35)], [0.25, pctOf(25)]], P.floor, 'autofloor') : '')
         + choice('density', tr('settings.perf.density', 'Pixel density'), '', [['auto', AUTO], [1, timesOf(1)], [1.5, timesOf(1.5), dev < 1.5], [2, timesOf(2), dev < 2]], P.density, 'density')
-        + choice('fps', NAMES.fps, '', [['auto', AUTO], [30, '30'], [60, '60'], [0, tr('settings.perf.fps-display', 'Display')]], P.fps, 'targetfps'))
+        + choice('fps', NAMES.fps, '', [['auto', AUTO], [30, '30'], [60, '60'], [0, tr('settings.perf.fps-display', 'Display')]], P.fps, 'targetfps')
+        + (K.heat ? choice('iceScale', NAMES.ice, '', [['auto', AUTO], [1, FULL], [0.5, HALF]], P.iceScale, 'icescale') : ''))
+        // i18n: Settings → Perf: the work the page may do less often (the water's waves, cells' contacts, the stone's light) and how the world's step is spread over frames
+        + group('pacing', tr('settings.perf.pacing', 'Pacing'), (state.water ? choice('seaEvery', tr('settings.perf.sea-every', 'Water surface'), '', [['auto', AUTO], [1, FULL], [2, RATE_HALF], [4, RATE_QUARTER]], P.seaEvery, 'seaevery') : '')
+        + choice('contactsEvery', NAMES.contacts, '', [['auto', AUTO], [2, RATE_HALF], [4, RATE_QUARTER]], P.contactsEvery, 'contactsevery')
+        // i18n: a choice in Settings → Perf → Pacing: the stone's light worked out again every {s} seconds
+        + choice('stoneEvery', NAMES.stone, '', [['auto', AUTO], ...[0.5, 1, 2].map((v) => [v, tr('settings.perf.every-s', '{s} s', { s: v })])], P.stoneEvery, 'stoneevery')
+        + choice('split', NAMES.split, '', [['auto', AUTO], ['off', OFF]], P.split, 'splitsteps'))
         + group('world', tr('settings.perf.world', 'World'), choice('n', tr('settings.perf.particles', 'Particles'), '', [['auto', AUTO], ...sizes.map((n) => [n, kfmt(n)])], nowN, 'particles')
         + choice('scan', NAMES.neighbors, '', [['auto', AUTO], ...scanChoices().map((n) => [n, String(n)])], P.scan ?? 'auto', 'neighbors')
         + (pendingN != null && String(pendingN) !== String(P.particles || 'auto')
@@ -2792,7 +2830,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         sound.setVolume(DEFAULT_VOLUME);
         sound.setMix(defaultMix());
       } else {
-        Object.assign(P, { scale: 'auto', floor: 0.5, density: 'auto', fps: 'auto', scan: null, adapt: true });
+        Object.assign(P, { scale: 'auto', floor: 0.5, density: 'auto', fps: 'auto', scan: null, adapt: true, seaEvery: 'auto', contactsEvery: 'auto', stoneEvery: 'auto', iceScale: 'auto', split: 'auto' });
         for (const k of Object.keys(tune)) { tune[k].level = KNOBS[k].levels.length - 1; tune[k].hold = 0; }
         renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit();
         pendingN = P.particles ? 'auto' : null;
@@ -2858,6 +2896,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (id === 'scale') return pctOf(Math.round(v * 100));
       if (id === 'fps') return String(v);
       if (id === 'neighbors') return String(eng.maxScan);
+      if (id === 'split') return v ? ON : OFF;
       // i18n: the readout's adapting summary: the stone's light worked out again every {s} seconds
       if (id === 'stone') return tr('dock.adapt.every', 'Every {s} s', { s: KNOBS.stone.levels[v] });
       // i18n: the readout's adapting summary: the water's waves worked out a quarter ({level} 1) or half (2) as often
@@ -2869,7 +2908,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       return row === 'microlook' || row === 'water' ? [OFF, SUBTLE, NORMAL, STRONG][x] : x ? ON : OFF;
     }
     // (the effects in Display's order, then Performance's)
-    const SUMMED = [['microscope', 'bloom', 'sea', 'haze', 'specks', 'interiors', 'stone', 'ice', 'contacts'], ['scale', 'fps', 'neighbors']];
+    const SUMMED = [['microscope', 'bloom', 'sea', 'haze', 'specks', 'interiors', 'stone', 'ice', 'contacts'], ['scale', 'fps', 'split', 'neighbors']];
     tips.rich.eased = () => {
       const all = adaptNow(), at = Object.fromEntries(all.map((r) => [r[0], r])), held = all.some((r) => r[2] === 'held');
       const row = (id) => { const [, v, st] = at[id]; return `<div class="am-r" data-s="${st}"><span class="lbl">${NAMES[id]}</span><i></i><b>${adaptValue(id, v, st)}</b><em>${st === 'held' ? EASED : st === 'fixed' ? FIXED : ''}</em></div>`; };
@@ -2920,6 +2959,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'fps') { P.fps = v === 'auto' ? 'auto' : +v; resetAdapt(); }
       else if (id === 'adapt') { P.adapt = !!+v; resetAdapt(); }
       else if (id === 'scan') { P.scan = v === 'auto' ? null : +v; if (v === 'auto') tune.neighbors.level = KNOBS.neighbors.levels.length - 1; }
+      // (a Pacing row: Auto starts its knob from its best, as Neighbors does; a value fixes it, applyTune)
+      else if (KNOB_OF[id]) { P[id] = v === 'auto' ? 'auto' : +v; if (v === 'auto') { const k = tune[KNOB_OF[id]]; k.level = KNOBS[KNOB_OF[id]].levels.length - 1; k.hold = 0; } }
+      else if (id === 'split') P.split = v;
       else if (id === 'n') pendingN = v === 'auto' ? 'auto' : +v;
       else if (id === 'apply') { const n = pendingN; pendingN = null; setParticles(n); }
       else if (id === 'profile') { copyProfile(); return; }
@@ -4213,8 +4255,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // 1.45 times one: a Pixel 3's 0.87 of one, an RTX's 1.2 in a 4M world). docs/fast-forward.md, Split steps.
   function splitTicks() {
     const T = frameTarget();
-    // (and not before coarse steps have compiled: a Pixel 3's first seconds took each as two 1/60 s steps a frame)
-    if (T < 900 * H || ticksFor(T) !== 1 || !perf.simS || !perf.renderR || splitPer() === 1 || !eng.coarseReady) return false;
+    // (and not before coarse steps have compiled: a Pixel 3's first seconds took each as two 1/60 s steps a frame;
+    // nor with Settings → Perf → Split steps Off)
+    if (state.perf.split === 'off' || T < 900 * H || ticksFor(T) !== 1 || !perf.simS || !perf.renderR || splitPer() === 1 || !eng.coarseReady) return false;
     const S1 = perf.split ? perf.simS / tickCost(2) : perf.simS;
     return perf.renderR + S1 > T * (perf.split ? 0.75 : 0.85);
   }
@@ -4324,7 +4367,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // other leaves it)
   const knobOf = (id, on = shown()) => {
     const k = tune[id], other = id === 'haze' ? (on.microscope ? tune.microscope.level : 0) : id === 'microscope' ? (on.haze ? tune.haze.level : 0) : undefined;
-    return { level: k.level, auto: tuneAuto(id, on), cost: k.cost, full: k.full, ratio: k.ratio, rel: k.rel, other };
+    return { level: k.level, auto: tuneAuto(id, on), floor: tuneFloor(id), cost: k.cost, full: k.full, ratio: k.ratio, rel: k.rel, other };
   };
   // one of the tuner's steps taken: the render scale, or a knob to a level (its cost carried to the new level)
   function stepTo(id, to, now) {

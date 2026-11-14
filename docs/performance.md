@@ -175,12 +175,16 @@ Chrome reports its adapter's vendor (`img-tec`) but neither architecture nor des
   8.6 ms: the sea's spectrum and inverse FFT 2.6, the composite 2.5, cells 1.2, bloom 0.3. Up close (80 pixels a unit)
   14.4 ms: cells 4.2-5.5, `contactGather` 3.3, the sea 2.3, the composite 2.2. 43 fps at full scale there before.
 - **The tuner** (`src/tuner.js`, Settings → Perf → Adaptation, on by default; the neighbors are Settings →
-  Neighbors', Auto while left at the default): render scale and eight knobs (the sea's turns, bloom, the specks, the
-  stone's relighting, the heat haze, the microscope, cells' insides, the neighbors), moved one step at a time every two
-  seconds by what each step costs this device and what it shows. Every effect has one control, in Display, saying what
-  the viewer wants; the tuner only ever eases an effect whose Display row is on Auto (`tuneAuto` in `src/main.js`: a
-  knob whose effect is off, or set to a value of the viewer's, sits at its best and is never counted as saving
-  anything), and Adaptation off leaves every knob at its best. What it holds back right now (`heldBack`, pure and
+  Neighbors', Auto while left at the default): render scale and ten knobs (the sea's turns, the contacts' searches,
+  bloom, the specks, the stone's relighting, the heat haze, the microscope, cells' insides, the neighbors, the ice's
+  resolution), moved one step at a time every two seconds by what each step costs this device and what it shows, in
+  the order of What keeps the frame rate, below. Every effect has one control, in Display, saying what the viewer
+  wants, and the work done less often or more coarsely has its own under Settings → Perf (Pacing: Water surface, Cell
+  contacts, Stone light, Split steps; Resolution: Ice), each Auto by default; the tuner only ever moves a knob whose
+  rows are on Auto (`tuneAuto` in `src/main.js`: a knob whose effect is off, or set to a value of the viewer's, sits at
+  its best or at the value chosen and is never counted as saving anything; Surface chosen in Display with its pace on
+  Auto lets the tuner turn the sea less often but never off, `tuneFloor`), and Adaptation off leaves every knob at its
+  best. What it holds back right now (`heldBack`, pure and
   tested) is listed under Adaptation, and each Display row on Auto underlines the value it holds now (Off while eased). Tools still pin knobs (`T.setTune`, `T.setEffects`, a bench plan's `tune` and
   `effects`), never saved. The heat haze (barely seen: 1 - SSIM 0.001-0.006) and the microscope (the optics, their murk
   and the look: 0.10-0.13, the composite about halved) were once one Finish ladder; as two knobs they keep its steps'
@@ -1121,7 +1125,12 @@ The weakest GPU at hand (Android 12, Chrome, 393×786 CSS pixels at 2.75). Chrom
   offer Auto the same way, their default: Auto draws the effect at Normal (or on) and lets Adaptation ease it, the
   value it holds now underlined (Off while eased); any other value is the viewer's and is never eased. With
   Adaptation off, Auto holds every one at its best. Prefs saved before then read a value other than Auto's as chosen
-  (an effect turned off stays off), the rest as Auto. A fixed pixel density never changes; prefs saved before v3 holding the old default 1.5
+  (an effect turned off stays off), the rest as Auto. Settings → Perf → Pacing does the same for the work the tuner
+  does less often (Water surface: every frame, ½, ¼; Cell contacts: ½ or ¼ of the grid cells a frame; Stone light:
+  every 0.5, 1 or 2 s; Split steps: Auto or Off) and Resolution for the ice (Full or Half): Auto by default (the value
+  held now underlined), a value chosen fixes the knob (`state.perf.seaEvery`, `contactsEvery`, `stoneEvery`,
+  `iceScale`, `split`, kept with the other Perf choices), and the adapting summary and the line under Adaptation say
+  each as fixed, held or best. A fixed pixel density never changes; prefs saved before v3 holding the old default 1.5
   open as Auto.
 - **The order things are given up (2026-11-14).** The viewer's judgement of what a viewer notices, not the GPU's
   arithmetic alone: a view at 30 fps with all of its look reads better than one at 60 that has given some of it up,
@@ -1298,7 +1307,7 @@ and never during a balance gate.
   on tabs Android has frozen), marks it automated as Playwright's are (the opening menu goes by itself), serves the page
   to the phone as localhost (`adb reverse`), and records the phone's thermal state and battery beside each scenario.
   Keep the phone on a charger with the screen awake (`adb shell svc power stayon usb`; `false` after), and record
-  `adb logcat` beside long runs. A scenario's `effects` fixes the tuner's dressing ('low', 'high') or leaves it Auto.
+  `adb logcat` beside long runs. A scenario's `effects` fixes the tuner's dressing ('low', 'high') or leaves it Auto, `tune` single knobs (`{"contacts": 0}`), and `split` ('off') keeps every step whole.
 - `stepbench.mjs` times a saved world's step under Dawn. Dawn's npm build compiles with FXC, not
   DXC as Chrome does, so its kernel timings differ from the browser's.
 - `shots.mjs` screenshots a saved world at several zooms (for pixel comparisons of render variants);

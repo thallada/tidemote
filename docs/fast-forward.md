@@ -182,7 +182,9 @@ A Pixel 3's 8k world steps in 9.4 ms a tick, and its drawing takes 6-14 ms: at r
 1/60 s, and Auto took it to 30 fps in 2-tick steps (13.1 ms each, the whole step on one frame and nothing on the
 next). Where a frame of the rate aimed for is a tick long (60 fps on a 60 Hz display, `T >= 15 ms`) and the drawing
 and a 1/60 s step do not fit in 85% of it (left once they fit in 75%; `splitTicks`, src/main.js, judged each second
-with `fineTicks`), the page now takes 2-tick steps and spreads each over two frames (engine `frame({ split })`):
+with `fineTicks`), the page now takes 2-tick steps and spreads each over two frames (engine `frame({ split })`).
+Settings → Perf → Pacing → Split steps is Auto (this) or Off (never: frames that then run late drop the rate to 30,
+which Auto gives up before anything else; docs/performance.md, The order things are given up):
 
 - **The halves.** `_step(..., part)`: part 1 is the step's start (its clock, its uniforms, the counts cleared:
   `_stepFirst`) and every pass up to and including `senseMain(Coarse)` (resolveCount, the scans, scatterMain,
