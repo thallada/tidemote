@@ -715,8 +715,8 @@ many was `%`.
   66 MB at 4K); where the full composite draws for something else (a map, duckweed, the instrument) the pass draws
   every frame, ending at once where no ice is shown anywhere.
 - **Tried**: the Voronoi's second pass over 3 × 3 cells rather than 5 × 5 (no pixel differed in the frozen frames;
-  left out, as its gain was not measured on the phone); a composite swapped in on the phone (`bench.mjs`'s `post`,
-  `Engine.hotComposite`) compiles synchronously there and held the page 16 s a frame: time variants as pages.
+  left out, as its gain was not measured on the phone); a composite swapped in on the phone (`Engine.hotComposite`, from
+  a bench scenario since removed) compiles synchronously there and held the page 16 s a frame: time variants as pages.
 
 ## Doing less work: the sea and the contacts (2026-11-13)
 
@@ -1244,10 +1244,8 @@ and never during a balance gate.
   main thread per frame and per 16.7 ms, task kinds, GC, the longest tasks and what ran in them, the GPU process,
   Chrome's frames presented and dropped, JS self time (the trace's start costs the page one 100-200 ms task). `--dpr N`
   on a shown Chrome forces that many device pixels a CSS pixel (window sizes are then CSS pixels). `m32k.json` and
-  `m32k-mac.json` are the 32k plans of 2026-11-12. A scenario's `post` swaps in a composite shader from
-  `runs/perf/pages/` first (`Engine.hotComposite`), to time variants of it in one page load: on a desktop only, a
-  phone compiles it synchronously and holds the page for seconds a frame. A `.bin` world's living are waited for up to
-  20 s (a phone still compiling counts them late).
+  `m32k-mac.json` are the 32k plans of 2026-11-12. A `.bin` world's living are waited for up to 20 s (a phone still
+  compiling counts them late).
 - `tools/icelook.mjs --a A.wgsl --b B.wgsl --out DIR` grows a frost, stops it as it freezes, holds and thaws, and
   photographs each moment at fit, 80, 150 and 300 pixels a unit at its front and deep in the ice with each composite
   swapped in, the draws' time frozen; SSIM and pixel differences per pair (`--tuneb '{"ice":0}'`: b at half

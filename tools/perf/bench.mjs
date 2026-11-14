@@ -29,9 +29,6 @@
 //   frames every frame's passes kept, up to that many   thermalEvery  (--android) the phone's thermal state every N s
 //   lab    a Field Lab tab to hold open ('species', 'census', ...; closed by default); its updates are timed
 //   auto   true: the auto camera films while measuring (as the p key starts it; zoom is then the director's)
-//   post   a composite shader (a file of runs/perf/pages) swapped in before settling (Engine.hotComposite: it draws
-//          wherever, in place of every composite), to time variants of it on one world in one page load (a desktop's:
-//          a phone compiles it synchronously, holding the page for seconds a frame)
 //   trace  seconds of a Chrome trace and a JS CPU profile taken while measuring (from its start): OUT-WORLD-SCENARIO.trace.json
 //          and .cpuprofile beside the report, summarized by tools/perf/trace.mjs (main thread per frame, tasks, GC)
 // --android runs Chrome on the phone adb is connected to (tools/android.mjs: on USB under WSL through gpu-node.sh), each
@@ -196,7 +193,7 @@ async function stepBench(page, sc) {
     await sleep(200);
     const med = (a) => { const s = [...a].sort((x, y) => x - y); return +s[s.length >> 1].toFixed(4); };
     // (a coarse step's pipelines compile after the first frames)
-    while ((sc.ticks || 1) > 1 && !['senseMainCoarse', 'lifeMainCoarse', 'bodyTick', 'bodyArgs'].every((n) => !eng.cp[n] || eng.cp[n].bg)) await sleep(250);
+    while ((sc.ticks || 1) > 1 && eng.coarseReady === false) await sleep(250);
     const keep = eng.snapshot(), per = {}, dt = (sc.ticks || 1) / 60;
     for (let i = 0; i < 3; i++) await eng.profileStep(dt);
     for (let r = 0; r < (sc.reps || 30); r++) {
@@ -419,12 +416,6 @@ try {
         await cdp.detach();
         console.log(`  trace: ${stem}.trace.json (${events.length} events), ${stem}.cpuprofile`);
       })();
-      // post: a composite shader of runs/perf/pages swapped in first (Engine.hotComposite: drawn whatever is in view),
-      // to time variants of it on one world in one page
-      if (sc.post) {
-        const errs = await page.evaluate((c) => globalThis.__tidemote.eng.hotComposite(c), fs.readFileSync(path.join(root, 'runs/perf/pages', sc.post), 'utf8'));
-        if (errs.length) console.log(`${w.name}/${sc.name}: ${sc.post} does not compile: ${errs.slice(0, 3).join('; ')}`);
-      }
       const r = await measure(page, sc);
       if (tracer) await tracer;
       if (sc.auto) await page.keyboard.press('p');
