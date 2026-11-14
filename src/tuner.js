@@ -72,7 +72,7 @@ export const KNOBS = {
 };
 const rate = (every) => (every > 0 ? 1 / every : 0);
 // contactGather's share that is the search (a grid cell's every `every` frames), against the records made every frame
-export const GATHER_SEARCH = 0.65;
+const GATHER_SEARCH = 0.65;
 const gather = (every) => 1 - GATHER_SEARCH + GATHER_SEARCH / every;
 // the composite per pixel with the haze and the microscope each off or on (index: haze + 2 × microscope) against both
 // on: the old ladder's plain (0.45) and still (0.88) finishes, and the haze alone its 0.12 over plain
