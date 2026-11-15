@@ -127,3 +127,41 @@ dialog .keys dt, dialog .keys dd { margin: 0; }
 .zoom canvas { max-width: 96vw; max-height: 94vh; }
 @media (max-width: 1100px) { .cols { grid-template-columns: 280px 1fr; } .ctx { grid-column: 1 / -1; max-height: 45vh; border-left: 0; border-top: 1px solid var(--line); } body { overflow: auto; height: auto; } }
 .orig.raw { font-size: 13.5px; line-height: 1.6; }
+
+/* narrow screens (phones): the list is a drawer over the editor, the context below it */
+.menu-btn, .narrow-only, .scrim { display: none; }
+.menu-btn svg { width: 22px; height: 22px; display: block; }
+@media (max-width: 760px) {
+  .menu-btn { display: inline-flex; align-items: center; justify-content: center; padding: 6px; min-width: 40px; min-height: 40px; margin: -4px 0 -4px -6px; }
+  .narrow-only { display: inline-block; }
+  .wide-only { display: none; }
+  .top { position: sticky; top: 0; z-index: 5; flex-wrap: wrap; gap: 6px 12px; padding: 8px 12px; }
+  .progress { order: 5; flex-basis: 100%; max-width: none; margin-bottom: 16px; }
+  .saved { min-width: 0; margin-left: auto; font-size: 12px; text-align: right; }
+  .top-acts { margin-left: 0; }
+  .cols { display: block; }
+  .side { position: fixed; top: 0; bottom: 0; left: 0; z-index: 20; width: min(88vw, 360px); border-right: 1px solid var(--line);
+    transform: translateX(-100%); transition: transform .2s ease; box-shadow: 0 0 40px rgb(0 0 0 / .5); visibility: hidden; }
+  .side.open { transform: none; visibility: visible; }
+  .scrim { display: block; position: fixed; inset: 0; z-index: 19; background: rgb(0 0 0 / .5); }
+  .filters { padding: 12px; }
+  .filters input, .filters select, textarea { font-size: 16px; } /* under 16px, iOS zooms in on focus */
+  .chips button { padding: 5px 11px; font-size: 13px; }
+  .list .it { padding: 9px 12px 9px 28px; }
+  .list .it .dot { top: 14px; }
+  .ed { padding: 14px 14px 28px; }
+  .empty { margin-top: 18vh; }
+  .acts { display: grid; grid-template-columns: 1fr 1fr 44px 44px; gap: 6px; }
+  .acts .grow { display: none; }
+  #b-reset { grid-row: 2; grid-column: 1 / -1; }
+  .acts button { min-height: 40px; }
+  .acts kbd { display: none; }
+  .findings .f .fa { flex-wrap: wrap; }
+  .findings .f .fa button { min-height: 36px; }
+  .ctx { max-height: none; border-top: 1px solid var(--line); }
+  .pane { overflow: visible; }
+  .pane.live { overflow: hidden; }
+  #live { flex: none; height: 75vh; }
+  .live-bar { flex-wrap: wrap; gap: 6px; }
+  dialog { max-width: calc(100vw - 24px); padding: 14px 16px; }
+}

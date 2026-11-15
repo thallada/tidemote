@@ -6,6 +6,7 @@
 <link rel="stylesheet" href="/style.css">
 <body>
 <header class="top">
+  <button type="button" id="menu-btn" class="ghost menu-btn" aria-label="Messages" aria-expanded="false" aria-controls="side"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
   <div class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3 9.5c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.6" opacity=".45"/></svg><b>Tidemote</b> <span>Text</span></div>
   <div class="progress" id="progress" aria-label="Progress"><div class="bar" id="bar"></div><span id="prog-t"></span></div>
   <div class="saved" id="saved" role="status" aria-live="polite">Loading…</div>
@@ -15,7 +16,7 @@
 </header>
 
 <main class="cols">
-  <nav class="side" aria-label="Messages">
+  <nav class="side" id="side" aria-label="Messages">
     <div class="filters">
       <input type="search" id="q" placeholder="Search words or ids  /" aria-label="Search" autocomplete="off" spellcheck="false">
       <div class="chips" id="st-chips" role="group" aria-label="Show"></div>
@@ -25,7 +26,7 @@
   </nav>
 
   <section class="ed" id="ed" aria-label="Message">
-    <div class="empty" id="empty">Pick a message on the left, or Alt-click any text in the live page.</div>
+    <div class="empty" id="empty"><span class="wide-only">Pick a message on the left, or Alt-click any text in the live page.</span><button type="button" id="empty-menu" class="narrow-only">Browse messages</button></div>
     <div class="msg" id="msg" hidden>
       <div class="msg-h">
         <div class="crumbs"><span class="area" id="m-area"></span><code id="m-id"></code></div>
@@ -74,6 +75,7 @@
     </div>
   </aside>
 </main>
+<div class="scrim" id="scrim" hidden></div>
 
 <dialog id="help" aria-label="Message syntax">
   <h2>Writing a message</h2>

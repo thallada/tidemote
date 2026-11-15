@@ -163,8 +163,9 @@ function progress() {
 }
 
 // ---- one message ----
-function select(id, { focus = true } = {}) {
+function select(id, { focus = !narrow.matches } = {}) {
   if (!S.data.source[id]) return;
+  if (narrow.matches) { drawer(false); scrollTo(0, 0); }
   if (S.sel && S.pending[S.sel]) flush();
   S.sel = id;
   history.replaceState(null, '', `#${encodeURIComponent(id)}`);
@@ -376,13 +377,32 @@ $('b-reset').onclick = () => { $('m-text').value = pretty(S.data.source[S.sel]);
 $('b-next').onclick = () => next(1);
 $('b-prev').onclick = () => next(-1);
 $('help-btn').onclick = () => $('help').showModal();
+
+// narrow screens: the message list is a drawer over the editor (style.css); picking a message closes it, and the
+// editor does not take focus then, so a phone's keyboard comes up only when the text is tapped
+const narrow = matchMedia('(max-width: 760px)');
+function drawer(open) {
+  open = open && narrow.matches;
+  $('side').classList.toggle('open', open);
+  $('side').inert = narrow.matches && !open;
+  $('scrim').hidden = !open;
+  $('menu-btn').setAttribute('aria-expanded', String(open));
+  if (open) $('list').querySelector('.it[aria-current="true"]')?.scrollIntoView({ block: 'center' });
+}
+$('menu-btn').onclick = () => drawer(!$('side').classList.contains('open'));
+$('empty-menu').onclick = () => drawer(true);
+$('scrim').onclick = () => drawer(false);
+narrow.addEventListener('change', () => drawer(false));
+drawer(false);
+
 addEventListener('keydown', (e) => {
   const mod = e.ctrlKey || e.metaKey;
+  if (e.key === 'Escape' && $('side').classList.contains('open')) { drawer(false); return; }
   if (mod && e.key === 'Enter' && S.sel) { e.preventDefault(); settle('done'); }
   else if (mod && (e.key === 'k' || e.key === 'K') && S.sel) { e.preventDefault(); settle('kept'); }
   else if (e.altKey && e.key === 'ArrowDown') { e.preventDefault(); next(1); }
   else if (e.altKey && e.key === 'ArrowUp') { e.preventDefault(); next(-1); }
-  else if (e.key === '/' && document.activeElement?.tagName !== 'TEXTAREA' && document.activeElement?.tagName !== 'INPUT') { e.preventDefault(); $('q').focus(); }
+  else if (e.key === '/' && document.activeElement?.tagName !== 'TEXTAREA' && document.activeElement?.tagName !== 'INPUT') { e.preventDefault(); drawer(true); $('q').focus(); }
 });
 
 async function start() {
