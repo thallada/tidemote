@@ -5713,6 +5713,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
       // the warm stage and the cold probe show the water's warmth inside their reach
       if (R && (hand.tool === 'warm' || hand.tool === 'cold') && K.heat) eng.lens.set([...toWorld(R.sx, R.sy), (1.5 * R.r) / cssPPU(), 1]);
       else eng.lens.fill(0);
+      // the waves' blur is measured from the selection while it is in view, else from the view's middle, the focus
+      // eased to it as a microscopist refocuses
+      let [fx, fy] = sel && !sel.lost ? toScreen(sel.disp[0], sel.disp[1]) : [];
+      if (!(fx >= 0 && fx <= innerWidth && fy >= 0 && fy <= innerHeight)) [fx, fy] = [innerWidth / 2, innerHeight / 2];
+      const fk = Math.min(1, dt / 200);
+      eng.focusAt[0] += (fx / innerWidth - eng.focusAt[0]) * fk;
+      eng.focusAt[1] += (fy / innerHeight - eng.focusAt[1]) * fk;
       eng.trackId = sel && !sel.lost ? sel.id : NONE;
       eng.trackId2 = director.active ? director.trackId : NONE;
       watchNotes();

@@ -21,8 +21,10 @@ export const VIEW_BYTES = 224;
 const POST_MURK = POST_LOOK + LOOK_WORDS;
 // then the water's edge's phases (Post.edgePh)
 const POST_EDGE = POST_MURK + 8;
+// then where the view is in focus (Post.focus)
+const POST_FOCUS = POST_EDGE + 4;
 // the post uniforms' floats (struct Post)
-export const POST_WORDS = POST_EDGE + 4;
+export const POST_WORDS = POST_FOCUS + 4;
 // how much slower than the focal plane each of the murk's layers pans (MUD_DEPTH in POST_WGSL)
 const MUD_DEPTH = [0.93, 0.85, 0.76];
 
@@ -210,6 +212,9 @@ class Engine {
     // the warm stage's or cold probe's lens (center, radius, 1 shown), set by the page: the thermal camera inside the
     // tool's reach
     this.lens = new Float32Array(4);
+    // where the view is in focus, as a share of its width and height, set by the page: the point the waves' blur is
+    // measured from (lensScene)
+    this.focusAt = new Float32Array([0.5, 0.5]);
     // the instrument in hand seen in the water (set by the page): its tip, its shaft's way; its kind (1 the needle,
     // 2 the pipette, 3 the cold probe, 4 Touch's rod; 0 none), how far it is in focus (0 raised over the water, 1 in
     // it), its frost, the rod's radius
@@ -3149,6 +3154,7 @@ class Engine {
     pd.set(this.tool, POST_LAMP + 8);
     pd.set(this._murkCam(cam, W, H), POST_MURK);
     pd.set(clk.edgePh, POST_EDGE);
+    pd.set(this.focusAt, POST_FOCUS);
     pd.set(this.look, POST_LOOK);
     // (a card's portrait, the close-up not live, reads its own copy: the look whole, the suspension shown; the live
     // close-up the main view's)

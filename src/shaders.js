@@ -7400,6 +7400,8 @@ struct Post {
   murkB: vec4f,
   // the water's edge's phases, as Sim.edgePh
   edgePh: vec4f,
+  // xy where the view is in focus, as a share of it (Engine.focusAt); zw unused
+  focus: vec4f,
 };
 `;
 
@@ -9901,7 +9903,7 @@ struct FieldOut { @location(0) a: vec4f, @location(1) b: vec4f, @location(2) c: 
   // the water's surface (the sea, raindrops' rings) bends the view and focuses the light
   var surf: Surface;
   let room = waterRoom(poolAt(wp));
-  // how far the waves move the focal plane here from the view's middle's (lensScene's dh), none over dry ground
+  // how far the waves move the focal plane here from where the view is in focus (lensScene's dh), none over dry ground
   var dh = 0.0;
   if (post.seaLook.w > 0.5) {
     // (the sea from its field: surfaceAt's otherwise)
@@ -9912,7 +9914,7 @@ struct FieldOut { @location(0) a: vec4f, @location(1) b: vec4f, @location(2) c: 
       sea.light = 1.0;
       if (post.seaHead.z > 0.0) {
         sea = seaFieldAt(pos);
-        dh = (sea.height - seaFieldHeight(post.res * 0.5)) * wet;
+        dh = (sea.height - seaFieldHeight(post.focus.xy * post.res)) * wet;
       }
       surf = surfaceNear(sea, wp, room);
     }

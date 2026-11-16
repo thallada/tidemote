@@ -64,8 +64,9 @@ target and dim (`iceRes`), softer rather than broken into dashes, and the grains
 
 Shallow focus (`lensScene`, close up: from `start`, about 80 pixels a unit, full from four times that) blurs what
 lies off the focal plane, and the sea's waves set how far off that is: the water over a point is deeper under a
-crest and shallower under a trough, which moves the plane seen sharp there. The microscopist keeps the view's middle
-in focus, so a point blurs by how much higher or lower the waves lift the water over it than over the middle
+crest and shallower under a trough, which moves the plane seen sharp there. The microscopist keeps the selection in
+focus while it is in view, else the view's middle (`Engine.focusAt`, `Post.focus`, eased there by the page over about
+0.2 s), so a point blurs by how much higher or lower the waves lift the water over it than over that point
 (`Surface.height`, the sea's height from its FFT, `seaHeight`, in a storm's rms heights, `seaHeightRms`, as high as
 the sea is now: `Post.seaDepth`; read from the sea's field, `seaFieldMain`), plus field curvature toward the rim
 (`DOF_CURVE` times the square of the way out to the rim of the eyepiece's round field, the field stop the frame's
