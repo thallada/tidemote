@@ -5,7 +5,9 @@ What darkfield illumination and the microscope's camera make of the specimen: a 
 mini-cards' too) between the drawn scene and the screen. `src/look.js` holds its tunables and `DARKFIELD`, their
 values; `Post.look` (4 vec4s) carries them to the GPU. Settings → Display → Look scales the whole look (Microscope:
 Off, Subtle, Normal, Strong, at 0, 0.6, 1 and 1.35 of `DARKFIELD`; the eyepiece's optics are on with any of it, off
-with it, and O turns it off and back to its level) and sets its grain (Grain: Off, Fine, Heavy, at 0, 0.25 and 0.5);
+with it, and O turns it off and back to its level) and sets its grain (Grain: Off, Fine, Heavy, at 0, 0.25 and 0.5)
+and its shallow focus (Focus blur: Off, Subtle, Normal, Strong, `FOCUS`: `dof` 0, 0.7, 0.8, 0.85 and `waves` 0, 0.2,
+0.4, 0.8; `dof` 0 turns all of `lensScene`'s softening off, the rim's too);
 `applyLook` in `src/main.js`. Glow (Y) is the bloom, and so also the halation and veiling flare drawn from its blur.
 Tools set the look with `T.look.set(p, strength)` (tunables over Darkfield's) and `T.look.off()`, and a perf plan's
 scenario with `look: "on"` or `"off"`. The tuner may fade the microscope out where frames run late (Settings → Perf →
@@ -29,7 +31,7 @@ haze, bubbles, ice, the dry floor, duckweed) and the maps, so a specimen reads c
 | The world's light, after the tone curve | `sceneLit`, `litGain`, `litShow`, `sunShadow`, `floorLit`, `seaFocus`; silt's `sparkle` (DRAW_WGSL) (Light, below) | none: `LIT_*`, `SHADOW_*`, `FOCUS_*`, `SUN_*` in POST_WGSL, `SPARK*` in DRAW_WGSL |
 | The mud in the water | `murk`, `murkLayers`, `murkColor`, `Engine._murkCam` (Murk, below) | none: `MUD_*` in MICRO_FNS |
 | Scene light, before the tone curve | `lookScene` | relief (DIC), rims (darkfield), rainbow rims (`prism`: each edge colored by the side it faces), color fringes; halation and veiling flare (from the bloom's blur) |
-| Objective | `lensScene`, the field stop in `fsComposite` | shallow focus (`dof`: the optics' depth blur anywhere, not only toward the rim; Shallow focus, below), the field iris |
+| Objective | `lensScene`, the field stop in `fsComposite` | shallow focus (`dof`: the optics' depth blur toward the rim and down a pile; `waves`: the blur the passing waves add; Shallow focus, below), the field iris |
 | Tone curve | `lookTone` | film: AgX's curve mixed in for `tonemap`'s |
 | Display, after the gamma curve | `lookGrade` (`lookDisplay` over the water's view) | contrast, black (the darks pressed down), saturation, dye density, grain |
 
@@ -73,7 +75,11 @@ until 2026-11, a 16:9 screen's sides were wholly soft and a phone's or a near-sq
 (`DOF_SHARP`..`DOF_SOFT` at `DOF_PPU`) shrinks as the view is magnified, as fast as the waves' rise across the view
 does, so about as much of the view is soft at every zoom: calm water a gentle tilt to the plane that drifts as the
 ripples pass, a storm a narrow band in focus sweeping over the view. With no sea (Water → Surface off), only the
-curvature. Until 2026-11 the depth was a value noise fixed in the world, unrelated to anything seen: cells blurred
+curvature. Dry ground has no water over it to focus through: the difference is taken times how wet a point is
+(`fsField`, field B's w), so dry ground never blurs with the waves (fading out only the height there left it blurring
+by the middle's waves). The look's `dof` scales the blur the curvature alone gives (the edges) and `waves` what the
+waves add to it, so their passing can be gentler than the edges (one `dof` scaled both until 2026-11: Strong).
+Until 2026-11 the depth was a value noise fixed in the world, unrelated to anything seen: cells blurred
 in patches, sharp ones right at the edge beside soft ones in the middle.
 
 ## How it was chosen

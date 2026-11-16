@@ -8010,7 +8010,8 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32, dh: f32) -> vec
   let px = k * post.res.y / 1000.0 / post.res;
   let ca = q * fr2 * 0.35 * px;
   var c = vec3f(scene(uv + ca).r, scene(uv).g, scene(uv - ca).b);
-  let rim = smoothstep(0.55, 1.0, fr2);
+  // (Focus blur Off, dof 0: no softening at all, the rim's either)
+  let rim = select(0.0, smoothstep(0.55, 1.0, fr2), post.look[3].x > 0.0);
   var blur = rim * 1.5;
   var spread = 0.0;
   var deep = 0.0; // a grain blurred deep in its pile: its order (fsStone's alpha), past which taps are in front of it
@@ -8022,9 +8023,12 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32, dh: f32) -> vec
   if (shallow > 0.0 && post.ppu > start) {
     // out of the focal plane by the waves (dh), and further toward the rim, where the field curves away from it: in
     // the middle a point is sharp unless a wave lifts it well off the middle's level, at the rim only on it
-    let defocus = abs(dh) * post.ppu / DOF_PPU + DOF_CURVE * fr2;
+    // (the look's dof scales the blur the curvature alone gives, waves what the waves add to it)
+    let curve = DOF_CURVE * fr2;
+    let edge = smoothstep(DOF_SHARP, DOF_SOFT, curve);
+    let wave = smoothstep(DOF_SHARP, DOF_SOFT, abs(dh) * post.ppu / DOF_PPU + curve) - edge;
     let near = smoothstep(start, start * 4.0, post.ppu);
-    blur += shallow * smoothstep(DOF_SHARP, DOF_SOFT, defocus) * near * 4.5;
+    blur += (shallow * edge + post.look[3].z * wave) * near * 4.5;
     // bare stone lies on the floor, the top of its pile near where the cells swim and the rest deeper: far thinner
     // than a grain is what a microscope holds in focus, so the grains on top are sharp and those under them soft,
     // the more the deeper, by the grain's cobble's place in the pile (fsStoneLit: stoneTex holds it here)
@@ -9441,7 +9445,6 @@ fn surfaceNear(sea: Surface, wp: vec2f, room: f32) -> Surface {
   o.shift = keepInside(o.shift + r * 1.2, room);
   o.slope = (o.slope + r) * wet;
   o.light = mix(1.0, o.light, wet);
-  o.height *= wet;
   return o;
 }
 // The sea seen from close up, where its finest waves span many pixels (post.seaLook.w, Engine._seaPost): seaSurface
@@ -9884,8 +9887,8 @@ struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 // On a phone's GPU a shader costs what it holds, run or not (docs/performance.md, The step in two kernels): the water's
 // surface, its heat and haze and the scene's light, computed in the composite, held a Pixel 3's composite at 4.9 ms,
 // read from these 2.7. A: the surface's shift (world units) and the haze's (shimmer, pixels); B: the light there
-// (lightPost) and the lamp's own, the surface's light and height; C: the surface's slope, the water's temperature and
-// how steeply it changes (waterAt's x and the length of its slope, all bubblesNear asks of it). The loupe and the
+// (lightPost) and the lamp's own, the surface's light and how far its waves move the focus (lensScene's dh); C: the
+// surface's slope, the water's temperature and how steeply it changes (waterAt's x and the length of its slope, all bubblesNear asks of it). The loupe and the
 // close-up work them out inline (sceneLit, surfaceAt).
 @group(0) @binding(18) var fieldA: texture_2d<f32>;
 @group(0) @binding(19) var fieldB: texture_2d<f32>;
@@ -9898,13 +9901,19 @@ struct FieldOut { @location(0) a: vec4f, @location(1) b: vec4f, @location(2) c: 
   // the water's surface (the sea, raindrops' rings) bends the view and focuses the light
   var surf: Surface;
   let room = waterRoom(poolAt(wp));
+  // how far the waves move the focal plane here from the view's middle's (lensScene's dh), none over dry ground
+  var dh = 0.0;
   if (post.seaLook.w > 0.5) {
     // (the sea from its field: surfaceAt's otherwise)
     surf.light = 1.0;
-    if (smoothstep(0.0, 0.4, room) > 0.0) {
+    let wet = smoothstep(0.0, 0.4, room);
+    if (wet > 0.0) {
       var sea: Surface;
       sea.light = 1.0;
-      if (post.seaHead.z > 0.0) { sea = seaFieldAt(pos); }
+      if (post.seaHead.z > 0.0) {
+        sea = seaFieldAt(pos);
+        dh = (sea.height - seaFieldHeight(post.res * 0.5)) * wet;
+      }
       surf = surfaceNear(sea, wp, room);
     }
   } else { surf = surfaceAt(wp, post.ppu, viewSpan(), room); }
@@ -9917,7 +9926,7 @@ struct FieldOut { @location(0) a: vec4f, @location(1) b: vec4f, @location(2) c: 
   let l = lightPost(wp, tideAt(wp, post.world, post.simTime, post.tide, post.tidePh));
   var o: FieldOut;
   o.a = vec4f(surf.shift, roil);
-  o.b = vec4f(l, max(lampAt(wp), 0.0), surf.light, surf.height);
+  o.b = vec4f(l, max(lampAt(wp), 0.0), surf.light, dh);
   o.c = vec4f(surf.slope, water.x, length(water.yz));
   return o;
 }
@@ -9972,9 +9981,7 @@ fn fieldWater(c: vec4f) -> vec3f { return vec3f(c.z, c.w, 0.0); }
   if (k > 0.0) {
     // (the waves' height here against the view's middle's, from the sea's field: the shallow focus is seen close up,
     // where the composite reads it; from afar, or with no sea, the waves move no focus)
-    var dh = 0.0;
-    if (post.seaLook.w > 0.5 && post.seaHead.z > 0.0) { dh = fieldAt(fieldB, i.uv).w - seaFieldHeight(post.res * 0.5); }
-    let l = lensScene(uv, q, wp, i.pos.xy, k, dh);
+    let l = lensScene(uv, q, wp, i.pos.xy, k, fieldAt(fieldB, i.uv).w);
     hdr = l.rgb;
     spread = l.a;
   }

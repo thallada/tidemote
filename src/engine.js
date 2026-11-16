@@ -1070,7 +1070,6 @@ class Engine {
       { binding: 7, resource: this.orderView }, { binding: 9, resource: this.murkView },
       { binding: 10, resource: this.microView }, { binding: 11, resource: { buffer: this.b.thermal } }, { binding: 12, resource: this.liveView },
       { binding: 18, resource: this.fieldViews[0] }, { binding: 19, resource: this.fieldViews[1] }, { binding: 28, resource: this.fieldViews[2] },
-      { binding: 23, resource: this.seaFieldTex[0].createView() }, { binding: 24, resource: this.seaFieldTex[1].createView() },
       { binding: 26, resource: this.opticsTex.createView() }, { binding: 29, resource: this.iceView }] });
     this.compBG = this.pComp ? compBG(this.pComp) : null;
     this.compClearBG = this.pCompClear ? compBG(this.pCompClear) : null;

@@ -19,7 +19,7 @@ import { facets, describe, DIET_COL, MOB_COL, FACET_NAME } from './facets.js';
 import { retraceBody, settleMembers, nearBody, largestBody, bodyPatch } from './trace.js';
 import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS, SIM_CLOCK, G_WORDS, DEFAULT_K, P_BYTES, TUBE_N, TUBE_K, STUDIO_N, PIPETTE_DOF, CYST, NOTE_TG } from './shaders.js';
 import { flowAt, tideAt, duckShade } from './flow.js';
-import { DARKFIELD, packLook } from './look.js';
+import { DARKFIELD, FOCUS, packLook } from './look.js';
 import { MIX as SOUND_MIX, defaultMix } from './audio/mix.js';
 import { startLoader } from './loader.js';
 import { Director } from './director.js';
@@ -281,6 +281,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     waves: prefs.waves ?? 1, // its waves' motion: 0 slow, 1 normal, 2 lively
     look: prefs.look ?? 2, // the microscope (applyLook, the optics with it): 0 off, 1 subtle, 2 normal, 3 strong
     grain: prefs.grain ?? 1, // its grain: 0 off, 1 fine, 2 heavy
+    focus: prefs.focus ?? 2, // its shallow focus (FOCUS): 0 off, 1 subtle, 2 normal, 3 strong
     haze: prefs.haze ?? true, // the heat haze over warm water (applyMap)
     map: prefs.map ?? 'off', // the one map over the view (applyMap): 'off', 'light', 'heat' or 'tide'
     // what the page may spend: render scale ('auto' adapts between floor and 1), the most device pixels per CSS
@@ -336,13 +337,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, fixed: state.fixed, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+    savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, focus: state.focus, fixed: state.fixed, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   // the look (src/look.js, docs/look.md): Darkfield as the Display settings ask, how strong as a whole and how much
-  // grain, the eyepiece's optics on with any of it; or, from the tools (T.look), any tunables
+  // grain and focus blur, the eyepiece's optics on with any of it; or, from the tools (T.look), any tunables
   let lookLast = state.look || 2; // the Microscope's level before O turned it off
-  const applyLook = (p = { ...DARKFIELD, grain: [0, 0.25, 0.5][state.grain] }, strength = [0, 0.6, 1, 1.35][state.look]) => {
+  const applyLook = (p = { ...DARKFIELD, ...FOCUS[state.focus], grain: [0, 0.25, 0.5][state.grain] }, strength = [0, 0.6, 1, 1.35][state.look]) => {
     eng.look.set(packLook(p, strength));
     eng.settings.optics = state.look > 0 ? 1 : 0;
     if (state.look) lookLast = state.look;
@@ -2600,6 +2601,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const filmL = tr('settings.display.film', 'Film');
       return group('picture', tr('settings.display.picture', 'Look'), autoRow('microlook', NAMES.microscope, 'O', [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], 'microlook')
         + (state.look ? choice('grain', tr('settings.display.grain', 'Grain'), '', [[0, OFF], [1, tr('settings.display.grain-fine', 'Fine')], [2, tr('settings.display.grain-heavy', 'Heavy')]], state.grain, 'filmgrain') : '')
+        // i18n: Settings → Display → Look: how much the microscope's shallow focus blurs, as the waves pass over and toward the edges
+        + (state.look ? choice('focus', tr('settings.display.focus', 'Focus blur'), '', [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], state.focus, 'focusblur') : '')
         + autoOnOff('bloom', NAMES.bloom, 'Y', 'bloom')
         + choice('trails', tr('settings.display.trails', 'Trails'), 'T', trailNames.map((n, i) => [i, n]), trailIdx))
         + group('water', tr('settings.display.water-group', 'Water'), autoRow('water', NAMES.sea, '', [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], 'watersurface')
@@ -2831,7 +2834,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         state.map = 'off'; state.haze = true; applyMap();
         state.currents = false; state.songMarks = 1; state.notes = 1; state.closeup = true;
         state.water = 2; state.waves = 1; applyWater();
-        state.look = 2; state.grain = 1; applyLook();
+        state.look = 2; state.grain = 1; state.focus = 2; applyLook();
         state.fixed = {};
         state.auto = true; renderAuto(director.active);
       } else if (tab === 'audio') {
@@ -2957,6 +2960,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id === 'microlook') { state.look = +v; applyLook(); }
       else if (id.startsWith('mix-')) sound.setMix({ [id.slice(4)]: +v });
       else if (id === 'grain') { state.grain = +v; applyLook(); }
+      else if (id === 'focus') { state.focus = +v; applyLook(); }
       else if (id === 'ev-start') { if (!climate.event) climate.force(v); toggle(false); return; }
       else if (id === 'film') { toggle(false); filmAct(); return; }
       else if (id.startsWith('ev-')) { state.events[id.slice(3)] = !!+v; applyEvents(); }
