@@ -9402,6 +9402,8 @@ struct Post {
   murkB: vec4f,
   // the water's edge's phases, as Sim.edgePh
   edgePh: vec4f,
+  // xy where the view is in focus, as a share of it (Engine.focusAt); zw unused
+  focus: vec4f,
 };
 `
   );
@@ -11904,7 +11906,7 @@ struct FieldOut { @location(0) a: vec4f, @location(1) b: vec4f, @location(2) c: 
   // the water's surface (the sea, raindrops' rings) bends the view and focuses the light
   var surf: Surface;
   let room = waterRoom(poolAt(wp));
-  // how far the waves move the focal plane here from the view's middle's (lensScene's dh), none over dry ground
+  // how far the waves move the focal plane here from where the view is in focus (lensScene's dh), none over dry ground
   var dh = 0.0;
   if (post.seaLook.w > 0.5) {
     // (the sea from its field: surfaceAt's otherwise)
@@ -11915,7 +11917,7 @@ struct FieldOut { @location(0) a: vec4f, @location(1) b: vec4f, @location(2) c: 
       sea.light = 1.0;
       if (post.seaHead.z > 0.0) {
         sea = seaFieldAt(pos);
-        dh = (sea.height - seaFieldHeight(post.res * 0.5)) * wet;
+        dh = (sea.height - seaFieldHeight(post.focus.xy * post.res)) * wet;
       }
       surf = surfaceNear(sea, wp, room);
     }
@@ -17594,7 +17596,8 @@ struct SV {
   var VIEW_BYTES = 224;
   var POST_MURK = POST_LOOK + LOOK_WORDS;
   var POST_EDGE = POST_MURK + 8;
-  var POST_WORDS = POST_EDGE + 4;
+  var POST_FOCUS = POST_EDGE + 4;
+  var POST_WORDS = POST_FOCUS + 4;
   var MUD_DEPTH = [0.93, 0.85, 0.76];
   var HDR = "rgba16float";
   var BLOOM_LEVELS = 6;
@@ -17743,6 +17746,7 @@ struct SV {
       this.postData = new Float32Array(POST_WORDS);
       this.look = new Float32Array(LOOK_WORDS);
       this.lens = new Float32Array(4);
+      this.focusAt = new Float32Array([0.5, 0.5]);
       this.tool = new Float32Array(8);
       this.focus = { on: 0, roleMask: 7, stateMode: 0, mute: 0.16, memberKind: 4294967295, memberN: 0 };
       this.viewDataS = new ArrayBuffer(VIEW_BYTES);
@@ -21066,6 +21070,7 @@ ${e.message}` : String(e?.message || e));
       pd.set(this.tool, POST_LAMP + 8);
       pd.set(this._murkCam(cam, W2, H2), POST_MURK);
       pd.set(clk.edgePh, POST_EDGE);
+      pd.set(this.focusAt, POST_FOCUS);
       pd.set(this.look, POST_LOOK);
       if (specimen && specimen.target && !specimen.live) d.queue.writeBuffer(this.b.postPlain, 0, Float32Array.from(pd).fill(1, 3, 4));
       if (this.fxFade.look < 1) pd.set(this.look.map((v) => v * this.fxFade.look), POST_LOOK);
@@ -37142,9 +37147,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "091e3cddfec131c7") return;
+      if (localStorage.getItem(key) === "9a92954ca27d2534") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "091e3cddfec131c7");
+      if (res) localStorage.setItem(key, "9a92954ca27d2534");
     } catch {
     }
   }
@@ -43151,6 +43156,11 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         drawBore(R2, dt);
         if (R2 && (hand.tool === "warm" || hand.tool === "cold") && K.heat) eng.lens.set([...toWorld(R2.sx, R2.sy), 1.5 * R2.r / cssPPU(), 1]);
         else eng.lens.fill(0);
+        let [fx, fy] = sel && !sel.lost ? toScreen(sel.disp[0], sel.disp[1]) : [];
+        if (!(fx >= 0 && fx <= innerWidth && fy >= 0 && fy <= innerHeight)) [fx, fy] = [innerWidth / 2, innerHeight / 2];
+        const fk = Math.min(1, dt / 200);
+        eng.focusAt[0] += (fx / innerWidth - eng.focusAt[0]) * fk;
+        eng.focusAt[1] += (fy / innerHeight - eng.focusAt[1]) * fk;
         eng.trackId = sel && !sel.lost ? sel.id : NONE6;
         eng.trackId2 = director.active ? director.trackId : NONE6;
         watchNotes();
