@@ -10013,7 +10013,8 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32, dh: f32) -> vec
   let px = k * post.res.y / 1000.0 / post.res;
   let ca = q * fr2 * 0.35 * px;
   var c = vec3f(scene(uv + ca).r, scene(uv).g, scene(uv - ca).b);
-  let rim = smoothstep(0.55, 1.0, fr2);
+  // (Focus blur Off, dof 0: no softening at all, the rim's either)
+  let rim = select(0.0, smoothstep(0.55, 1.0, fr2), post.look[3].x > 0.0);
   var blur = rim * 1.5;
   var spread = 0.0;
   var deep = 0.0; // a grain blurred deep in its pile: its order (fsStone's alpha), past which taps are in front of it
@@ -10025,9 +10026,12 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32, dh: f32) -> vec
   if (shallow > 0.0 && post.ppu > start) {
     // out of the focal plane by the waves (dh), and further toward the rim, where the field curves away from it: in
     // the middle a point is sharp unless a wave lifts it well off the middle's level, at the rim only on it
-    let defocus = abs(dh) * post.ppu / DOF_PPU + DOF_CURVE * fr2;
+    // (the look's dof scales the blur the curvature alone gives, waves what the waves add to it)
+    let curve = DOF_CURVE * fr2;
+    let edge = smoothstep(DOF_SHARP, DOF_SOFT, curve);
+    let wave = smoothstep(DOF_SHARP, DOF_SOFT, abs(dh) * post.ppu / DOF_PPU + curve) - edge;
     let near = smoothstep(start, start * 4.0, post.ppu);
-    blur += shallow * smoothstep(DOF_SHARP, DOF_SOFT, defocus) * near * 4.5;
+    blur += (shallow * edge + post.look[3].z * wave) * near * 4.5;
     // bare stone lies on the floor, the top of its pile near where the cells swim and the rest deeper: far thinner
     // than a grain is what a microscope holds in focus, so the grains on top are sharp and those under them soft,
     // the more the deeper, by the grain's cobble's place in the pile (fsStoneLit: stoneTex holds it here)
@@ -11444,7 +11448,6 @@ fn surfaceNear(sea: Surface, wp: vec2f, room: f32) -> Surface {
   o.shift = keepInside(o.shift + r * 1.2, room);
   o.slope = (o.slope + r) * wet;
   o.light = mix(1.0, o.light, wet);
-  o.height *= wet;
   return o;
 }
 // The sea seen from close up, where its finest waves span many pixels (post.seaLook.w, Engine._seaPost): seaSurface
@@ -11887,8 +11890,8 @@ struct CompVO { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 // On a phone's GPU a shader costs what it holds, run or not (docs/performance.md, The step in two kernels): the water's
 // surface, its heat and haze and the scene's light, computed in the composite, held a Pixel 3's composite at 4.9 ms,
 // read from these 2.7. A: the surface's shift (world units) and the haze's (shimmer, pixels); B: the light there
-// (lightPost) and the lamp's own, the surface's light and height; C: the surface's slope, the water's temperature and
-// how steeply it changes (waterAt's x and the length of its slope, all bubblesNear asks of it). The loupe and the
+// (lightPost) and the lamp's own, the surface's light and how far its waves move the focus (lensScene's dh); C: the
+// surface's slope, the water's temperature and how steeply it changes (waterAt's x and the length of its slope, all bubblesNear asks of it). The loupe and the
 // close-up work them out inline (sceneLit, surfaceAt).
 @group(0) @binding(18) var fieldA: texture_2d<f32>;
 @group(0) @binding(19) var fieldB: texture_2d<f32>;
@@ -11901,13 +11904,19 @@ struct FieldOut { @location(0) a: vec4f, @location(1) b: vec4f, @location(2) c: 
   // the water's surface (the sea, raindrops' rings) bends the view and focuses the light
   var surf: Surface;
   let room = waterRoom(poolAt(wp));
+  // how far the waves move the focal plane here from the view's middle's (lensScene's dh), none over dry ground
+  var dh = 0.0;
   if (post.seaLook.w > 0.5) {
     // (the sea from its field: surfaceAt's otherwise)
     surf.light = 1.0;
-    if (smoothstep(0.0, 0.4, room) > 0.0) {
+    let wet = smoothstep(0.0, 0.4, room);
+    if (wet > 0.0) {
       var sea: Surface;
       sea.light = 1.0;
-      if (post.seaHead.z > 0.0) { sea = seaFieldAt(pos); }
+      if (post.seaHead.z > 0.0) {
+        sea = seaFieldAt(pos);
+        dh = (sea.height - seaFieldHeight(post.res * 0.5)) * wet;
+      }
       surf = surfaceNear(sea, wp, room);
     }
   } else { surf = surfaceAt(wp, post.ppu, viewSpan(), room); }
@@ -11920,7 +11929,7 @@ struct FieldOut { @location(0) a: vec4f, @location(1) b: vec4f, @location(2) c: 
   let l = lightPost(wp, tideAt(wp, post.world, post.simTime, post.tide, post.tidePh));
   var o: FieldOut;
   o.a = vec4f(surf.shift, roil);
-  o.b = vec4f(l, max(lampAt(wp), 0.0), surf.light, surf.height);
+  o.b = vec4f(l, max(lampAt(wp), 0.0), surf.light, dh);
   o.c = vec4f(surf.slope, water.x, length(water.yz));
   return o;
 }
@@ -11975,9 +11984,7 @@ fn fieldWater(c: vec4f) -> vec3f { return vec3f(c.z, c.w, 0.0); }
   if (k > 0.0) {
     // (the waves' height here against the view's middle's, from the sea's field: the shallow focus is seen close up,
     // where the composite reads it; from afar, or with no sea, the waves move no focus)
-    var dh = 0.0;
-    if (post.seaLook.w > 0.5 && post.seaHead.z > 0.0) { dh = fieldAt(fieldB, i.uv).w - seaFieldHeight(post.res * 0.5); }
-    let l = lensScene(uv, q, wp, i.pos.xy, k, dh);
+    let l = lensScene(uv, q, wp, i.pos.xy, k, fieldAt(fieldB, i.uv).w);
     hdr = l.rgb;
     spread = l.a;
   }
@@ -17569,9 +17576,10 @@ struct SV {
   }
 
   // src/look.js
-  var LOOK = ["prism", "relief", "rims", "fringe", "halation", "veil", "film", "grain", "sat", "density", "contrast", "black", "dof", "iris"];
+  var LOOK = ["prism", "relief", "rims", "fringe", "halation", "veil", "film", "grain", "sat", "density", "contrast", "black", "dof", "iris", "waves"];
   var LOOK_WORDS = 16;
-  var DARKFIELD = { prism: 0.4, relief: 0.4, rims: 0.45, fringe: 0.2, halation: 0.45, veil: 0.5, film: 0.25, grain: 0.25, sat: 0.1, density: 0.25, contrast: 0.3, black: 0.6, dof: 0.8, iris: 0.2 };
+  var DARKFIELD = { prism: 0.4, relief: 0.4, rims: 0.45, fringe: 0.2, halation: 0.45, veil: 0.5, film: 0.25, grain: 0.25, sat: 0.1, density: 0.25, contrast: 0.3, black: 0.6, dof: 0.8, iris: 0.2, waves: 0.4 };
+  var FOCUS = [{ dof: 0, waves: 0 }, { dof: 0.7, waves: 0.2 }, { dof: 0.8, waves: 0.4 }, { dof: 0.85, waves: 0.8 }];
   function packLook(p2, s = 1) {
     const w = new Float32Array(LOOK_WORDS);
     LOOK.forEach((k, i) => {
@@ -18712,8 +18720,6 @@ ${e.message}` : String(e?.message || e));
         { binding: 18, resource: this.fieldViews[0] },
         { binding: 19, resource: this.fieldViews[1] },
         { binding: 28, resource: this.fieldViews[2] },
-        { binding: 23, resource: this.seaFieldTex[0].createView() },
-        { binding: 24, resource: this.seaFieldTex[1].createView() },
         { binding: 26, resource: this.opticsTex.createView() },
         { binding: 29, resource: this.iceView }
       ] });
@@ -22821,6 +22827,7 @@ ${e.message}` : String(e?.message || e));
     watersurface: tr("gloss.watersurface", "The surface of the water far above the cells, out of focus: as its waves pass they gently bend the view and sweep soft bands of light across what lies beneath, more in a storm. Subtle tones it down, Strong turns it up, Off holds the view still. Auto is Normal, and Adaptation may work its waves out less often, or turn it off, while frames run late (what Auto holds now is underlined)."),
     microlook: tr("gloss.microlook", "The view as a darkfield microscope shows living cells: black water, outlines glowing as light catches their edges and touched with rainbow, a soft focus away from the middle and a little grain, seen through the eyepiece’s lens (colors parting toward the edges, a round field stop darkening the corners, dust drifting out of focus). Subtle tones it down, Strong turns it up, Off shows the cells plainly, without the lens. Auto is Normal, and Adaptation may turn it off while frames run late (what Auto holds now is underlined). O turns it off and back on. Its warm glow about whatever is bright is Glow’s."),
     filmgrain: tr("gloss.filmgrain", "A fine flicker of grain over the picture, as on film, strongest in the midtones. Fine is barely seen, Heavy is an old reel; Off is clean."),
+    focusblur: tr("gloss.focusblur", "How much the microscope’s shallow focus softens what lies off its plane: what the passing waves lift out of focus, and a little the edges of the view. Subtle keeps the waves’ blur faint, Strong lets it sweep wide soft bands over the view; Off keeps everything sharp."),
     wavemotion: tr("gloss.wavemotion", "How quickly the water’s waves move. Slow suits a calm view; Lively, a restless one. Sped-up worlds move them faster too, but less than the cells."),
     audiomusic: tr("gloss.audiomusic", "The composed music under everything: the piano, strings and vibraphone that follow the era and the species that reign. Off leaves only the life and the water."),
     audiocells: tr("gloss.audiocells", "The cells themselves: every species singing its own short song, births ringing, bites and deaths, and from afar the murmur of the crowd. Off leaves the music and the water."),
@@ -37135,9 +37142,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "896dda96e9886bc6") return;
+      if (localStorage.getItem(key) === "091e3cddfec131c7") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "896dda96e9886bc6");
+      if (res) localStorage.setItem(key, "091e3cddfec131c7");
     } catch {
     }
   }
@@ -37301,6 +37308,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       // the microscope (applyLook, the optics with it): 0 off, 1 subtle, 2 normal, 3 strong
       grain: prefs.grain ?? 1,
       // its grain: 0 off, 1 fine, 2 heavy
+      focus: prefs.focus ?? 2,
+      // its shallow focus (FOCUS): 0 off, 1 subtle, 2 normal, 3 strong
       haze: prefs.haze ?? true,
       // the heat haze over warm water (applyMap)
       map: prefs.map ?? "off",
@@ -37360,11 +37369,11 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     document.body.classList.toggle("no-closeup", !state.closeup);
     const persist = () => {
       const s = eng.settings;
-      savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, fixed: state.fixed, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+      savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, focus: state.focus, fixed: state.fixed, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
       document.body.classList.toggle("no-closeup", !state.closeup);
     };
     let lookLast = state.look || 2;
-    const applyLook = (p2 = { ...DARKFIELD, grain: [0, 0.25, 0.5][state.grain] }, strength = [0, 0.6, 1, 1.35][state.look]) => {
+    const applyLook = (p2 = { ...DARKFIELD, ...FOCUS[state.focus], grain: [0, 0.25, 0.5][state.grain] }, strength = [0, 0.6, 1, 1.35][state.look]) => {
       eng.look.set(packLook(p2, strength));
       eng.settings.optics = state.look > 0 ? 1 : 0;
       if (state.look) lookLast = state.look;
@@ -39817,7 +39826,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       function display() {
         const map = mapOn();
         const filmL = tr("settings.display.film", "Film");
-        return group("picture", tr("settings.display.picture", "Look"), autoRow("microlook", NAMES.microscope, "O", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], "microlook") + (state.look ? choice("grain", tr("settings.display.grain", "Grain"), "", [[0, OFF], [1, tr("settings.display.grain-fine", "Fine")], [2, tr("settings.display.grain-heavy", "Heavy")]], state.grain, "filmgrain") : "") + autoOnOff("bloom", NAMES.bloom, "Y", "bloom") + choice("trails", tr("settings.display.trails", "Trails"), "T", trailNames.map((n, i) => [i, n]), trailIdx)) + group("water", tr("settings.display.water-group", "Water"), autoRow("water", NAMES.sea, "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], "watersurface") + (state.water ? choice("waves", tr("settings.display.waves", "Wave motion"), "", [[0, tr("settings.display.waves-slow", "Slow")], [1, NORMAL], [2, tr("settings.display.waves-lively", "Lively")]], state.waves, "wavemotion") : "") + (K.heat ? autoOnOff("haze", NAMES.haze, "", "haze") : "") + autoOnOff("specks", NAMES.specks, "", "specks")) + group("cells", tr("settings.display.cells", "Cells"), autoOnOff("lod", NAMES.interiors, "", "lod")) + group("overlays", tr("settings.display.overlays", "Overlays"), choice("map", tr("settings.display.map", "Map"), K.heat ? "G E H" : "G H", [["off", OFF], ["light", tr("settings.display.map-light", "Light")], ...K.heat ? [["heat", tr("settings.display.map-heat", "Heat")]] : [], ["tide", tr("settings.display.map-tide", "Tide")]], state.map, "maps") + (map ? rampHtml(map) : "") + onoff("currents", tr("settings.display.currents", "Currents"), "C", state.currents) + choice("songmarks", tr("settings.display.song-marks", "Song marks"), "", [[0, OFF], [1, tr("settings.display.song-marks-picked", "Picked")], [2, tr("settings.display.song-marks-all", "All")]], state.songMarks, "songmarks") + choice("notes", tr("settings.display.annotations", "Annotations"), "", [[1, tr("settings.display.annotations-auto", "Auto camera")], [2, tr("settings.display.annotations-always", "Always")], [0, OFF]], state.notes, "annotations")) + group("view", tr("settings.display.view", "View"), (isCoarse ? "" : onoff("ui", tr("settings.display.interface", "Interface"), "U", state.ui, "interface")) + onoff("closeup", tr("settings.display.closeup", "Live close-up"), "", state.closeup, "closeup") + onoff("auto", tr("settings.display.auto-idle", "Auto when idle"), "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", filmL)} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="${filmL}">${film.state === "idle" ? `<button type="button" class="chip" data-o="film" data-v="now">${tr("settings.display.film-now", "Start filming")}</button>` : `<button type="button" class="chip" data-o="film" data-v="stop">${tr("settings.display.film-stop", "Stop filming")}</button>`}</div></div>` : ""));
+        return group("picture", tr("settings.display.picture", "Look"), autoRow("microlook", NAMES.microscope, "O", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], "microlook") + (state.look ? choice("grain", tr("settings.display.grain", "Grain"), "", [[0, OFF], [1, tr("settings.display.grain-fine", "Fine")], [2, tr("settings.display.grain-heavy", "Heavy")]], state.grain, "filmgrain") : "") + (state.look ? choice("focus", tr("settings.display.focus", "Focus blur"), "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], state.focus, "focusblur") : "") + autoOnOff("bloom", NAMES.bloom, "Y", "bloom") + choice("trails", tr("settings.display.trails", "Trails"), "T", trailNames.map((n, i) => [i, n]), trailIdx)) + group("water", tr("settings.display.water-group", "Water"), autoRow("water", NAMES.sea, "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], "watersurface") + (state.water ? choice("waves", tr("settings.display.waves", "Wave motion"), "", [[0, tr("settings.display.waves-slow", "Slow")], [1, NORMAL], [2, tr("settings.display.waves-lively", "Lively")]], state.waves, "wavemotion") : "") + (K.heat ? autoOnOff("haze", NAMES.haze, "", "haze") : "") + autoOnOff("specks", NAMES.specks, "", "specks")) + group("cells", tr("settings.display.cells", "Cells"), autoOnOff("lod", NAMES.interiors, "", "lod")) + group("overlays", tr("settings.display.overlays", "Overlays"), choice("map", tr("settings.display.map", "Map"), K.heat ? "G E H" : "G H", [["off", OFF], ["light", tr("settings.display.map-light", "Light")], ...K.heat ? [["heat", tr("settings.display.map-heat", "Heat")]] : [], ["tide", tr("settings.display.map-tide", "Tide")]], state.map, "maps") + (map ? rampHtml(map) : "") + onoff("currents", tr("settings.display.currents", "Currents"), "C", state.currents) + choice("songmarks", tr("settings.display.song-marks", "Song marks"), "", [[0, OFF], [1, tr("settings.display.song-marks-picked", "Picked")], [2, tr("settings.display.song-marks-all", "All")]], state.songMarks, "songmarks") + choice("notes", tr("settings.display.annotations", "Annotations"), "", [[1, tr("settings.display.annotations-auto", "Auto camera")], [2, tr("settings.display.annotations-always", "Always")], [0, OFF]], state.notes, "annotations")) + group("view", tr("settings.display.view", "View"), (isCoarse ? "" : onoff("ui", tr("settings.display.interface", "Interface"), "U", state.ui, "interface")) + onoff("closeup", tr("settings.display.closeup", "Live close-up"), "", state.closeup, "closeup") + onoff("auto", tr("settings.display.auto-idle", "Auto when idle"), "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", filmL)} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="${filmL}">${film.state === "idle" ? `<button type="button" class="chip" data-o="film" data-v="now">${tr("settings.display.film-now", "Start filming")}</button>` : `<button type="button" class="chip" data-o="film" data-v="stop">${tr("settings.display.film-stop", "Stop filming")}</button>`}</div></div>` : ""));
       }
       function audio_() {
         const m = sound.mix, mix4 = (k) => choice(`mix-${k}`, MIX[k].name, "", MIX[k].choices.map(([label3], i) => [i, label3]), m[k], `audio${k}`);
@@ -39994,6 +40003,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           applyWater();
           state.look = 2;
           state.grain = 1;
+          state.focus = 2;
           applyLook();
           state.fixed = {};
           state.auto = true;
@@ -40138,6 +40148,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         } else if (id.startsWith("mix-")) sound.setMix({ [id.slice(4)]: +v });
         else if (id === "grain") {
           state.grain = +v;
+          applyLook();
+        } else if (id === "focus") {
+          state.focus = +v;
           applyLook();
         } else if (id === "ev-start") {
           if (!climate.event) climate.force(v);
