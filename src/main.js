@@ -2802,12 +2802,14 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const ext = (href, text) => `<a class="sp" target="_blank" rel="noopener" href="${href}">${text}</a>`;
     function about_() {
       const link = (href) => (c) => ext(href, c.join(''));
+      // i18n: {app}: desktop in the desktop app (saves are files there, in Steam Cloud when it is on), other in a browser
+      const privacy = tr('settings.about.privacy', '{app, select, desktop {Everything runs on this computer: there is no account and no analytics. Saved worlds are files on this computer, kept in Steam Cloud too when it is on for your account.} other {Everything runs on this device: there is no account and no analytics. Saved worlds stay in this browser unless you download them.}}', { app: globalThis.tidemoteDesktop ? 'desktop' : 'web' });
       return group('intro', '', `<div class="about"><p>${tr('settings.about.p1', "A sealed biosphere of up to millions of particles, and all of them live, eat, breed, and die in your browser, simulated on the GPU with WebGPU. Some cells drink the moving light of the tide. Others graze on the producers, and others hunt the grazers. Scavengers break down the dead and return them to the water as silt, and from that silt the next generation builds its children. Children mutate into new species. Species that bond grow into bodies: filaments, branched fronds, spirals, packed tissues. Some of these bodies grow beating tails and swim. Every 10 to 18 minutes the climate turns, and the world has to begin again in its own way. It makes its own music, too: each cell sings its species' song, over a chorus of the births, kills, and deaths in view.")}</p>
 <p>${tr('settings.about.p2', "No hand steers any of this: every ecological rule is local. The complex interacting colonies emerge from simple rules acting on the mutating genome each cell carries. The Field Lab's <guide>Guide</guide> explains how it works.", { guide: (c) => `<button type="button" class="link" data-o="guide" data-v="0">${c.join('')}</button>` })}</p></div>`)
-        // i18n: the credits: <a1> a link to the director's site, <a2> to Claude's page, <a3> to SuperCollider's
-        + group('made', tr('settings.about.made-by', 'Made by'), `<div class="about"><p>${tr('settings.about.credits', "Developed by <a1>Tyler Hallada</a1> using <a2>Claude Code</a2> and Codex. Most of the code was written using LLMs. Graphics and sounds in this game are procedurally generated from code written by LLMs. No generative image or sound AI model content is used in this game. The soundtrack is a dynamic algorithm that is orchestrated by the state of the simulation and the cells in view, programmed by a custom port of <a3>SuperCollider</a3> for the browser. All text displayed in the UI has been manually reviewed and edited by hand.", { a1: link('https://www.hallada.net'), a2: link('https://www.anthropic.com/claude'), a3: link('https://supercollider.github.io/') })}</p></div>`)
+        // i18n: the credits: <a1> a link to the developer's site, <a2> to Claude Code's page, <a4> to Codex's, <a3> to SuperCollider's
+        + group('made', tr('settings.about.made-by', 'Made by'), `<div class="about"><p>${tr('settings.about.credits', "Developed by <a1>Tyler Hallada</a1> with the AI coding tools <a2>Claude Code</a2> and <a4>Codex</a4>, which wrote most of the code. Nothing you see or hear was made by an image, video or audio AI model: the graphics and sound are generated as you watch by the game's own code. The soundtrack is composed live from the simulation and the cells in view, and played by a custom browser port of <a3>SuperCollider</a3>. Every line of text in the interface was reviewed and edited by hand.", { a1: link('https://www.hallada.net'), a2: link('https://claude.com/claude-code'), a3: link('https://supercollider.github.io/'), a4: link('https://openai.com/codex/') })}</p></div>`)
         + group('src', tr('settings.about.source', 'Source'), `<div class="about"><p>${tr('settings.about.license', 'Free software under the <a1>GPL-3.0</a1>: the code, design notes, and tools used in development are on <a2>GitHub</a2>. Feedback, bug reports, and ideas are welcome as issues.', { a1: link('https://www.gnu.org/licenses/gpl-3.0.html'), a2: link('https://github.com/thallada/tidemote') })}</p>
-<p>${tr('settings.about.privacy', 'Everything runs on this device: there is no account and no analytics. Saved worlds are stored locally unless downloaded or synced to Steam Cloud.')}</p></div>`);
+<p>${privacy}</p></div>`);
     }
     // the keyboard note, and this tab's reset (which asks first)
     const keysNote = `<span class="keys-note">${tr('settings.keys-note', 'Keyboard: <kbd>?</kbd> lists every shortcut.')}</span>`;
@@ -3745,7 +3747,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const speedStops = () => [...SPEEDS.filter((v) => v <= 1 || (v !== Infinity && v <= speedCap)), 'fast', Infinity];
   const speedStop = () => (state.speed === Infinity && fastMode ? 'fast' : state.speed);
   // the speed chip opens the ladder of every speed on offer
-  const ladder = createLadder({ chip: $('t-speed'), el: $('ladder'), choices: speedStops, current: speedStop, fmt: fmtStop, pick: setSpeed, real: () => setSpeed(1), coarse: coarseFrom });
+  const ladder = createLadder({ chip: $('t-speed'), el: $('ladder'), choices: speedStops, current: speedStop, fmt: fmtStop, pick: setSpeed, real: () => setSpeed(1) });
   // one notch along the speeds on offer
   const stepSpeed = (d) => setSpeed(ladder.along(speedStop(), d));
   $('t-slower').addEventListener('click', () => stepSpeed(-1));
@@ -3838,12 +3840,6 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // (coarse steps with the world drawn every frame, in between steps (LERP_WGSL), before holding it)
   for (let m = 2; m <= MAX_TICKS; m++) WAYS.push([m, false]);
   for (let m = 1; m <= MAX_TICKS; m++) WAYS.push([m, true]);
-  // the slowest speed on offer that the first way to fit (updateTicks' choice, short of its hysteresis) runs in coarse
-  // steps: the ladder marks it; none until a step's cost is known
-  function coarseFrom() {
-    if (!stepCost()) return null;
-    return speedStops().find((s) => typeof s === 'number' && s > 1 && s !== Infinity && (WAYS.find(([m, h]) => gpuLoad(s, m, h) <= GPU_BUDGET) || WAYS.at(-1))[0] > 1) ?? null;
-  }
   // How the chosen speed is run, cheapest first: 1/60 s steps with the world drawn every display
   // frame; the same with it drawn only about every MAX_FRAME_MS (held); then the shortest coarse step the
   // GPU fits (Max: the coarsest). Re-judged each second; a cheaper way is taken back only with room to spare.

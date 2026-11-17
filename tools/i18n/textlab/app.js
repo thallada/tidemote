@@ -19,7 +19,8 @@ function load(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } c
 function keep(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
 
 const area = (id) => id.split('.')[0];
-const statusOf = (id) => S.data.review[id]?.status || '';
+// (kept means kept as the English was then: a message main has changed since is to do again)
+const statusOf = (id) => { const r = S.data.review[id]; return !r ? '' : r.status === 'kept' && r.source != null && r.source !== S.data.source[id] ? '' : r.status || ''; };
 const textOf = (id) => S.data.catalog[id] ?? S.data.source[id];
 
 // ---- a message as plain words, values as ‹name› (the list) ----

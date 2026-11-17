@@ -1536,9 +1536,19 @@
     "promotedAt": "2026-11-14T23:06:00.821Z"
   },
   "help.license": {
-    "status": "kept",
-    "at": "2026-11-11T00:26:56.151Z",
-    "source": "Free software under the <a1>GPL-3.0</a1>, sound after <a2>SuperCollider</a2> · <a3>Source code</a3>",
+    "status": "flagged",
+    "at": "2026-11-17T05:28:23.405Z",
+    "source": "Free software under the <a1>GPL-3.0</a1> · <a2>Source code</a2>",
+    "findings": [
+      {
+        "by": "claude",
+        "kind": "merge",
+        "level": "warn",
+        "msg": "Changed at your request: removed \"sound after SuperCollider\" from the Controls popup (the link is now <a2> for Source code).",
+        "text": "Free software under the <a1>GPL-3.0</a1> · <a2>Source code</a2>",
+        "at": "2026-11-17T05:28:23.405Z"
+      }
+    ],
     "prev": [
       {
         "text": "Free software under the <a1>GPL-3.0</a1> · <a3>Source code</a3>",
@@ -1572,7 +1582,11 @@
         "text": "Free software under the <a1>GPL-3.0</a1>, sound dev <a2>SuperCollider</a2> · <a3>Source code</a3>",
         "at": "2026-11-11T00:25:39.949Z"
       }
-    ]
+    ],
+    "was": {
+      "status": "kept",
+      "text": "Free software under the <a1>GPL-3.0</a1>, sound after <a2>SuperCollider</a2> · <a3>Source code</a3>"
+    }
   },
   "card.heading": {
     "status": "kept",
@@ -3775,9 +3789,19 @@
     "source": "Made by"
   },
   "settings.about.credits": {
-    "status": "promoted",
-    "at": "2026-11-11T03:16:29.798Z",
-    "source": "Directed by <a1>Tyler Hallada</a1> and implemented mostly by <a2>Claude</a2>, Anthropic's AI model. The soundtrack is procedurally generated using a port of <a3>SuperCollider</a3> to the browser.",
+    "status": "flagged",
+    "at": "2026-11-17T05:28:23.405Z",
+    "source": "Developed by <a1>Tyler Hallada</a1> with the AI coding tools <a2>Claude Code</a2> and <a4>Codex</a4>, which wrote most of the code. Nothing you see or hear was made by an image, video or audio AI model: the graphics and sound are generated as you watch by the game's own code. The soundtrack is composed live from the simulation and the cells in view, and played by a custom browser port of <a3>SuperCollider</a3>. Every line of text in the interface was reviewed and edited by hand.",
+    "findings": [
+      {
+        "by": "claude",
+        "kind": "merge",
+        "level": "warn",
+        "msg": "Rewritten by Claude at your request: a tighter AI disclaimer, and Codex is now a link (<a4>; <a2> now goes to Claude Code’s page rather than Claude’s). Edit freely.",
+        "text": "Developed by <a1>Tyler Hallada</a1> with the AI coding tools <a2>Claude Code</a2> and <a4>Codex</a4>, which wrote most of the code. Nothing you see or hear was made by an image, video or audio AI model: the graphics and sound are generated as you watch by the game's own code. The soundtrack is composed live from the simulation and the cells in view, and played by a custom browser port of <a3>SuperCollider</a3>. Every line of text in the interface was reviewed and edited by hand.",
+        "at": "2026-11-17T05:28:23.405Z"
+      }
+    ],
     "prev": [
       {
         "text": "Developed by <a1>Tyler Hallada</a1> using <a2>Claude Code</a2>, and Codex. Most of the code was written using LLMs. Graphics and sounds in this game are procedurally generated from code written by LLMs. No generative image or sound AI model content is used in this game. The soundtrack is a dynamic algorithm that is orchestrated by the state of the simulation and the cells in view, programmed by a custom port of <a3>SuperCollider</a3> for the browser. All text displayed in the UI has been manually reviewed and edited by hand.",
@@ -3812,12 +3836,10 @@
         "at": "2026-11-11T03:13:35.745Z"
       }
     ],
-    "findings": [],
-    "checkedText": "Developed by <a1>Tyler Hallada</a1> using <a2>Claude Code</a2> and Codex. Most of the code was written using LLMs. Graphics and sounds in this game are procedurally generated from code written by LLMs. No generative image or sound AI model content is used in this game. The soundtrack is a dynamic algorithm that is orchestrated by the state of the simulation and the cells in view, programmed by a custom port of <a3>SuperCollider</a3> for the browser. All text displayed in the UI has been manually reviewed and edited by hand.",
-    "checkedAt": "2026-11-14T23:04:38.774Z",
-    "approvedAt": "2026-11-14T23:05:55.165Z",
-    "approvedText": "Developed by <a1>Tyler Hallada</a1> using <a2>Claude Code</a2> and Codex. Most of the code was written using LLMs. Graphics and sounds in this game are procedurally generated from code written by LLMs. No generative image or sound AI model content is used in this game. The soundtrack is a dynamic algorithm that is orchestrated by the state of the simulation and the cells in view, programmed by a custom port of <a3>SuperCollider</a3> for the browser. All text displayed in the UI has been manually reviewed and edited by hand.",
-    "promotedAt": "2026-11-14T23:06:00.821Z"
+    "was": {
+      "status": "promoted",
+      "text": "Developed by <a1>Tyler Hallada</a1> using <a2>Claude Code</a2> and Codex. Most of the code was written using LLMs. Graphics and sounds in this game are procedurally generated from code written by LLMs. No generative image or sound AI model content is used in this game. The soundtrack is a dynamic algorithm that is orchestrated by the state of the simulation and the cells in view, programmed by a custom port of <a3>SuperCollider</a3> for the browser. All text displayed in the UI has been manually reviewed and edited by hand."
+    }
   },
   "settings.about.source": {
     "status": "kept",
@@ -3870,9 +3892,19 @@
     "promotedAt": "2026-11-14T23:06:00.821Z"
   },
   "settings.about.privacy": {
-    "status": "promoted",
-    "at": "2026-11-11T03:21:45.632Z",
-    "source": "Everything runs on this device: there is no account and no analytics, and saved worlds stay in this browser.",
+    "status": "flagged",
+    "at": "2026-11-17T05:28:23.405Z",
+    "source": "{app, select, desktop {Everything runs on this computer: there is no account and no analytics. Saved worlds are files on this computer, kept in Steam Cloud too when it is on for your account.} other {Everything runs on this device: there is no account and no analytics. Saved worlds stay in this browser unless you download them.}}",
+    "findings": [
+      {
+        "by": "claude",
+        "kind": "merge",
+        "level": "warn",
+        "msg": "Now has a desktop variant ({app} is desktop in the Steam app, where saves are files kept in Steam Cloud); other is the browser’s. If you add Sentry, both need to say what it sends.",
+        "text": "{app, select, desktop {Everything runs on this computer: there is no account and no analytics. Saved worlds are files on this computer, kept in Steam Cloud too when it is on for your account.} other {Everything runs on this device: there is no account and no analytics. Saved worlds stay in this browser unless you download them.}}",
+        "at": "2026-11-17T05:28:23.405Z"
+      }
+    ],
     "prev": [
       {
         "text": "Everything runs on this device: there is no account and no analytics. Saved worlds are stored locally unless downloaded or synced to Steam Cli.",
@@ -3907,12 +3939,10 @@
         "at": "2026-11-11T03:20:07.459Z"
       }
     ],
-    "findings": [],
-    "checkedText": "Everything runs on this device: there is no account and no analytics. Saved worlds are stored locally unless downloaded or synced to Steam Cloud.",
-    "checkedAt": "2026-11-14T23:04:38.774Z",
-    "approvedAt": "2026-11-14T23:05:55.165Z",
-    "approvedText": "Everything runs on this device: there is no account and no analytics. Saved worlds are stored locally unless downloaded or synced to Steam Cloud.",
-    "promotedAt": "2026-11-14T23:06:00.821Z"
+    "was": {
+      "status": "promoted",
+      "text": "Everything runs on this device: there is no account and no analytics. Saved worlds are stored locally unless downloaded or synced to Steam Cloud."
+    }
   },
   "settings.keys-note": {
     "status": "kept",
@@ -11756,28 +11786,23 @@
     "source": "GPU time one simulation step takes."
   },
   "gloss.saves": {
-    "status": "promoted",
-    "at": "2026-11-17T05:06:12.967Z",
-    "source": "A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download one to keep it safe or to open it on another device.",
+    "status": "flagged",
+    "at": "2026-11-17T05:28:23.405Z",
+    "source": "{app, select, desktop {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves are files on this computer, kept in Steam Cloud too when it is on for your account; download one to open it elsewhere, such as in a browser.} other {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download one to keep it safe or to open it on another device.}}",
     "findings": [
       {
-        "by": "harper",
-        "kind": "style",
-        "level": "info",
-        "msg": "An Oxford comma is necessary here. (“history”; perhaps “,”)",
-        "text": "A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download one to keep it safe or to open it on another device.",
-        "at": "2026-11-14T23:04:38.774Z",
-        "stale": true,
-        "resolved": true,
-        "reply": "fixed",
-        "answeredAt": "2026-11-17T05:06:12.070Z"
+        "by": "claude",
+        "kind": "merge",
+        "level": "warn",
+        "msg": "Now has a desktop variant ({app} is desktop in the Steam app, where saves are files kept in Steam Cloud); other is the browser’s, as you edited it.",
+        "text": "{app, select, desktop {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves are files on this computer, kept in Steam Cloud too when it is on for your account; download one to open it elsewhere, such as in a browser.} other {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download one to keep it safe or to open it on another device.}}",
+        "at": "2026-11-17T05:28:23.405Z"
       }
     ],
-    "checkedText": "A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download one to keep it safe or to open it on another device.",
-    "checkedAt": "2026-11-17T05:14:06.454Z",
-    "approvedAt": "2026-11-17T05:16:35.614Z",
-    "approvedText": "A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download one to keep it safe or to open it on another device.",
-    "promotedAt": "2026-11-17T05:16:42.392Z"
+    "was": {
+      "status": "promoted",
+      "text": "A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download one to keep it safe or to open it on another device."
+    }
   },
   "gloss.profile": {
     "status": "promoted",
@@ -20319,9 +20344,23 @@
     "source": "{n, plural, =0 {} =1 {} other {lineage of # species · }}arose {born}{alive, select, yes {} other { · extinct}}{then, select, yes { · {name} at {t}} other {}}{explore, select, yes { · click to explore it} other {}}"
   },
   "loader.kind-short.photosynth": {
-    "status": "kept",
-    "at": "2026-11-17T04:44:58.096Z",
-    "source": "PHOTO"
+    "status": "flagged",
+    "at": "2026-11-17T05:28:23.405Z",
+    "source": "PROD",
+    "findings": [
+      {
+        "by": "claude",
+        "kind": "merge",
+        "level": "warn",
+        "msg": "Changed at your request (photosynth → producer everywhere): the loader’s short label was PHOTO, now PROD, to match PRED and SCAV.",
+        "text": "PROD",
+        "at": "2026-11-17T05:28:23.405Z"
+      }
+    ],
+    "was": {
+      "status": "kept",
+      "text": "PHOTO"
+    }
   },
   "loader.kind.grazer": {
     "status": "kept",

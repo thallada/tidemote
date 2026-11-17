@@ -305,17 +305,16 @@ body:not(.live) .hud { opacity: 0; }
 /* the rail's Hand chip: this world has been touched */
 
 /* the speed ladder: every speed on offer, fastest at the top */
-.ladder { position: fixed; z-index: 8; width: 210px; padding: var(--s2) 10px var(--s2); display: flex; flex-direction: column; touch-action: none; user-select: none; }
+.ladder { position: fixed; z-index: 8; width: max-content; min-width: 104px; padding: var(--s2) 10px var(--s2); display: flex; flex-direction: column; touch-action: none; user-select: none; }
 .ladder .sub-h { padding-bottom: var(--s2); margin-bottom: var(--s1); border-bottom: 1px solid var(--line); }
 .ladder-t { color: var(--cyan); }
-.rung { display: grid; grid-template-columns: 22px 3.6em 1fr; align-items: center; gap: 6px; height: 28px; border: 0; text-align: left; color: var(--ink-2); }
+.rung { display: grid; grid-template-columns: 22px 3.6em; align-items: center; gap: 6px; height: 28px; border: 0; text-align: left; color: var(--ink-2); }
 .rung i { height: 1px; background: var(--line-2); width: 10px; }
 .rung b { text-align: right; font-weight: 400; font-size: 13px; color: var(--ink); }
-.rung span { font-size: 11px; color: var(--ink-3); letter-spacing: .04em; }
 .rung:hover b, .rung:focus-visible b { color: var(--sun); }
 .rung[aria-selected="true"] { box-shadow: inset 2px 0 0 var(--sun); }
 .rung[aria-selected="true"] i { background: var(--sun); width: 20px; }
-.rung[aria-selected="true"] b, .rung[aria-selected="true"] span { color: var(--sun); }
+.rung[aria-selected="true"] b { color: var(--sun); }
 
 /* the Bench drawer: rises above the dock between the side columns */
 .bench { position: fixed; z-index: 5; left: 0; right: 0; bottom: var(--bot); padding: var(--s3) calc(var(--gut) + var(--safe-r)) var(--s3) calc(var(--gut) + var(--safe-l));
@@ -1436,7 +1435,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .bench-hint { white-space: normal; }
   .reach { grid-template-columns: 4.6em 1fr 4.6em; height: 36px; }
   .reach input { height: 32px; }
-  .ladder { width: 220px; }
+  .ladder { min-width: 120px; }
   .bench-tools { flex: none; }
   .bench-pip { padding-left: 0; border-left: 0; flex-basis: auto; }
   .rung { height: 36px; }

@@ -1,31 +1,27 @@
 // The speed ladder: the dock's speed chip opens every speed on offer as a stop on a ticked rule, fastest at the
-// top, the current one bracketed in the sun color with what it means. Held, the chip opens it at once and a drag up
+// top, the current one bracketed in the sun color. Held, the chip opens it at once and a drag up
 // or down moves along it, a speed a rung (held at the screen's edge, on along it a rung at a time, until it ends or
 // the drag turns back); let go, that speed. Open, a drag or the wheel on it moves along it too. A speed tapped, the
 // chip tapped again, or a tap anywhere else closes it; a double tap on the chip is real time.
 // Built afresh only when its speeds, or the one marked, change.
 import { tr } from './i18n.js';
 
-// i18n: what a speed on the speed ladder means, beside it: Max, the fastest drawn every frame, the first in coarse steps,
-// ×1 and the slowest
-const MEANING = new Map([[Infinity, tr('ladder.meaning.max', 'as fast as it runs')], ['fast', tr('ladder.meaning.fast', 'drawn every frame')],
-  [1, tr('ladder.meaning.real', 'real time')], [0.25, tr('ladder.meaning.slow', 'slow motion')]]), COARSE = tr('ladder.meaning.coarse', 'coarse steps');
 const HOLD = 300; // a press on the chip held this long (ms) opens the ladder to drag along
 const EDGE = 16; // a drag held this near the screen's top or bottom (px) ...
 const CREEP = 220; // ... goes on along the ladder a rung every this many ms
 
 /** chip, el: the dock's speed button and the ladder's element; choices() the stops on offer, slowest first; current()
  * the stop now; fmt(v) names one; pick(v, quiet) sets one (quiet: without a word, as the ladder shows it); real() goes
- * back to real time; coarse() the slowest stop that runs in coarse steps on this device now, or null. */
-export function createLadder({ chip, el, choices, current, fmt, pick, real, coarse = () => null }) {
+ * back to real time. */
+export function createLadder({ chip, el, choices, current, fmt, pick, real }) {
   let lastTap = 0, drawn = '', drag = null, wheel = 0, swallowed = 0;
   function render(marked = current()) {
-    const list = choices(), c = coarse(), key = `${marked}|${list}|${c}`;
+    const list = choices(), key = `${marked}|${list}`;
     if (key === drawn) return;
     drawn = key;
-    // i18n: the speed ladder's heading, and a note beside it: a double tap on the speed button goes back to real time
-    el.innerHTML = `<div class="sub-h"><span class="ladder-t">${tr('ladder.title', 'Speed')}</span><span class="sub-a">${tr('ladder.double-tap', 'double-tap: ×1')}</span></div>`
-      + [...list].reverse().map((v) => `<button type="button" role="option" class="rung" data-v="${v}" aria-selected="${v === marked}"><i aria-hidden="true"></i><b>${fmt(v)}</b><span>${v === c ? COARSE : MEANING.get(v) || ''}</span></button>`).join('');
+    // i18n: the speed ladder's heading
+    el.innerHTML = `<div class="sub-h"><span class="ladder-t">${tr('ladder.title', 'Speed')}</span></div>`
+      + [...list].reverse().map((v) => `<button type="button" role="option" class="rung" data-v="${v}" aria-selected="${v === marked}"><i aria-hidden="true"></i><b>${fmt(v)}</b></button>`).join('');
   }
   function toggle(on = el.hidden) {
     if (on) {

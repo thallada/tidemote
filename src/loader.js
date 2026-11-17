@@ -13,7 +13,7 @@ const C = {
 // the guilds' tints, muted (photosynth, grazer, predator, scavenger)
 // i18n: the intro's loading animation: a specimen's kind in its readout, in capitals, in full on a wide screen,
 // short on a narrow one
-const KINDS = [['#cfe86a', tr('loader.kind.photosynth', 'PRODUCER'), tr('loader.kind-short.photosynth', 'PHOTO')], ['#7fd6df', tr('loader.kind.grazer', 'GRAZER'), tr('loader.kind-short.grazer', 'GRAZER')],
+const KINDS = [['#cfe86a', tr('loader.kind.photosynth', 'PRODUCER'), tr('loader.kind-short.photosynth', 'PROD')], ['#7fd6df', tr('loader.kind.grazer', 'GRAZER'), tr('loader.kind-short.grazer', 'GRAZER')],
   ['#ff8a6a', tr('loader.kind.predator', 'PREDATOR'), tr('loader.kind-short.predator', 'PRED')], ['#c3a2f0', tr('loader.kind.scavenger', 'SCAVENGER'), tr('loader.kind-short.scavenger', 'SCAV')]];
 // i18n: the intro's loading animation's readouts, in capitals (µm a length): a specimen locked onto (its number, cells,
 // size) and the field's (how many particles, the water's temperature, the light)
