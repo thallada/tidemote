@@ -1536,8 +1536,8 @@
     "promotedAt": "2026-11-14T23:06:00.821Z"
   },
   "help.license": {
-    "status": "flagged",
-    "at": "2026-11-17T05:28:23.405Z",
+    "status": "kept",
+    "at": "2026-11-17T05:41:07.160Z",
     "source": "Free software under the <a1>GPL-3.0</a1> · <a2>Source code</a2>",
     "findings": [
       {
@@ -3789,8 +3789,8 @@
     "source": "Made by"
   },
   "settings.about.credits": {
-    "status": "flagged",
-    "at": "2026-11-17T05:28:23.405Z",
+    "status": "promoted",
+    "at": "2026-11-17T05:53:15.581Z",
     "source": "Developed by <a1>Tyler Hallada</a1> with the AI coding tools <a2>Claude Code</a2> and <a4>Codex</a4>, which wrote most of the code. Nothing you see or hear was made by an image, video or audio AI model: the graphics and sound are generated as you watch by the game's own code. The soundtrack is composed live from the simulation and the cells in view, and played by a custom browser port of <a3>SuperCollider</a3>. Every line of text in the interface was reviewed and edited by hand.",
     "findings": [
       {
@@ -3799,47 +3799,53 @@
         "level": "warn",
         "msg": "Rewritten by Claude at your request: a tighter AI disclaimer, and Codex is now a link (<a4>; <a2> now goes to Claude Code’s page rather than Claude’s). Edit freely.",
         "text": "Developed by <a1>Tyler Hallada</a1> with the AI coding tools <a2>Claude Code</a2> and <a4>Codex</a4>, which wrote most of the code. Nothing you see or hear was made by an image, video or audio AI model: the graphics and sound are generated as you watch by the game's own code. The soundtrack is composed live from the simulation and the cells in view, and played by a custom browser port of <a3>SuperCollider</a3>. Every line of text in the interface was reviewed and edited by hand.",
-        "at": "2026-11-17T05:28:23.405Z"
+        "at": "2026-11-17T05:28:23.405Z",
+        "stale": true
       }
     ],
     "prev": [
       {
-        "text": "Developed by <a1>Tyler Hallada</a1> using <a2>Claude Code</a2>, and Codex. Most of the code was written using LLMs. Graphics and sounds in this game are procedurally generated from code written by LLMs. No generative image or sound AI model content is used in this game. The soundtrack is a dynamic algorithm that is orchestrated by the state of the simulation and the cells in view, programmed by a custom port of <a3>SuperCollider</a3> for the browser. All text displayed in the UI has been manually reviewed and edited by hand.",
-        "at": "2026-11-11T03:15:03.845Z"
+        "text": "Developed by <a1>Tyler Hallada</a1> with AI coding tools (<a2>Claude Code</a2> and <a4>Codex</a4>), which wrote most of the code. Graphics and sounds in this game are procedurally generated from code. No generative image, video, or sound AI model content is used in this game. The soundtrack is composed live from the simulation and the cells in view, played in a custom browser port of <a3>SuperCollider</a3>. Every line of text in the interface was reviewed and edited by hand.\n",
+        "at": "2026-11-17T05:52:04.405Z"
       },
       {
-        "text": "Developed by <a1>Tyler Hallada</a1> using <a2>Claude Code</a2>, Anthropic's AI model. Most of the code was written using LLMs. Graphics and sounds in this game are procedurally generated from code written by LLMs. No generative image or sound AI model content is used in this game. The soundtrack is a dynamic algorithm that is orchestrated by the state of the simulation and the cells in view, programmed by a custom port of <a3>SuperCollider</a3> for the browser. All text displayed in the UI has been manually reviewed and edited by hand.",
-        "at": "2026-11-11T03:14:58.770Z"
+        "text": "Developed by <a1>Tyler Hallada</a1> with AI coding tools (<a2>Claude Code</a2> and <a4>Codex</a4>), which wrote most of the code. Graphics and sounds in this game are procedurally generated from code. No generative image, video, or sound AI model content is used in this game. The soundtrack is composed live from the simulation and the cells in view, played in a custom browser port of <a3>SuperCollider</a3>. Every line of text in the interface was reviewed and edited by hand.\n\n",
+        "at": "2026-11-17T05:52:03.197Z"
       },
       {
-        "text": "Developed by <a1>Tyler Hallada</a1> using <a2>Claude</a2>, Anthropic's AI model. Most of the code was written using LLMs. Graphics and sounds in this game are procedurally generated from code written by LLMs. No generative image or sound AI model content is used in this game. The soundtrack is a dynamic algorithm that is orchestrated by the state of the simulation and the cells in view, programmed by a custom port of <a3>SuperCollider</a3> for the browser. All text displayed in the UI has been manually reviewed and edited by hand.",
-        "at": "2026-11-11T03:14:11.528Z"
+        "text": "Developed by <a1>Tyler Hallada</a1> with AI coding tools (<a2>Claude Code</a2> and <a4>Codex</a4>), which wrote most of the code. Graphics and sounds in this game are procedurally generated from code. No generative image, video, or sound AI model content is used in this game. The soundtrack is composed live from the simulation and the cells in view, played in a custom browser port of <a3>SuperCollider</a3>. Every line of text in the interface was reviewed and edited by hand.\n",
+        "at": "2026-11-17T05:52:02.711Z"
       },
       {
-        "text": "Developed by <a1>Tyler Hallada</a1> using <a2>Claude</a2>, Anthropic's AI model. Most of the code was written using LLMs. Graphics and sounds in this game are procedurally generated from code written by LLMs. No generative image or sound AI model content is used in this game. The soundtrack is a dynamic algorithm that is orchestrated by the cells in view, programmed by a custom port of <a3>SuperCollider</a3> for the browser. All text displayed in the UI has been manually reviewed and edited by hand.",
-        "at": "2026-11-11T03:13:43.361Z"
+        "text": "Developed by <a1>Tyler Hallada</a1> with AI coding tools (<a2>Claude Code</a2> and <a4>Codex</a4>), which wrote most of the code. Graphics and sounds in this game are procedurally generated from code. No generative image, video, or sound AI model content is used in this game. The soundtrack is composed live from the simulation and the cells in view, played in a custom browser port of <a3>SuperCollider</a3>. Every line of text in the interface was reviewed and edited by hand.\n\nNothing you see or hear was made by a generative image, video, or audio AI model: the graphics and sound are generated as you watch by the game's own code. The soundtrack is composed live from the simulation and the cells in view, and played by a custom browser port of <a3>SuperCollider</a3>. Every line of text in the interface was reviewed and edited by hand.",
+        "at": "2026-11-17T05:51:34.527Z"
       },
       {
-        "text": "Developed by <a1>Tyler Hallada</a1> using <a2>Claude</a2>, Anthropic's AI model. Most of the code was written using LLMs. Graphics and sounds in this game are procedurally generated from code written by LLMs. No generative image or sound AI model content is used in this game. The soundtrack is a dynamic algorithm that is orchestrated by the cells in view programmed by a custom port of <a3>SuperCollider</a3> for the browser. All text displayed in the UI has been manually reviewed and edited by hand.",
-        "at": "2026-11-11T03:13:42.901Z"
+        "text": "Developed by <a1>Tyler Hallada</a1> with AI coding tools (<a2>Claude Code</a2> and <a4>Codex</a4>), which wrote most of the code. Graphics and sounds in this game are procedurally generated from code. No generative image, video, or sound AI model content is used in this game. The soundtrack is composed live from the simulation and the cells in view, played in a custom browser port of <a3>SuperCollider</a3>. All text displayed in the interface has been manually reviewed and edited by hand.\n\nNothing you see or hear was made by a generative image, video, or audio AI model: the graphics and sound are generated as you watch by the game's own code. The soundtrack is composed live from the simulation and the cells in view, and played by a custom browser port of <a3>SuperCollider</a3>. Every line of text in the interface was reviewed and edited by hand.",
+        "at": "2026-11-17T05:51:00.504Z"
       },
       {
-        "text": "Developed by <a1>Tyler Hallada</a1> using <a2>Claude</a2>, Anthropic's AI model. Most of the code was written using LLMs. Graphics and sounds in this game are procedurally generated from code written by LLMs. No generative image or sound AI model content is used in this game. The soundtrack is a dynamic algorithm that is orchestrated by the cells in view and programmed by a custom port of <a3>SuperCollider</a3> for the browser. All text displayed in the UI has been manually reviewed and edited by hand.",
-        "at": "2026-11-11T03:13:39.801Z"
+        "text": "Developed by <a1>Tyler Hallada</a1> with AI coding tools (<a2>Claude Code</a2> and <a4>Codex</a4>), which wrote most of the code. Graphics and sounds in this game are procedurally generated from code. No generative image, video, or sound AI model content is used in this game. The soundtrack is composed live from the simulation and the cells in view, played in a custom browser port of <a3>SuperCollider</a3>. All text displayed in the interfa has been manually reviewed and edited by hand.\n\nNothing you see or hear was made by a generative image, video, or audio AI model: the graphics and sound are generated as you watch by the game's own code. The soundtrack is composed live from the simulation and the cells in view, and played by a custom browser port of <a3>SuperCollider</a3>. Every line of text in the interface was reviewed and edited by hand.",
+        "at": "2026-11-17T05:50:59.634Z"
       },
       {
-        "text": "Developed by <a1>Tyler Hallada</a1> using <a2>Claude</a2>, Anthropic's AI model. Most of the code was written using LLMs. Graphics and sounds in this game are procedurally generated from code written by LLMs. No generative image or sound AI model content is used in this game. The soundtrack is a dynamic algorithm that is orchestrated by the cells in view programmed by a custom port of <a3>SuperCollider</a3> for the browser. All text displayed in the UI has been manually reviewed and edited by hand.",
-        "at": "2026-11-11T03:13:37.914Z"
+        "text": "Developed by <a1>Tyler Hallada</a1> with AI coding tools (<a2>Claude Code</a2> and <a4>Codex</a4>), which wrote most of the code. Graphics and sounds in this game are procedurally generated from code. No generative image, video, or sound AI model content is used in this game. The soundtrack is composed live from the simulation and the cells in view, played in a custom browser port of <a3>SuperCollider</a3>. All text displayed in the inter has been manually reviewed and edited by hand.\n\nNothing you see or hear was made by a generative image, video, or audio AI model: the graphics and sound are generated as you watch by the game's own code. The soundtrack is composed live from the simulation and the cells in view, and played by a custom browser port of <a3>SuperCollider</a3>. Every line of text in the interface was reviewed and edited by hand.",
+        "at": "2026-11-17T05:50:58.756Z"
       },
       {
-        "text": "Developed by <a1>Tyler Hallada</a1> using <a2>Claude</a2>, Anthropic's AI model. Most of the code was written using LLMs. Graphics and sounds in this game are procedurally generated from code written by LLMs. No generative image or sound AI model content is used in this game. The soundtrack is a dynamic algorithm that is orchestrated by the cells in  programmed by a custom port of <a3>SuperCollider</a3> for the browser. All text displayed in the UI has been manually reviewed and edited by hand.",
-        "at": "2026-11-11T03:13:35.745Z"
+        "text": "Developed by <a1>Tyler Hallada</a1> with AI coding tools (<a2>Claude Code</a2> and <a4>Codex</a4>), which wrote most of the code. Graphics and sounds in this game are procedurally generated from code. No generative image, video, or sound AI model content is used in this game. The soundtrack is composed live from the simulation and the cells in view, played in a custom browser port of <a3>SuperCollider</a3>. All text displayed in the in has been manually reviewed and edited by hand.\n\nNothing you see or hear was made by a generative image, video, or audio AI model: the graphics and sound are generated as you watch by the game's own code. The soundtrack is composed live from the simulation and the cells in view, and played by a custom browser port of <a3>SuperCollider</a3>. Every line of text in the interface was reviewed and edited by hand.",
+        "at": "2026-11-17T05:50:57.742Z"
       }
     ],
     "was": {
       "status": "promoted",
       "text": "Developed by <a1>Tyler Hallada</a1> using <a2>Claude Code</a2> and Codex. Most of the code was written using LLMs. Graphics and sounds in this game are procedurally generated from code written by LLMs. No generative image or sound AI model content is used in this game. The soundtrack is a dynamic algorithm that is orchestrated by the state of the simulation and the cells in view, programmed by a custom port of <a3>SuperCollider</a3> for the browser. All text displayed in the UI has been manually reviewed and edited by hand."
-    }
+    },
+    "checkedText": "Developed by <a1>Tyler Hallada</a1> with AI coding tools (<a2>Claude Code</a2> and <a4>Codex</a4>), which wrote most of the code. Graphics and sounds in this game are procedurally generated from code. No generative image, video, or sound AI model content is used in this game. The soundtrack is composed live from the simulation and the cells in view, played in a custom browser port of <a3>SuperCollider</a3>. Every line of text in the interface was reviewed and edited by hand.",
+    "checkedAt": "2026-11-17T06:08:06.587Z",
+    "approvedAt": "2026-11-17T06:08:14.400Z",
+    "approvedText": "Developed by <a1>Tyler Hallada</a1> with AI coding tools (<a2>Claude Code</a2> and <a4>Codex</a4>), which wrote most of the code. Graphics and sounds in this game are procedurally generated from code. No generative image, video, or sound AI model content is used in this game. The soundtrack is composed live from the simulation and the cells in view, played in a custom browser port of <a3>SuperCollider</a3>. Every line of text in the interface was reviewed and edited by hand.",
+    "promotedAt": "2026-11-17T06:08:15.658Z"
   },
   "settings.about.source": {
     "status": "kept",
@@ -3892,8 +3898,8 @@
     "promotedAt": "2026-11-14T23:06:00.821Z"
   },
   "settings.about.privacy": {
-    "status": "flagged",
-    "at": "2026-11-17T05:28:23.405Z",
+    "status": "promoted",
+    "at": "2026-11-17T05:44:00.213Z",
     "source": "{app, select, desktop {Everything runs on this computer: there is no account and no analytics. Saved worlds are files on this computer, kept in Steam Cloud too when it is on for your account.} other {Everything runs on this device: there is no account and no analytics. Saved worlds stay in this browser unless you download them.}}",
     "findings": [
       {
@@ -3902,47 +3908,53 @@
         "level": "warn",
         "msg": "Now has a desktop variant ({app} is desktop in the Steam app, where saves are files kept in Steam Cloud); other is the browser’s. If you add Sentry, both need to say what it sends.",
         "text": "{app, select, desktop {Everything runs on this computer: there is no account and no analytics. Saved worlds are files on this computer, kept in Steam Cloud too when it is on for your account.} other {Everything runs on this device: there is no account and no analytics. Saved worlds stay in this browser unless you download them.}}",
-        "at": "2026-11-17T05:28:23.405Z"
+        "at": "2026-11-17T05:28:23.405Z",
+        "stale": true
       }
     ],
     "prev": [
       {
-        "text": "Everything runs on this device: there is no account and no analytics. Saved worlds are stored locally unless downloaded or synced to Steam Cli.",
-        "at": "2026-11-11T03:20:54.647Z"
+        "text": "{app, select,desktop {Everything runs on this computer: there is no account and no analytics. Saved worlds are files on this computer and synced  Steam Cloud if connected.}other {Everything runs on this device: there is no account and no analytics. Saved worlds stay in this browser unless you download them.}}",
+        "at": "2026-11-17T05:43:01.627Z"
       },
       {
-        "text": "Everything runs on this device: there is no account and no analytics. Saved worlds are stored locally unless downloaded or synced to Steam.",
-        "at": "2026-11-11T03:20:24.332Z"
+        "text": "{app, select,desktop {Everything runs on this computer: there is no account and no analytics. Saved worlds are files on this computer and sy Steam Cloud if connected.}other {Everything runs on this device: there is no account and no analytics. Saved worlds stay in this browser unless you download them.}}",
+        "at": "2026-11-17T05:42:59.786Z"
       },
       {
-        "text": "Everything runs on this device: there is no account and no analytics. Saved worlds are stored locally unless downloaded or synced to S",
-        "at": "2026-11-11T03:20:22.512Z"
+        "text": "{app, select,desktop {Everything runs on this computer: there is no account and no analytics. Saved worlds are files on this computer and Steam Cloud if connected.}other {Everything runs on this device: there is no account and no analytics. Saved worlds stay in this browser unless you download them.}}",
+        "at": "2026-11-17T05:42:51.500Z"
       },
       {
-        "text": "Everything runs on this device: there is no account and no analytics. Saved worlds are stored locally unless downloaded or synced to ",
-        "at": "2026-11-11T03:20:21.261Z"
+        "text": "{app, select,desktop {Everything runs on this computer: there is no account and no analytics. Saved worlds are files on this computer and Steam Cloud i connected.}other {Everything runs on this device: there is no account and no analytics. Saved worlds stay in this browser unless you download them.}}",
+        "at": "2026-11-17T05:42:50.841Z"
       },
       {
-        "text": "Everything runs on this device: there is no account and no analytics. Saved worlds are stored locally unless downloaded or synced",
-        "at": "2026-11-11T03:20:19.164Z"
+        "text": "{app, select,desktop {Everything runs on this computer: there is no account and no analytics. Saved worlds are files on this computer and Steam Cloud  connected.}other {Everything runs on this device: there is no account and no analytics. Saved worlds stay in this browser unless you download them.}}",
+        "at": "2026-11-17T05:42:50.093Z"
       },
       {
-        "text": "Everything runs on this device: there is no account and no analytics. Saved worlds are stored locally in the browser unless downloaded or synced",
-        "at": "2026-11-11T03:20:17.598Z"
+        "text": "{app, select,desktop {Everything runs on this computer: there is no account and no analytics. Saved worlds are files on this computer and Steam Cloud too when connected.}other {Everything runs on this device: there is no account and no analytics. Saved worlds stay in this browser unless you download them.}}",
+        "at": "2026-11-17T05:42:44.434Z"
       },
       {
-        "text": "Everything runs on this device: there is no account and no analytics. Saved worlds are stored locally in the browser/ unless downloaded or synced",
-        "at": "2026-11-11T03:20:10.473Z"
+        "text": "{app, select,desktop {Everything runs on this computer: there is no account and no analytics. Saved worlds are files on this computer and/or Steam Cloud too when connected.}other {Everything runs on this device: there is no account and no analytics. Saved worlds stay in this browser unless you download them.}}",
+        "at": "2026-11-17T05:42:38.200Z"
       },
       {
-        "text": "Everything runs on this device: there is no account and no analytics. Saved worlds are stored locally in the browser unless downloaded or synced",
-        "at": "2026-11-11T03:20:07.459Z"
+        "text": "{app, select,desktop {Everything runs on this computer: there is no account and no analytics. Saved worlds are files on this computer and/or Steam Cloud too when connected}other {Everything runs on this device: there is no account and no analytics. Saved worlds stay in this browser unless you download them.}}",
+        "at": "2026-11-17T05:42:37.439Z"
       }
     ],
     "was": {
       "status": "promoted",
       "text": "Everything runs on this device: there is no account and no analytics. Saved worlds are stored locally unless downloaded or synced to Steam Cloud."
-    }
+    },
+    "checkedText": "{app, select,desktop {Everything runs on this computer: there is no account and no analytics. Saved worlds are files on this computer and synced to Steam Cloud if connected.}other {Everything runs on this device: there is no account and no analytics. Saved worlds stay in this browser unless you download them.}}",
+    "checkedAt": "2026-11-17T06:08:06.587Z",
+    "approvedAt": "2026-11-17T06:08:14.400Z",
+    "approvedText": "{app, select,desktop {Everything runs on this computer: there is no account and no analytics. Saved worlds are files on this computer and synced to Steam Cloud if connected.}other {Everything runs on this device: there is no account and no analytics. Saved worlds stay in this browser unless you download them.}}",
+    "promotedAt": "2026-11-17T06:08:15.658Z"
   },
   "settings.keys-note": {
     "status": "kept",
@@ -11786,8 +11798,8 @@
     "source": "GPU time one simulation step takes."
   },
   "gloss.saves": {
-    "status": "flagged",
-    "at": "2026-11-17T05:28:23.405Z",
+    "status": "promoted",
+    "at": "2026-11-17T05:57:03.561Z",
     "source": "{app, select, desktop {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves are files on this computer, kept in Steam Cloud too when it is on for your account; download one to open it elsewhere, such as in a browser.} other {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download one to keep it safe or to open it on another device.}}",
     "findings": [
       {
@@ -11796,13 +11808,53 @@
         "level": "warn",
         "msg": "Now has a desktop variant ({app} is desktop in the Steam app, where saves are files kept in Steam Cloud); other is the browser’s, as you edited it.",
         "text": "{app, select, desktop {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves are files on this computer, kept in Steam Cloud too when it is on for your account; download one to open it elsewhere, such as in a browser.} other {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download one to keep it safe or to open it on another device.}}",
-        "at": "2026-11-17T05:28:23.405Z"
+        "at": "2026-11-17T05:28:23.405Z",
+        "stale": true
       }
     ],
     "was": {
       "status": "promoted",
       "text": "A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download one to keep it safe or to open it on another device."
-    }
+    },
+    "prev": [
+      {
+        "text": "{app, select,desktop {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves are files on this computer, and are synced to Steam Cloud when connected. Download saves to open them on another .}other {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download saves to keep them safe or to open them on another device.}}",
+        "at": "2026-11-17T05:56:39.678Z"
+      },
+      {
+        "text": "{app, select,desktop {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves are files on this computer, and are synced to Steam Cloud when connected. Download saves to open them on an.}other {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download saves to keep them safe or to open them on another device.}}",
+        "at": "2026-11-17T05:56:38.305Z"
+      },
+      {
+        "text": "{app, select,desktop {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves are files on this computer, and are synced to Steam Cloud when connected. Download saves to open them on.}other {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download saves to keep them safe or to open them on another device.}}",
+        "at": "2026-11-17T05:56:37.150Z"
+      },
+      {
+        "text": "{app, select,desktop {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves are files on this computer, and are synced to Steam Cloud when connected. Download saves to open them elsewhere, such as in a browser.}other {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download saves to keep them safe or to open them on another device.}}",
+        "at": "2026-11-17T05:56:29.550Z"
+      },
+      {
+        "text": "{app, select,desktop {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves are files on this computer, and are synced to Steam Cloud when connected. Download saves to open them elsewhere, such as in a browser.}other {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download saves to keep them safe or to open on another device.}}",
+        "at": "2026-11-17T05:56:27.953Z"
+      },
+      {
+        "text": "{app, select,desktop {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves are files on this computer, and are synced to Steam Cloud when connected. Download saves to open them elsewhere, such as in a browser.}other {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download saves to keep them safe or to open it on another device.}}",
+        "at": "2026-11-17T05:56:25.457Z"
+      },
+      {
+        "text": "{app, select,desktop {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves are files on this computer, and are synced to Steam Cloud when connected. Download saves to open them elsewhere, such as in a browser.}other {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download saves to keep isafe or to open it on another device.}}",
+        "at": "2026-11-17T05:56:23.624Z"
+      },
+      {
+        "text": "{app, select,desktop {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves are files on this computer, and are synced to Steam Cloud when connected. Download saves to open them elsewhere, such as in a browser.}other {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download saves to keep it safe or to open it on another device.}}",
+        "at": "2026-11-17T05:56:17.318Z"
+      }
+    ],
+    "checkedText": "{app, select,desktop {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves are files on this computer, and are synced to Steam Cloud when connected. Download saves to open them on another device.}other {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download saves to keep them safe or to open them on another device.}}",
+    "checkedAt": "2026-11-17T06:08:06.587Z",
+    "approvedAt": "2026-11-17T06:08:14.400Z",
+    "approvedText": "{app, select,desktop {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves are files on this computer, and are synced to Steam Cloud when connected. Download saves to open them on another device.}other {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download saves to keep them safe or to open them on another device.}}",
+    "promotedAt": "2026-11-17T06:08:15.658Z"
   },
   "gloss.profile": {
     "status": "promoted",
@@ -13980,10 +14032,22 @@
     "promotedAt": "2026-11-17T05:16:42.392Z"
   },
   "gloss.instrument": {
-    "status": "flagged",
-    "at": "2026-11-15T19:45:16.128Z",
+    "status": "promoted",
+    "at": "2026-11-17T05:59:09.020Z",
     "source": "The instrument a species sings with: its family follows how it lives, its exact voice and timbre its color.",
     "prev": [
+      {
+        "text": "The instrument a species sings with. Its family is picked by how the species lives (preda, grazer, producer, scavenger), and its exact voice and timbre by its color.",
+        "at": "2026-11-17T05:58:21.488Z"
+      },
+      {
+        "text": "The instrument a species sings with. Its family is picked by how the species lives (hunter, grazer, producer, scavenger), and its exact voice and timbre by its color.",
+        "at": "2026-11-17T05:58:01.823Z"
+      },
+      {
+        "text": "The instrument a species sings with. Picked by how its family lives (hunter, grazer, producer scavenger). Its exact voice and timbre is determined by its color.",
+        "at": "2026-11-15T19:45:16.128Z"
+      },
       {
         "text": "The instrument a species sings with. Picked by how its family lives (hunter, grazer, producer scavenger). Its exact voice and timbre i color.",
         "at": "2026-11-15T19:44:30.663Z"
@@ -14003,18 +14067,6 @@
       {
         "text": "The instrument a species sings with. Picked by how its family lives (hunter, grazer, producer scavenger, its exact voice and timbre its color.",
         "at": "2026-11-15T19:44:16.762Z"
-      },
-      {
-        "text": "The instrument a species sings with. Picked by how its family lives (hunter, , its exact voice and timbre its color.",
-        "at": "2026-11-15T19:44:10.041Z"
-      },
-      {
-        "text": "The instrument a species sings with. Picked by how its family lives (hunter,, its exact voice and timbre its color.",
-        "at": "2026-11-15T19:44:09.402Z"
-      },
-      {
-        "text": "The instrument a species sings with. Picked by how its family lives (hunter, its exact voice and timbre its color.",
-        "at": "2026-11-15T19:44:08.701Z"
       }
     ],
     "findings": [
@@ -14025,11 +14077,17 @@
         "msg": "The family isn't picked by how its family lives: the species' way of life picks the instrument's family. Also a comma is missing between producer and scavenger. Suggested fix below.",
         "suggest": "The instrument a species sings with. Its family is picked by how the species lives (hunter, grazer, producer, scavenger), and its exact voice and timbre by its color.",
         "text": "The instrument a species sings with. Picked by how its family lives (hunter, grazer, producer scavenger). Its exact voice and timbre is determined by its color.",
-        "at": "2026-11-17T05:16:25.700Z"
+        "at": "2026-11-17T05:16:25.700Z",
+        "resolved": true,
+        "reply": "took the suggestion",
+        "answeredAt": "2026-11-17T05:58:01.362Z"
       }
     ],
-    "checkedText": "The instrument a species sings with. Picked by how its family lives (hunter, grazer, producer scavenger). Its exact voice and timbre is determined by its color.",
-    "checkedAt": "2026-11-17T05:14:06.454Z"
+    "checkedText": "The instrument a species sings with. Its family is picked by how the species lives (predator, grazer, producer, scavenger), and its exact voice and timbre by its color.",
+    "checkedAt": "2026-11-17T06:08:06.587Z",
+    "approvedAt": "2026-11-17T06:08:14.400Z",
+    "approvedText": "The instrument a species sings with. Its family is picked by how the species lives (predator, grazer, producer, scavenger), and its exact voice and timbre by its color.",
+    "promotedAt": "2026-11-17T06:08:15.658Z"
   },
   "gloss.register": {
     "status": "promoted",
@@ -14590,10 +14648,14 @@
     "promotedAt": "2026-11-17T05:16:42.392Z"
   },
   "guide.overview.p2": {
-    "status": "flagged",
-    "at": "2026-11-17T01:24:11.222Z",
+    "status": "promoted",
+    "at": "2026-11-17T06:04:56.012Z",
     "source": "Energy is the only thing that enters and leaves. It arrives as <light>light</light>, brightest in the bands of the <tide>Tide</tide>, and as the heat of oxidizing <framboid>framboids</framboid>. The energy cells spend on <upkeep>upkeep</upkeep> becomes heat that warms their own <water>water</water>, spreads, drifts on the currents and is lost to the deep; husks rot. Everything you see grows out of a handful of local rules applied to every particle 60 times a second.",
     "prev": [
+      {
+        "text": "Energy is the only thing that enters and leaves. The first kind of energy is the <light>light</light>: the pool of water receives a different amount of background light every era, and is brightest in the bands of the <tide>Tide</tide>. The second kind of energy is heat: emitted by oxidizing <framboid>framboids</framboid>, rotting husks, and by the energy cells spend on <upkeep>upkeep</upkeep> which warms the <water>water</water>, spreads, drifts on the currents and is lost to the deep. Everything you see grows out of a handful of local rules applied to every particle many times a second.",
+        "at": "2026-11-17T01:24:11.222Z"
+      },
       {
         "text": "Energy is the only thing that enters and leaves. The first kind of energy is the <light>light</light>: the pool of water receives a different amount of background light every era, and is brightest in the bands of the <tide>Tide</tide>. The second kind of energy is heat: emitted by oxidizing <framboid>framboids</framboid>, rotting husks, and by the energy cells spend on <upkeep>upkeep</upkeep> which warms the <water>water</water>, spreads, drifts on the currents and is lost to the deep. Everything you see grows out of a handful of local rules applied to every particle 60 times a second.",
         "at": "2026-11-17T01:23:20.305Z"
@@ -14621,10 +14683,6 @@
       {
         "text": "Energy is the only thing that enters and leaves. The first kind of energy is the <light>light</light>: the pool of water receives a different amount of background light every era, and is brightest in the bands of the <tide>Tide</tide>. The second kind of energy is heat: emitted by oxidizing <framboid>framboids</framboid> and by the energy cells spend on <upkeep>upkeep</upkeep>that warms the <water>water</water>, spreads, drifts on the currents and is lost to the deep; husks rot. Everything you see grows out of a handful of local rules applied to every particle 60 times a second.",
         "at": "2026-11-17T01:22:50.254Z"
-      },
-      {
-        "text": "Energy is the only thing that enters and leaves. The first kind of energy is the <light>light</light>: the pool of water receives a different amount of background light every era, and is brightest in the bands of the <tide>Tide</tide>. The second kind of energy is heat: emitted by oxidizing <framboid>framboids</framboid> and by the energy cells spend on <upkeep>upkeep</upkeep>that warms the  <water>water</water>, spreads, drifts on the currents and is lost to the deep; husks rot. Everything you see grows out of a handful of local rules applied to every particle 60 times a second.",
-        "at": "2026-11-17T01:22:49.526Z"
       }
     ],
     "findings": [
@@ -14635,11 +14693,17 @@
         "msg": "This now reads as though the heat from upkeep is a second kind of energy entering the world. It isn't: only light and the framboids' heat come in. Upkeep heat is energy already in the world that turns into heat and is lost to the deep. The sentence after the colon is also hard to parse. Suggested fix below.",
         "suggest": "Energy is the only thing that enters and leaves. It enters in two forms. The first is <light>light</light>: the pool receives a different amount of background light every era, and is brightest in the bands of the <tide>Tide</tide>. The second is the heat of oxidizing <framboid>framboids</framboid>. The energy cells spend on <upkeep>upkeep</upkeep> becomes heat too, as does the energy of rotting husks: it warms the <water>water</water>, spreads, drifts on the currents and is lost to the deep. Everything you see grows out of a handful of local rules applied to every particle many times a second.",
         "text": "Energy is the only thing that enters and leaves. The first kind of energy is the <light>light</light>: the pool of water receives a different amount of background light every era, and is brightest in the bands of the <tide>Tide</tide>. The second kind of energy is heat: emitted by oxidizing <framboid>framboids</framboid>, rotting husks, and by the energy cells spend on <upkeep>upkeep</upkeep> which warms the <water>water</water>, spreads, drifts on the currents and is lost to the deep. Everything you see grows out of a handful of local rules applied to every particle many times a second.",
-        "at": "2026-11-17T05:16:26.506Z"
+        "at": "2026-11-17T05:16:26.506Z",
+        "resolved": true,
+        "reply": "took the suggestion",
+        "answeredAt": "2026-11-17T06:03:57.364Z"
       }
     ],
-    "checkedText": "Energy is the only thing that enters and leaves. The first kind of energy is the <light>light</light>: the pool of water receives a different amount of background light every era, and is brightest in the bands of the <tide>Tide</tide>. The second kind of energy is heat: emitted by oxidizing <framboid>framboids</framboid>, rotting husks, and by the energy cells spend on <upkeep>upkeep</upkeep> which warms the <water>water</water>, spreads, drifts on the currents and is lost to the deep. Everything you see grows out of a handful of local rules applied to every particle many times a second.",
-    "checkedAt": "2026-11-17T05:14:06.454Z"
+    "checkedText": "Energy is the only thing that enters and leaves. It enters in two forms. The first is <light>light</light>: the pool receives a different amount of background light every era, and is brightest in the bands of the <tide>Tide</tide>. The second is the heat of oxidizing <framboid>framboids</framboid>. The energy cells spend on <upkeep>upkeep</upkeep> becomes heat too, as does the energy of rotting husks: it warms the <water>water</water>, spreads, drifts on the currents and is lost to the deep. Everything you see grows out of a handful of local rules applied to every particle many times a second.",
+    "checkedAt": "2026-11-17T06:08:06.587Z",
+    "approvedAt": "2026-11-17T06:08:14.400Z",
+    "approvedText": "Energy is the only thing that enters and leaves. It enters in two forms. The first is <light>light</light>: the pool receives a different amount of background light every era, and is brightest in the bands of the <tide>Tide</tide>. The second is the heat of oxidizing <framboid>framboids</framboid>. The energy cells spend on <upkeep>upkeep</upkeep> becomes heat too, as does the energy of rotting husks: it warms the <water>water</water>, spreads, drifts on the currents and is lost to the deep. Everything you see grows out of a handful of local rules applied to every particle many times a second.",
+    "promotedAt": "2026-11-17T06:08:15.658Z"
   },
   "guide.cycle.title": {
     "status": "kept",
@@ -20344,8 +20408,8 @@
     "source": "{n, plural, =0 {} =1 {} other {lineage of # species · }}arose {born}{alive, select, yes {} other { · extinct}}{then, select, yes { · {name} at {t}} other {}}{explore, select, yes { · click to explore it} other {}}"
   },
   "loader.kind-short.photosynth": {
-    "status": "flagged",
-    "at": "2026-11-17T05:28:23.405Z",
+    "status": "promoted",
+    "at": "2026-11-17T06:05:34.651Z",
     "source": "PROD",
     "findings": [
       {
@@ -20354,13 +20418,40 @@
         "level": "warn",
         "msg": "Changed at your request (photosynth → producer everywhere): the loader’s short label was PHOTO, now PROD, to match PRED and SCAV.",
         "text": "PROD",
-        "at": "2026-11-17T05:28:23.405Z"
+        "at": "2026-11-17T05:28:23.405Z",
+        "stale": true,
+        "resolved": true,
+        "reply": "I like photo more here",
+        "answeredAt": "2026-11-17T06:05:33.219Z"
       }
     ],
     "was": {
       "status": "kept",
       "text": "PHOTO"
-    }
+    },
+    "prev": [
+      {
+        "text": "PHOT",
+        "at": "2026-11-17T06:05:16.343Z"
+      },
+      {
+        "text": "PHO",
+        "at": "2026-11-17T06:05:15.534Z"
+      },
+      {
+        "text": "PH",
+        "at": "2026-11-17T06:05:14.655Z"
+      },
+      {
+        "text": "P",
+        "at": "2026-11-17T06:05:13.331Z"
+      }
+    ],
+    "checkedText": "PHOTO",
+    "checkedAt": "2026-11-17T06:08:06.587Z",
+    "approvedAt": "2026-11-17T06:08:14.400Z",
+    "approvedText": "PHOTO",
+    "promotedAt": "2026-11-17T06:08:15.658Z"
   },
   "loader.kind.grazer": {
     "status": "kept",
@@ -21563,5 +21654,55 @@
     "status": "kept",
     "at": "2026-11-17T04:59:17.026Z",
     "source": "The browser refused to store the world."
+  },
+  "settings.display.focus": {
+    "status": "kept",
+    "at": "2026-11-17T05:41:20.635Z",
+    "source": "Focus blur"
+  },
+  "gloss.focusblur": {
+    "status": "promoted",
+    "at": "2026-11-17T06:02:34.165Z",
+    "source": "How much the microscope’s shallow focus softens what lies off its plane: what the passing waves lift out of focus, and a little the edges of the view. Subtle keeps the waves’ blur faint, Strong lets it sweep wide soft bands over the view; Off keeps everything sharp.",
+    "prev": [
+      {
+        "text": "How much the microscope’s shallow focus softens what lies off its plane:  the passing waves lift out of focus, and how much the edges of the view blur. Subtle keeps the waves’ blur faint, Strong lets it sweep wide soft bands over the view; Off keeps everything sharp.",
+        "at": "2026-11-17T06:02:15.504Z"
+      },
+      {
+        "text": "How much the microscope’s shallow focus softens what lies off its plane: how m the passing waves lift out of focus, and how much the edges of the view blur. Subtle keeps the waves’ blur faint, Strong lets it sweep wide soft bands over the view; Off keeps everything sharp.",
+        "at": "2026-11-17T06:02:13.684Z"
+      },
+      {
+        "text": "How much the microscope’s shallow focus softens what lies off its plane: how much the passing waves lift out of focus, and how much the edges of the view blur. Subtle keeps the waves’ blur faint, Strong lets it sweep wide soft bands over the view; Off keeps everything sharp.",
+        "at": "2026-11-17T06:01:50.056Z"
+      },
+      {
+        "text": "How much the microscope’s shallow focus softens what lies off its plane: how  the passing waves lift out of focus, and how much the edges of the view blur. Subtle keeps the waves’ blur faint, Strong lets it sweep wide soft bands over the view; Off keeps everything sharp.",
+        "at": "2026-11-17T06:01:48.341Z"
+      },
+      {
+        "text": "How much the microscope’s shallow focus softens what lies off its plane: what the passing waves lift out of focus, and how much the edges of the view blur. Subtle keeps the waves’ blur faint, Strong lets it sweep wide soft bands over the view; Off keeps everything sharp.",
+        "at": "2026-11-17T06:01:14.126Z"
+      },
+      {
+        "text": "How much the microscope’s shallow focus softens what lies off its plane: what the passing waves lift out of focus, and how muchthe edges of the view blur. Subtle keeps the waves’ blur faint, Strong lets it sweep wide soft bands over the view; Off keeps everything sharp.",
+        "at": "2026-11-17T06:01:13.427Z"
+      },
+      {
+        "text": "How much the microscope’s shallow focus softens what lies off its plane: what the passing waves lift out of focus, and how much at the edges of the view blur. Subtle keeps the waves’ blur faint, Strong lets it sweep wide soft bands over the view; Off keeps everything sharp.",
+        "at": "2026-11-17T06:01:01.717Z"
+      },
+      {
+        "text": "How much the microscope’s shallow focus softens what lies off its plane: what the passing waves lift out of focus, and how much at the edges of the view . Subtle keeps the waves’ blur faint, Strong lets it sweep wide soft bands over the view; Off keeps everything sharp.",
+        "at": "2026-11-17T06:00:59.797Z"
+      }
+    ],
+    "findings": [],
+    "checkedText": "How much the microscope’s shallow focus softens what lies off its plane: what the passing waves lift out of focus, and how much the edges of the view blur. Subtle keeps the waves’ blur faint, Strong lets it sweep wide soft bands over the view; Off keeps everything sharp.",
+    "checkedAt": "2026-11-17T06:08:06.587Z",
+    "approvedAt": "2026-11-17T06:08:14.400Z",
+    "approvedText": "How much the microscope’s shallow focus softens what lies off its plane: what the passing waves lift out of focus, and how much the edges of the view blur. Subtle keeps the waves’ blur faint, Strong lets it sweep wide soft bands over the view; Off keeps everything sharp.",
+    "promotedAt": "2026-11-17T06:08:15.658Z"
   }
 }
