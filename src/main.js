@@ -2325,7 +2325,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // i18n: {n} the most cells the pipette holds
     if (!run) { flash(tr('flash.pipette-full', 'The pipette is full · {n, plural, other {# cells}}', { n: PIPE_LIMIT })); return; }
     // i18n: {name} is a species' name
-    if (at) { startSpit(...at, run); flash(tr('flash.colony-set-down', 'A colony of {name} set down', { name })); } else flash(tr('flash.colony-loaded', 'A colony of {name} in the pipette', { name }));
+    if (at) { startSpit(...at, run); flash(tr('flash.colony-set-down', 'A colony of {name} dispensed', { name })); } else flash(tr('flash.colony-loaded', 'A colony of {name} in the pipette', { name }));
     bench.render();
   }
   // a card arriving from elsewhere: a link's #c=, or a card's PNG dropped on the page
@@ -3924,7 +3924,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const chip = (v, label, on, hint, cls = '') => `<button type="button" class="chip${cls}" data-n="${v}" aria-pressed="${on}" data-hint="${esc(hint)}"${off}>${label}</button>`;
       // i18n: the menu's particle counts, their hints (two lines): Auto, {n} the count measured; a count {n}, past what
       // the GPU drew smoothly ({measured}, short: 64k) or not
-      const autoHint = measuredN ? tr('menu.auto.hint-measured', 'As many as this GPU draws smoothly\nMeasured just now: {n, number}', { n: measuredN }) : tr('menu.auto.hint', 'As many as this GPU draws smoothly\nMeasured as the world starts');
+      const autoHint = measuredN ? tr('menu.auto.hint-measured', 'As many particles as this GPU can draw smoothly\nMeasured just now: {n, number}', { n: measuredN }) : tr('menu.auto.hint', 'As many particles as this GPU can draw smoothly\nMeasured as the world starts');
       const hint = (n) => (heavy(n) ? tr('menu.count.hint-heavy', '{n, plural, other {# particles}}\nMore than this GPU\'s measured capability ({measured})', { n, measured: kfmt(measuredN) }) : tr('menu.count.hint', '{n, plural, other {# particles}}\nPreference is saved as the default for future world starts', { n }));
       return `<div class="menu-h"><span>${tr('menu.new-world', 'Size of new world')}</span><b>${busy === 'n' ? tr('menu.seeding', 'Seeding') : fmt(eng.count)}</b></div>`
         // i18n: the Auto count, with the count measured ({n}, short: 64k)

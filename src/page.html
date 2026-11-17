@@ -149,7 +149,7 @@ Double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-
       <button data-i18n="dock.lab-open" type="button" class="act primary" id="lab-open" aria-label="Field Lab" aria-expanded="false" aria-controls="lab" data-hint="Field Lab · K"><svg><use href="#i-lab"/></svg><span data-i18n="dock.lab-label">Lab</span></button>
     </div>
     <!-- the readout, and the adapting summary's button (main.js): its eased figures in the sun's color while the page eases anything for speed -->
-    <button data-i18n="dock.sys" type="button" class="sys" id="sys" aria-label="Performance readout: what the page adapts, and its settings" aria-controls="settings" data-tip="eased"><span data-i18n="dock.particles"><b id="sys-n" translate="no" class="w-n">–</b> particles</span><span data-i18n="dock.fps"><b id="sys-fps" translate="no" class="w-3">–</b> fps</span><span data-i18n="dock.ms"><b id="sys-ms" translate="no" class="w-4">–</b> ms</span><span data-i18n="dock.res"><b id="sys-res" translate="no" class="w-4">–</b> res</span></button>
+    <button data-i18n="dock.sys" type="button" class="sys" id="sys" aria-label="Performance readout: current adapted settings" aria-controls="settings" data-tip="eased"><span data-i18n="dock.particles"><b id="sys-n" translate="no" class="w-n">–</b> particles</span><span data-i18n="dock.fps"><b id="sys-fps" translate="no" class="w-3">–</b> fps</span><span data-i18n="dock.ms"><b id="sys-ms" translate="no" class="w-4">–</b> ms</span><span data-i18n="dock.res"><b id="sys-res" translate="no" class="w-4">–</b> res</span></button>
   </nav>
 
   <!-- settings: what is shown, and what it costs -->
@@ -299,7 +299,7 @@ Double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-
     <dt>V</dt><dd data-i18n="help.k11">Settings</dd>
     <dt>M · − =</dt><dd data-i18n="help.k12">Sound · volume</dd>
     <dt>T</dt><dd data-i18n="help.k13">Cycle cell trails rendering</dd>
-    <dt>G · E · H · C</dt><dd data-i18n="help.k14">Light map · heat map · tide map (again: no map) · currents</dd>
+    <dt>G · E · H · C</dt><dd data-i18n="help.k14">Light map · heat map · tide map · currents</dd>
     <dt>Y · O</dt><dd data-i18n="help.k15">Toggle: glow · microscope</dd>
     <dt>1–8 · 0</dt><dd data-i18n="help.k16">Swap tools: 1. loupe, 2. touch, 3. lamp, 4. shade, 5. warm, 6. cold, 7. needle, 8. pipette · 0. pan</dd>
     <dt data-i18n="help.k17.keys">B · Esc</dt><dd data-i18n="help.k17">The bench · drop tool</dd>
@@ -322,7 +322,7 @@ Double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-
   <div class="card-row card-btns">
     <button data-i18n="card.inspect" type="button" class="btn" id="card-inspect" hidden data-hint="Open the species in the specimen panel and highlight in world">Inspect in this world</button>
     <button data-i18n="card.save" type="button" class="btn" id="card-save" data-hint="Save the species card to the cabinet (Field Lab → Cabinet), where it persists across new worlds">Save to cabinet</button>
-    <button data-i18n="card.load" type="button" class="btn" id="card-load" data-hint="A colony of it into the pipette, to set down in this world">Load the pipette</button>
+    <button data-i18n="card.load" type="button" class="btn" id="card-load" data-hint="Loads a colony of this species into the pipette tool, so it can be injected into this world">Load the pipette</button>
     <button data-i18n="card.png" type="button" class="btn" id="card-png" data-hint="Save the card as a PNG image">Save as PNG</button>
     <button data-i18n="card.remove" type="button" class="btn" id="card-remove" hidden data-hint="Remove this species card from the cabinet">Remove from cabinet</button>
     <span class="note" id="card-note" role="status"></span>

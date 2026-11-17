@@ -67,7 +67,7 @@ export function encodeCard({ words, name, home, touched = false, body = null }) 
 export function decodeCard(b) {
   // i18n: why a species card (a PNG dropped on the page, or a link) was refused
   if (b.length < 12 || MAGIC.some((m, i) => b[i] !== m)) throw new Error(tr('cabinet.error.not-card', 'This is not a Tidemote species card.'));
-  if (b[4] !== FORMAT || b[5] !== G_WORDS) throw new Error(b[4] > FORMAT ? tr('cabinet.error.newer', 'This card is from a newer Tidemote.') : tr('cabinet.error.older', 'This card is from an older Tidemote, whose genomes this one cannot read.'));
+  if (b[4] !== FORMAT || b[5] !== G_WORDS) throw new Error(b[4] > FORMAT ? tr('cabinet.error.newer', 'This card is from a newer Tidemote.') : tr('cabinet.error.older', 'This card is from an older Tidemote. The genomes from the older version cannot be read.'));
   const dv = new DataView(b.buffer, b.byteOffset, b.byteLength), dec = new TextDecoder();
   let o = 8 + b[7];
   const name = dec.decode(b.subarray(8, o));

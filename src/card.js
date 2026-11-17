@@ -41,7 +41,7 @@ export function cardData(sp, { reg, K, story = null, simTime = 0, founders = 0, 
   // i18n: the three chips under a card's portrait, in capitals: its diet, how it moves, its body
   const tags = [tr('card.tag.diet', '{diet, select, photosynth {PRODUCER} grazer {GRAZER} scavenger {SCAVENGER} predator {PREDATOR} other {{diet}}}', { diet: f.diet }),
     tr('card.tag.motion', '{motion, select, schooling {SCHOOLING} anchored {ANCHORED} crawler {CRAWLER} swimmer {SWIMMER} drifter {DRIFTER} other {{motion}}}', { motion: f.schooling ? 'schooling' : f.mobility }),
-    tr('card.tag.body', '{body, select, types {{n, plural, one {# CELL TYPE} other {# CELL TYPES}}} many {MANY-CELLED} other {SINGLE CELLS}}', { body: f.body === 'multicellular' ? (f.types > 1 ? 'types' : 'many') : 'single', n: f.types })];
+    tr('card.tag.body', '{body, select,types {{n,plural,one{# CELL TYPE} other{# CELL TYPES}}}many {MULTICELLULAR}other {SINGLE CELL}}', { body: f.body === 'multicellular' ? (f.types > 1 ? 'types' : 'many') : 'single', n: f.types })];
   // its body as gauges against the ranges species take (the archetypes' and sparks')
   // i18n: a card's gauges of its body, labeled in capitals
   const body = [

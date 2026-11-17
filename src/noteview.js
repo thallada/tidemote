@@ -1061,7 +1061,7 @@ export function createNoteView(g) {
       const b = d.type === 'hunt' ? pos(d.target) : F.project({ x: d.spot[0], y: d.spot[1], vx: 0, vy: 0, t: M.view.simTime }, -1);
       if (!a || !b) return null;
       // i18n: Live annotations: the verb on the line from a hunter to its kill, or from a scavenger to what it eats
-      const r = F.radius(d.akind), verb = d.type === 'hunt' ? tr('notes.hunt.verb', 'KILL') : tr('notes.scavenge.verb', 'EATS REMAINS');
+      const r = F.radius(d.akind), verb = d.type === 'hunt' ? tr('notes.hunt.verb', 'KILL') : tr('notes.scavenge.verb', 'EATS HUSKS');
       P.tone = d.type === 'hunt' ? HOT : INK;
       const va = verbBox(a, b, verb, 0.18);
       P.draws.push((t) => link(a, b, verb, P.tone, t - 0.3, F.now, 0.18, 9, false, va));
@@ -1072,7 +1072,7 @@ export function createNoteView(g) {
       P.pts = [a, b];
       P.label = d.type === 'hunt'
         // i18n: Live annotations: a hunter's label: its kills in view, the species ({name}) it killed
-        ? { tone: HOT, eye: tr('notes.hunt.eye', 'HUNTER'), num: String(d.kills), main: nm(d.akind), kind: kd(d.akind), data: [tr('notes.hunt.killed', 'KILLED {name}', { name: nm(d.kind) }), tr('notes.hunt.count', 'KILLS IN VIEW · LAST 30 S')], dataKinds: [kd(d.kind), null] }
+        ? { tone: HOT, eye: tr('notes.hunt.eye', 'PREDATOR'), num: String(d.kills), main: nm(d.akind), kind: kd(d.akind), data: [tr('notes.hunt.killed', 'KILLED {name}', { name: nm(d.kind) }), tr('notes.hunt.count', 'KILLS IN VIEW · LAST 30 S')], dataKinds: [kd(d.kind), null] }
         : { tone: INK, eye: tr('notes.scavenge.eye', 'SCAVENGER'), num: String(d.meals), main: nm(d.akind), kind: kd(d.akind), data: [tr('notes.scavenge.data', 'EATS THE REMAINS OF THE DEAD')] };
       if (d.type === 'hunt') P.keys.push({ glyph: 'cross', text: tr('notes.key.killed', 'KILLED'), tone: HOT });
     } else if (d.type === 'graze') {
@@ -1092,7 +1092,7 @@ export function createNoteView(g) {
       P.pts = pts;
       const g2 = sp(d.akind);
       // i18n: Live annotations: a grazer's label (or a hunter's, grazing): its bites on a species ({name}), and how many it grazed to death
-      P.label = { tone: INK, eye: g2?.guild === 'predator' ? tr('notes.hunt.eye', 'HUNTER') : tr('notes.graze.eye', 'GRAZER'), num: String(d.bites), main: nm(d.akind), kind: kd(d.akind),
+      P.label = { tone: INK, eye: g2?.guild === 'predator' ? tr('notes.hunt.eye', 'PREDATOR') : tr('notes.graze.eye', 'GRAZER'), num: String(d.bites), main: nm(d.akind), kind: kd(d.akind),
         data: [tr('notes.graze.bites', 'BITES ON {name} · LAST 30 S', { name: nm(d.kind) }), ...(d.dead ? [tr('notes.graze.dead', '{n} GRAZED TO DEATH', { n: d.dead })] : [])], dataKinds: [kd(d.kind), null] };
       P.keys.push({ glyph: 'plus', text: cellOf(nm(d.akind)), tone: INK });
       if (d.dead) {
@@ -1250,7 +1250,7 @@ export function createNoteView(g) {
       // i18n: Live annotations: a swimming organism ({name} its species, {n} cells, {form} notes.form, {speed} a speed, {heading} notes.compass), or an organism ({size} across)
       P.label = swim
         ? { tone: HOT, eye: tr('notes.swim.eye', 'SWIMMING'), num: d.lengths.toFixed(1), main: tr('notes.swim.main', 'BODY LENGTHS / S'), data: [tr('notes.body.cells', '{name} · {n}-CELL {form}', { name: nm(d.kind), n: d.cells, form }), tr('notes.swim.speed', '{speed} · HEADING {heading}', { speed: fmtLen(d.speed, '/s'), heading: compass(d.heading) })], dataKinds: [kd(d.kind), null] }
-        : { tone: INK, eye: tr('notes.body.eye', 'ORGANISM'), num: String(d.cells), main: tr('notes.body.main', 'CELLS · {name}', { name: nm(d.kind) }), data: [tr('notes.body.data', 'ONE BODY: A {form} {size} ACROSS', { form, size: fmtLen(d.size) }), tr('notes.body.share', '{guild} · BONDED CELLS SHARE WHAT THEY GATHER', { guild: guildUp(g2?.guild) })] };
+        : { tone: INK, eye: tr('notes.body.eye', 'ORGANISM'), num: String(d.cells), main: tr('notes.body.main', 'CELLS · {name}', { name: nm(d.kind) }), data: [tr('notes.body.data', 'ONE BODY: A {form} {size} ACROSS', { form, size: fmtLen(d.size) }), tr('notes.body.share', '{guild} · BONDED CELLS SHARE ENERGY', { guild: guildUp(g2?.guild) })] };
       P.keys.push({ glyph: 'plus', text: tr('notes.key.body', '{name}: ONE BODY', { name: nm(d.kind) }), tone });
     } else if (d.type === 'stalk') {
       // a hunter closing on its quarry: its lock, a dashed line to the quarry with how far it has to go
@@ -1266,7 +1266,7 @@ export function createNoteView(g) {
       P.anchor = [a[0], a[1] - r];
       P.pts = [a, b];
       // i18n: Live annotations: a hunter closing on its quarry ({name} its species), at {speed}
-      P.label = { tone: HOT, eye: tr('notes.stalk.eye', 'HUNTING'), main: nm(d.akind), kind: kd(d.akind), data: [tr('notes.stalk.data', 'CLOSING ON {name}', { name: nm(d.kind) }), tr('notes.stalk.why', 'ITS LAST MEAL WAS ONE OF THEM · {speed}', { speed: fmtLen(d.speed, '/s') })], dataKinds: [kd(d.kind), null] };
+      P.label = { tone: HOT, eye: tr('notes.stalk.eye', 'HUNTING'), main: nm(d.akind), kind: kd(d.akind), data: [tr('notes.stalk.data', 'CLOSING ON {name}', { name: nm(d.kind) }), tr('notes.stalk.why', 'HAS A TASTE FOR THEM · SWIMMING {speed}', { speed: fmtLen(d.speed, '/s') })], dataKinds: [kd(d.kind), null] };
       P.keys.push({ glyph: 'cross', text: tr('notes.key.quarry', 'QUARRY'), tone: INK });
     } else if (d.type === 'web') {
       // the food web: a panel, its species marked in the view by their guild's glyph
@@ -1364,7 +1364,7 @@ export function createNoteView(g) {
       const sp1 = lenParts(d.speed);
       // i18n: Live annotations: the fastest cell in view (its speed's number beside this): its speed's unit a second, its species ({name}); {n} times as fast as most; its heading (notes.compass)
       P.label = { tone: HOT, eye: tr('notes.sprint.eye', 'FASTEST IN VIEW'), num: String(sp1.n), main: tr('notes.sprint.main', '{unit, select, mm {mm} other {µm}}/s · {name}', { unit: sp1.unit, name: nm(d.kind) }),
-        data: [tr('notes.sprint.data', '{n}× AS FAST AS MOST HERE', { n: d.times.toFixed(0) }), tr('notes.heading', 'HEADING {heading}', { heading: compass(d.heading) })] };
+        data: [tr('notes.sprint.data', '{n}× THE TYPICAL SPEED', { n: d.times.toFixed(0) }), tr('notes.heading', 'HEADING {heading}', { heading: compass(d.heading) })] };
     } else if (d.type === 'beat') {
       // a beating body: its cells, brackets, and its beat drawn as an oscillograph at its own rate
       const v = M.view, rows = [];
@@ -1380,7 +1380,7 @@ export function createNoteView(g) {
       const moving = d.lengths >= 0.2;
       // i18n: Live annotations: a beating body: its species ({name}), {n} cells, its form (notes.form); how it beats; how fast it swims ({n} body lengths a second)
       P.label = { tone: HOT, eye: tr('notes.beat.eye', 'BEATING'), num: d.hz.toFixed(1), main: tr('notes.beat.main', 'BEATS / S'), data: [tr('notes.body.cells', '{name} · {n}-CELL {form}', { name: nm(d.kind), n: d.cells, form: formUp(d.form) }),
-        d.tail ? tr('notes.beat.tail', 'ITS TAIL BEATS: A WAVE RUNS DOWN IT') : tr('notes.beat.wave', 'ITS CELLS BEAT IN A WAVE ALONG IT'), moving ? tr('notes.beat.swims', 'IT SWIMS {n} BODY LENGTHS / S', { n: d.lengths.toFixed(1) }) : tr('notes.beat.held', 'BEATING, BUT HELD WHERE IT IS')],
+        d.tail ? tr('notes.beat.tail', 'ITS TAIL BEATS: A WAVE RUNS DOWN IT') : tr('notes.beat.wave', 'ITS CELLS BEAT IN A WAVE'), moving ? tr('notes.beat.swims', 'IT SWIMS {n} BODY LENGTHS / S', { n: d.lengths.toFixed(1) }) : tr('notes.beat.held', 'BEATING, BUT HELD WHERE IT IS')],
         dataKinds: [kd(d.kind), null, null], wave: { hz: d.hz, amp: d.beat } };
       P.keys.push({ glyph: 'plus', text: tr('notes.key.beating', '{name}: ONE BEATING BODY', { name: nm(d.kind) }), tone: HOT });
     } else if (d.type === 'light') {
@@ -1398,7 +1398,7 @@ export function createNoteView(g) {
       // i18n: Live annotations: producers in the brightest water: {pct} of the producers there, in the brightest {pct} of the water, {n} times the view's light; {pct} of those in the dim swimming toward it
       P.label = { tone: SUN, tag: d.seeking >= 0.5 ? tr('notes.light.seeking', 'SEEKING THE LIGHT') : tr('notes.light.basking', 'BASKING'), num: pct(d.share), main: tr('notes.light.main', 'OF THE PRODUCERS'),
         data: [tr('notes.light.area', 'IN THE BRIGHTEST {pct} OF THE WATER', { pct: pct(d.areaShare) }), tr('notes.light.times', "{n}× THE VIEW'S LIGHT THERE", { n: (d.hi / Math.max(d.mean, 1e-3)).toFixed(1) }),
-          ...(d.seeking >= 0.3 ? [tr('notes.light.swim', '{pct} OF THOSE IN THE DIM SWIM TOWARD IT', { pct: pct(d.seeking) })] : []), tr('notes.light.why', 'LIGHT IS WHAT PRODUCERS LIVE ON')] };
+          ...(d.seeking >= 0.3 ? [tr('notes.light.swim', '{pct} OF THOSE IN THE DARK SWIM TOWARD IT', { pct: pct(d.seeking) })] : []), tr('notes.light.why', 'LIGHT IS WHAT PRODUCERS LIVE ON')] };
       P.keys.push({ glyph: 'square', text: tr('notes.key.brightest', 'THE BRIGHTEST WATER IN VIEW'), tone: SUN });
     } else if (d.type === 'shelter') {
       // shelter among stone: the stone's patches, the cells among them

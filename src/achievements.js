@@ -8,9 +8,9 @@ import { tr } from './i18n.js';
 
 export const ACHIEVEMENTS = [
   // the chronicler's firsts (detectFirsts: told at most once a world, after its first minutes)
-  { id: 'FIRST_MULTI', name: tr('ach.first-multi.name', 'Many Hands'), desc: tr('ach.first-multi.desc', 'Witness the first many-celled organism in a world.'), story: (s) => s.key === 'first:multi' },
+  { id: 'FIRST_MULTI', name: tr('ach.first-multi.name', 'Many Hands'), desc: tr('ach.first-multi.desc', 'Witness the first multicellular organism in a world.'), story: (s) => s.key === 'first:multi' },
   { id: 'FIRST_TREE', name: tr('ach.first-tree.name', 'Branching Out'), desc: tr('ach.first-tree.desc', 'Witness the first species to grow as a branching tree.'), story: (s) => s.key === 'first:tree' },
-  { id: 'FIRST_SWIMMER', name: tr('ach.first-swimmer.name', 'Open Water'), desc: tr('ach.first-swimmer.desc', 'Witness the first many-celled body that swims.'), story: (s) => s.key === 'first:swimbody' },
+  { id: 'FIRST_SWIMMER', name: tr('ach.first-swimmer.name', 'Open Water'), desc: tr('ach.first-swimmer.desc', 'Witness the first multicellular body that swims.'), story: (s) => s.key === 'first:swimbody' },
   { id: 'FIRST_HUNTER', name: tr('ach.first-hunter.name', 'Tooth and Claw'), desc: tr('ach.first-hunter.desc', 'Witness the first species to hunt living prey.'), story: (s) => s.key === 'first:guild:predator' },
   { id: 'FIRST_THREE_TYPES', name: tr('ach.first-three-types.name', 'Division of Labor'), desc: tr('ach.first-three-types.desc', 'Witness the first species to grow three kinds of cell.'), story: (s) => s.key === 'first:types3' },
   { id: 'FIRST_THERMOPHILE', name: tr('ach.first-thermophile.name', 'Hot Springs'), desc: tr('ach.first-thermophile.desc', 'Witness the first thermophile, at home in water above 38°.'), story: (s) => s.key === 'first:thermophile' },
@@ -20,7 +20,7 @@ export const ACHIEVEMENTS = [
   { id: 'ARMS_RACE', name: tr('ach.arms-race.name', 'Red Queen'), desc: tr('ach.arms-race.desc', 'Witness an arms race between hunter and prey.'), story: (s) => s.kind === 'arms' },
   { id: 'CYCLE', name: tr('ach.cycle.name', 'Boom and Bust'), desc: tr('ach.cycle.desc', 'Witness hunter and hunted rise and fall in turn.'), story: (s) => s.kind === 'cycle' },
   { id: 'RADIATION', name: tr('ach.radiation.name', 'Adaptive Radiation'), desc: tr('ach.radiation.desc', 'Witness a genus burst into many species.'), story: (s) => s.kind === 'radiation' },
-  { id: 'REIGN', name: tr('ach.reign.name', 'Long Live the King'), desc: tr('ach.reign.desc', 'Witness a reign end, or one long held.'), story: (s) => s.kind === 'reign' },
+  { id: 'REIGN', name: tr('ach.reign.name', 'Long Live the King'), desc: tr('ach.reign.desc', 'Witness a reign end, or one held for a long time.'), story: (s) => s.kind === 'reign' },
   { id: 'COMEBACK', name: tr('ach.comeback.name', 'Lazarus'), desc: tr('ach.comeback.desc', 'Witness a species come back from the brink.'), story: (s) => s.kind === 'comeback' },
   { id: 'SPARK', name: tr('ach.spark.name', 'From the Silt'), desc: tr('ach.spark.desc', 'Witness life sparked from silt take a tenth of the pool.'), story: (s) => s.kind === 'spark' },
   { id: 'ELDER', name: tr('ach.elder.name', 'Old Growth'), desc: tr('ach.elder.desc', 'Witness a species hold on for hours.'), story: (s) => s.kind === 'elder' },

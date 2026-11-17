@@ -153,7 +153,7 @@ test('the last hunter’s death is told at once', () => {
   const told = run(ch, w, 3, 10, (w2, i) => { if (i === 1) w2.set(h, 0); });
   const g = told.find((s) => s.kind === 'guild');
   assert.ok(g, told.map((x) => x.text).join(' | '));
-  assert.match(g.text, /last hunter is gone/);
+  assert.match(g.text, /last predator is gone/);
   assert.match(g.text, new RegExp(h.name));
 });
 

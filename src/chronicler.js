@@ -480,7 +480,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
   }
   // i18n: what befell a species: the rest of a sentence whose subject is the species ("It {why}." in an
   // i18n: obituary or a crash, "...is ended: it {why}" in a reign's end). {who}: the species that ate it, its food, or its rival (a link); {temp}: how warm the water grew, {topt}: what it was made for (°C); other: aged
-  const whyText = (w) => tr('chron.why', '{why, select, eaten_by {was {verb, select, grazed {grazed down} hunted {hunted down} other {eaten}} by {who}, which pursued it without rest} grazed_away {was grazed away by many mouths at once} devoured {was devoured by many hunters at once} ice {was taken by the ice} mud {was left to perish upon the mud as the water fled} shallows {was stranded in the shallows} fever {perished in the fever of the heat wave} scalded {was scalded, the water grown to {temp}° and it made for {topt}°} duckweed {starved in the shadow of the duckweed} dark {starved beneath a sky that gave no light} light_failing {starved in the failing light} light_taken {starved, its place in the light taken by others} food_gone {starved when {who}, the food it lived on, vanished from the pool} food_dwindled {starved as {who}, upon which it fed, dwindled away} food_endured {starved, though {who}, its food, endured} meadows {starved as the meadows thinned} no_dead {starved, for even the dead grew scarce} no_prey {starved for want of prey} outbred {was outbred, it would seem, by {who}; it ceased to divide, and its cells grew old and died} other {ceased to divide, and its cells grew old and died}}',
+  const whyText = (w) => tr('chron.why', '{why, select,eaten_by {was {verb, select,grazed {grazed down}hunted {hunted down}other {eaten}} by {who}, which pursued it without rest}grazed_away {was grazed away by many mouths at once}devoured {was devoured by many hunters at once}ice {was taken by the ice}mud {was left to perish upon the mud as the water fled}shallows {was stranded in the shallows}fever {perished in the fever of the heat wave}scalded {was scalded, the water grown to {temp}° though it was made for {topt}°}duckweed {starved in the shadow of the duckweed}dark {starved beneath a sky that gave no light}light_failing {starved in the failing light}light_taken {starved, its place in the light taken by others}food_gone {starved when {who}, the food it lived on, vanished from the pool}food_dwindled {starved as {who}, upon which it fed, dwindled away}food_endured {starved, though {who}, its food, endured}meadows {starved as the meadows thinned}no_dead {starved, for even the dead grew scarce}no_prey {starved for want of prey}outbred {was outbred, it would seem, by {who}; it ceased to divide, and its cells grew old and died}other {ceased to divide, and its cells grew old and died}}',
     { why: w.why, verb: w.verb, who: w.who, temp: w.temp, topt: w.topt });
 
   // ------------------------------------------------------------------ detectors
@@ -528,9 +528,9 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
         add({ kind: 'guild', force: true, score: 0.95, col: 0xffff5e7a, subjects: lastSp ? [lastSp.serial] : [],
           html: lastSp
             // i18n: the last of a guild died out: {guild} (other: predator); {name}: the last species of it (a link)
-            ? tr('chron.guild.gone-last', '<b>The last {guild, select, producer {producer} grazer {grazer} scavenger {scavenger} other {hunter}} is gone.</b> With {name} perished, {guild, select, producer {nothing in the pool lives on light any longer} grazer {no mouth in all the pool now crops the meadows} scavenger {the dead lie where they fall, and none comes to take them} other {nothing hunts, and the hunted may at last rest}}.', { guild: g, name: L(reg, lastSp.serial) })
+            ? tr('chron.guild.gone-last', '<b>The last {guild, select,producer {producer}grazer {grazer}scavenger {scavenger}other {predator}} is gone.</b> With {name} perished, {guild, select,producer {nothing in the pool lives on light any longer}grazer {no mouth in all the pool now crops the meadows}scavenger {the dead lie where they fall, and none comes to take them}other {nothing hunts, and the hunted may at last rest}}.', { guild: g, name: L(reg, lastSp.serial) })
             // i18n: the last of a guild died out: {guild} (other: predator), its last species unknown
-            : tr('chron.guild.gone', '<b>The last {guild, select, producer {producer} grazer {grazer} scavenger {scavenger} other {hunter}} is gone.</b> {guild, select, producer {Nothing in the pool lives on light any longer} grazer {No mouth in all the pool now crops the meadows} scavenger {The dead lie where they fall, and none comes to take them} other {Nothing hunts, and the hunted may at last rest}}.', { guild: g }) });
+            : tr('chron.guild.gone', '<b>The last {guild, select,producer {producer}grazer {grazer}scavenger {scavenger}other {predator}} is gone.</b> {guild, select,producer {Nothing in the pool lives on light any longer}grazer {No mouth in all the pool now crops the meadows}scavenger {The dead lie where they fall, and none comes to take them}other {Nothing hunts, and the hunted may at last rest}}.', { guild: g }) });
       } else if (S.guildGone[g] && last[g] && cells[g] > 0) {
         const since = S.guildGone[g];
         delete S.guildGone[g];
@@ -540,7 +540,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
         add({ kind: 'guild', score: 0.75, moment: 'back', col: 0xff7fe0b0, subjects: [sp.serial],
           // i18n: a guild come back after dying out: {guild} (other: predator); {name}: the first species of it again (a link), sprung from silt,
           // i18n: descended from {ancestor} (a link) of guild {ancestorGuild}, or of unknown origin; {since}: when the guild died out, on the world's clock
-          html: tr('chron.guild.back', '<b>{guild, select, producer {Producers} grazer {Grazers} scavenger {Scavengers} other {Hunters}} are back.</b> {name}, {origin, select, spark {sparked from silt} descent {descended from {ancestor}, {ancestorGuild, select, producer {a producer} grazer {a grazer} scavenger {a scavenger} other {a hunter}}} other {of unrecorded ancestry}}, is the first {guild, select, producer {producer} grazer {grazer} scavenger {scavenger} other {hunter}} the pool has known since {since}; what is lost is seldom lost for ever.',
+          html: tr('chron.guild.back', '<b>{guild, select,producer {Producers}grazer {Grazers}scavenger {Scavengers}other {Predators}} are back.</b> {name}, {origin, select,spark {sparked from silt}descent {descended from {ancestor}, {ancestorGuild, select,producer {a producer}grazer {a grazer}scavenger {a scavenger}other {a predator}}}other {of unrecorded ancestry}}, is the first {guild, select,producer {producer}grazer {grazer}scavenger {scavenger}other {predator}} the pool has known since {since}; what is lost is seldom lost for ever.',
             { guild: g, name: L(reg, sp.serial), origin, ancestor: anc ? L(reg, anc.serial) : '', ancestorGuild: anc ? guildOf(anc) : '', since: fmtClock(since) }) });
       }
     }
@@ -583,7 +583,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       // i18n: in an obituary: {name}, its most numerous living descendant (a link); {others}: how many more there are ({count} in words)
       else if (kids.length) bits.push(tr('chron.obit.line', 'Yet its line endures in {name}{others, plural, =0 {} one { and {count} other} other { and {count} others}}.', { name: L(reg, kids[0].serial), others: kids.length - 1, count: numWord(kids.length - 1) }));
       // i18n: an obituary's first sentence: {name}, the species (a link); {life}: how long it lived; {reign}: how long of that it was the most numerous, when {reigned} is yes
-      const head = tr('chron.obit.head', '{name} is no more, after {life} of life{reigned, select, yes {, {reign} of them as the most numerous species in the pool} other {}}.',
+      const head = tr('chron.obit.head', '{name} is no more, after {life} of life{reigned, select,yes {, {reign} of that as the most numerous species in the pool}other {}}.',
         { name: L(reg, serial), life: durWords(life), reigned: reigned >= 10 * MIN ? 'yes' : 'no', reign: durWords(reigned) });
       // its crash told lately, its death adds little
       const lately = t - toldAt(`sp:${serial}`) < 20 * MIN && S.told.get(`last:${serial}`) === 'crash';
@@ -603,7 +603,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       add({ kind: 'mass', score: 0.9, col: 0xffff5e7a, subjects: [], force: true,
         // i18n: a wave of extinctions: {event}, the pool's event under way or just past (other: none); {count}: how many species of weight died out, in words ({n} as a number);
         // i18n: {named}: the greatest one or two of them, links in a list (chron.list.*), when {some} is yes
-        html: tr('chron.mass', '{event, select, drought {In ten minutes the drought has carried off {count} species} storm {In ten minutes the storm has carried off {count} species} frost {In ten minutes the frost has carried off {count} species} duckweed {In ten minutes the duckweed’s shade has carried off {count} species} other {<b>A great dying.</b> In ten minutes {count} species have perished}}{some, select, yes {, {named} among them} other {}}.',
+        html: tr('chron.mass', '{event, select, drought {In ten minutes the drought has killed off {count} species} storm {In ten minutes the storm has carried off {count} species} frost {In ten minutes the frost has killed off {count} species} duckweed {In ten minutes the duckweed’s shade has killed off {count} species} other {<b>A great dying.</b> In ten minutes {count} species have perished}}{some, select, yes {, {named} among them} other {}}.',
           { event: ev ? ev.type : '', count: numWord(lost), n: lost, some: named.length ? 'yes' : 'no', named: andList(named) }) });
     }
   }
@@ -655,9 +655,9 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     return { how: mob === 'sessile' || mob === 'swimmer' || mob === 'drifter' ? mob : 'crawler', multi: (g.adhesion || 0) > K.adhMin ? 'yes' : 'no', guild: dietGuild(g) };
   };
   // i18n: what a species is, inside a sentence: "a drifting producer", "an anchored many-celled hunter" ({how}: sessile is anchored, other crawling; {guild} other: predator)
-  const kindWords = (k) => tr('chron.word.kind', '{how, select, sessile {an anchored} swimmer {a swimming} drifter {a drifting} other {a crawling}} {multi, select, yes {many-celled } other {}}{guild, select, producer {producer} grazer {grazer} scavenger {scavenger} other {hunter}}', { how: k.how, multi: k.multi, guild: k.guild });
+  const kindWords = (k) => tr('chron.word.kind', '{how, select, sessile {an anchored} swimmer {a swimming} drifter {a drifting} other {a crawling}} {multi, select, yes {multicellular } other {}}{guild, select, producer {producer} grazer {grazer} scavenger {scavenger} other {predator}}', { how: k.how, multi: k.multi, guild: k.guild });
   // i18n: the same, of many, without an article: "from drifting producers to anchored many-celled hunters"
-  const kindsWords = (k) => tr('chron.word.kinds', '{how, select, sessile {anchored} swimmer {swimming} drifter {drifting} other {crawling}} {multi, select, yes {many-celled } other {}}{guild, select, producer {producers} grazer {grazers} scavenger {scavengers} other {hunters}}', { how: k.how, multi: k.multi, guild: k.guild });
+  const kindsWords = (k) => tr('chron.word.kinds', '{how, select, sessile {anchored} swimmer {swimming} drifter {drifting} other {crawling}} {multi, select, yes {multicellular } other {}}{guild, select, producer {producers} grazer {grazers} scavenger {scavengers} other {predators}}', { how: k.how, multi: k.multi, guild: k.guild });
 
   // Crashes, booms and comebacks of single species.
   function detectSwings(ctx, add) {
@@ -725,7 +725,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
         if (t < 3 * MIN) continue;
         add({ kind: 'first', score: key === 'multi' || key === 'guild:predator' ? 0.75 : 0.65, col: sp.genome.col, subjects: [sp.serial], key: `first:${key}`, keyGap: Infinity,
           // i18n: a world's first: {name}, the species (a link); {what}: what it is the first of (other: three kinds of cell)
-          html: tr('chron.first', '<b>Never before in this world:</b> {name} is the first {what, select, guild_producer {species to live on light} guild_grazer {species to graze} guild_scavenger {species to live on the dead} guild_predator {species to hunt living prey} multi {many-celled organism} tree {species to grow as a branching tree} swimbody {many-celled body that swims} calcify {species to build reef stone} heat {heat-maker, warming the water around it} thermophile {thermophile, at home in water above 38°} cold {cold-lover, at home in water below 10°} other {species to grow three kinds of cell}}.',
+          html: tr('chron.first', '<b>Never before in this world:</b> {name} is the first {what, select,guild_producer {species to live on light}guild_grazer {species to graze}guild_scavenger {species to live on the dead}guild_predator {species to hunt living prey}multi {multicellular organism}tree {species to grow as a branching tree}swimbody {multicellular body that swims}calcify {species to build reef stone}heat {heat-maker, warming the water around it}thermophile {thermophile, at home in water above 38°}cold {cold-lover, at home in water below 10°}other {species to grow three kinds of cell}}.',
             { name: L(reg, sp.serial), what: key.replace(':', '_') }) });
       }
     }
@@ -761,7 +761,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       const html = losing
         // i18n: an arms race lost: {prey} and {hunters}, two genera's names; {guild}: the hunters' guild (other: predator; never scavengers); {bite}: yes when the prey are producers (bitten, not caught);
         // i18n: {now}, {then}: one in how many tries succeeds now and ten minutes ago, in words; {preyName}, {hunterName}: a newer prey species and a hunter (links)
-        ? tr('chron.arms.slipping', 'The <b>{prey}</b> are slipping from the grasp of the <b>{hunters}</b>. Their {guild, select, producer {producers} grazer {grazers} other {hunters}} now {bite, select, yes {land bites on} other {take}} one in {now} of those they pursue, where ten minutes since it was one in {then}; for the newer <b>{prey}</b>, such as {preyName}, wear surfaces that the receptors of {hunterName} scarcely fit.',
+        ? tr('chron.arms.slipping', 'The <b>{prey}</b> are slipping from the grasp of the <b>{hunters}</b>. Their {guild, select, producer {producers} grazer {grazers} other {predators}} now {bite, select, yes {land bites on} other {take}} one in {now} of those they pursue, where ten minutes since it was one in {then}; for the newer <b>{prey}</b>, such as {preyName}, wear surfaces that the receptors of {hunterName} scarcely fit.',
           { prey: esc(g.qg), hunters: esc(g.hg), guild: g.hguild, bite: g.qguild === 'producer' ? 'yes' : 'no', now: oneIn(rb), then: oneIn(ra), preyName: L(reg, qs), hunterName: L(reg, hs) })
         // i18n: an arms race won: {hunters} and {prey}, two genera's names; {now}, {then}: one in how many tries succeeds now and ten minutes ago, in words; {hunterName}: a newer hunter species (a link)
         : tr('chron.arms.grip', 'The <b>{hunters}</b> have taken the measure of the <b>{prey}</b>: one in {now} of their attempts now succeeds, where it was one in {then}, for their newer species, such as {hunterName}, carry receptors that fit the surfaces of the <b>{prey}</b> all too well.',
@@ -958,12 +958,12 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       } else if (a.swim - b.swim >= 0.35) {
         add({ kind: 'trend', score: 0.5, col: lead.genome.col, subjects: [lead.serial], key: `swim:${genus}`, keyGap: 60 * MIN,
           // i18n: a genus ({genus}, its name) taken to swimming over {ago}; {name}: its most numerous species (a link); {much}: twice, or other (far more)
-          html: tr('chron.trend.swim', 'In {ago} the <b>{genus}</b> have learned to swim: {name} and its kin now swim {much, select, twice {twice} other {far}} as hard as their forebears did.',
+          html: tr('chron.trend.swim', 'In {ago} the <b>{genus}</b> have learned to swim: {name} and its kin now swim {much, select, twice {twice as hard as} other {far harder than}} their forebears did.',
             { ago, genus: esc(genus), name: L(reg, lead.serial), much: a.swim / Math.max(0.05, b.swim) >= 2 ? 'twice' : 'far' }) });
       } else if (a.multi >= 0.6 && b.multi <= 0.2) {
         add({ kind: 'trend', score: 0.55, col: lead.genome.col, subjects: [lead.serial], key: `multi:${genus}`, keyGap: 90 * MIN,
           // i18n: a genus ({genus}, its name) become many-celled over {ago}; {name}: its most numerous species (a link)
-          html: tr('chron.trend.multi', 'The <b>{genus}</b>, solitary once, now live in bodies: in {ago} their single cells gave way to many-celled kin such as {name}.', { genus: esc(genus), ago, name: L(reg, lead.serial) }) });
+          html: tr('chron.trend.multi', 'The <b>{genus}</b>, solitary once, now live in bodies: in {ago} their single cells gave way to multicellular kin such as {name}.', { genus: esc(genus), ago, name: L(reg, lead.serial) }) });
       }
     }
   }
@@ -1102,7 +1102,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     S.hand = null;
     const bits = [];
     // i18n: after the hand's act, a species there thrived: {name} (a link); {tool}: what was done (other: setdown); {from}, {to}: its cells there before and after
-    if (up) bits.push(tr('chron.hand.rose', '{name} {tool, select, lamp {bloomed under it} shade {throve in the dark} warm {took to the warmth} cold {took to the cold} touch {gathered there after} needle {moved in after} ride {gathered where it went} pipette {took the room they left} other {took hold there}}, from {from, plural, =0 {none} other {#}} to {to, plural, other {# cells}}',
+    if (up) bits.push(tr('chron.hand.rose', '{name} {tool, select, lamp {bloomed under it} shade {thrived in the dark} warm {took to the warmth} cold {took to the cold} touch {gathered there after} needle {moved in after} ride {gathered where it went} pipette {took the room they left} other {took hold there}}, from {from, plural, =0 {none} other {#}} to {to, plural, other {# cells}}',
       { name: L(reg, up[0]), tool, from: up[1] || 0, to: up[2] }));
     // i18n: after the hand's act, a species there dwindled: {name} (a link); {from}, {to}: its cells there before and after, or gone when {gone} is yes
     if (down && down[0] !== up?.[0]) bits.push(tr('chron.hand.fell', '{name} {gone, select, yes {was gone from it} other {fell from {from, number} to {to, number}}}', { name: L(reg, down[0]), gone: down[2] ? 'no' : 'yes', from: down[1], to: down[2] }));
@@ -1168,7 +1168,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     const subj = [rise?.[0], fall?.[0]].filter((s) => s && reg.get(s));
     return { kind: 'era', score, col: 0xffa0e3f1, subjects: subj, force: score >= 0.7, key: 'era', keyGap: 30 * MIN,
       // i18n: an era's summary: {era}, its name; {character}: what kind of era it was (a guild's, other: none); {what}: who rose, who fell, the genera lost (chron.era.*, in a list)
-      html: tr('chron.era.passed', '<b>{era}</b> has passed into history{character, select, producer {, a producers’ era} grazer {, a grazers’ era} scavenger {, a scavengers’ era} predator {, a hunters’ era} losses {, an era of losses} new {, an era of new species} flourishing {, a flourishing era} lean {, a lean era} other {}}: {what}.',
+      html: tr('chron.era.passed', '<b>{era}</b> has passed into history{character, select,producer {, a producers’ era}grazer {, a grazers’ era}scavenger {, a scavengers’ era}predator {, a predators’ era}losses {, an era of losses}new {, an era of new species}flourishing {, a flourishing era}lean {, a lean era}other {}}: {what}.',
         { era: esc(eraName(pend.name)), character: character || 'none', what: andList(bits) }) };
   }
 
