@@ -78,12 +78,29 @@ function queueSave(id, text, status) {
   timer = setTimeout(flush, 450);
   showSaved();
 }
-async function flush() {
+// one flush at a time: a second call while one runs only asks it to go round again. (Each call once sent its own
+// snapshot of every pending edit, so settling messages quickly, each settle starting a flush, sent each edit once per
+// flush still running: thousands of repeats queued behind one another, and an old snapshot could overwrite a newer edit.)
+let flushing = null;
+function flush() {
+  if (flushing) { flushing.again = true; return flushing.done; }
+  if (!Object.keys(S.pending).length) return Promise.resolve();
+  flushing = { again: false };
+  flushing.done = (async () => {
+    try { do { flushing.again = false; await flushOnce(); } while (flushing.again && !S.error && Object.keys(S.pending).length); }
+    finally { flushing = null; }
+  })();
+  return flushing.done;
+}
+async function flushOnce() {
   const entries = Object.entries(S.pending);
   if (!entries.length) return;
   S.saving++;
   showSaved();
-  for (const [id, { text, status }] of entries) {
+  for (const [id] of entries) {
+    // the newest edit to this message, not the one there when this pass began
+    if (!S.pending[id]) continue;
+    const { text, status } = S.pending[id];
     try {
       const r = await fetch('/api/msg', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, text, status }) });
       if (!r.ok) throw new Error(`the server said ${r.status}`);
