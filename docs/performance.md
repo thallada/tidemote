@@ -1228,6 +1228,16 @@ The weakest GPU at hand (Android 12, Chrome, 393×786 CSS pixels at 2.75). Chrom
   2, guilds 3.4 → 3.0, p 0.01 alone, 0.07 after Holm), which Max on a small device takes (its steps capped to 40 ms of
   GPU, MAX_STEP_MS, often fewer ticks on a phone).
 
+**The census at fast speeds (2026-11-17).** A world 6 hours old (131k particles, about 6,700 species on record)
+hitched about once a second at ×32, not at ×1. The page's census handler (`eng.onCensus`) did work paced by simulated
+time: the chronicler samples every 10 simulated seconds (5-10 ms each here, three a real second at ×32), every log
+event rebuilt the feed on the spot, and `pruneRecords` ran a regex over 3,000 log entries every 600 simulated seconds
+(14 ms). One census took 10-25 ms, landing whenever its readback resolved, often just before a frame was due. Now a
+census is queued and done just after a frame is submitted, its bookkeeping one frame and the chronicler the next
+(`drainCensus`); the feed is rebuilt by the panels' update only; a log entry's species are read once (`logSerials`).
+On the RTX 4070 Ti at ×32, frames over 22 ms fell from 12 or more per 15 s to 0-2, the p99 interval from 23-27 ms to
+19.6. Work in the page's census path scales with the speed: keep it to what the frame interval holds, or spread it.
+
 ## Culling and per-particle work
 
 - Particles are sorted by grid cell, so a view that sees under half the world draws only the grid

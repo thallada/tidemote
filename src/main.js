@@ -735,7 +735,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const chron = createChronicler({ K, link: spLink, tune: { debug: (t, all, live) => all.length && globalThis.__tidemote?.chronDebug?.push({ t, all: all.map((c) => [c.kind, +c.rank.toFixed(2), c.html.replace(/<[^>]+>/g, '').slice(0, 90)]), live: live.length }) } });
   let watchVer = -1;
   const watchSlots = new Uint32Array(MAXK);
+  // censuses waiting for a frame (eng.onCensus, drainCensus)
+  const censusQueue = [];
   function resetLife() {
+    censusQueue.length = 0;
     life = {
       reg: new Map(), genera: new Map(), orphan: new Map(), chronicle: [], history: [], histEvery: 3, lastHist: -1e9,
       counts: [0, 0, 0, 0, 0], roles: [0, 0, 0], alive: 0, thriving: 0, arisen: 0, maxDepth: 0, top: 0, lastCensus: null, matter: [],
@@ -1206,13 +1209,21 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const pruned = { at: 0, kept: 0, removed: 0, why: {} }; // the last pass, for tools (__tidemote.pruned)
   // the species the history chart stacks: those on record, else what pruning kept of them for it
   const chartReg = { get: (serial) => life.reg.get(serial) || life.chartSp.get(serial) };
+  // the species a log entry links, read from its html once (3000 entries' regexes each pass took 14 ms; kept
+  // beside the entry rather than in it, so saves are unchanged)
+  const logSerialsOf = new WeakMap();
+  const logSerials = (e) => {
+    let s = logSerialsOf.get(e);
+    if (!s) logSerialsOf.set(e, (s = Array.from(e.html.matchAll(/data-serial="(\d+)"/g), (m) => +m[1])));
+    return s;
+  };
   function pruneRecords(t) {
     if (t - life.prunedAt < PRUNE_EVERY && t >= life.prunedAt) return;
     life.prunedAt = t;
     const keep = new Set(), why = { living: 0, named: 0, recent: 0, log: 0, shown: 0, lineage: 0 };
     const add = (serial, k) => { if (!keep.has(serial) && life.reg.has(serial)) { keep.add(serial); why[k]++; } };
     for (const sp of life.reg.values()) if (sp.alive) add(sp.serial, 'living'); else if (sp.given) add(sp.serial, 'named'); else if (sp.extinct != null && t - sp.extinct < PRUNE_KEEP) add(sp.serial, 'recent');
-    for (const e of life.chronicle) for (const m of e.html.matchAll(/data-serial="(\d+)"/g)) add(+m[1], 'log');
+    for (const e of life.chronicle) for (const s of logSerials(e)) add(s, 'log');
     if (spView != null) add(spView, 'shown');
     for (const s of [...keep]) {
       let a = life.reg.get(s)?.ancestor;
@@ -1241,7 +1252,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const text = html.replace(/<[^>]+>/g, '');
     life.chronicle.unshift({ t: eng.simTime, html, text, col, type });
     if (life.chronicle.length > 3000) life.chronicle.length = 3000;
-    renderFeed();
+    // (the feed follows at the frame's next panel update: several events at once rebuild it once)
   }
 
   // ------------------------------------------------------------ soundtrack
@@ -1313,8 +1324,25 @@ function run(eng, device, ctx, specCtx, hasTS) {
     flash(tr('flash.volume', 'Volume {pct}%', { pct: Math.round(sound.volume * 100) }));
   }
 
-  eng.onCensus = (c) => {
-    if (state.phase !== 'running') return;
+  // A census lands whenever its readback resolves, often just before a frame is due. At 1x that is three a
+  // second, each a couple of ms; at 32x the chronicler samples three times a second and many species
+  // arise and end, and one census took 10-25 ms, holding back the next frame about every second. So the
+  // work is queued and done just after a frame is submitted, a piece a frame (its bookkeeping, then its
+  // stories), where it has the whole interval before the next frame to fit in.
+  eng.onCensus = (c) => { if (state.phase === 'running') censusQueue.push({ run: censusBook, c, gen: eng.worldGeneration }); };
+  function drainCensus() {
+    // one piece a frame; a backlog (frames held back for long) is caught up at once rather than falling further behind
+    do {
+      const job = censusQueue.shift();
+      if (job && job.gen === eng.worldGeneration && state.phase === 'running') job.run(job.c);
+    } while (censusQueue.length > 8);
+  }
+  // the census told: the chronicler's turn, a frame after its bookkeeping
+  function censusTell(c) {
+    tellStories(c);
+    if (focus.key && focus.pred) pushFocus();
+  }
+  function censusBook(c) {
     life.lastCensus = c;
     const pop = c.pop;
     const t = c.simTime;
@@ -1444,12 +1472,12 @@ function run(eng, device, ctx, specCtx, hasTS) {
       if (life.history.length > 480) { life.history = life.history.filter((_, i) => i % 2 === 0); life.histEvery *= 2; }
       drawWorldChart();
     }
-    tellStories(c);
-    if (focus.key && focus.pred) pushFocus();
+    // the chronicler next frame, before any later census's bookkeeping
+    censusQueue.unshift({ run: censusTell, c, gen: eng.worldGeneration });
     renderWorld();
     lab.render(false);
     if (sel || spView != null) dirty = true;
-  };
+  }
 
   // The chronicler reads every census (every third carries the species ledger) and now and then
   // writes a story into the log; the auto camera goes to see its subject. Its watch list (the species
@@ -5767,6 +5795,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const sent = cur;
       device.queue.onSubmittedWorkDone().then(() => { inflight--; shownFrame = sent; }, () => { inflight--; });
       if (sel && frameCount % 10 === 0 && !state.paused) gatherTick(false);
+      // a census's work, now the frame is on its way (censusQueue)
+      drainCensus();
     }
     filmTick();
     // The panels at most 60 times a second, whatever the GPU's pace: on a fast display (144, 175 Hz) each

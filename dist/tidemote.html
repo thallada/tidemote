@@ -37801,7 +37801,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const chron = createChronicler({ K, link: spLink, tune: { debug: (t, all, live) => all.length && globalThis.__tidemote?.chronDebug?.push({ t, all: all.map((c) => [c.kind, +c.rank.toFixed(2), c.html.replace(/<[^>]+>/g, "").slice(0, 90)]), live: live.length }) } });
     let watchVer = -1;
     const watchSlots = new Uint32Array(MAXK);
+    const censusQueue = [];
     function resetLife() {
+      censusQueue.length = 0;
       life = {
         reg: /* @__PURE__ */ new Map(),
         genera: /* @__PURE__ */ new Map(),
@@ -38308,6 +38310,12 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const PRUNE_EVERY = 600, PRUNE_KEEP = 6 * 3600, PRUNE_LINEAGE = 8;
     const pruned = { at: 0, kept: 0, removed: 0, why: {} };
     const chartReg = { get: (serial) => life.reg.get(serial) || life.chartSp.get(serial) };
+    const logSerialsOf = /* @__PURE__ */ new WeakMap();
+    const logSerials = (e) => {
+      let s = logSerialsOf.get(e);
+      if (!s) logSerialsOf.set(e, s = Array.from(e.html.matchAll(/data-serial="(\d+)"/g), (m) => +m[1]));
+      return s;
+    };
     function pruneRecords(t) {
       if (t - life.prunedAt < PRUNE_EVERY && t >= life.prunedAt) return;
       life.prunedAt = t;
@@ -38321,7 +38329,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       for (const sp of life.reg.values()) if (sp.alive) add(sp.serial, "living");
       else if (sp.given) add(sp.serial, "named");
       else if (sp.extinct != null && t - sp.extinct < PRUNE_KEEP) add(sp.serial, "recent");
-      for (const e of life.chronicle) for (const m of e.html.matchAll(/data-serial="(\d+)"/g)) add(+m[1], "log");
+      for (const e of life.chronicle) for (const s of logSerials(e)) add(s, "log");
       if (spView != null) add(spView, "shown");
       for (const s of [...keep]) {
         let a = life.reg.get(s)?.ancestor;
@@ -38352,7 +38360,6 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const text2 = html2.replace(/<[^>]+>/g, "");
       life.chronicle.unshift({ t: eng.simTime, html: html2, text: text2, col, type });
       if (life.chronicle.length > 3e3) life.chronicle.length = 3e3;
-      renderFeed();
     }
     const songEvents = [];
     const sound = createSound({
@@ -38429,7 +38436,19 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       flash(tr("flash.volume", "Volume {pct}%", { pct: Math.round(sound.volume * 100) }));
     }
     eng.onCensus = (c) => {
-      if (state.phase !== "running") return;
+      if (state.phase === "running") censusQueue.push({ run: censusBook, c, gen: eng.worldGeneration });
+    };
+    function drainCensus() {
+      do {
+        const job = censusQueue.shift();
+        if (job && job.gen === eng.worldGeneration && state.phase === "running") job.run(job.c);
+      } while (censusQueue.length > 8);
+    }
+    function censusTell(c) {
+      tellStories(c);
+      if (focus.key && focus.pred) pushFocus();
+    }
+    function censusBook(c) {
       life.lastCensus = c;
       const pop = c.pop;
       const t = c.simTime;
@@ -38562,12 +38581,11 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         }
         drawWorldChart();
       }
-      tellStories(c);
-      if (focus.key && focus.pred) pushFocus();
+      censusQueue.unshift({ run: censusTell, c, gen: eng.worldGeneration });
       renderWorld();
       lab.render(false);
       if (sel || spView != null) dirty = true;
-    };
+    }
     const slotSerial = new Uint32Array(MAXK);
     const viewedSerial = () => spView != null ? spView : sel && sel.particle && sel.particle.kind >= FIRST_LIFE ? genomeFor(sel.particle.kind)?.serial : null;
     function tellStories(c) {
@@ -43206,6 +43224,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           inflight--;
         });
         if (sel && frameCount % 10 === 0 && !state.paused) gatherTick(false);
+        drainCensus();
       }
       filmTick();
       if (now - lastPanels >= 15) {
