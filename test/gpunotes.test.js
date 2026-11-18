@@ -69,3 +69,15 @@ test('save and restore keep the transform, the clips and the styles; rotate turn
   assert.equal(g.lineWidth, 1);
   assert.deepEqual(g.m, [1, 0, 0, 1, 0, 0]);
 });
+
+test('a rectangle stroked is one frame, its corners mitred; dashed, it is cut into capsules', () => {
+  const g = new NoteCanvas(device, 'bgra8unorm');
+  g.begin(1); g.strokeStyle = '#fff'; g.lineWidth = 2;
+  const P = g.newPath(); P.rect(10, 10, 8, 8); P.rect(30, 10, 8, 8);
+  g.stroke(P);
+  assert.equal(g.nInst, 2);
+  assert.deepEqual(inst(g, 0).slice(0, 5), [9, 9, 19, 19, 2]);
+  assert.equal(g.instU[9], 6);
+  g.begin(1); g.strokeStyle = '#fff'; g.setLineDash([2, 2]); g.strokeRect(0, 0, 8, 8);
+  assert.equal(g.instU[9], 0);
+});

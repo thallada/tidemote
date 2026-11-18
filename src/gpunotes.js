@@ -1,8 +1,8 @@
 // The live annotations drawn by WebGPU, into the world's own frame (docs/annotations.md, What it costs). noteview.js
 // draws on a CanvasRenderingContext2D; this is a stand-in for the part of one it uses, recording each frame's drawing
 // as instanced quads and triangles that encode() draws over the composite, in one render pass:
-// - strokes: a capsule a segment (its distance worked out per pixel: antialiased, round-joined), arcs flattened, dashes
-//   cut on the CPU; a stroke's own segments never blend twice where they overlap (each stroke its own depth: a later
+// - strokes: a capsule a segment (its distance worked out per pixel: antialiased, round-joined), a whole circle one ring
+//   and an axis-aligned rectangle one frame (its corners mitred, as a canvas's), arcs flattened, dashes cut on the CPU; a stroke's own segments never blend twice where they overlap (each stroke its own depth: a later
 //   fragment of the same stroke fails the test);
 // - fills: an axis-aligned rectangle as one quad; a convex shape as triangles; anything else even-odd by
 //   stencil-then-cover (its fan inverts the stencil, its box covers what is odd and clears it); the hatch worked out
@@ -19,7 +19,7 @@
 const INST_W = 12; // words an instance: a (4), b (4), color, kind, clip, z
 const TRI_W = 4; // words a triangle's vertex: x, y, color, clip
 const TAU = Math.PI * 2;
-const K_SEG = 0, K_GLYPH = 1, K_RECT = 2, K_HATCH = 3, K_RING = 4;
+const K_SEG = 0, K_GLYPH = 1, K_RECT = 2, K_HATCH = 3, K_RING = 4, K_COVER = 5, K_FRAME = 6;
 
 const WGSL = /* wgsl */ ` // i18n-ignore (WGSL)
 struct U { size: vec2f, _p: vec2f }
@@ -35,6 +35,13 @@ struct VO {
   @location(3) @interpolate(flat) col: vec4f,
   @location(4) @interpolate(flat) kc: vec2u,
   @location(5) uv: vec2f,
+}
+
+// the share of the pixel about p an axis-aligned rectangle (x0, y0, x1, y1) covers, exactly
+fn covRect(p: vec2f, r: vec4f) -> f32 {
+  let x = clamp(min(p.x + 0.5, r.z) - max(p.x - 0.5, r.x), 0.0, 1.0);
+  let y = clamp(min(p.y + 0.5, r.w) - max(p.y - 0.5, r.y), 0.0, 1.0);
+  return x * y;
 }
 
 fn ndc(p: vec2f, z: f32) -> vec4f { return vec4f(p.x / u.size.x * 2.0 - 1.0, 1.0 - p.y / u.size.y * 2.0, z, 1.0); }
@@ -80,6 +87,9 @@ fn clipCov(p: vec2f, c: u32) -> f32 {
     let nrm = vec2f(-dir.y, dir.x);
     let e = b.x + 1.0;
     p = a.xy + dir * (-e + c.x * (len + 2.0 * e)) + nrm * (-e + c.y * 2.0 * e);
+  } else if (kind == ${K_RECT}u || kind == ${K_FRAME}u) {
+    // (a pixel more about it, for its soft edge)
+    p = mix(a.xy - 1.0, a.zw + 1.0, c);
   } else {
     p = mix(a.xy, a.zw, c);
     o.uv = b.xy + c * (a.zw - a.xy);
@@ -123,6 +133,16 @@ struct FO { @location(0) color: vec4f, @builtin(frag_depth) depth: f32 }
       let P = in.b.x + in.b.y;
       if (L - P * floor(L / P) >= in.b.x) { discard; }
     }
+    under = 1.0 - s;
+    cov = cov * s;
+  } else if (kind == ${K_RECT}u) {
+    cov = cov * covRect(in.p, in.a);
+  } else if (kind == ${K_FRAME}u) {
+    // a rectangle stroked with mitred corners, as a canvas strokes one: its outer edge's cover less its inner's
+    let w = in.b.x;
+    let hollow = in.a.z - in.a.x > 2.0 * w && in.a.w - in.a.y > 2.0 * w;
+    let s = covRect(in.p, in.a) - select(0.0, covRect(in.p, in.a + vec4f(w, w, -w, -w)), hollow);
+    if (s <= 0.0) { discard; }
     under = 1.0 - s;
     cov = cov * s;
   } else if (kind == ${K_GLYPH}u) {
@@ -368,6 +388,8 @@ export class NoteCanvas {
     const z = ++this.strokes / 262144;
     const dash = this.dash.length ? this.dash.map((x) => x * k) : null, dashSum = dash ? dash.reduce((a, b) => a + b, 0) : 0;
     for (const s of subs) {
+      // (an axis-aligned rectangle, undashed: one frame, its corners mitred as a canvas's)
+      if (s.rect && !dash && this._axisRect(s.pts)) { const r = this._bbox([s]); this._inst('instStroke', K_FRAME, r[0] - hw, r[1] - hw, r[2] + hw, r[3] + hw, 2 * hw, 0, 0, 0, col, z); continue; }
       // (a whole circle, undashed or dashed on and off: one ring, worked out per pixel)
       if (s.circle && (!dash || dash.length === 2)) { this._inst('instStroke', K_RING, s.circle.x, s.circle.y, s.circle.r, hw, dash ? dash[0] : 0, dash ? dash[1] : 0, 0, 0, col, z); continue; }
       const p = s.pts, n = p.length / 2;
@@ -419,7 +441,7 @@ export class NoteCanvas {
     }
     const r = this._bbox(subs);
     if (hatch) this._inst('instCover', K_HATCH, r[0] - 1, r[1] - 1, r[2] + 1, r[3] + 1, hatch.x * this.base, hatch.y * this.base, (hatch.px / 6) * this.base, 0, col);
-    else this._inst('instCover', K_RECT, r[0] - 1, r[1] - 1, r[2] + 1, r[3] + 1, 0, 0, 0, 0, col);
+    else this._inst('instCover', K_COVER, r[0] - 1, r[1] - 1, r[2] + 1, r[3] + 1, 0, 0, 0, 0, col);
   }
   _bbox(subs) {
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
