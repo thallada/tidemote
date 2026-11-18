@@ -32876,8 +32876,13 @@ fn clipCov(p: vec2f, c: u32) -> f32 {
   return o;
 }
 
-@fragment fn fsInst(in: VO) -> @location(0) vec4f {
+struct FO { @location(0) color: vec4f, @builtin(frag_depth) depth: f32 }
+@fragment fn fsInst(in: VO) -> FO {
   var cov = clipCov(in.p, in.kc.y);
+  // (a stroke's depth: its own where it covers the pixel whole, under it on its soft edge by how little it covers, so a
+  // later segment of the same stroke that covers a pixel more still draws over an earlier one's edge, and nothing draws
+  // twice over its whole: a thin line is all edge, and the first segment to reach a joint held it at its own share)
+  var under = 0.0;
   let kind = in.kc.x;
   if (kind == ${K_SEG}u) {
     let pa = in.p - in.a.xy;
@@ -32886,6 +32891,7 @@ fn clipCov(p: vec2f, c: u32) -> f32 {
     let d = length(pa - ba * h);
     let s = clamp(in.b.x - d + 0.5, 0.0, 1.0);
     if (s <= 0.0) { discard; }
+    under = 1.0 - s;
     cov = cov * s;
   } else if (kind == ${K_RING}u) {
     // a circle stroked: its distance from the circle; dashed by the length along it from angle 0 (where a canvas's arc
@@ -32900,6 +32906,7 @@ fn clipCov(p: vec2f, c: u32) -> f32 {
       let P = in.b.x + in.b.y;
       if (L - P * floor(L / P) >= in.b.x) { discard; }
     }
+    under = 1.0 - s;
     cov = cov * s;
   } else if (kind == ${K_GLYPH}u) {
     let t = textureLoad(atlas, vec2i(floor(in.uv)), 0);
@@ -32909,10 +32916,14 @@ fn clipCov(p: vec2f, c: u32) -> f32 {
     let q = (in.p - in.b.xy) / in.b.z;
     let m = (q.x + q.y) - 6.0 * floor((q.x + q.y) / 6.0);
     let dist = min(m, 6.0 - m) * 0.70710678 * in.b.z;
-    cov = cov * clamp(0.5 * in.b.z - dist + 0.5, 0.0, 1.0);
+    // (at about the strength of the canvas's, a 6 px tile sampled smooth)
+    cov = cov * 0.7 * clamp(0.5 * in.b.z - dist + 0.5, 0.0, 1.0);
   }
   let a = in.col.a * cov;
-  return vec4f(in.col.rgb * a, a);
+  var o: FO;
+  o.color = vec4f(in.col.rgb * a, a);
+  o.depth = in.pos.z - under * ${0.5 / 262144};
+  return o;
 }
 
 struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @interpolate(flat) col: vec4f, @location(2) @interpolate(flat) clip: u32 }
@@ -33302,7 +33313,7 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
       const subs = this._subs(P), col = this._rgba(this.strokeStyle);
       if (!(col >>> 24)) return;
       const k = Math.sqrt(Math.abs(this.m[0] * this.m[3] - this.m[1] * this.m[2])), hw = this.lineWidth * k / 2;
-      const z = ++this.strokes / 4194304;
+      const z = ++this.strokes / 262144;
       const dash = this.dash.length ? this.dash.map((x) => x * k) : null, dashSum = dash ? dash.reduce((a, b) => a + b, 0) : 0;
       for (const s of subs) {
         if (s.circle && (!dash || dash.length === 2)) {

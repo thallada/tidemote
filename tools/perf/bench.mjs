@@ -32,8 +32,8 @@
 //   pinNotes  a regex of note keys: the annotations' notes pinned once one matching shows (pinWait s at most), so
 //          every build is measured on the same notes (still views: zoom and adapt 'off' with them)
 //   eval   an expression of the page's (T: globalThis.__tidemote) run before settling
-//   shots  [{ name, eval, wait }]: screenshots after measuring (OUT-WORLD-SCENARIO-NAME.png), the world paused, each
-//          after its expression of the page's (T: globalThis.__tidemote)
+//   shots  [{ name, eval, run, wait }]: screenshots after measuring (OUT-WORLD-SCENARIO-NAME.png), each after its
+//          expression of the page's (T: globalThis.__tidemote), the world run `run` s more, then paused `wait` ms
 //   probe  an expression of the page's (T: globalThis.__tidemote) evaluated every second, kept as probes: [[ms, value]]
 //   gaps   true: every submitted frame's time and perf.waits kept (gaps) with the display interval measured (rafMs)
 //   trace  seconds of a Chrome trace and a JS CPU profile taken while measuring (from its start): OUT-WORLD-SCENARIO.trace.json
@@ -458,7 +458,10 @@ try {
       // shots: screenshots after measuring, the world paused, each after its own expression of the page's (T)
       for (const shot of sc.shots || []) {
         if (!v.out) break;
-        await page.evaluate((x) => { const T = globalThis.__tidemote; T.state.paused = true; new Function('T', x)(T); }, shot.eval || '');
+        // (run: seconds the world runs after the expression before it is paused, so what it changed has settled)
+        await page.evaluate((x) => { const T = globalThis.__tidemote; T.state.paused = false; new Function('T', x)(T); }, shot.eval || '');
+        await page.waitForTimeout((shot.run ?? 0) * 1000);
+        await page.evaluate(() => { globalThis.__tidemote.state.paused = true; });
         await page.waitForTimeout(shot.wait ?? 800);
         await page.screenshot({ path: `${v.out.replace(/\.json$/, '')}-${w.name}-${sc.name}-${shot.name}.png` });
       }
