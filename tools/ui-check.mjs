@@ -3,7 +3,7 @@
 // Card opens it; the bench, a tool held, Esc, the speed ladder, the pipette loaded from a card and set down (docs/
 // hand.md); filming (R, the strip under the rail and its Stop, the red frame); the phone dock's slots even and
 // its labels fitting with every tool in hand; Settings → Audio → Volume sets the volume by mouse and by finger,
-// turns sound on, and keeps the dock slider in step.
+// turns sound on, and keeps the dock slider in step; Settings moves and resizes on a wide screen.
 //   npm run build && tools/gpu-node.sh tools/ui-check.mjs
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http';
 import { chromium } from 'playwright-core';
@@ -284,6 +284,28 @@ for (const touch of [false, true]) {
     const off = await page.evaluate(() => ({ sum: [...globalThis.__tidemote.eng.look].reduce((a, x) => a + Math.abs(x), 0), rows: !!document.querySelector('[data-o="grain"]') }));
     await pick('microlook', 2);
     check(`${tag} the microscope look's settings set the look`, Math.abs(on.rims - 0.45 * 1.35) < 1e-5 && Math.abs(on.grain - 0.5 * 1.35) < 1e-5 && off.sum === 0 && !off.rows, JSON.stringify({ ...on, ...off }));
+  }
+  // Settings moves by its heading and resizes from a corner on a wide screen (an older build has no grips), down to
+  // its least, kept in the window; closed and opened again it is back above the Settings button
+  if (!touch && await page.$('#settings .grip')) {
+    const sbox = () => page.evaluate(() => { const r = document.getElementById('settings').getBoundingClientRect(); return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }; });
+    const drag = async (x, y, tx, ty) => { await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.move(tx, ty, { steps: 8 }); await page.mouse.up(); };
+    const home = await sbox(), h2 = await page.locator('#settings .sec-h h2').boundingBox();
+    await drag(h2.x + 10, h2.y + 5, h2.x - 300, h2.y - 20);
+    const moved = await sbox();
+    check(`${tag} Settings moves by its heading`, moved.x === home.x - 310 && moved.w === home.w && moved.h === home.h, JSON.stringify({ home, moved }));
+    await drag(moved.x + moved.w - 1, moved.y + moved.h - 1, moved.x + 20, moved.y + 20);
+    const small = await sbox();
+    check(`${tag} Settings resizes from a corner, to its least`, small.x === moved.x && small.w === 260 && small.h === 180, JSON.stringify(small));
+    const h2b = await page.locator('#settings .sec-h h2').boundingBox();
+    await drag(h2b.x + 10, h2b.y + 5, -400, -400);
+    const kept = await sbox();
+    check(`${tag} Settings stays in the window`, kept.x === 0 && kept.y === 0, JSON.stringify(kept));
+    await page.click('#set-close');
+    await page.click('#set-open');
+    await page.waitForTimeout(300);
+    const back = await sbox();
+    check(`${tag} Settings opens again in its place`, back.x === home.x && back.y === home.y && back.w === home.w, JSON.stringify(back));
   }
   check(`${tag} no page errors`, !errs.length, errs.slice(0, 2).join(' | '));
   await ctx.close();

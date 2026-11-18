@@ -639,6 +639,27 @@ canvas.chart { cursor: crosshair; }
 .settings .tabs { order: 3; flex-basis: 100%; min-width: 0; margin-left: -8px; }
 .settings .tabs button { height: 32px; padding: 0 6px; letter-spacing: .08em; }
 .settings .sec-h > .ghost { flex: none; margin: 0 -6px 0 auto; }
+/* on a wide screen the panel moves by its heading and resizes from its edges and corners (main.js, placed: its box
+   inline); narrowed by hand, each option's choices go under its name */
+.settings { container: settings / inline-size; }
+.settings .grip { position: absolute; z-index: 2; display: none; width: 12px; height: 12px; }
+@media (min-width: 981px) {
+  .settings .grip { display: block; }
+  .settings > .sec-h { cursor: move; }
+}
+.settings .grip[data-d="n"], .settings .grip[data-d="s"] { left: 10px; right: 10px; width: auto; height: 6px; cursor: ns-resize; }
+.settings .grip[data-d="e"], .settings .grip[data-d="w"] { top: 10px; bottom: 10px; height: auto; width: 6px; cursor: ew-resize; }
+.settings .grip[data-d^="n"] { top: -4px; }
+.settings .grip[data-d^="s"] { bottom: -4px; }
+.settings .grip[data-d$="e"] { right: -4px; }
+.settings .grip[data-d$="w"] { left: -4px; }
+.settings .grip:is([data-d="nw"], [data-d="se"]) { cursor: nwse-resize; }
+.settings .grip:is([data-d="ne"], [data-d="sw"]) { cursor: nesw-resize; }
+.settings.placed { right: auto; bottom: auto; }
+body.set-grabbing, body.set-grabbing * { cursor: var(--grab-cursor) !important; user-select: none; -webkit-user-select: none; }
+@container settings (max-width: 340px) {
+  .settings.placed .opt { grid-template-columns: minmax(0, 1fr); gap: var(--s1); }
+}
 .opt .chip:disabled { opacity: .35; cursor: default; }
 /* an Auto choice shows what it is using now: the choice it matches underlined in the sun's color, or, when it
    matches none (a render scale of 60%), its value on the Auto chip, at a fixed width so the row never reflows */

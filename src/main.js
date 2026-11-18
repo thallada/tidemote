@@ -3034,13 +3034,65 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const n = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
       e.preventDefault(); n.click(); n.focus();
     });
+    // On a wide screen the panel moves by its heading and resizes from its edges and corners, and stays so until
+    // closed. placed: its box in its offset parent once moved (h null while only dragged: as tall as its tab, up to
+    // where its default cap or the parent's bottom ends it)
+    const roomy = matchMedia('(min-width: 981px)');
+    const MIN_W = 260, MIN_H = 180;
+    let placed = null;
+    function place(x, y, w, h) {
+      const W = el.offsetParent.clientWidth, H = el.offsetParent.clientHeight;
+      w = Math.max(MIN_W, Math.min(w, W));
+      if (h != null) h = Math.max(MIN_H, Math.min(h, H));
+      x = Math.max(0, Math.min(x, W - w));
+      y = Math.max(0, Math.min(y, H - (h ?? el.offsetHeight)));
+      placed = { x, y, w, h };
+      el.classList.add('placed');
+      Object.assign(el.style, { left: `${x}px`, top: `${y}px`, width: `${w}px`, height: h == null ? '' : `${h}px`,
+        maxHeight: h == null ? `min(calc(100% - var(--top) - var(--bot) - 20px), ${H - y}px)` : 'none' });
+    }
+    function unplace() { placed = null; el.classList.remove('placed'); el.removeAttribute('style'); }
+    // a drag (d '') or a resize (d: the compass letters of the edges it moves), from the box at the press; captured, so
+    // the world under the pointer never sees it
+    function grab(e, d) {
+      if (e.button !== 0 || !roomy.matches) return;
+      e.preventDefault();
+      const p = el.offsetParent, pr = p.getBoundingClientRect(), r = el.getBoundingClientRect();
+      const x0 = r.left - pr.left, y0 = r.top - pr.top, w0 = r.width, h0 = r.height, sx = e.clientX, sy = e.clientY;
+      const keepH = placed ? placed.h : null;
+      const move = (m) => {
+        const dx = m.clientX - sx, dy = m.clientY - sy;
+        if (!d) return place(x0 + dx, y0 + dy, w0, keepH);
+        let x = x0, y = y0, w = w0, h = keepH;
+        if (d.includes('e')) w = Math.min(w0 + dx, p.clientWidth - x0);
+        if (d.includes('w')) { w = Math.max(MIN_W, Math.min(w0 - dx, x0 + w0)); x = x0 + w0 - w; }
+        if (d.includes('s')) h = Math.min(h0 + dy, p.clientHeight - y0);
+        if (d.includes('n')) { h = Math.max(MIN_H, Math.min(h0 - dy, y0 + h0)); y = y0 + h0 - h; }
+        place(x, y, w, h);
+      };
+      const t = e.currentTarget;
+      t.setPointerCapture(e.pointerId);
+      t.addEventListener('pointermove', move);
+      t.addEventListener('lostpointercapture', () => { t.removeEventListener('pointermove', move); document.body.classList.remove('set-grabbing'); }, { once: true });
+      document.body.style.setProperty('--grab-cursor', getComputedStyle(t).cursor);
+      document.body.classList.add('set-grabbing');
+    }
+    el.querySelector('.sec-h').addEventListener('pointerdown', (e) => { if (!e.target.closest('button')) grab(e, ''); });
+    for (const d of ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se']) {
+      const g = document.createElement('i');
+      g.className = 'grip'; g.dataset.d = d; g.setAttribute('aria-hidden', 'true');
+      g.addEventListener('pointerdown', (e) => grab(e, d));
+      el.append(g);
+    }
+    // (a smaller window keeps it inside; a narrow one puts it back where narrow screens have it)
+    addEventListener('resize', () => { if (placed) { if (roomy.matches) place(placed.x, placed.y, placed.w, placed.h); else unplace(); } });
     // open on a tab (the wordmark opens About), or close if that tab is already showing
     function toggle(on = el.hidden, to) {
       const other = to && tab !== to;
       if (to) { on = el.hidden || tab !== to; if (on) { tab = to; confirming = false; ask = null; } }
       el.hidden = !on;
       btn.setAttribute('aria-expanded', String(on));
-      if (on) { $('help').hidden = true; if (phone()) lab.close(); saves = null; render(); if (other) $('set-body').scrollTop = 0; } else { pendingN = null; confirming = false; ask = null; }
+      if (on) { $('help').hidden = true; if (phone()) lab.close(); saves = null; render(); if (other) $('set-body').scrollTop = 0; } else { pendingN = null; confirming = false; ask = null; unplace(); }
     }
     btn.addEventListener('click', () => toggle());
     $('brand').addEventListener('click', () => toggle(true, 'about'));
