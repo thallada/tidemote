@@ -22766,7 +22766,7 @@ ${e.message}` : String(e?.message || e));
     thriving: tr("gloss.thriving", "Species that have reached the population threshold (scaled to world size) and are still alive."),
     alive: tr("gloss.alive", "Every species with at least one living cell, including brand-new mutants."),
     ever: tr("gloss.ever", "Total number of species that have ever existed in this world."),
-    stepms: tr("gloss.stepms", "GPU time one simulation step takes."),
+    stepms: tr("gloss.stepms", "GPU time one simulation step takes. When Stride is longer than 1/60 s, one step covers several 1/60 s ticks at once."),
     // i18n: {app}: desktop in the desktop app (saves are files there, in Steam Cloud when it is on), other in a browser
     saves: tr("gloss.saves", "{app, select,desktop {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves are files on this computer, and are synced to Steam Cloud when connected. Download saves to open them on another device.}other {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download saves to keep them safe or to open them on another device.}}", { app: globalThis.tidemoteDesktop ? "desktop" : "web" }),
     profile: tr("gloss.profile", "Times three seconds of frames on the GPU and one simulation step, and copies the result with this device’s details. This is a shareable report on how the simulation runs on this device."),
@@ -38132,7 +38132,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     let handSeen = 0;
     let pipette = createPipette();
     const pull = { on: false, at: 0, until: 0, tip: [0, 0], got: [], taken: /* @__PURE__ */ new Set(), drawn: /* @__PURE__ */ new Set(), last: 0, quiet: 0, armed: false, shake: 0, note: null };
-    const spit = { on: false, held: false, busy: false, sp: null, org: null, at: 0, next: 0, owed: 0, last: 0, fails: 0, dir: 0, pt: null, tip: [0, 0] };
+    const spit = { on: false, held: false, busy: false, sp: null, org: null, at: 0, next: 0, owed: 0, last: 0, fails: 0, dir: 0, pt: null, tip: [0, 0], fly: null };
     const ride = { on: false, keys: /* @__PURE__ */ new Set(), at: null, warned: false, slept: false, th: createThrottle(), cam: null, body: void 0, top: 1 };
     let uiHoldUntil = 0;
     const panelSel = ".panel, .rail, .dock, .floats";
@@ -41392,6 +41392,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       hand.note("pipette", ...pull.tip, eng.simTime);
     }
     const BORE = 0.2;
+    const BORE_LAG = 3;
     const sizes = /* @__PURE__ */ new WeakMap();
     const radiusOf = (w) => {
       if (!sizes.has(w)) sizes.set(w, cellRadius({}, genomeOfWords(w), 1));
@@ -41403,15 +41404,16 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const [e, col, info] = newborn(sp);
       return { w: sp.words, e, a: 0, col, info };
     };
+    const flown = () => spit.fly && (!state.paused || eng.setDownJob && eng.setDownJob.sent) ? spit.fly : null;
     function boreCells(N) {
       if (bore.of !== pull.got.length) {
         bore.in = incoming().map(({ kind, recs }) => ({ w: wordsOf(kind), orgs: bodiesOf(recs) }));
         bore.of = pull.got.length;
       }
-      const seq2 = [];
+      const seq2 = [], fly = flown() ? spit.fly.of : null, flying = (x) => fly && fly.get(x) || 0;
       const put = (orgs, w, sp) => {
-        for (let k = orgs.length - 1; k >= 0 && seq2.length < N; k--) for (let c = orgs[k].out; c < orgs[k].cells.length && seq2.length < N; c++) seq2.push(boreCell(w, orgs[k].cells[c]));
-        for (let m = 0; sp && m < sp.made && seq2.length < N; m++) seq2.push(madeCell(sp));
+        for (let k = orgs.length - 1; k >= 0 && seq2.length < N; k--) for (let c = orgs[k].out + flying(orgs[k]); c < orgs[k].cells.length && seq2.length < N; c++) seq2.push(boreCell(w, orgs[k].cells[c]));
+        for (let m = sp ? flying(sp) : 0; sp && m < sp.made && seq2.length < N; m++) seq2.push(madeCell(sp));
       };
       for (let i = bore.in.length - 1; i >= 0; i--) put(bore.in[i].orgs, bore.in[i].w);
       for (const sp of pipette.species) put(sp.orgs, sp.words, sp);
@@ -41427,8 +41429,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const len2 = Math.min(dx > 0 ? (innerWidth - R2.sx) / dx : -R2.sx / dx, dy > 0 ? (innerHeight - R2.sy) / dy : -R2.sy / dy);
       const gap = Math.max(BORE, 2.1 * Math.max(0, ...bore.genomes.map(radiusOf))) * p2, N = Math.min(TUBE_N, Math.ceil(len2 / gap) + 1);
       const seq2 = boreCells(N + Math.max(0, Math.ceil(bore.g)));
-      const n = pipette.count + bore.in.reduce((a, x) => a + x.orgs.reduce((b, o) => b + o.cells.length, 0), 0);
-      bore.g = now - bore.at > 200 ? 0 : clamp6((bore.g + n - bore.n) * Math.exp(-dt / 60), -N, N);
+      const n = pipette.count - (flown() ? spit.fly.n : 0) + bore.in.reduce((a, x) => a + x.orgs.reduce((b, o) => b + o.cells.length, 0), 0);
+      bore.g = now - bore.at > 200 ? 0 : clamp6((bore.g + n - bore.n) * Math.exp(-dt / 60), -BORE_LAG, BORE_LAG);
       Object.assign(bore, { n, at: now });
       const at = (i) => i < 0 ? bore.gone[bore.gone.length + i] : seq2[i];
       const f2 = new Float32Array(bore.rec), u = new Uint32Array(bore.rec), face = bore.g < 0 ? -1 : 1;
@@ -41575,8 +41577,17 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const { job, used } = mergeJobs(items.map((x) => setDownJob(x, placed, newborn)));
       items = items.slice(0, used);
       spit.busy = true;
+      const of = /* @__PURE__ */ new Map(), gone = bore.gone.length;
+      for (const x of items) {
+        const m = x.n || x.made, key = x.org || x.sp;
+        of.set(key, (of.get(key) || 0) + m);
+        for (let j = 0; j < m; j++) bore.gone.push(x.org ? boreCell(x.sp.words, x.org.cells[x.from + j]) : madeCell(x.sp));
+      }
+      spit.fly = { n: job.cells.length, of };
       const res = await eng.setDown({ at, take: setDownTake(job.cells.length), ...job });
       spit.busy = false;
+      spit.fly = null;
+      bore.gone.length = gone;
       if (!res) return;
       let got = 0, off = 0;
       for (const x of items) {

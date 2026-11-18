@@ -305,7 +305,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // what it draws up (startPull: pressed, what it took, the cells bonded to those still coming, a word by the tip),
   // Dispense on (armed: a press sets down), and what it sets down (startSpit)
   const pull = { on: false, at: 0, until: 0, tip: [0, 0], got: [], taken: new Set(), drawn: new Set(), last: 0, quiet: 0, armed: false, shake: 0, note: null };
-  const spit = { on: false, held: false, busy: false, sp: null, org: null, at: 0, next: 0, owed: 0, last: 0, fails: 0, dir: 0, pt: null, tip: [0, 0] };
+  // (fly: the set-down sent and not yet read back, its cells already gone from the bore: { n, of: Map(organism or
+  // run → cells) })
+  const spit = { on: false, held: false, busy: false, sp: null, org: null, at: 0, next: 0, owed: 0, last: 0, fails: 0, dir: 0, pt: null, tip: [0, 0], fly: null };
   // riding the specimen (toggleRide, ride.js): where a held pointer steers it (at), the keys held (KeyboardEvent.code),
   // the throttle they build, the camera's dive and breathing (cam; manual once the viewer zooms), the body sent
   // (top: the will's full speed for it, world units a second)
@@ -3274,6 +3276,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // up, the column rises as cells come in; set down, it slides down and out of the tip as they leave. The engine draws
   // them as the cells they are, as out of focus as the glass about them (setTube, vsTube).
   const BORE = 0.2; // world units between the cells in the column, at least (more for big cells: a diameter)
+  const BORE_LAG = 3; // cells the column may be behind (or ahead of) what it holds, easing to it
   const sizes = new WeakMap(); // a genome's words: its cells' radius (world units)
   const radiusOf = (w) => { if (!sizes.has(w)) sizes.set(w, cellRadius({}, genomeOfWords(w), 1)); return sizes.get(w); };
   // (bore: how many it held when last drawn, the column's offset in cells still to ease away, when last drawn, the last
@@ -3283,17 +3286,20 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // a cell for the bore: its genome's words, energy, age, color and info
   const boreCell = (w, c) => ({ w, e: c[0], a: c[1], col: c[2], info: c[3] });
   const madeCell = (sp) => { const [e, col, info] = newborn(sp); return { w: sp.words, e, a: 0, col, info }; };
+  // the set-down under way, once it is in the world or about to be (a paused world holds it unsent)
+  const flown = () => (spit.fly && (!state.paused || (eng.setDownJob && eng.setDownJob.sent)) ? spit.fly : null);
   // the column's first N cells
   function boreCells(N) {
     if (bore.of !== pull.got.length) {
       bore.in = incoming().map(({ kind, recs }) => ({ w: wordsOf(kind), orgs: bodiesOf(recs) }));
       bore.of = pull.got.length;
     }
-    // (from the tip: what is coming in, the last species first, each's last body in first; then each run's)
-    const seq = [];
+    // (from the tip: what is coming in, the last species first, each's last body in first; then each run's, but for
+    // the cells of a set-down already sent)
+    const seq = [], fly = flown() ? spit.fly.of : null, flying = (x) => (fly && fly.get(x)) || 0;
     const put = (orgs, w, sp) => {
-      for (let k = orgs.length - 1; k >= 0 && seq.length < N; k--) for (let c = orgs[k].out; c < orgs[k].cells.length && seq.length < N; c++) seq.push(boreCell(w, orgs[k].cells[c]));
-      for (let m = 0; sp && m < sp.made && seq.length < N; m++) seq.push(madeCell(sp));
+      for (let k = orgs.length - 1; k >= 0 && seq.length < N; k--) for (let c = orgs[k].out + flying(orgs[k]); c < orgs[k].cells.length && seq.length < N; c++) seq.push(boreCell(w, orgs[k].cells[c]));
+      for (let m = sp ? flying(sp) : 0; sp && m < sp.made && seq.length < N; m++) seq.push(madeCell(sp));
     };
     for (let i = bore.in.length - 1; i >= 0; i--) put(bore.in[i].orgs, bore.in[i].w);
     for (const sp of pipette.species) put(sp.orgs, sp.words, sp);
@@ -3307,8 +3313,10 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const len = Math.min(dx > 0 ? (innerWidth - R.sx) / dx : -R.sx / dx, dy > 0 ? (innerHeight - R.sy) / dy : -R.sy / dy);
     const gap = Math.max(BORE, 2.1 * Math.max(0, ...bore.genomes.map(radiusOf))) * p, N = Math.min(TUBE_N, Math.ceil(len / gap) + 1);
     const seq = boreCells(N + Math.max(0, Math.ceil(bore.g)));
-    const n = pipette.count + bore.in.reduce((a, x) => a + x.orgs.reduce((b, o) => b + o.cells.length, 0), 0);
-    bore.g = now - bore.at > 200 ? 0 : clamp((bore.g + n - bore.n) * Math.exp(-dt / 60), -N, N);
+    const n = pipette.count - (flown() ? spit.fly.n : 0) + bore.in.reduce((a, x) => a + x.orgs.reduce((b, o) => b + o.cells.length, 0), 0);
+    // (the column eases a few cells at most behind what it holds: a fast flow streams through, never leaving cells
+    // in the glass that are already in the water)
+    bore.g = now - bore.at > 200 ? 0 : clamp((bore.g + n - bore.n) * Math.exp(-dt / 60), -BORE_LAG, BORE_LAG);
     Object.assign(bore, { n, at: now });
     // (the cell i from the tip; below it, i < 0, those just gone; each faces the way it goes)
     const at = (i) => (i < 0 ? bore.gone[bore.gone.length + i] : seq[i]);
@@ -3448,8 +3456,19 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const { job, used } = mergeJobs(items.map((x) => setDownJob(x, placed, newborn)));
     items = items.slice(0, used);
     spit.busy = true;
+    // (the bore lets the batch go as it is sent, not frames later when the engine says what came of it: what was not
+    // placed comes back then)
+    const of = new Map(), gone = bore.gone.length;
+    for (const x of items) {
+      const m = x.n || x.made, key = x.org || x.sp;
+      of.set(key, (of.get(key) || 0) + m);
+      for (let j = 0; j < m; j++) bore.gone.push(x.org ? boreCell(x.sp.words, x.org.cells[x.from + j]) : madeCell(x.sp));
+    }
+    spit.fly = { n: job.cells.length, of };
     const res = await eng.setDown({ at, take: setDownTake(job.cells.length), ...job });
     spit.busy = false;
+    spit.fly = null;
+    bore.gone.length = gone;
     if (!res) return;
     // (each of the batch's organisms its share of what was placed, in turn, if its species found a slot)
     let got = 0, off = 0;
