@@ -6467,7 +6467,7 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
         motion.y -= bendShift(motion.x, bend);
         tail = motion.x > -1.9 && motion.x < -0.6 && abs(motion.y) < 0.148 + aa;
       }
-      if (!tail) { return vec4f(i.col * far * (1.0 - lod), 0.0); }
+      if (!tail) { return vec4f(i.col * far * (1.0 - lod), far * SPRITE_COVER * (1.0 - lod)); }
     }
     // Flattened against the cells it presses on: a soft intersection with each contact plane. The
     // seam wanders a little, as pressed membranes do; the wander is taken in the world, so the two
@@ -6502,7 +6502,7 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
       tailRange = motion.x > -1.9 && motion.x < -0.6 && abs(motion.y) < 0.148 + aa;
     }
     let appendages = swimmer && (body > 0.0 || hairRange || tailRange);
-    if (body <= 0.0 && !appendages) { return vec4f(i.col * far * (1.0 - lod), 0.0); }
+    if (body <= 0.0 && !appendages) { return vec4f(i.col * far * (1.0 - lod), far * SPRITE_COVER * (1.0 - lod)); }
     // Flat cytoplasm is cheap at silhouette LOD. Detail is a small modulation of
     // that same normalized light, so there is no bright jump when the nucleus appears.
     var tissue = 1.0;
@@ -6582,7 +6582,9 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
       f += min(g.swim, 1.0) * resolved * (1.0 - body) * (0.05 * hairs + 0.08 * tail) * (1.0 - still);
     }
     cover = body;
-    return vec4f(i.col * hue * mix(far, max(0.0, f), lod), lod * cover);
+    // (coverage eased from the unresolved sprite's, as the light is: trails scale it, and a step from 0 at 2.8 px
+    // jumped the view's brightness on a zoom)
+    return vec4f(i.col * hue * mix(far, max(0.0, f), lod), mix(far * SPRITE_COVER, cover, lod));
   }
 }
 // A husk: a folded membrane, with missing arcs and torn ends, that retains the dead particle's color.
@@ -6682,7 +6684,7 @@ fn matterColor(i: PO, p: Particle, far: f32) -> vec4f {
       cover = body;
     }
   }
-  return vec4f(i.col * mix(far, max(0.0, f), lod), lod * cover);
+  return vec4f(i.col * mix(far, max(0.0, f), lod), mix(far * SPRITE_COVER, cover, lod));
 }
 
 struct LO { @builtin(position) pos: vec4f, @location(0) col: vec3f };

@@ -3246,12 +3246,18 @@ class Engine {
         // unevenly frames arrive (a busy GPU's 17, 25, 33 ms gaps made it pulse). A repeated draw at
         // the same moment counts as a 60 Hz frame.
         const t = this.settings.trails;
-        const keep = Math.pow(t, 60 * (realT > lc.t ? Math.min(0.5, realT - lc.t) : 1 / 60));
+        let keep = Math.pow(t, 60 * (realT > lc.t ? Math.min(0.5, realT - lc.t) : 1 / 60));
+        // A moving camera resamples the last image between pixels, spreading each cell's light into its neighbors,
+        // where the living drawn over it no longer hide it: sprites a pixel or two across brightened the view as
+        // the camera moved (3% far out). Those carry nothing while it moves; the gain keeps the view as bright.
+        if (!carry && (sx !== 1 || sy !== 1 || wx || wy)) { const s = Math.min(1, Math.max(0, (ps - 2) / 3)); keep *= s * s * (3 - 2 * s); }
         gain = (1 - keep) / (1 - t);
-        d.queue.writeBuffer(this.b.reprojU, 0, new Float32Array([sx, sy, (wx * lc.ppu) / lc.w, (wy * lc.ppu) / lc.h, keep, 0, 0, 0]));
-        pass.setPipeline(this.main.reproj);
-        pass.setBindGroup(0, carry ? carry.bg : this.reprojBG[srcI]);
-        pass.draw(3);
+        if (keep > 0) {
+          d.queue.writeBuffer(this.b.reprojU, 0, new Float32Array([sx, sy, (wx * lc.ppu) / lc.w, (wy * lc.ppu) / lc.h, keep, 0, 0, 0]));
+          pass.setPipeline(this.main.reproj);
+          pass.setBindGroup(0, carry ? carry.bg : this.reprojBG[srcI]);
+          pass.draw(3);
+        }
       }
       pass.setBlendConstant([gain, gain, gain, gain]);
       if (splat) { pass.setPipeline(this.main.splat); pass.setBindGroup(0, this.splatDrawBG); pass.draw(3); }

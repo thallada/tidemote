@@ -8469,7 +8469,7 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
         motion.y -= bendShift(motion.x, bend);
         tail = motion.x > -1.9 && motion.x < -0.6 && abs(motion.y) < 0.148 + aa;
       }
-      if (!tail) { return vec4f(i.col * far * (1.0 - lod), 0.0); }
+      if (!tail) { return vec4f(i.col * far * (1.0 - lod), far * SPRITE_COVER * (1.0 - lod)); }
     }
     // Flattened against the cells it presses on: a soft intersection with each contact plane. The
     // seam wanders a little, as pressed membranes do; the wander is taken in the world, so the two
@@ -8504,7 +8504,7 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
       tailRange = motion.x > -1.9 && motion.x < -0.6 && abs(motion.y) < 0.148 + aa;
     }
     let appendages = swimmer && (body > 0.0 || hairRange || tailRange);
-    if (body <= 0.0 && !appendages) { return vec4f(i.col * far * (1.0 - lod), 0.0); }
+    if (body <= 0.0 && !appendages) { return vec4f(i.col * far * (1.0 - lod), far * SPRITE_COVER * (1.0 - lod)); }
     // Flat cytoplasm is cheap at silhouette LOD. Detail is a small modulation of
     // that same normalized light, so there is no bright jump when the nucleus appears.
     var tissue = 1.0;
@@ -8584,7 +8584,9 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
       f += min(g.swim, 1.0) * resolved * (1.0 - body) * (0.05 * hairs + 0.08 * tail) * (1.0 - still);
     }
     cover = body;
-    return vec4f(i.col * hue * mix(far, max(0.0, f), lod), lod * cover);
+    // (coverage eased from the unresolved sprite's, as the light is: trails scale it, and a step from 0 at 2.8 px
+    // jumped the view's brightness on a zoom)
+    return vec4f(i.col * hue * mix(far, max(0.0, f), lod), mix(far * SPRITE_COVER, cover, lod));
   }
 }
 // A husk: a folded membrane, with missing arcs and torn ends, that retains the dead particle's color.
@@ -8684,7 +8686,7 @@ fn matterColor(i: PO, p: Particle, far: f32) -> vec4f {
       cover = body;
     }
   }
-  return vec4f(i.col * mix(far, max(0.0, f), lod), lod * cover);
+  return vec4f(i.col * mix(far, max(0.0, f), lod), mix(far * SPRITE_COVER, cover, lod));
 }
 
 struct LO { @builtin(position) pos: vec4f, @location(0) col: vec3f };
@@ -21153,12 +21155,18 @@ ${e.message}` : String(e?.message || e));
           const wx = dx - gx * Math.round(dx / gx), wy = dy - gy * Math.round(dy / gy);
           const sx = lc.ppu * W2 / (cam.ppu * lc.w), sy = lc.ppu * H2 / (cam.ppu * lc.h);
           const t = this.settings.trails;
-          const keep = Math.pow(t, 60 * (realT > lc.t ? Math.min(0.5, realT - lc.t) : 1 / 60));
+          let keep = Math.pow(t, 60 * (realT > lc.t ? Math.min(0.5, realT - lc.t) : 1 / 60));
+          if (!carry && (sx !== 1 || sy !== 1 || wx || wy)) {
+            const s = Math.min(1, Math.max(0, (ps - 2) / 3));
+            keep *= s * s * (3 - 2 * s);
+          }
           gain = (1 - keep) / (1 - t);
-          d.queue.writeBuffer(this.b.reprojU, 0, new Float32Array([sx, sy, wx * lc.ppu / lc.w, wy * lc.ppu / lc.h, keep, 0, 0, 0]));
-          pass2.setPipeline(this.main.reproj);
-          pass2.setBindGroup(0, carry ? carry.bg : this.reprojBG[srcI]);
-          pass2.draw(3);
+          if (keep > 0) {
+            d.queue.writeBuffer(this.b.reprojU, 0, new Float32Array([sx, sy, wx * lc.ppu / lc.w, wy * lc.ppu / lc.h, keep, 0, 0, 0]));
+            pass2.setPipeline(this.main.reproj);
+            pass2.setBindGroup(0, carry ? carry.bg : this.reprojBG[srcI]);
+            pass2.draw(3);
+          }
         }
         pass2.setBlendConstant([gain, gain, gain, gain]);
         if (splat) {
@@ -37927,9 +37935,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "7c3757f27de321be") return;
+      if (localStorage.getItem(key) === "b34a5b025275fc6d") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "7c3757f27de321be");
+      if (res) localStorage.setItem(key, "b34a5b025275fc6d");
     } catch {
     }
   }
