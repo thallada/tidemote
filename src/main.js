@@ -2685,20 +2685,33 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       const peakL = tr('settings.display.hdr-peak', 'Highlights');
       return group('color', tr('settings.display.color', 'Color'), (hdrRow ? onoff('hdr', tr('settings.display.hdr', 'HDR'), '', dsp.hdr, 'hdr') : '')
         + (plan.hdr ? `<div class="opt"><span class="lbl">${term('hdrpeak', peakL)}</span><div class="vol-row"><input type="range" id="set-peak" min="0" max="1000" step="1" value="${peakToSlider(dsp.peak)}" aria-label="${peakL}"><b id="set-peak-v">${peakWords(dsp.peak)}</b></div></div>`
-          // i18n: Settings → Display → Color, under the Highlights slider: how to set it by the swatch beside
-          + `<div class="opt hdr-cal-row"><canvas id="hdr-cal" class="hdr-cal" aria-hidden="true"></canvas><p class="hdr-cal-say">${tr('settings.display.hdr-calibrate', 'Raise Highlights until the disc just disappears.')}</p></div>` : '')
+          + `<div class="opt hdr-cal-row"><canvas id="hdr-cal" class="hdr-cal${calShown() ? '' : ' idle'}" aria-hidden="true"></canvas><p class="hdr-cal-say" id="hdr-cal-say">${calWords()}</p></div>` : '')
         + (wideRow ? choice('wide', tr('settings.display.wide', 'Wide color'), '', [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, tr('settings.display.wide-vivid', 'Vivid')]], dsp.wide, 'widecolor') : ''));
     }
     // i18n: Settings → Display → Color: the HDR highlights' brightest, {x} times white (as 4 or 2.5)
     const peakWords = (p) => tr('settings.display.hdr-peak-x', '{x}×', { x: +p.toFixed(p < 10 ? 1 : 0) });
-    let cal = null;
-    // the calibration swatch, on the canvas render() made (or none)
+    // The calibration swatch (docs/hdr.md, Calibration), on the canvas render() made: shown only while Highlights is
+    // being set (held, dragged, or keyed while focused) and a moment after, as its ring is the display at its brightest
+    let cal = null, calUntil = 0, calTimer = 0, calHeld = false;
+    const calShown = () => calHeld || performance.now() < calUntil;
+    // i18n: Settings → Display → Color, beside the Highlights slider's guide: how to use it while shown, and how to show it
+    const calWords = () => (calShown() ? tr('settings.display.hdr-calibrate', 'Raise Highlights until the disc disappears into its ring.') : tr('settings.display.hdr-calibrate-idle', 'Hold the Highlights slider to show its guide.'));
     const drawCal = () => {
       const cv = $('hdr-cal');
       if (!cv) return;
+      const on = calShown();
+      cv.classList.toggle('idle', !on);
+      setLive($('hdr-cal-say'), calWords());
+      if (!on) return;
       cal ||= createCalibration(device);
       if (cal.canvas !== cv) { cal.attach(cv); cal.canvas = cv; }
       cal.draw(dsp.peak);
+    };
+    const wakeCal = (ms = 2500) => {
+      calUntil = performance.now() + ms;
+      drawCal();
+      clearTimeout(calTimer);
+      calTimer = setTimeout(drawCal, ms + 50);
     };
     // Audio: the soundtrack on or off and its volume (the dock's slider is only on wide screens), what it does while
     // the page is hidden, its layers' levels and its space and tone (src/audio/mix.js), each by what it sounds like
@@ -3073,9 +3086,19 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     opts.addEventListener('input', (e) => {
       if (e.target.id === 'w-name') wName = e.target.value;
       else if (e.target.id === 'set-vol') { if (!sound.on) toggleSound(); sound.setVolume(Number(e.target.value) / 100); }
-      else if (e.target.id === 'set-peak') { dsp.peak = sliderToPeak(+e.target.value); setLive($('set-peak-v'), peakWords(dsp.peak)); applyDisplay(); drawCal(); }
+      else if (e.target.id === 'set-peak') { dsp.peak = sliderToPeak(+e.target.value); setLive($('set-peak-v'), peakWords(dsp.peak)); applyDisplay(); wakeCal(); }
     });
     opts.addEventListener('change', (e) => { if (e.target.id === 'set-peak') persist(); });
+    // (held: the guide stays while the pointer is down, however still)
+    opts.addEventListener('pointerdown', (e) => {
+      if (e.target.id !== 'set-peak') return;
+      calHeld = true;
+      wakeCal();
+      const up = () => { calHeld = false; wakeCal(); removeEventListener('pointerup', up, true); removeEventListener('pointercancel', up, true); };
+      addEventListener('pointerup', up, true); addEventListener('pointercancel', up, true);
+    });
+    opts.addEventListener('keydown', (e) => { if (e.target.id === 'set-peak') wakeCal(); });
+    opts.addEventListener('focusout', (e) => { if (e.target.id === 'set-peak') wakeCal(600); });
     opts.addEventListener('keydown', (e) => { if (e.target.id === 'w-name' && e.key === 'Enter') { e.preventDefault(); worldAct('w-save'); } });
     // (another tab opens at its top)
     tabs.forEach((b) => b.addEventListener('click', () => { if (tab !== b.dataset.tab) $('set-body').scrollTop = 0; tab = b.dataset.tab; confirming = false; ask = null; render(); }));

@@ -763,6 +763,8 @@ body.set-grabbing, body.set-grabbing * { cursor: var(--grab-cursor) !important; 
 /* HDR's calibration swatch (Settings → Display → Color, docs/hdr.md): under the Highlights slider, its words beside */
 .hdr-cal-row { grid-template-columns: 9.6em minmax(0, 1fr); }
 .hdr-cal { width: 100%; height: 44px; border-radius: 4px; display: block; dynamic-range-limit: no-limit; }
+/* (shown only while Highlights is set: its ring is the display at its brightest) */
+.hdr-cal.idle { visibility: hidden; }
 .hdr-cal-say { margin: 0; color: var(--ink-2); font-size: 12px; line-height: 1.35; grid-column: 2; grid-row: 1; }
 .settings.placed .hdr-cal-say { grid-column: auto; grid-row: auto; }
 /* Settings → About: a few paragraphs of prose */
@@ -27981,11 +27983,12 @@ struct U { peak: f32, w: f32, h: f32, _p: f32 }
 }
 fn enc(l: f32) -> f32 { return 1.055 * pow(l, 1.0 / 2.4) - 0.055; }
 @fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
-  let c = vec2f(u.w, u.h) * 0.5;
-  let r = u.h * 0.32;
-  let d = length(pos.xy - c) - r;
-  // (the disc's edge a pixel wide; the field 64 times SDR white)
-  let l = mix(u.peak, 64.0, clamp(d + 0.5, 0.0, 1.0));
+  let d = length(pos.xy - vec2f(u.w, u.h) * 0.5);
+  let r = u.h * 0.24;
+  let ring = max(2.0, u.h * 0.1);
+  // (edges a pixel wide; the ring 64 times SDR white, touching the disc so their edge goes with the difference)
+  let inRing = clamp(r + ring - d + 0.5, 0.0, 1.0);
+  let l = mix(0.0, mix(u.peak, 64.0, clamp(d - r + 0.5, 0.0, 1.0)), inRing);
   return vec4f(vec3f(enc(l)), 1.0);
 }
 `
@@ -40987,19 +40990,31 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         const wideRow = caps.p3Canvas && (caps.p3Screen || plan2.hdr);
         if (!hdrRow && !wideRow) return "";
         const peakL = tr("settings.display.hdr-peak", "Highlights");
-        return group("color", tr("settings.display.color", "Color"), (hdrRow ? onoff("hdr", tr("settings.display.hdr", "HDR"), "", dsp.hdr, "hdr") : "") + (plan2.hdr ? `<div class="opt"><span class="lbl">${term("hdrpeak", peakL)}</span><div class="vol-row"><input type="range" id="set-peak" min="0" max="1000" step="1" value="${peakToSlider(dsp.peak)}" aria-label="${peakL}"><b id="set-peak-v">${peakWords(dsp.peak)}</b></div></div><div class="opt hdr-cal-row"><canvas id="hdr-cal" class="hdr-cal" aria-hidden="true"></canvas><p class="hdr-cal-say">${tr("settings.display.hdr-calibrate", "Raise Highlights until the disc just disappears.")}</p></div>` : "") + (wideRow ? choice("wide", tr("settings.display.wide", "Wide color"), "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, tr("settings.display.wide-vivid", "Vivid")]], dsp.wide, "widecolor") : ""));
+        return group("color", tr("settings.display.color", "Color"), (hdrRow ? onoff("hdr", tr("settings.display.hdr", "HDR"), "", dsp.hdr, "hdr") : "") + (plan2.hdr ? `<div class="opt"><span class="lbl">${term("hdrpeak", peakL)}</span><div class="vol-row"><input type="range" id="set-peak" min="0" max="1000" step="1" value="${peakToSlider(dsp.peak)}" aria-label="${peakL}"><b id="set-peak-v">${peakWords(dsp.peak)}</b></div></div><div class="opt hdr-cal-row"><canvas id="hdr-cal" class="hdr-cal${calShown() ? "" : " idle"}" aria-hidden="true"></canvas><p class="hdr-cal-say" id="hdr-cal-say">${calWords()}</p></div>` : "") + (wideRow ? choice("wide", tr("settings.display.wide", "Wide color"), "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, tr("settings.display.wide-vivid", "Vivid")]], dsp.wide, "widecolor") : ""));
       }
       const peakWords = (p2) => tr("settings.display.hdr-peak-x", "{x}×", { x: +p2.toFixed(p2 < 10 ? 1 : 0) });
-      let cal = null;
+      let cal = null, calUntil = 0, calTimer = 0, calHeld = false;
+      const calShown = () => calHeld || performance.now() < calUntil;
+      const calWords = () => calShown() ? tr("settings.display.hdr-calibrate", "Raise Highlights until the disc disappears into its ring.") : tr("settings.display.hdr-calibrate-idle", "Hold the Highlights slider to show its guide.");
       const drawCal = () => {
         const cv = $2("hdr-cal");
         if (!cv) return;
+        const on = calShown();
+        cv.classList.toggle("idle", !on);
+        setText($2("hdr-cal-say"), calWords());
+        if (!on) return;
         cal ||= createCalibration(device);
         if (cal.canvas !== cv) {
           cal.attach(cv);
           cal.canvas = cv;
         }
         cal.draw(dsp.peak);
+      };
+      const wakeCal = (ms = 2500) => {
+        calUntil = performance.now() + ms;
+        drawCal();
+        clearTimeout(calTimer);
+        calTimer = setTimeout(drawCal, ms + 50);
       };
       function audio_() {
         const m = sound.mix, mix4 = (k) => choice(`mix-${k}`, MIX[k].name, "", MIX[k].choices.map(([label3], i) => [i, label3]), m[k], `audio${k}`);
@@ -41422,11 +41437,30 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           dsp.peak = sliderToPeak(+e.target.value);
           setText($2("set-peak-v"), peakWords(dsp.peak));
           applyDisplay();
-          drawCal();
+          wakeCal();
         }
       });
       opts.addEventListener("change", (e) => {
         if (e.target.id === "set-peak") persist();
+      });
+      opts.addEventListener("pointerdown", (e) => {
+        if (e.target.id !== "set-peak") return;
+        calHeld = true;
+        wakeCal();
+        const up2 = () => {
+          calHeld = false;
+          wakeCal();
+          removeEventListener("pointerup", up2, true);
+          removeEventListener("pointercancel", up2, true);
+        };
+        addEventListener("pointerup", up2, true);
+        addEventListener("pointercancel", up2, true);
+      });
+      opts.addEventListener("keydown", (e) => {
+        if (e.target.id === "set-peak") wakeCal();
+      });
+      opts.addEventListener("focusout", (e) => {
+        if (e.target.id === "set-peak") wakeCal(600);
       });
       opts.addEventListener("keydown", (e) => {
         if (e.target.id === "w-name" && e.key === "Enter") {

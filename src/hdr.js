@@ -81,9 +81,10 @@ export function halfsToRGBA8(halves) {
   return out;
 }
 
-// The calibration swatch: a field brighter than any display shows (it clips at the display's brightest) and a disc at
-// the headroom chosen, sRGB-encoded as the canvas takes it (a grey, the same in P3). Raised until the disc vanishes
-// into the field, the headroom meets the display's own.
+// The calibration swatch: on black, a disc at the headroom chosen inside a thin ring brighter than any display shows
+// (it clips at the display's brightest), sRGB-encoded as the canvas takes it (a grey, the same in P3). Raised until
+// the disc vanishes into its ring, the headroom meets the display's own. (A ring, not a field: little of the panel's
+// glare at its brightest beside the settings' words.)
 const CAL_WGSL = /* wgsl */ ` // i18n-ignore (WGSL)
 struct U { peak: f32, w: f32, h: f32, _p: f32 }
 @group(0) @binding(0) var<uniform> u: U;
@@ -93,11 +94,12 @@ struct U { peak: f32, w: f32, h: f32, _p: f32 }
 }
 fn enc(l: f32) -> f32 { return 1.055 * pow(l, 1.0 / 2.4) - 0.055; }
 @fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
-  let c = vec2f(u.w, u.h) * 0.5;
-  let r = u.h * 0.32;
-  let d = length(pos.xy - c) - r;
-  // (the disc's edge a pixel wide; the field 64 times SDR white)
-  let l = mix(u.peak, 64.0, clamp(d + 0.5, 0.0, 1.0));
+  let d = length(pos.xy - vec2f(u.w, u.h) * 0.5);
+  let r = u.h * 0.24;
+  let ring = max(2.0, u.h * 0.1);
+  // (edges a pixel wide; the ring 64 times SDR white, touching the disc so their edge goes with the difference)
+  let inRing = clamp(r + ring - d + 0.5, 0.0, 1.0);
+  let l = mix(0.0, mix(u.peak, 64.0, clamp(d - r + 0.5, 0.0, 1.0)), inRing);
   return vec4f(vec3f(enc(l)), 1.0);
 }
 `;

@@ -101,6 +101,21 @@ if (OUT) {
     const lay = await page.evaluate(() => { const c = document.getElementById('hdr-cal'), p = document.querySelector('.hdr-cal-say'); const r = c?.getBoundingClientRect(), q = p?.getBoundingClientRect(); return { cal: r && [r.width, r.height], say: q && [q.width, q.height], fontPx: p && parseFloat(getComputedStyle(p).fontSize), slider: !!document.getElementById('set-peak'), wide: !!document.querySelector('[data-o="wide"]') }; });
     check(`Settings → Color at a ${name}'s size: HDR's slider, the swatch, wide color`, lay.slider && lay.wide && lay.cal?.[0] > 40 && lay.cal?.[1] >= 40 && lay.fontPx >= 11, JSON.stringify(lay));
     await page.screenshot({ path: path.join(OUT, `settings-${name}.png`), clip: box });
+    if (name === 'laptop') {
+      // the guide: hidden until Highlights is held, shown while it is, hidden again a moment after
+      const idle = () => page.evaluate(() => document.getElementById('hdr-cal').classList.contains('idle'));
+      const before = await idle();
+      const sl = await page.$('#set-peak'), r = await sl.boundingBox();
+      await page.mouse.move(r.x + r.width * 0.3, r.y + r.height / 2);
+      await page.mouse.down();
+      await page.waitForTimeout(3000);
+      const held = await idle();
+      await page.screenshot({ path: path.join(OUT, 'settings-guide.png'), clip: box });
+      await page.mouse.up();
+      await page.waitForTimeout(3200);
+      const after = await idle();
+      check('the guide shows only while Highlights is held', before && !held && after, JSON.stringify({ before, held, after }));
+    }
   }
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.keyboard.press('Escape');

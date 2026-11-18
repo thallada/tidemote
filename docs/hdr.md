@@ -89,11 +89,13 @@ their colors.
 
 ## Calibration
 
-The swatch under Highlights is a canvas of its own in extended range: a field at 64× white (any display clips it at
-its brightest) and a disc at the headroom chosen. Below the display's own headroom the disc shows dimmer than the
-field; raised until it just disappears, Highlights meets it. The view's highlights then use the display's whole range
-and nothing past it clips. On a display with its own tone mapping (an OLED in a "peak 1000" mode) the disc fades
-rather than vanishing; the point where it stops changing is the setting.
+The swatch under Highlights is a canvas of its own in extended range, on black: a disc at the headroom chosen inside a
+thin ring at 64× white (any display clips it at its brightest). Below the display's own headroom the disc shows dimmer
+than its ring; raised until it just disappears into it, Highlights meets the headroom. The view's highlights then use
+the display's whole range and nothing past it clips. On a display with its own tone mapping (an OLED in a "peak 1000"
+mode) the disc fades rather than vanishing; the point where it stops changing is the setting. The swatch shows only
+while Highlights is being set (held, dragged, or keyed while focused, and 2.5 s after): its ring is the panel at its
+brightest, which beside the settings' words was blinding, and a ring rather than a field keeps that glare small.
 
 ## Platforms
 
