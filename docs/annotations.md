@@ -140,7 +140,8 @@ itself on. State is told by form: a filled tag, hatching, a hollow or dashed mar
 - **census**: a glyph on each cell of a species in view, ticked on in a sweep (plus a member, dashed ring dormant or
   torpid, square too warm, cross dead).
 - **shape**: a stretch of the world (a crowd, the water too warm, ice, light, stone, shade, a range) as smooth loops
-  where its field crosses a level (`src/contour.js`); hatched for a danger, its hatching fixed to the world.
+  where its field crosses a level (`src/contour.js`); hatched for a danger, its hatching riding the world as it pans but one size on screen at every zoom (8 px; scaled
+  with the view, its lines closed to a faint moiré from afar).
 - **label**: a tag or eyebrow, a rule, a hero numeral and the name it counts, data lines, a comfort band with the
   reading.
 - **gauge**: the water on an arc against a species' comfort band.
@@ -175,8 +176,8 @@ The marks ride the scene as what they mark does, however the auto camera pans an
   kept a shape they had left; a range's was fixed in the world until the view's squares changed.) Squares
   out of view count as outside, a finite way below the level, so no edge runs along a row of square middles; and a
   square counts only where it lies on the camera's side of the world's wrap, never again as its repeat when the grid
-  is wider than the world (else from afar one stretch was outlined two or three times over). Hatching is
-  fixed to the world.
+  is wider than the world (else from afar one stretch was outlined two or three times over). Hatching rides
+  the world as it pans.
 - A label hangs on one cell of its group, chosen once and kept: found every frame by its id (`n.pins`, with
   `Engine.watch`) wherever the group's sample goes; another only when that cell is gone altogether. When it leaves the
   view, the note ends rather than hopping to another cell. Its place is chosen once, when it first shows (the best

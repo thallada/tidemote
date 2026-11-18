@@ -125,6 +125,8 @@ export function createNoteView(g) {
     c.beginPath(); c.moveTo(-1, 7); c.lineTo(7, -1); c.moveTo(-1, 1); c.lineTo(1, -1); c.moveTo(5, 7); c.lineTo(7, 5); c.stroke();
     return (hatch[tone] = g.createPattern(c.canvas, 'repeat'));
   }
+  // the hatch's tile on screen at every zoom (its lines px/6 wide, px/√2 apart)
+  const HATCH_PX = 8;
   // the hatching fixed to the world: its lines `px` apart on screen, through screen point (x, y)
   function hatchAt(tone, x, y, px) {
     // (the WebGPU layer works the hatch out itself)
@@ -836,8 +838,9 @@ export function createNoteView(g) {
     const fIn = reduced ? 1 : clamp(t / 0.5, 0, 1);
     if (o.fill) { g.globalAlpha = a * fIn * o.fill[1]; g.fillStyle = o.fill[0]; g.fill(P, 'evenodd'); }
     if (o.hatch) {
-      // (its lines fixed to the world: a point of the world at the origin, spaced by the view's scale within bounds)
-      const o0 = F.toScreen([0, 0]), px = clamp(6 * (F.ppu / (o.ppu0 || F.ppu)), 4.5, 9);
+      // (its lines ride the world as it pans, through a point of the world at the origin, but keep one spacing and
+      // width on screen at every zoom: spaced by the view's scale, they closed to a faint moiré when zoomed far out)
+      const o0 = F.toScreen([0, 0]), px = HATCH_PX;
       g.globalAlpha = a * fIn * (o.hatchA ?? 0.7); g.fillStyle = hatchAt(tone, o0[0], o0[1], px); g.fill(P, 'evenodd');
     }
     g.globalAlpha = a * fIn;
@@ -1144,7 +1147,6 @@ export function createNoteView(g) {
       const an = hang(0, pts, d.kind);
       if (!an) return null;
       P.tone = HOT;
-      S.ppu0 ||= F.ppu;
       if (wide) {
         // the water too warm for it: where the water's warmth crosses what it bears (an isotherm), unless that is nearly
         // everywhere in view (then told by the label and the gauge alone)
@@ -1155,11 +1157,11 @@ export function createNoteView(g) {
           S.loops = d.squares.length <= 0.7 * inView ? gridLoops(M.view.temps, M.view.grid, g2.topt + 0.8 * g2.tol, M.view.sqOnce) : [];
         }
         const loops = S.loops;
-        P.draws.push((t) => blob(loops, HOT, t, F, { hatch: true, ppu0: S.ppu0 }));
+        P.draws.push((t) => blob(loops, HOT, t, F, { hatch: true }));
       } else {
         // its too-warm cells' ground: a shape about them that rides with them, eased from look to look
         const sh = ride((S.ride ||= {}), rows, d.kind, clamp(F.radius(d.kind) * 2.4, 16, 90) / F.ppu);
-        if (sh) P.draws.push((t) => blob(sh.loops, HOT, t, F, { hatch: true, ppu0: S.ppu0, at: sh.at }));
+        if (sh) P.draws.push((t) => blob(sh.loops, HOT, t, F, { hatch: true, at: sh.at }));
         P.draws.push((t) => census(pts, 'square', HOT, t - 0.2, an, glyphOf(d.kind)));
       }
       const deaths = recent('scalded', d.kind, 10);
@@ -1195,10 +1197,9 @@ export function createNoteView(g) {
       P.tone = CYAN;
       if (wide) {
         // the ice, where it lies
-        S.ppu0 ||= F.ppu;
         if (S.iceView !== M.view) { S.iceView = M.view; S.loops = gridLoops(M.view.ice, M.view.grid, 0.3, M.view.sqOnce); }
         const loops = S.loops;
-        P.draws.push((t) => blob(loops, CYAN, t, F, { hatch: true, ppu0: S.ppu0 }));
+        P.draws.push((t) => blob(loops, CYAN, t, F, { hatch: true }));
       } else P.draws.push((t) => census(pts, 'ring', CYAN, t, an));
       const froze = recent('froze', null, 10);
       pips(froze, HOT, 0.4);
@@ -1390,11 +1391,10 @@ export function createNoteView(g) {
     } else if (d.type === 'light') {
       // the light: where it falls brightest in view (a shape where it crosses halfway from the view's mean to its
       // brightest), hatched in sunlight's color; the producers there
-      S.ppu0 ||= F.ppu;
       if (S.lightOf !== d.light) { S.lightOf = d.light; S.loops = gridLoops(d.light, d.grid, d.level, M.view.sqOnce); }
       const loops = S.loops;
       P.tone = SUN;
-      P.draws.push((t) => blob(loops, SUN, t, F, { hatch: true, ppu0: S.ppu0, hatchA: 0.5 }));
+      P.draws.push((t) => blob(loops, SUN, t, F, { hatch: true, hatchA: 0.5 }));
       // hung on the brightest square's middle (a place in the world)
       if (!S.at) { let k0 = 0; d.light.forEach((x, k) => { if (M.view.sqIn[k] && x > d.light[k0]) k0 = k; }); S.at = [d.grid[0] + ((k0 % NOTE_TG) + 0.5) * d.grid[2], d.grid[1] + (Math.floor(k0 / NOTE_TG) + 0.5) * d.grid[2]]; }
       P.anchor = F.toScreen(S.at);
@@ -1473,12 +1473,11 @@ export function createNoteView(g) {
       P.keys.push({ glyph: 'ring', text: tr('notes.key.no-life', 'NO LIFE HERE'), tone: INK3 });
     } else if (d.type === 'deaths') {
       // a killing ground: where most died lately, and of what
-      S.ppu0 ||= F.ppu;
       if (S.deadOf !== d.field) { S.deadOf = d.field; S.loops = gridLoops(d.field, d.grid, d.level, M.view.sqIn); }
       const loops = S.loops;
       if (!loops.length) return null;
       P.tone = HOT;
-      P.draws.push((t) => blob(loops, HOT, t, F, { hatch: true, ppu0: S.ppu0, hatchA: 0.4, dash: [3, 3] }));
+      P.draws.push((t) => blob(loops, HOT, t, F, { hatch: true, hatchA: 0.4, dash: [3, 3] }));
       if (!S.at) { const L = loops.reduce((b, l) => (l.length > b.length ? l : b), loops[0]); S.at = L.reduce((b, p) => (p[1] < b[1] ? p : b), L[0]); }
       P.anchor = F.toScreen(S.at);
       const top = causeList(Object.entries(d.causes).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c, k]) => tr('notes.cause-count', '{cause} {n}', { cause: causeUp(c), n: k })));
@@ -1491,9 +1490,8 @@ export function createNoteView(g) {
       const pts = group('d', rows), an = hang(0, pts, -2);
       if (!an) return null;
       const sh = ride((S.ride ||= {}), rows, -2, clamp(F.radius(d.kind) * 3, 18, 100) / F.ppu);
-      S.ppu0 ||= F.ppu;
       P.tone = SAND;
-      if (sh) P.draws.push((t) => blob(sh.loops, SAND, t, F, { hatch: true, ppu0: S.ppu0, hatchA: 0.45, dash: [4, 3], at: sh.at }));
+      if (sh) P.draws.push((t) => blob(sh.loops, SAND, t, F, { hatch: true, hatchA: 0.45, dash: [4, 3], at: sh.at }));
       P.draws.push((t) => census(pts, 'ring', SAND, t, an, 3.5));
       pips(recent('dried', null, 10), HOT, 0.4);
       P.anchor = an;
@@ -1517,11 +1515,10 @@ export function createNoteView(g) {
       });
       const pts = group('i', rows), an = hang(0, pts, -2);
       if (!an) return null;
-      S.ppu0 ||= F.ppu;
       if (S.iceView !== v) { S.iceView = v; S.loops = gridLoops(v.ice, v.grid, 0.5, v.sqOnce); }
       const loops = S.loops;
       P.tone = CYAN;
-      P.draws.push((t) => blob(loops, CYAN, t, F, { hatch: true, ppu0: S.ppu0 }));
+      P.draws.push((t) => blob(loops, CYAN, t, F, { hatch: true }));
       P.draws.push((t) => census(pts, 'ring', CYAN, t, an, 3.5));
       pips(recent('froze', null, 10), HOT, 0.4);
       P.anchor = an;
@@ -1548,9 +1545,8 @@ export function createNoteView(g) {
         S.loops = gridLoops(f, v.grid, 0.4, v.sqOnce);
       }
       const loops = S.loops;
-      S.ppu0 ||= F.ppu;
       P.tone = MOSS;
-      P.draws.push((t) => blob(loops, MOSS, t, F, { hatch: true, ppu0: S.ppu0, hatchA: 0.6, fill: ['rgba(2,4,3,1)', 0.25] }));
+      P.draws.push((t) => blob(loops, MOSS, t, F, { hatch: true, hatchA: 0.6, fill: ['rgba(2,4,3,1)', 0.25] }));
       P.draws.push((t) => census(pts, 'plus', MOSS, t, an, 3.5));
       P.anchor = an;
       P.pts = pts;
