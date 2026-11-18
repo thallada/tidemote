@@ -30445,10 +30445,8 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     // a note whose cell is lost from view fades out where it was last seen over this long
   };
   function createNoteView(g) {
-    const newPath = () => g.newPath ? g.newPath() : new Path2D();
     const widths = /* @__PURE__ */ new Map();
     const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const hatch = {};
     const notesAt = /* @__PURE__ */ new Map();
     const lay = /* @__PURE__ */ new Map();
     const marks2 = /* @__PURE__ */ new Map();
@@ -30514,30 +30512,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       g.stroke();
       g.setLineDash([]);
     }
-    function hatchOf(tone) {
-      if (hatch[tone]) return hatch[tone];
-      const c = (typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(6, 6) : Object.assign(document.createElement("canvas"), { width: 6, height: 6 })).getContext("2d");
-      c.strokeStyle = rgba2(tone, 0.55);
-      c.lineWidth = 1;
-      c.beginPath();
-      c.moveTo(-1, 7);
-      c.lineTo(7, -1);
-      c.moveTo(-1, 1);
-      c.lineTo(1, -1);
-      c.moveTo(5, 7);
-      c.lineTo(7, 5);
-      c.stroke();
-      return hatch[tone] = g.createPattern(c.canvas, "repeat");
-    }
-    function hatchAt(tone, x, y, px) {
-      if (g.hatch) return g.hatch(tone, x, y, px);
-      const p2 = hatchOf(tone);
-      if (p2.setTransform && typeof DOMMatrix !== "undefined") {
-        const k = px / 6;
-        p2.setTransform(new DOMMatrix([k, 0, 0, k, x, y]));
-      }
-      return p2;
-    }
+    const hatchAt = (tone, x, y) => g.hatch(tone, x, y, 8);
     let LM = null;
     const mp = (p2) => LM ? [LM.x + (p2[0] - LM.c[0]) * LM.k, LM.y + (p2[1] - LM.c[1]) * LM.k] : p2;
     const unmapped = (fn) => {
@@ -30700,7 +30675,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       }
       let far = 1;
       for (const p2 of pts) far = Math.max(far, Math.hypot(p2[0] - from[0], p2[1] - from[1]));
-      const P = newPath(), a0 = g.globalAlpha, fading = [];
+      const P = g.newPath(), a0 = g.globalAlpha, fading = [];
       const add = (Pt, x, y, Q2) => {
         if (glyph === "plus") {
           Pt.moveTo(x - Q2, y);
@@ -30739,7 +30714,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       };
       draw2(P);
       if (fading.length) {
-        const bands = [newPath(), newPath(), newPath(), newPath()];
+        const bands = [g.newPath(), g.newPath(), g.newPath(), g.newPath()];
         for (const [x, y, Q2, a] of fading) add(bands[Math.min(3, Math.floor(a * 4))], x, y, Q2);
         bands.forEach((Pt, b) => {
           g.globalAlpha = a0 * (b + 0.5) / 4;
@@ -31440,7 +31415,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     }
     function blob(loops, tone, t, F, o = {}) {
       if (!loops.length) return null;
-      const P = newPath(), a = g.globalAlpha;
+      const P = g.newPath(), a = g.globalAlpha;
       let top = null, n = 0;
       const [W2, H2] = F.world, c0 = F.toWorld([(F.open.l + F.open.r) / 2, (F.open.t + F.open.b) / 2]), o0 = o.at ? o.at() : [0, 0];
       for (const L of loops) {
@@ -31461,9 +31436,9 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         g.fill(P, "evenodd");
       }
       if (o.hatch) {
-        const o02 = F.toScreen([0, 0]), px = clamp9(6 * (F.ppu / (o.ppu0 || F.ppu)), 4.5, 9);
+        const o02 = F.toScreen([0, 0]);
         g.globalAlpha = a * fIn * (o.hatchA ?? 0.7);
-        g.fillStyle = hatchAt(tone, o02[0], o02[1], px);
+        g.fillStyle = hatchAt(tone, o02[0], o02[1]);
         g.fill(P, "evenodd");
       }
       g.globalAlpha = a * fIn;
@@ -31805,7 +31780,6 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         const an = hang(0, pts, d.kind);
         if (!an) return null;
         P.tone = HOT;
-        S.ppu0 ||= F.ppu;
         if (wide) {
           let inView = 0;
           for (const b of M.view.sqIn) inView += b;
@@ -31814,10 +31788,10 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
             S.loops = d.squares.length <= 0.7 * inView ? gridLoops(M.view.temps, M.view.grid, g2.topt + 0.8 * g2.tol, M.view.sqOnce) : [];
           }
           const loops = S.loops;
-          P.draws.push((t) => blob(loops, HOT, t, F, { hatch: true, ppu0: S.ppu0 }));
+          P.draws.push((t) => blob(loops, HOT, t, F, { hatch: true }));
         } else {
           const sh = ride(S.ride ||= {}, rows, d.kind, clamp9(F.radius(d.kind) * 2.4, 16, 90) / F.ppu);
-          if (sh) P.draws.push((t) => blob(sh.loops, HOT, t, F, { hatch: true, ppu0: S.ppu0, at: sh.at }));
+          if (sh) P.draws.push((t) => blob(sh.loops, HOT, t, F, { hatch: true, at: sh.at }));
           P.draws.push((t) => census(pts, "square", HOT, t - 0.2, an, glyphOf(d.kind)));
         }
         const deaths = recent("scalded", d.kind, 10);
@@ -31856,13 +31830,12 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         if (!an) return null;
         P.tone = CYAN2;
         if (wide) {
-          S.ppu0 ||= F.ppu;
           if (S.iceView !== M.view) {
             S.iceView = M.view;
             S.loops = gridLoops(M.view.ice, M.view.grid, 0.3, M.view.sqOnce);
           }
           const loops = S.loops;
-          P.draws.push((t) => blob(loops, CYAN2, t, F, { hatch: true, ppu0: S.ppu0 }));
+          P.draws.push((t) => blob(loops, CYAN2, t, F, { hatch: true }));
         } else P.draws.push((t) => census(pts, "ring", CYAN2, t, an));
         const froze = recent("froze", null, 10);
         pips(froze, HOT, 0.4);
@@ -32087,14 +32060,13 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         };
         P.keys.push({ glyph: "plus", text: tr("notes.key.beating", "{name}: ONE BEATING BODY", { name: nm(d.kind) }), tone: HOT });
       } else if (d.type === "light") {
-        S.ppu0 ||= F.ppu;
         if (S.lightOf !== d.light) {
           S.lightOf = d.light;
           S.loops = gridLoops(d.light, d.grid, d.level, M.view.sqOnce);
         }
         const loops = S.loops;
         P.tone = SUN2;
-        P.draws.push((t) => blob(loops, SUN2, t, F, { hatch: true, ppu0: S.ppu0, hatchA: 0.5 }));
+        P.draws.push((t) => blob(loops, SUN2, t, F, { hatch: true, hatchA: 0.5 }));
         if (!S.at) {
           let k0 = 0;
           d.light.forEach((x, k) => {
@@ -32192,7 +32164,6 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         P.label = { tone: INK22, eye: tr("notes.barren.eye", "BARREN WATER"), num: pctUp(d.share), main: tr("notes.barren.main", "OF THE VIEW NEARLY EMPTY OF LIFE"), data: [why] };
         P.keys.push({ glyph: "ring", text: tr("notes.key.no-life", "NO LIFE HERE"), tone: INK32 });
       } else if (d.type === "deaths") {
-        S.ppu0 ||= F.ppu;
         if (S.deadOf !== d.field) {
           S.deadOf = d.field;
           S.loops = gridLoops(d.field, d.grid, d.level, M.view.sqIn);
@@ -32200,7 +32171,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         const loops = S.loops;
         if (!loops.length) return null;
         P.tone = HOT;
-        P.draws.push((t) => blob(loops, HOT, t, F, { hatch: true, ppu0: S.ppu0, hatchA: 0.4, dash: [3, 3] }));
+        P.draws.push((t) => blob(loops, HOT, t, F, { hatch: true, hatchA: 0.4, dash: [3, 3] }));
         if (!S.at) {
           const L = loops.reduce((b, l) => l.length > b.length ? l : b, loops[0]);
           S.at = L.reduce((b, p2) => p2[1] < b[1] ? p2 : b, L[0]);
@@ -32218,9 +32189,8 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         const pts = group("d", rows), an = hang(0, pts, -2);
         if (!an) return null;
         const sh = ride(S.ride ||= {}, rows, -2, clamp9(F.radius(d.kind) * 3, 18, 100) / F.ppu);
-        S.ppu0 ||= F.ppu;
         P.tone = SAND;
-        if (sh) P.draws.push((t) => blob(sh.loops, SAND, t, F, { hatch: true, ppu0: S.ppu0, hatchA: 0.45, dash: [4, 3], at: sh.at }));
+        if (sh) P.draws.push((t) => blob(sh.loops, SAND, t, F, { hatch: true, hatchA: 0.45, dash: [4, 3], at: sh.at }));
         P.draws.push((t) => census(pts, "ring", SAND, t, an, 3.5));
         pips(recent("dried", null, 10), HOT, 0.4);
         P.anchor = an;
@@ -32250,14 +32220,13 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         });
         const pts = group("i", rows), an = hang(0, pts, -2);
         if (!an) return null;
-        S.ppu0 ||= F.ppu;
         if (S.iceView !== v) {
           S.iceView = v;
           S.loops = gridLoops(v.ice, v.grid, 0.5, v.sqOnce);
         }
         const loops = S.loops;
         P.tone = CYAN2;
-        P.draws.push((t) => blob(loops, CYAN2, t, F, { hatch: true, ppu0: S.ppu0 }));
+        P.draws.push((t) => blob(loops, CYAN2, t, F, { hatch: true }));
         P.draws.push((t) => census(pts, "ring", CYAN2, t, an, 3.5));
         pips(recent("froze", null, 10), HOT, 0.4);
         P.anchor = an;
@@ -32286,9 +32255,8 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
           S.loops = gridLoops(f2, v.grid, 0.4, v.sqOnce);
         }
         const loops = S.loops;
-        S.ppu0 ||= F.ppu;
         P.tone = MOSS;
-        P.draws.push((t) => blob(loops, MOSS, t, F, { hatch: true, ppu0: S.ppu0, hatchA: 0.6, fill: ["rgba(2,4,3,1)", 0.25] }));
+        P.draws.push((t) => blob(loops, MOSS, t, F, { hatch: true, hatchA: 0.6, fill: ["rgba(2,4,3,1)", 0.25] }));
         P.draws.push((t) => census(pts, "plus", MOSS, t, an, 3.5));
         P.anchor = an;
         P.pts = pts;
@@ -32934,11 +32902,10 @@ struct FO { @location(0) color: vec4f, @builtin(frag_depth) depth: f32 }
     let t = textureLoad(atlas, vec2i(floor(in.uv)), 0);
     cov = cov * select(t.r, t.g, in.b.z > 0.5);
   } else if (kind == ${K_HATCH}u) {
-    // lines x + y = 0 (mod 6) of the hatch's tile (noteview hatchOf), 1 of it wide, about its origin and at its scale
+    // lines x + y = 0 (mod 6) of a 6-unit tile, 1 of it wide, about its origin and at its scale (b.z px a unit)
     let q = (in.p - in.b.xy) / in.b.z;
     let m = (q.x + q.y) - 6.0 * floor((q.x + q.y) / 6.0);
     let dist = min(m, 6.0 - m) * 0.70710678 * in.b.z;
-    // (at about the strength of the canvas's, a 6 px tile sampled smooth)
     cov = cov * 0.7 * clamp(0.5 * in.b.z - dist + 0.5, 0.0, 1.0);
   }
   let a = in.col.a * cov;
@@ -33073,7 +33040,6 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
       this.layouts = /* @__PURE__ */ new Map();
       this.glyphs = /* @__PURE__ */ new Map();
       this.atlasSize = 2048;
-      this.ms = { record: 0, encode: 0, inst: 0, tri: 0, cmds: 0 };
       this._pipelines();
       this.begin(1);
       if (typeof document !== "undefined") document.fonts?.addEventListener?.("loadingdone", () => {
@@ -33159,9 +33125,10 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
       this.lineWidth = 1;
       this.lineJoin = "miter";
       this.textAlign = "start";
+      this.fontStretch = "normal";
+      this.letterSpacing = "0px";
       this.font = "10px sans-serif";
       this.dash = [];
-      this._t0 = performance.now();
     }
     get count() {
       return this.cmds.length;
@@ -33188,16 +33155,6 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
       Object.assign(this, s);
       this.path.xf = this.m;
     }
-    setTransform(a, b, c, d, e, f2) {
-      if (typeof a === "object") ({ a, b, c, d, e, f: f2 } = a);
-      const k = this.base;
-      this.m = [a * k, b * k, c * k, d * k, e * k, f2 * k];
-      this.path.xf = this.m;
-    }
-    getTransform() {
-      const k = this.base, m = this.m;
-      return { a: m[0] / k, b: m[1] / k, c: m[2] / k, d: m[3] / k, e: m[4] / k, f: m[5] / k };
-    }
     translate(x, y) {
       const m = this.m;
       m[4] += m[0] * x + m[2] * y;
@@ -33210,11 +33167,6 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
     }
     setLineDash(d) {
       this.dash = d && d.length ? d.slice() : [];
-    }
-    getLineDash() {
-      return this.dash.slice();
-    }
-    clearRect() {
     }
     newPath() {
       return new GPath();
@@ -33377,7 +33329,7 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
         }
       }
     }
-    fill(P, rule) {
+    fill(P) {
       if (typeof P === "string") P = null;
       const subs = this._subs(P).filter((s) => s.pts.length >= 6);
       if (!subs.length) return;
@@ -33450,7 +33402,7 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
       P.rect(x, y, w, h);
       this.stroke(P);
     }
-    clip(P, rule) {
+    clip(P) {
       if (typeof P === "string") P = null;
       const L = [];
       for (const s of this._subs(P)) {
@@ -33464,12 +33416,9 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
       }
       this.clips = [...this.clips, L];
     }
-    // the hatch noteview fills its zones with (hatchOf): lines of a tone, fixed to a point of the world, px apart
+    // a fill style of hatching (noteview's zones): lines of a tone at 45°, through (x, y), a tile px on a side
     hatch(tone, x, y, px) {
       return { hatch: true, color: `rgba(${tone},0.55)`, x, y, px };
-    }
-    createPattern() {
-      return null;
     }
     // ------------------------------------------------------------------ text
     _font(ctx, k = 1) {
@@ -33579,9 +33528,8 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
     // ------------------------------------------------------------------ the GPU's
     /** Draws the frame's recording over target (a GPUTextureView of w x h), in a pass of its own. */
     encode(enc, target2, w, h) {
-      this.ms.record += performance.now() - this._t0;
       if (!this.cmds.length) return;
-      const t0 = performance.now(), d = this.device, U2 = GPUBufferUsage;
+      const d = this.device, U2 = GPUBufferUsage;
       if (!this.ds || this.ds.width !== w || this.ds.height !== h) {
         this.ds?.destroy();
         this.ds = d.createTexture({ size: [w, h], format: "depth24plus-stencil8", usage: GPUTextureUsage.RENDER_ATTACHMENT });
@@ -33620,10 +33568,6 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
         else pass.draw(c.count, 1, c.first, 0);
       }
       pass.end();
-      this.ms.encode += performance.now() - t0;
-      this.ms.inst = this.nInst;
-      this.ms.tri = this.nTri;
-      this.ms.cmds = this.cmds.length;
     }
   };
 
@@ -34597,8 +34541,8 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
           const d = Math.hypot(dx * world[0], dy * world[1]);
           if (d >= 0.2 * Math.min(world[0], world[1])) {
             const [food, fm, fsum] = topBy(st.diet);
-            const fst = food && fm >= 0.4 * fsum && S.sp.get(food);
-            const fn = fst?.rng.at(-1), ft = fst?.rng.find((x) => x[0] >= t - 12 * MIN && x[0] <= t - 8 * MIN);
+            const fst = food && fm >= 0.4 * fsum ? S.sp.get(food) : null;
+            const fn = fst?.rng?.at(-1), ft = fst?.rng?.find((x) => x[0] >= t - 12 * MIN && x[0] <= t - 8 * MIN);
             const chase = fn && ft && Math.min(fn[3], fn[4]) >= 0.35 && wrap01(fn[1] - ft[1]) * dx + wrap01(fn[2] - ft[2]) * dy > 0.5 * (dx * dx + dy * dy);
             add({
               kind: "range",
@@ -38141,8 +38085,6 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       // mark the cells that sing: 0 off, 1 the picked species, 2 all
       notes: prefs.notes ?? 1,
       // live annotations (docs/annotations.md): 0 off, 1 with the auto camera, 2 always
-      notesGpu: prefs.notesGpu ?? 1,
-      // drawn by WebGPU into the world's frame (src/gpunotes.js), else on the overlay canvas
       water: prefs.water ?? 2,
       // the water's surface: 0 off, 1 subtle, 2 normal, 3 strong (applyWater)
       waves: prefs.waves ?? 1,
@@ -38212,7 +38154,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     document.body.classList.toggle("no-closeup", !state.closeup);
     const persist = () => {
       const s = eng.settings;
-      savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, notesGpu: state.notesGpu, water: state.water, waves: state.waves, look: state.look, grain: state.grain, focus: state.focus, fixed: state.fixed, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+      savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, focus: state.focus, fixed: state.fixed, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
       document.body.classList.toggle("no-closeup", !state.closeup);
     };
     let lookLast = state.look || 2;
@@ -42874,7 +42816,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const now = performance.now();
       const marking = markSlot() !== -2 && songEvents.some((e) => now - e.at < MARK_MS);
       const R2 = reticleAt();
-      const key = state.currents || sel && sel.particle || L || R2 || marking || notesShown && !gpuNotes() ? null : `${state.hud}|${state.ui}|${director.active}|${cssPPU()}|${cam.x}|${dockTop}|${film.state}|${innerWidth}|${overlay.width}|${specimen.isOpen() && specInset().right}|${document.fonts.status}`;
+      const key = state.currents || sel && sel.particle || L || R2 || marking ? null : `${state.hud}|${state.ui}|${director.active}|${cssPPU()}|${cam.x}|${dockTop}|${film.state}|${innerWidth}|${overlay.width}|${specimen.isOpen() && specInset().right}|${document.fonts.status}`;
       if (key !== null && key === overlayKey) return;
       overlayKey = key;
       octx.setTransform(1, 0, 0, 1, 0, 0);
@@ -42944,7 +42886,6 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       }
       if (R2) drawReticle(R2);
       drawSongMarks(now, L);
-      if (notesShown && !gpuNotes()) drawNotes(dt, L);
     }
     const WILL_EASE = 80;
     const WILL_PX = 120;
@@ -43263,9 +43204,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         const guild = tr("notes.guild", "{g, select, producer {PRODUCER} grazer {GRAZER} predator {PREDATOR} scavenger {SCAVENGER} other {}}", { g: dietGuild(g) });
         const comfort = tr("notes.comfort", "COMFORT {lo}–{hi}°C", { lo: clo, hi: chi });
         let line2 = `${guild} · ${cells} · ${comfort}`;
-        if (noteView.width("data", line2) > hi - lo - 16) line2 = `${guild} · ${comfort}`;
-        const dw = noteView.width("data", line2), dx = clamp6(left ? Math.min(tx + tw - dw, tx) : tx, lo + 8, Math.max(lo + 8, hi - dw - 8));
-        noteView.text("data", line2, dx, ey + 20, "rgba(163,189,190,0.95)");
+        if (plateView.width("data", line2) > hi - lo - 16) line2 = `${guild} · ${comfort}`;
+        const dw = plateView.width("data", line2), dx = clamp6(left ? Math.min(tx + tw - dw, tx) : tx, lo + 8, Math.max(lo + 8, hi - dw - 8));
+        plateView.text("data", line2, dx, ey + 20, "rgba(163,189,190,0.95)");
         octx.letterSpacing = "0px";
         octx.fontStretch = "normal";
         plateRect = { l: Math.min(tx, dx) - 10, t: ey - 14, r: Math.max(tx + tw, dx + dw) + 10, b: ey + 26 };
@@ -43527,10 +43468,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       } : null;
     };
     const notes = new Notes({ species: noteSp, world: () => eng.grid });
-    const noteView = createNoteView(octx);
-    const noteGL = new NoteCanvas(device, eng.format), noteViewGL = createNoteView(noteGL);
+    const noteGL = new NoteCanvas(device, eng.format), noteView = createNoteView(noteGL), plateView = createNoteView(octx);
     eng.noteLayer = noteGL;
-    const gpuNotes = () => !!state.notesGpu;
     let notesShown = false, notesSince = 0, noteGridL = null, noteOpen = { l: 0, t: 0, r: innerWidth, b: innerHeight }, plateRect = null;
     eng.onNotes = (scan) => {
       if (!notesShown) return;
@@ -43662,7 +43601,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       if (plateRect) avoid.push(plateRect);
       const sh = director.active ? director.shot : null;
       const mode = director.active ? NOTE_MODE[sh && sh.why && sh.why.kind] || NOTE_MODE.auto : NOTE_MODE.observe;
-      (gpuNotes() ? noteViewGL : noteView).draw({
+      noteView.draw({
         now,
         dt: dtMs / 1e3,
         ppu: cssPPU(),
@@ -44061,7 +44000,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         Object.assign(cam, { x: cur.x, y: cur.y, zoom: cur.zoom });
         viewSimTime = cur.t;
         noteGL.begin(canvas.width / innerWidth);
-        if (notesShown && gpuNotes()) drawNotes(dt, L);
+        if (notesShown) drawNotes(dt, L);
         specimen.drawViewerUI(now);
         specimen.mindTick(now);
         const hold = (state.speed === Infinity || perf.held) && !state.paused && state.phase === "running" ? !!step.world : null;

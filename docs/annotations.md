@@ -128,8 +128,7 @@ pipette's draws); the song (cells that sing in view, from the listening scan); f
 
 ## How it is drawn (`src/noteview.js`)
 
-Into the world's own frame by WebGPU (`src/gpunotes.js`, below), or, with `state.notesGpu` off (prefs `notesGpu: 0`),
-on the page's overlay canvas with the brackets; a film keeps it either way. In the manner of a drone's HUD (GMUNK's
+Into the world's own frame by WebGPU (`src/gpunotes.js`, below), so a film keeps it. In the manner of a drone's HUD (GMUNK's
 Oblivion work): two hues, a pale cyan-white for structure and the second party and a red-orange for the subject,
 danger and a kill (a cold cyan for the cold); hairline rules with end ticks; thin hero numerals; tracked
 micro-labels in Saira; 45° leaders onto level shelves; stepped, hatched hazard zones; reticles; text that types
@@ -140,8 +139,9 @@ itself on. State is told by form: a filled tag, hatching, a hollow or dashed mar
 - **census**: a glyph on each cell of a species in view, ticked on in a sweep (plus a member, dashed ring dormant or
   torpid, square too warm, cross dead).
 - **shape**: a stretch of the world (a crowd, the water too warm, ice, light, stone, shade, a range) as smooth loops
-  where its field crosses a level (`src/contour.js`); hatched for a danger, its hatching riding the world as it pans but one size on screen at every zoom (8 px; scaled
-  with the view, its lines closed to a faint moiré from afar).
+  where its field crosses a level (`src/contour.js`); hatched for a danger, its hatching riding the world as it
+  pans but one size on screen at every zoom (an 8 px tile; scaled with the view, its lines closed to a faint moiré from
+  afar).
 - **label**: a tag or eyebrow, a rule, a hero numeral and the name it counts, data lines, a comfort band with the
   reading.
 - **gauge**: the water on an arc against a species' comfort band.
@@ -250,7 +250,7 @@ on the same pinned notes (`notes.pinned`, bench `pinNotes`; a still view's notes
 see the same scene), alternating on one page, 30 s each: WebGPU 0 of 45 windows over 15% late, mean 1.09 of the
 frame (1.08 with the notes off); the canvas 23 of 45, mean 1.13-1.24; the GPU process's main thread 189 ms a second
 against 915. The drawing's JS is about the canvas's (150 ms a second for 400 rings). Check changes with
-`test/gpunotes.test.js` and bench `shots` (both renderers on the same paused frame).
+`test/gpunotes.test.js` and bench `shots` (screenshots of a paused frame after measuring).
 
 ### Before
 

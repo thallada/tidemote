@@ -2,8 +2,9 @@
 // draws on a CanvasRenderingContext2D; this is a stand-in for the part of one it uses, recording each frame's drawing
 // as instanced quads and triangles that encode() draws over the composite, in one render pass:
 // - strokes: a capsule a segment (its distance worked out per pixel: antialiased, round-joined), a whole circle one ring
-//   and an axis-aligned rectangle one frame (its corners mitred, as a canvas's), arcs flattened, dashes cut on the CPU; a stroke's own segments never blend twice where they overlap (each stroke its own depth: a later
-//   fragment of the same stroke fails the test);
+//   and an axis-aligned rectangle one frame (its corners mitred, as a canvas's), arcs flattened, dashes cut on the CPU;
+//   a stroke's own segments never blend twice where they overlap (each stroke its own depth: a later fragment of the
+//   same stroke fails the test);
 // - fills: an axis-aligned rectangle as one quad; a convex shape as triangles; anything else even-odd by
 //   stencil-then-cover (its fan inverts the stencil, its box covers what is odd and clears it); the hatch worked out
 //   in the shader;
@@ -149,11 +150,10 @@ struct FO { @location(0) color: vec4f, @builtin(frag_depth) depth: f32 }
     let t = textureLoad(atlas, vec2i(floor(in.uv)), 0);
     cov = cov * select(t.r, t.g, in.b.z > 0.5);
   } else if (kind == ${K_HATCH}u) {
-    // lines x + y = 0 (mod 6) of the hatch's tile (noteview hatchOf), 1 of it wide, about its origin and at its scale
+    // lines x + y = 0 (mod 6) of a 6-unit tile, 1 of it wide, about its origin and at its scale (b.z px a unit)
     let q = (in.p - in.b.xy) / in.b.z;
     let m = (q.x + q.y) - 6.0 * floor((q.x + q.y) / 6.0);
     let dist = min(m, 6.0 - m) * 0.70710678 * in.b.z;
-    // (at about the strength of the canvas's, a 6 px tile sampled smooth)
     cov = cov * 0.7 * clamp(0.5 * in.b.z - dist + 0.5, 0.0, 1.0);
   }
   let a = in.col.a * cov;
@@ -242,7 +242,6 @@ export class NoteCanvas {
     this.layouts = new Map();
     this.glyphs = new Map();
     this.atlasSize = 2048;
-    this.ms = { record: 0, encode: 0, inst: 0, tri: 0, cmds: 0 };
     this._pipelines();
     this.begin(1);
     if (typeof document !== 'undefined') document.fonts?.addEventListener?.('loadingdone', () => { this.layouts.clear(); this._resetAtlas(); });
@@ -298,27 +297,18 @@ export class NoteCanvas {
     this.clipAt = 0; this.clipOf = null;
     this.path = new GPath(this.m);
     this.globalAlpha = 1; this.fillStyle = '#000'; this.strokeStyle = '#000'; this.lineWidth = 1; this.lineJoin = 'miter';
-    this.textAlign = 'start'; this.font = '10px sans-serif'; // i18n-ignore (a canvas's default font) this.fontStretch = 'normal'; this.letterSpacing = '0px';
+    this.textAlign = 'start'; this.fontStretch = 'normal'; this.letterSpacing = '0px';
+    this.font = '10px sans-serif'; // i18n-ignore (a canvas's default font)
     this.dash = [];
-    this._t0 = performance.now();
   }
   get count() { return this.cmds.length; }
 
   save() { this.stack.push({ m: this.m.slice(), clips: this.clips, globalAlpha: this.globalAlpha, fillStyle: this.fillStyle, strokeStyle: this.strokeStyle, lineWidth: this.lineWidth,
     lineJoin: this.lineJoin, textAlign: this.textAlign, font: this.font, fontStretch: this.fontStretch, letterSpacing: this.letterSpacing, dash: this.dash }); }
   restore() { const s = this.stack.pop(); if (!s) return; Object.assign(this, s); this.path.xf = this.m; }
-  setTransform(a, b, c, d, e, f) {
-    if (typeof a === 'object') ({ a, b, c, d, e, f } = a);
-    const k = this.base;
-    this.m = [a * k, b * k, c * k, d * k, e * k, f * k];
-    this.path.xf = this.m;
-  }
-  getTransform() { const k = this.base, m = this.m; return { a: m[0] / k, b: m[1] / k, c: m[2] / k, d: m[3] / k, e: m[4] / k, f: m[5] / k }; }
   translate(x, y) { const m = this.m; m[4] += m[0] * x + m[2] * y; m[5] += m[1] * x + m[3] * y; }
   rotate(t) { const m = this.m, c = Math.cos(t), s = Math.sin(t); this.m = [m[0] * c + m[2] * s, m[1] * c + m[3] * s, m[2] * c - m[0] * s, m[3] * c - m[1] * s, m[4], m[5]]; this.path.xf = this.m; }
   setLineDash(d) { this.dash = d && d.length ? d.slice() : []; }
-  getLineDash() { return this.dash.slice(); }
-  clearRect() {}
 
   newPath() { return new GPath(); }
   beginPath() { this.path = new GPath(this.m); }
@@ -413,7 +403,7 @@ export class NoteCanvas {
     }
   }
 
-  fill(P, rule) {
+  fill(P) {
     if (typeof P === 'string') P = null;
     const subs = this._subs(P).filter((s) => s.pts.length >= 6);
     if (!subs.length) return;
@@ -466,7 +456,7 @@ export class NoteCanvas {
   fillRect(x, y, w, h) { const P = new GPath(); P.rect(x, y, w, h); this.fill(P); }
   strokeRect(x, y, w, h) { const P = new GPath(); P.rect(x, y, w, h); this.stroke(P); }
 
-  clip(P, rule) {
+  clip(P) {
     if (typeof P === 'string') P = null;
     const L = [];
     for (const s of this._subs(P)) {
@@ -478,9 +468,8 @@ export class NoteCanvas {
     this.clips = [...this.clips, L];
   }
 
-  // the hatch noteview fills its zones with (hatchOf): lines of a tone, fixed to a point of the world, px apart
+  // a fill style of hatching (noteview's zones): lines of a tone at 45°, through (x, y), a tile px on a side
   hatch(tone, x, y, px) { return { hatch: true, color: `rgba(${tone},0.55)`, x, y, px }; }
-  createPattern() { return null; }
 
   // ------------------------------------------------------------------ text
   _font(ctx, k = 1) {
@@ -558,9 +547,8 @@ export class NoteCanvas {
   // ------------------------------------------------------------------ the GPU's
   /** Draws the frame's recording over target (a GPUTextureView of w x h), in a pass of its own. */
   encode(enc, target, w, h) {
-    this.ms.record += performance.now() - this._t0;
     if (!this.cmds.length) return;
-    const t0 = performance.now(), d = this.device, U = GPUBufferUsage;
+    const d = this.device, U = GPUBufferUsage;
     if (!this.ds || this.ds.width !== w || this.ds.height !== h) {
       this.ds?.destroy();
       this.ds = d.createTexture({ size: [w, h], format: 'depth24plus-stencil8', usage: GPUTextureUsage.RENDER_ATTACHMENT });
@@ -592,7 +580,5 @@ export class NoteCanvas {
       else pass.draw(c.count, 1, c.first, 0);
     }
     pass.end();
-    this.ms.encode += performance.now() - t0;
-    this.ms.inst = this.nInst; this.ms.tri = this.nTri; this.ms.cmds = this.cmds.length;
   }
 }

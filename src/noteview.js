@@ -1,5 +1,5 @@
-// The live annotations drawn (docs/annotations.md): src/notes.js says what to mark, this draws it on the page's
-// overlay canvas, over the world, in the manner of a drone's HUD: two hues (a pale cyan-white for structure and the
+// The live annotations drawn (docs/annotations.md): src/notes.js says what to mark, this draws it into the world's
+// frame (on src/gpunotes.js's NoteCanvas, a 2D context's stand-in; text() and width() work on a 2D canvas too), in the manner of a drone's HUD: two hues (a pale cyan-white for structure and the
 // second party, a red-orange for the subject, danger and a kill), hairline rules with end ticks, thin hero numerals,
 // tracked micro-labels, 45° leaders onto level shelves, stepped hatched zones, reticles, and text that types itself
 // on. State is told by form: a filled tag, hatching, a hollow or dashed mark. Every mark rides on a cell the GPU
@@ -57,11 +57,8 @@ const STEADY = {
 };
 
 export function createNoteView(g) {
-  // (a path the context will take: a canvas's Path2D, or the WebGPU layer's own, src/gpunotes.js)
-  const newPath = () => (g.newPath ? g.newPath() : new Path2D());
   const widths = new Map();
   const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const hatch = {};
   // per note (by id): its marks' state (cells by id, its shapes, its anchors); per label: its place; per cell id: its mark
   const notesAt = new Map();
   const lay = new Map();
@@ -118,23 +115,10 @@ export function createNoteView(g) {
     g.lineWidth = w; g.strokeStyle = col; path(); g.stroke();
     g.setLineDash([]);
   }
-  function hatchOf(tone) {
-    if (hatch[tone]) return hatch[tone];
-    const c = (typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(6, 6) : Object.assign(document.createElement('canvas'), { width: 6, height: 6 })).getContext('2d');
-    c.strokeStyle = rgba(tone, 0.55); c.lineWidth = 1;
-    c.beginPath(); c.moveTo(-1, 7); c.lineTo(7, -1); c.moveTo(-1, 1); c.lineTo(1, -1); c.moveTo(5, 7); c.lineTo(7, 5); c.stroke();
-    return (hatch[tone] = g.createPattern(c.canvas, 'repeat'));
-  }
-  // the hatch's tile on screen at every zoom (its lines px/6 wide, px/√2 apart)
-  const HATCH_PX = 8;
-  // the hatching fixed to the world: its lines `px` apart on screen, through screen point (x, y)
-  function hatchAt(tone, x, y, px) {
-    // (the WebGPU layer works the hatch out itself)
-    if (g.hatch) return g.hatch(tone, x, y, px);
-    const p = hatchOf(tone);
-    if (p.setTransform && typeof DOMMatrix !== 'undefined') { const k = px / 6; p.setTransform(new DOMMatrix([k, 0, 0, k, x, y])); }
-    return p;
-  }
+  // the hatching: lines of a tone, riding the world as it pans through screen point (x, y) (a point of the world), but
+  // one size on screen at every zoom (an 8 px tile, its lines 1.3 px wide; spaced by the view's scale, they closed to a
+  // faint moiré from afar)
+  const hatchAt = (tone, x, y) => g.hatch(tone, x, y, 8);
 
   // Into the loupe: while LM is set (its middle on the screen x, y; the main view's point under that middle c; its
   // magnification k), the marks' places are mapped into its magnified view and cell-sized marks grow with it, so the
@@ -247,7 +231,7 @@ export function createNoteView(g) {
     let far = 1;
     for (const p of pts) far = Math.max(far, Math.hypot(p[0] - from[0], p[1] - from[1]));
     // the settled ones in one path, stroked twice (its dark halo, then the glyph); those fading, each at its own alpha
-    const P = newPath(), a0 = g.globalAlpha, fading = [];
+    const P = g.newPath(), a0 = g.globalAlpha, fading = [];
     const add = (Pt, x, y, Q) => {
       if (glyph === 'plus') { Pt.moveTo(x - Q, y); Pt.lineTo(x + Q, y); Pt.moveTo(x, y - Q); Pt.lineTo(x, y + Q); }
       else if (glyph === 'ring') { Pt.moveTo(x + Q * 1.3, y); Pt.arc(x, y, Q * 1.3, 0, TAU); }
@@ -272,7 +256,7 @@ export function createNoteView(g) {
     draw(P);
     // (those fading in four bands of alpha: a few strokes in all)
     if (fading.length) {
-      const bands = [newPath(), newPath(), newPath(), newPath()];
+      const bands = [g.newPath(), g.newPath(), g.newPath(), g.newPath()];
       for (const [x, y, Q, a] of fading) add(bands[Math.min(3, Math.floor(a * 4))], x, y, Q);
       bands.forEach((Pt, b) => { g.globalAlpha = a0 * (b + 0.5) / 4; draw(Pt); });
     }
@@ -823,7 +807,7 @@ export function createNoteView(g) {
   // the loops drawn: hatched (fixed to the world), filled, outlined solid, dotted or dashed; fading in
   function blob(loops, tone, t, F, o = {}) {
     if (!loops.length) return null;
-    const P = newPath(), a = g.globalAlpha;
+    const P = g.newPath(), a = g.globalAlpha;
     let top = null, n = 0;
     // (each loop moved, whole, by the world's size to lie on the side of its wrap the view is on: a shape found about
     // one side of the seam shows whole wherever the camera is)
@@ -838,10 +822,8 @@ export function createNoteView(g) {
     const fIn = reduced ? 1 : clamp(t / 0.5, 0, 1);
     if (o.fill) { g.globalAlpha = a * fIn * o.fill[1]; g.fillStyle = o.fill[0]; g.fill(P, 'evenodd'); }
     if (o.hatch) {
-      // (its lines ride the world as it pans, through a point of the world at the origin, but keep one spacing and
-      // width on screen at every zoom: spaced by the view's scale, they closed to a faint moiré when zoomed far out)
-      const o0 = F.toScreen([0, 0]), px = HATCH_PX;
-      g.globalAlpha = a * fIn * (o.hatchA ?? 0.7); g.fillStyle = hatchAt(tone, o0[0], o0[1], px); g.fill(P, 'evenodd');
+      const o0 = F.toScreen([0, 0]);
+      g.globalAlpha = a * fIn * (o.hatchA ?? 0.7); g.fillStyle = hatchAt(tone, o0[0], o0[1]); g.fill(P, 'evenodd');
     }
     g.globalAlpha = a * fIn;
     g.lineJoin = 'round';
