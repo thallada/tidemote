@@ -29,8 +29,10 @@ const ORIGIN = 'app://tidemote';
   const page = createHash('sha256').update(readFileSync(join(PAGE_DIR, 'index.html'))).digest('hex');
   let was = '';
   try { was = readFileSync(stamp, 'utf8'); } catch { /* first launch */ }
-  if (was !== page) {
-    rmSync(join(app.getPath('userData'), 'DawnWebGPUCache'), { recursive: true, force: true });
+  // (a cache another instance holds open cannot go, EPERM on Windows: this launch keeps it and the next one tries again)
+  let cleared = was === page;
+  if (!cleared) try { rmSync(join(app.getPath('userData'), 'DawnWebGPUCache'), { recursive: true, force: true }); cleared = true; } catch (e) { console.warn('[tidemote] shader cache:', e.message); }
+  if (was !== page && cleared) {
     try { mkdirSync(app.getPath('userData'), { recursive: true }); writeFileSync(stamp, page); } catch (e) { console.warn('[tidemote] shader cache stamp:', e.message); }
   }
 }

@@ -811,20 +811,24 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // (lifeMain, register-bound: about 3 ns a cell on an RTX 4070 Ti, 85 on an M1), so it is measured: the step dispatch
   // by dispatch, with no frame drawn beside it (frames overlap a tiled GPU's timestamps), over the new world's
   // founders. ms of those passes, or 0 without timestamps.
+  // The living cells' passes: every one whose cost follows the living rather than the particles. senseMain (half of
+  // lifeMain since the step's split, and in a grown world the dearest pass: 2.7 of a 6.4 ms step at 2.6M on an RTX
+  // 4070 Ti, against 0.6 for lifeMain) belongs here; left out, Auto sized that GPU's worlds about twice too large.
   const MATURE_LIVING = 0.5;
-  const LIVING_PASSES = new Set(['lifeMain', 'contactMain', 'bondBackMain', 'bodyTick']);
+  const LIVING_PASSES = new Set(['senseMain', 'lifeMain', 'contactMain', 'bondBackMain', 'bodyTick']);
+  // The founders' passes take tens of microseconds, and Chrome rounds timestamps to 65.5 µs unless its WebGPU
+  // developer features are on (the desktop app to about 4 µs): one step's reading of a pass is 0 or 0.066 ms, which a
+  // median takes as 0 (the projection gone, the world sized on its founders alone). Rounded at a phase the steps do
+  // not keep, the readings' mean is the time, so it is the mean of many.
   async function livingMs() {
     if (!hasTS) return 0;
     state.busy = true;
     try {
       await device.queue.onSubmittedWorkDone();
-      const runs = [];
-      for (let i = 0; i < 5; i++) {
-        let ms = 0;
-        for (const [k, t] of await eng.profileStep(1 / 60)) if (LIVING_PASSES.has(k)) ms += t;
-        runs.push(ms);
-      }
-      return median(runs);
+      let sum = 0;
+      const RUNS = 24;
+      for (let i = 0; i < RUNS; i++) for (const [k, t] of await eng.profileStep(1 / 60)) if (LIVING_PASSES.has(k)) sum += t;
+      return sum / RUNS;
     } catch { return 0; } finally { state.busy = false; }
   }
 
@@ -854,10 +858,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
     calStep(tr('intro.measuring', 'Measuring the GPU · {n, plural, other {# particles}}', { n }), 0.6);
     let t = await measure();
     if (calibCut) return n;
+    const log = perf.calib = { target, n1: n, t1: t, size: [canvas.width, canvas.height] }; // (for tools: what Auto measured)
     // the frame as the world will cost once life fills it: what was measured, and the living cells' passes for the
     // share still to come (livingMs, per founder)
     const founders = (m) => Math.max(1, m * K.foundLife);
-    const ms1 = await livingMs();
+    const ms1 = log.ms1 = await livingMs();
     let perCell = ms1 / founders(n);
     // A GPU with room for more is measured again nearer its count. Too few founders to fill a large GPU take about
     // as long as one cell's work (an RTX 4070 Ti, 262k particles: 35 ns a founder against 5 in a grown world, which
@@ -871,6 +876,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const t2 = await measure();
       if (calibCut) return m;
       const ms2 = await livingMs();
+      Object.assign(log, { n2: m, t2, ms2 });
       const slope = (ms2 - ms1) / (founders(m) - founders(n)), each = ms2 / founders(m);
       perCell = slope > 0 ? Math.min(slope, each) : each;
       n = m;
@@ -878,6 +884,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     const grown = t + perCell * n * Math.max(0, MATURE_LIVING - K.foundLife);
     const next = Math.min(clampN((n * target) / grown), clampN(n * 1.3));
+    Object.assign(log, { perCell, grown, next });
     const final = next === n ? n : await allocDown(next);
     seedWorld(final);
     state.busy = false;
