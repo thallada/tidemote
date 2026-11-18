@@ -71,7 +71,7 @@ export const GLOSSARY = {
   thriving: tr('gloss.thriving', 'Species that have reached the population threshold (scaled to world size) and are still alive.'),
   alive: tr('gloss.alive', 'Every species with at least one living cell, including brand-new mutants.'),
   ever: tr('gloss.ever', 'Total number of species that have ever existed in this world.'),
-  stepms: tr('gloss.stepms', 'GPU time one simulation step takes.'),
+  stepms: tr('gloss.stepms', 'GPU time one simulation step takes. When Stride is longer than 1/60 s, one step covers several 1/60 s ticks at once.'),
   // i18n: {app}: desktop in the desktop app (saves are files there, in Steam Cloud when it is on), other in a browser
   saves: tr('gloss.saves', '{app, select,desktop {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves are files on this computer, and are synced to Steam Cloud when connected. Download saves to open them on another device.}other {A save records the whole world: every particle, each species with its name and lineage, the chronicle, the history, and the climate’s eras. Saves live in this browser’s storage, which clearing site data erases; download saves to keep them safe or to open them on another device.}}', { app: globalThis.tidemoteDesktop ? 'desktop' : 'web' }),
   profile: tr('gloss.profile', 'Times three seconds of frames on the GPU and one simulation step, and copies the result with this device’s details. This is a shareable report on how the simulation runs on this device.'),
