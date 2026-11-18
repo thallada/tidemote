@@ -29,10 +29,13 @@
 //   frames every frame's passes kept, up to that many   thermalEvery  (--android) the phone's thermal state every N s
 //   lab    a Field Lab tab to hold open ('species', 'census', ...; closed by default); its updates are timed
 //   auto   true: the auto camera films while measuring (as the p key starts it; zoom is then the director's)
+//   pinNotes  a regex of note keys: the annotations' notes pinned once one matching shows (pinWait s at most), so
+//          every build is measured on the same notes (still views: zoom and adapt 'off' with them)
+//   probe  an expression of the page's (T: globalThis.__tidemote) evaluated every second, kept as probes: [[ms, value]]
 //   gaps   true: every submitted frame's time and perf.waits kept (gaps) with the display interval measured (rafMs)
 //   trace  seconds of a Chrome trace and a JS CPU profile taken while measuring (from its start): OUT-WORLD-SCENARIO.trace.json
 //          and .cpuprofile beside the report, summarized by tools/perf/trace.mjs (main thread per frame, tasks, GC);
-//          jsOnly: true, the JS profile alone (a minute's trace runs past a gigabyte)
+//          jsOnly: true, the JS profile alone (a minute's trace runs past a gigabyte); traceCats: the trace's categories
 // --android runs Chrome on the phone adb is connected to (tools/android.mjs: on USB under WSL through gpu-node.sh), each
 // scenario with the phone's thermal state and battery beside it (`phone`).
 // --electron EXE runs the packaged desktop app (desktop/) instead, launched afresh for each world, its
@@ -296,6 +299,18 @@ async function measure(page, sc) {
     // 'off': no adaptation at all (the frame rate aimed for held, whatever the frames cost)
     if (sc.adapt === 'off') { perf.slow = 1; perf.lastAdjust = Infinity; }
     await sleep((sc.settle ?? 3) * 1000);
+    // pinNotes: wait (at most pinWait s) until a note whose key matches shows, settled 3 s, and pin the notes showing
+    // (src/notes.js pinned): every build measured on the same notes
+    let pinned = null;
+    if (sc.pinNotes && T.notes) {
+      const re = new RegExp(sc.pinNotes), until = performance.now() + (sc.pinWait ?? 180) * 1000;
+      while (performance.now() < until) {
+        const n = T.notes.notes.find((x) => re.test(x.key) && x.exitAt == null);
+        if (n && performance.now() / 1000 - n.born > 3) { T.notes.pinned = true; pinned = T.notes.notes.map((x) => x.key); break; }
+        await sleep(250);
+      }
+      if (!pinned) throw new Error(`no note matching ${sc.pinNotes} in ${sc.pinWait ?? 180} s`);
+    }
     // ---- record
     const rec = { slow: [], raf: [], submits: [], encode: [], gpu: [], sim: [], steps: 0, passes: {}, passFrames: 0, scale: [], long: 0, longMs: 0 };
     const origFrame = eng.frame.bind(eng);
@@ -335,6 +350,9 @@ async function measure(page, sc) {
     // neighbors weighed, step ms] (and adaptLog, the page's own record of its last moves: main.js tuneLog)
     rec.adapt = [];
     const watch = setInterval(() => rec.adapt.push([Math.round((performance.now() - t0) / 1000), perf.slow, T.renderScale(), perf.why, +perf.gpu.toFixed(1), +perf.fps.toFixed(1), T.effects?.(), T.eng.maxScan, +(perf.simS ?? 0).toFixed(1)]), 1000);
+    // probe: an expression of the page's (T: __tidemote) evaluated every second, kept with its time (probes)
+    rec.probes = [];
+    const probe = sc.probe && setInterval(() => { try { rec.probes.push([Math.round(performance.now() - t0), new Function('T', `return (${sc.probe})`)(T)]); } catch (e) { rec.probes.push([Math.round(performance.now() - t0), String(e)]); } }, 1000);
     let on = true;
     const tick = (t) => { if (!on) return; rec.raf.push(t); rec.scale.push(T.renderScale()); rec.slow.push(perf.slow || 1); requestAnimationFrame(tick); };
     requestAnimationFrame(tick);
@@ -343,7 +361,7 @@ async function measure(page, sc) {
     // a change made as recording starts (series: each frame's [ms since, steps, GPU ms])
     if (sc.then && sc.then.speed) T.setSpeed(sc.then.speed === 'max' ? Infinity : sc.then.speed);
     await sleep((sc.seconds ?? 8) * 1000);
-    on = false; clearInterval(watch);
+    on = false; clearInterval(watch); if (probe) clearInterval(probe);
     const wall = (performance.now() - t0) / 1000, simRate = (eng.simTime - sim0) / wall;
     eng.frame = origFrame; eng.passProfile = false; eng.onPassTimes = null; po.disconnect(); if (T.lab) T.lab.render = origLab;
     // the simulation step dispatch by dispatch (paused around it, so frames don't interleave)
@@ -376,7 +394,7 @@ async function measure(page, sc) {
       scale: { min: Math.min(...rec.scale), mean: mean(rec.scale), end: rec.scale.at(-1) }, slow: { mean: mean(rec.slow), end: rec.slow.at(-1), why: perf.why },
       audio: T.sound.loadInfo, longTasks: rec.long, longMs: Math.round(rec.longMs), lab: rec.lab.length ? { n: rec.lab.length, mean: mean(rec.lab), max: q(rec.lab, 1) } : undefined, passes, dispatch, series: sc.then || sc.series ? rec.series : undefined, adapt: rec.adapt, adaptLog: perf.log, spikes: rec.spikes, dts: rec.dts, frames: rec.frames || undefined,
       // (gaps: true) every submit, and the display's interval the page measured (frames are aimed at whole numbers of it)
-      gaps: rec.gaps || undefined, rafMs: +(perf.rafMs || 0).toFixed(3),
+      pinned: pinned || undefined, probes: sc.probe ? rec.probes : undefined, gaps: rec.gaps || undefined, rafMs: +(perf.rafMs || 0).toFixed(3),
     };
   }, sc);
 }
@@ -413,7 +431,7 @@ try {
         const done = new Promise((r) => cdp.once('Tracing.tracingComplete', r));
         await cdp.send('Profiler.enable');
         await cdp.send('Profiler.setSamplingInterval', { interval: 200 });
-        if (!sc.jsOnly) await cdp.send('Tracing.start', { transferMode: 'ReportEvents', traceConfig: { includedCategories: ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'disabled-by-default-devtools.timeline.frame', 'v8', 'v8.execute', 'blink', 'blink.user_timing', 'toplevel', 'gpu', 'viz', 'cc', 'benchmark', 'disabled-by-default-gpu.service'] } });
+        if (!sc.jsOnly) await cdp.send('Tracing.start', { transferMode: 'ReportEvents', traceConfig: { includedCategories: sc.traceCats || ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'disabled-by-default-devtools.timeline.frame', 'v8', 'v8.execute', 'blink', 'blink.user_timing', 'toplevel', 'gpu', 'viz', 'cc', 'benchmark', 'disabled-by-default-gpu.service'] } });
         await cdp.send('Profiler.start');
         await page.waitForTimeout(Math.min(sc.trace, sc.seconds ?? 8) * 1000);
         const { profile } = await cdp.send('Profiler.stop');

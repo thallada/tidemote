@@ -29026,7 +29026,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
           for (const [k, at] of this.keyAt) if (at < cold) this.keyAt.delete(k);
         }
       }
-      this.schedule(ctx);
+      if (!this.pinned) this.schedule(ctx);
       return this.notes;
     }
     // ------------------------------------------------------------------ detectors

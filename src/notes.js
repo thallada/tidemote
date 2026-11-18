@@ -373,7 +373,9 @@ export class Notes {
         for (const [k, at] of this.keyAt) if (at < cold) this.keyAt.delete(k);
       }
     }
-    this.schedule(ctx);
+    // (pinned, for measuring: the notes showing stay, as they are, while the view goes on being read; tools/perf/bench.mjs
+    // pinNotes)
+    if (!this.pinned) this.schedule(ctx);
     return this.notes;
   }
 
