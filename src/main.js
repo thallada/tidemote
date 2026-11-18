@@ -38,7 +38,7 @@ import { miniCard, setThumb, hasThumb, dropThumb } from './minicard.js';
 import { stage, bodyOf, portraitCells } from './studio.js';
 import { studioPortrait } from './studiorender.js';
 import { encodeImages, encodeBytes } from './encode.js';
-import { KNOBS, decide, costOf, adaptation, judge, slowerFirst, fasterFirst } from './tuner.js';
+import { KNOBS, decide, costOf, adaptation, judge, holdAfter, slowerFirst, fasterFirst } from './tuner.js';
 import { trackGlass } from './glass.js';
 import { isRideKey, keyWay, pointerWay, createThrottle, stepThrottle, throttleGrip, createRideCam, stepRideCam, willSpeed } from './ride.js';
 import { createCabinetStore, encodeCard, decodeCard, cardLink, cardFromHash, cardFromPng, cardIntoPng } from './cabinet.js';
@@ -520,7 +520,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   // ------------------------------------------------------------ perf
   const perf = { samples: [], gpu: 0, fps: 0, frames: 0, worldFps: 0, worldFrames: 0, fpsT: performance.now(), frameDt: [], lastSubmit: 0, rafMs: 0, rafLonger: 0, mainMs: 0, goodWindows: 0, ceiling: 1, ceilingUntil: 0, lastAdjust: performance.now(),
     stepMs: 0, simS: 0, renderR: 0, presentR: 0, worldAt: 0, stepCredit: 0, ticks: 1, held: false, fine: 0, split: false, halfShare: 0, half0: null, ticksAt: 0, rate: 1, rateT: performance.now(), rateSim: 0, stepsS: 0, rateSteps: 0,
-    slow: 1, slowCeiling: 0, why: '', raisedAt: 0, hold: 0, raised: null, profAt: performance.now(), calmUntil: 0, lateWindows: 0, judged: 1, log: [], waits: 0 };
+    slow: 1, slowCeiling: 0, why: '', raisedAt: 0, hold: 0, fails: 0, probeFails: 0, probeUntil: 0, probed: false, raised: null, profAt: performance.now(), calmUntil: 0, lateWindows: 0, judged: 1, log: [], waits: 0, frameMain: 0, mainAcc: 0 };
   // the frames since the adaptation last judged (their intervals, and how many of them waited on the GPU)
   const clearFrames = () => { perf.frameDt.length = 0; perf.waits = 0; };
   let calibWait = null;
@@ -4311,7 +4311,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   const SCALES = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
   function resetAdapt() {
     clearFrames(); perf.goodWindows = 0; perf.lateWindows = 0; perf.ceiling = 1; perf.ceilingUntil = 0; perf.lastAdjust = performance.now();
-    perf.slow = 1; perf.why = ''; perf.raisedAt = 0; perf.hold = 0; perf.raised = null; perf.calmUntil = performance.now() + 2000;
+    perf.slow = 1; perf.why = ''; perf.raisedAt = 0; perf.hold = 0; perf.fails = 0; perf.probeFails = 0; perf.probeUntil = 0; perf.probed = false; perf.raised = null; perf.calmUntil = performance.now() + 2000;
     for (const k of Object.values(tune)) k.hold = 0;
   }
   // The render scale below Auto lowest: overload's emergency, for the moment that called for it (the view goes no
@@ -4360,7 +4360,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     // GPU's and the script's, fills under a quarter of the interval: no cut could help them, and judged
     // against 1.03 they held the slowest rung forever (15 fps, its frames 4% late on a 175 Hz display).
     const cheap = perf.gpu + perf.mainMs * frameEvery() < T / 4;
-    const j = judge({ late: perf.lateWindows, good: perf.goodWindows }, perf.frameDt, T, { climbed: !!perf.raised && now - perf.raisedAt < 6000, cheap, stressed: stressed(), waited: perf.waits / perf.frameDt.length });
+    const j = judge({ late: perf.lateWindows, good: perf.goodWindows }, perf.frameDt, T, { climbed: !!perf.raised && now - perf.raisedAt < 6000, cheap, stressed: stressed() });
     const m = j.m;
     clearFrames();
     perf.lastAdjust = now;
@@ -4372,12 +4372,17 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const simBound = hasTS && !state.paused && (perf.split ? halfShare() : 1) * perf.simS > 2 * perf.renderR;
     if (j.behind) {
       perf.why = 'frames late'; // i18n-ignore (a key, shown through WHY_WORDS; the profile keeps it)
-      // a level that just proved too slow is not tried again for a while, so the view doesn't keep
-      // climbing back into the same stutter: 30 s, twice as long each time a climb back fails at once
-      perf.hold = now - perf.raisedAt < 6000 ? Math.min(240000, (perf.hold || 30000) * 2) : 30000;
+      // A level that just proved too slow is not tried again for a while, so the view doesn't keep climbing back into
+      // the same stutter: 20 s, 40 s after a climb back that failed, at most a minute (tuner.js HOLDS). A probe (a step
+      // up the GPU's time said would not fit, tried anyway: below) that failed is tried again only after 30 s, twice as
+      // long after each that fails, up to 4 min, until one holds: a device that cannot keep it would stutter each time.
+      const climbed = !!perf.raised && now - perf.raisedAt < 6000;
+      if (climbed && perf.probed) { perf.probeFails++; perf.probeUntil = now + Math.min(240000, 30000 * 2 ** (perf.probeFails - 1)); }
+      perf.fails = climbed && !perf.probed ? perf.fails + 1 : 0;
+      perf.hold = holdAfter(perf.fails);
       perf.ceilingUntil = now + perf.hold;
-      // a step up that frames slipped after is taken back, nothing else (this window was its, not the world's)
-      if (perf.raised && now - perf.raisedAt < 6000) { undoClimb(now); return; }
+      // a step up that frames ran late after is taken back, nothing else (this window was its, not the world's)
+      if (climbed) { undoClimb(now); return; }
       // The browser's own pace: it hands out frames at most every second vblank while this page's work, the
       // GPU's and the script's, fills under 30% of that (Firefox's vsync ran at 31 ms for minutes with 4 ms
       // frames). Fewer pixels can't bring its frames back, and cut the view to half resolution for nothing;
@@ -4398,31 +4403,35 @@ function run(eng, device, ctx, specCtx, hasTS) {
       } else if (autoF && perf.slow < 4) { perf.slowCeiling = perf.slow; perf.slow = Math.min(4, perf.slow + (m > 2 * T ? 2 : 1)); tuneLog(now, 'fps', perf.slow); }
       return;
     }
+    // a step up that frames kept up with: the next that fails starts its hold afresh, a probe's too
+    if (perf.raised && now - perf.raisedAt >= 6000) { if (perf.probed) perf.probeFails = 0; perf.raised = null; }
     if (!j.room) return;
-    const held = now < perf.ceilingUntil;
+    const held = now < perf.ceilingUntil, probeOk = !held && now >= perf.probeUntil;
     // nothing the tuner moves held back (the frame rate's climb to 60 waits for it)
     const best = Object.keys(tune).every((k) => !tuneAuto(k) || tune[k].level === KNOBS[k].levels.length - 1) && (!auto || renderScale >= 1 - 1e-3);
     // A faster frame rate costs a drawing and a shorter step per frame, in less time. A coarse step
     // of m ticks costs about 1 + 0.45 (m - 1) of a 1/60 s one (docs/performance.md): judged by this
     // frame's cost alone, 30 fps in 2-tick steps never looked able to return to 60. A frame one tick long holds a
     // 1/60 s step, or half of a 2-tick one where that is less (splitTicks, unless Split steps is Off). Where the
-    // estimate says it will not fit, it is tried anyway once no frame has been late for perf.hold (a GPU that slows
-    // its clock to its work, as Apple's do, fills a 30 fps frame whatever it has to spare), as a step up is; and like
-    // one, taken back if frames slip at once (undoClimb), and not tried again for perf.hold.
+    // estimate says it will not fit, it is tried anyway once no frame has been late for perf.hold and no probe failed
+    // lately (probeOk: a GPU that slows its clock to its work, as Apple's do, fills a 30 fps frame whatever it has to
+    // spare), as a step up is; and like one, taken back if frames run late at once (undoClimb), and held.
     if (perf.slow > 1 && fasterFirst({ slow: perf.slow, best })) {
       const faster = (T * (perf.slow - 1)) / perf.slow, m = ticksFor(faster);
       const per = m === 1 ? (state.perf.split === 'off' ? 1 : splitPer()) : tickCost(m);
       const est = hasTS && perf.simS && perf.renderR ? perf.renderR + perf.simS * per / tickCost(stepTicks()) : perf.gpu;
-      const fits = !est || est < faster * 0.75;
-      if (!(held && perf.slow - 1 <= perf.slowCeiling) && (fits || !held)) {
-        perf.slow--; perf.goodWindows = 0; perf.raisedAt = now; perf.raised = 'fps'; tuneLog(now, 'fps', perf.slow, fits ? '' : 'probe');
+      // (and the page's own work a frame, as Android's frame pacing asks of the CPU's: a frame rate held back by the main
+      // thread, not the GPU, looked able to climb by the GPU's time alone, and was taken back each time)
+      const fits = (!est || est < faster * 0.75) && perf.frameMain < faster * 0.75;
+      if (fits ? !(held && perf.slow - 1 <= perf.slowCeiling) : probeOk) {
+        perf.slow--; perf.goodWindows = 0; perf.raisedAt = now; perf.raised = 'fps'; perf.probed = !fits; tuneLog(now, 'fps', perf.slow, fits ? '' : 'probe');
       }
       if (perf.slow === 1) perf.why = '';
       return;
     }
     // the tuner's: the step that brings back the most for its cost, if it fits, or tried anyway once no frame has
     // been late for perf.hold (src/tuner.js)
-    if (tuneSteps(false, now, T, auto ? state.perf.floor : renderScale, 1, held)) { perf.goodWindows = 0; perf.raisedAt = now; }
+    if (tuneSteps(false, now, T, auto ? state.perf.floor : renderScale, 1, held, null, probeOk)) { perf.goodWindows = 0; perf.raisedAt = now; }
     if (best && perf.slow === 1) perf.why = '';
   }
   // a knob as the tuner's decide sees it (the haze's and the microscope's cost is the composite's, in the state the
@@ -4465,7 +4474,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   }
   // Up to n of the tuner's steps (src/tuner.js), behind or with room: render scale or a knob on Auto.
   // only: the knobs it may move, or all (null)
-  function tuneSteps(behind, now, T, floor, n = 1, held = false, only = null) {
+  function tuneSteps(behind, now, T, floor, n = 1, held = false, only = null, probe = !held) {
     // the neighbors' cost: the step's, measured at each of their levels once it has settled there (three windows on),
     // each against the top's what fewer save on this device (rel)
     const nb = tune.neighbors;
@@ -4481,13 +4490,13 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const heldK = Object.fromEntries(Object.entries(tune).map(([id, k]) => [id, now < k.hold]));
       heldK.scale = held;
       const draw = hasTS && perf.renderR ? perf.renderR : perf.gpu * 0.6;
-      const d = decide({ behind, T, gpu: perf.gpu, draw, knobs, held: heldK, probe: !behind && !held,
+      const d = decide({ behind, T, gpu: perf.gpu, draw, knobs, held: heldK, probe: !behind && probe,
         scale: only ? null : { cur: renderScale, ladder: SCALES, floor, auto: state.perf.scale === 'auto' } });
       if (!d) break;
       stepTo(d.id, d.to, now);
       tuneLog(now, d.id, d.id === 'scale' ? d.to : KNOBS[d.id].levels[d.to], d.probe ? 'probe' : d.rebalance ? 'rebalance' : '');
       // (a step up, to be taken back if frames slip: undoClimb)
-      perf.raised = behind || d.rebalance ? null : d.id;
+      perf.raised = behind || d.rebalance ? null : d.id; perf.probed = !!d.probe;
       acted = true;
     }
     return acted;
@@ -5665,6 +5674,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (due && inflight >= 2) perf.gpuHeld = true;
     if (!state.busy && inflight < 2 && due) {
       perf.frames++;
+      // the page's own work a submitted frame: every requestAnimationFrame callback's since the last (the climb's fit)
+      perf.frameMain = perf.frameMain ? perf.frameMain + (perf.mainAcc - perf.frameMain) * 0.1 : perf.mainAcc;
+      perf.mainAcc = 0;
       if (perf.lastSubmit) { perf.frameDt.push(Math.min(Math.max(50, frameTarget() * 2.5), now - perf.lastSubmit)); if (perf.gpuHeld) perf.waits++; }
       // Fast speeds fill a frame with the GPU time it has. When the browser hands out frames more slowly than
       // the display's rate (Firefox's vsync ran every second vblank, 31 ms, for minutes at a time), a frame
@@ -5817,7 +5829,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     adaptQuality(now);
     tuneProfile(now);
-    perf.mainMs += (performance.now() - t0 - perf.mainMs) * 0.1;
+    const spent = performance.now() - t0;
+    perf.mainMs += (spent - perf.mainMs) * 0.1;
+    perf.mainAcc += spent;
   }
   // An error in a frame used to end the loop without a word: the world froze and the music played on.
   // Now it says so and offers what can be done. The world itself lives on the GPU, untouched, so going

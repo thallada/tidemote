@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { KNOBS, decide, costOf, scaleLoss, adaptation, COMP_GUESS, judge, LATE, slowerFirst, fasterFirst } from '../src/tuner.js';
+import { KNOBS, decide, costOf, scaleLoss, adaptation, COMP_GUESS, judge, LATE, HOLDS, holdAfter, slowerFirst, fasterFirst } from '../src/tuner.js';
 
 const ladder = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
 const all = (over = {}) => ({
@@ -141,14 +141,14 @@ test('the neighbors are given up only where they pay much: a Pixel 3, not a Pixe
 // when the GPU has done the last, at the rate aimed for at best); the frame rate to 30 first of all, slower than 30
 // only once the tuner has nothing left, or first when the step is more than twice the drawing and fewer neighbors
 // cannot lighten it (slowerFirst); climbs after three windows on time, back to 30 first and to 60 last (fasterFirst),
-// by the GPU's time where it fits and tried anyway once no frame has been late for the hold (30 s, twice as long after
-// each climb that failed); a climb frames slip after taken back, the frame rate's too. A device that slows its clock
+// by the GPU's time where it fits and tried anyway once no frame has been late for the hold (20 s, longer after each
+// climb that failed, at most a minute: HOLDS); a climb frames run late after taken back, the frame rate's too. A device that slows its clock
 // to its work (dvfs: Apple's) measures its GPU busy for most of the frame whatever it has to spare. It must settle,
 // its frames on time. from: a run to carry on from (its knobs, scale and frame rate).
 function simulate(dev, windows = 400, from = null) {
   const T0 = 1000 / 60, top = (id) => KNOBS[id].levels.length - 1;
   const lv = from ? { ...from.lv } : Object.fromEntries(Object.keys(dev.knobs).map((id) => [id, top(id)]));
-  let scale = from?.scale ?? 1, slow = from?.slow ?? 1, w = { late: 0, good: 0 }, raised = null, raisedAt = -99, hold = 0, ceilingUntil = 0;
+  let scale = from?.scale ?? 1, slow = from?.slow ?? 1, w = { late: 0, good: 0 }, raised = null, raisedAt = -99, hold = 0, fails = 0, ceilingUntil = 0, probed = false, probeFails = 0, probeUntil = 0;
   const held = {};
   // (the haze and the microscope share one cost, the composite's in the state the two leave it, per pixel)
   const COMP = ['haze', 'microscope'], compCost = () => dev.comp.full * dev.comp.rel[lv.haze + 2 * lv.microscope];
@@ -169,7 +169,7 @@ function simulate(dev, windows = 400, from = null) {
   for (let i = 0; i < windows; i++) {
     const T = T0 * slow, f = frame(), gpu = dev.dvfs ? Math.max(f.gpu, 0.97 * T) : f.gpu;
     const climbed = raised != null && i - raisedAt <= 2;
-    const j = judge(w, [Math.max(T, f.gpu)], T, { climbed, waited: f.gpu > T ? 1 : 0 });
+    const j = judge(w, [Math.max(T, f.gpu)], T, { climbed });
     w = { late: j.late, good: j.good };
     const knobs = Object.fromEntries(Object.keys(dev.knobs).map((id) => [id, { level: lv[id], auto: true, cost: levelCost(id), ...dev.knobs[id] }]));
     knobs.haze = { ...knobs.haze, rel: dev.comp.rel, other: lv.microscope };
@@ -178,7 +178,10 @@ function simulate(dev, windows = 400, from = null) {
     const s = { T, gpu, draw: f.draw, knobs, scale: { cur: scale, ladder, floor: dev.floor ?? 0.5, auto: true } };
     let acted = '';
     if (j.behind) {
-      hold = i - raisedAt <= 2 ? Math.min(120, (hold || 15) * 2) : 15;
+      // (a fitting climb that failed held 20 s, 40, at most a minute; a failed probe's next 30 s on, doubling to 4 min)
+      if (climbed && probed) { probeFails++; probeUntil = i + Math.min(120, 15 * 2 ** (probeFails - 1)); }
+      fails = climbed && !probed ? fails + 1 : 0;
+      hold = HOLDS[Math.min(HOLDS.length - 1, fails)] / 2000;
       ceilingUntil = i + hold;
       if (climbed) {
         if (raised === 'fps') slow++; else if (raised === 'scale') scale = ladder.find((v) => v < scale - 1e-3); else lv[raised]--;
@@ -190,16 +193,18 @@ function simulate(dev, windows = 400, from = null) {
         const d = decide({ ...s, ...only, behind: true, held: heldNow });
         if (d) { apply(d); acted = d.id; } else if (slow < 4) { slow++; acted = 'slow'; }
       }
-    } else if (j.room) {
+    } else if (raised != null && i - raisedAt > 2) { if (probed) probeFails = 0; raised = null; }
+    if (!j.behind && j.room) {
+      const probeOk = i >= ceilingUntil && i >= probeUntil;
       const faster = (T0 * (slow - 1)), cost = (m) => 1 + 0.45 * (m - 1);
       const best = scale === 1 && Object.entries(lv).every(([id, l]) => l === top(id));
       if (fasterFirst({ slow, best })) {
         // (where the estimate says it will not fit, tried anyway once no frame has been late for the hold, as a step up is)
         const fits = f.draw + (f.step / cost(slow)) * cost(slow - 1) < 0.75 * faster;
-        if (!heldNow.fps && (fits || i >= ceilingUntil)) { slow--; w.good = 0; raised = 'fps'; raisedAt = i; acted = fits ? 'fast' : 'fast?'; }
+        if (!heldNow.fps && (fits || probeOk)) { slow--; w.good = 0; raised = 'fps'; raisedAt = i; probed = !fits; acted = fits ? 'fast' : 'fast?'; }
       } else {
-        const d = decide({ ...s, behind: false, held: { ...heldNow, scale: i < ceilingUntil }, probe: i >= ceilingUntil });
-        if (d) { apply(d); w.good = 0; raised = d.rebalance ? null : d.id; raisedAt = i; acted = d.probe ? `${d.id}?` : d.id; }
+        const d = decide({ ...s, behind: false, held: { ...heldNow, scale: i < ceilingUntil }, probe: probeOk });
+        if (d) { apply(d); w.good = 0; raised = d.rebalance ? null : d.id; raisedAt = i; probed = !!d.probe; acted = d.probe ? `${d.id}?` : d.id; }
       }
     }
     trail.push({ acted, gpu: f.gpu, T, scale, slow, ...lv });
@@ -222,7 +227,7 @@ const moved = (r) => r.trail.map((t, i) => (t.acted ? `${i}:${t.acted}` : '')).f
 for (const [name, dev] of Object.entries(DEVICES)) {
   test(`the tuner settles on a ${name}, its frames on time`, () => {
     const r = simulate(dev);
-    // settled: at most a step up tried and taken back now and then (every 240 s at most, once climbs keep failing)
+    // settled: at most a step up tried and taken back now and then (a probe every 240 s at most, once probes keep failing)
     const moves = r.trail.slice(-200).filter((t) => t.acted).map((t) => t.acted);
     assert.ok(moves.every((a) => a === 'back' || a.endsWith('?')) && moves.length <= 4, `${name} still moving: ${moved(r)}`);
     assert.ok(r.gpu <= LATE * r.T, `${name}: ${r.gpu.toFixed(1)} ms of ${r.T.toFixed(1)}`);
@@ -254,19 +259,32 @@ test('mostly 60 fps with occasional hitches never eases anything', () => {
   assert.ok(run([win(1), win(36), win(1), win(1), win(36), win(2)]).every((j) => !j.behind));
 });
 
-test('frames late two windows in a row ease; a climb frames slip after is taken back at once', () => {
-  assert.deepEqual(run([win(), win(20), win(20), win(20)]).map((j) => j.behind), [false, false, true, true]);
-  // just after a step up, frames a little late (5%: not late enough to ease anything) take it back
-  assert.equal(judge({ late: 0, good: 0 }, win(6), T60, { climbed: true }).behind, true);
+test('frames 15% late three windows in a row ease, half again as long two; a climb frames run late after is taken back at once', () => {
+  assert.deepEqual(run([win(), win(20), win(20), win(20)]).map((j) => j.behind), [false, false, false, true]);
+  // (a clear overrun, 40 fps aimed at 60, sooner)
+  assert.deepEqual(run([win(), win(70), win(70)]).map((j) => j.behind), [false, false, true]);
+  // just after a step up, frames late take it back; a little late (5%, 57 fps) keep it: 57 fps is better than 30
+  assert.equal(judge({ late: 0, good: 0 }, win(20), T60, { climbed: true }).behind, true);
+  assert.equal(judge({ late: 0, good: 0 }, win(6), T60, { climbed: true }).behind, false);
   assert.equal(judge({ late: 0, good: 0 }, win(6), T60).behind, false);
 });
 
-test('room after three windows on time; a little late, or under pressure, is no room', () => {
-  assert.deepEqual(run([win(), win(), win()]).map((j) => j.room), [false, false, true]);
-  assert.equal(run([win(), win(), win(6)]).at(-1).room, false);
-  // (frames a little late while the page's own work is light: the browser's pace, counted on time)
-  assert.equal(run([win(6), win(6), win(6)], { cheap: true }).at(-1).room, true);
-  assert.equal(run([win(), win(), win()], { stressed: true }).at(-1).room, false);
+// A 175 Hz display (the RTX 4070 Ti's, runs/perf/fps20): 60 fps aimed as every third display frame (17.14 ms), a frame
+// a display frame late a third late. Frames 3% late on average were one in eleven late, and gave up 60 fps.
+test('at 175 Hz, frames now and then a display frame late, at 55 fps, ease nothing and keep a climb', () => {
+  const D = 1000 / 175, T = 3 * D;
+  const w175 = (lateShare) => { const n = Math.round(2000 / T), k = Math.round(n * lateShare); return [...Array(n - k).fill(T), ...Array(k).fill(T + D)]; };
+  // 55 fps by the frames (a fifth a display frame late), for ten minutes
+  let w = { late: 0, good: 0 };
+  for (let i = 0; i < 300; i++) { w = judge(w, w175(0.2), T); assert.equal(w.behind, false); }
+  assert.equal(judge({ late: 0, good: 0 }, w175(0.2), T, { climbed: true }).behind, false);
+  // under 50 fps by the frames (over half a display frame late) eases, as at 60 Hz
+  assert.equal(run([w175(0.55), w175(0.55), w175(0.55)].map((x) => x.map((d) => (d * T60) / T))).at(-1).behind, true);
+});
+
+test('a frame rate or knob that proved too slow is held at most a minute', () => {
+  assert.deepEqual([0, 1, 2, 3, 9].map(holdAfter), [20000, 40000, 60000, 60000, 60000]);
+  assert.ok(Math.max(...HOLDS) <= 60000);
 });
 
 test('with no step up fitting by the GPU\'s time, frames on time a while try the best one anyway (probe)', () => {

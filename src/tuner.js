@@ -97,29 +97,42 @@ const nbRel = (k, n) => Math.max(0.05, k?.rel?.[KNOBS.neighbors.levels.indexOf(n
 export const ROOM = 0.85;
 
 // A window of frames (main.js adaptQuality, every two seconds) judged by the frames: late when their mean interval
-// runs an eighth over the frame's (a hitch of any length counts as one frame of at most 50 ms or 2.5 intervals,
-// main.js), or over 3% while over 3% of them waited on the GPU (the GPU behind, not a hitch); on time within 3%. Not by
-// the GPU's measured time: a GPU that slows its clock to its work, as Apple's do at 60 fps, measures busy for most
-// of the frame whatever it has to spare (an M1 at 60 fps, judged behind by a GPU busy over 92% of the frame, gave up
-// the microscope, the glow and the insides with its frames on time, and never took them back: what a step up costs
-// never fit beside a time that filled the frame). A frame that waited on the GPU (two frames still in flight when it
-// was due) is the GPU's own word that it is behind, at any clock.
-export const LATE = 1.125, ON_TIME = 1.03;
+// runs 15% over the frame's (60 fps aimed for, under 52 by the frames; a hitch of any length counts as one frame of at
+// most 50 ms or 2.5 intervals, main.js), on time within 5%, and between the two nothing moves either way. A view at 55
+// fps is better than one at 30 (the viewer's judgement, 2026-11-17), so frames a little late give nothing up:
+// - Until then frames 3% late were off time, and 3% late with over 3% of them waiting on the GPU were late. At 175 Hz a
+//   frame a display frame late is a third late, so 3% was one frame in eleven, 55 fps: an RTX 4070 Ti in a 2M world
+//   with the auto camera on, its GPU busy 7 ms of 17, dropped to 30 fps every few minutes, and each climb back, judged
+//   3% late again, was taken back and held twice as long (runs/perf/fps20; docs/performance.md).
+// - Android's frame pacing (Swappy, SwappyCommon.cpp) slows its swap interval only when over 10% of a 2 s window's
+//   frames missed their vsync, and comes back when none did and the CPU's and the GPU's time fit the faster interval
+//   with 1 ms to spare; Unity's dynamic resolution sample and Unreal's (a 10% GPU headroom aimed for) cut at once on a
+//   clear overrun and raise only after headroom held a while. LATE three windows in a row (6 s) is the first; a window
+//   half again as long (BAD) two in a row, a clear overrun, eases sooner.
+// Not by the GPU's measured time: a GPU that slows its clock to its work, as Apple's do at 60 fps, measures busy for
+// most of the frame whatever it has to spare (an M1 at 60 fps, judged behind by a GPU busy over 92% of the frame, gave
+// up the microscope, the glow and the insides with its frames on time, and never took them back).
+export const LATE = 1.15, ON_TIME = 1.05, BAD = 1.5, LATE_WINDOWS = 3;
 /**
  * A window's verdict. w: { late, good }, the windows late and on time in a row before this one; dts: its frames'
  * intervals (ms); T: the frame's interval (ms). o: { climbed: a step up was just taken, cheap: the page's own work
  * fills under a quarter of the interval (frames a little late are the browser's pace, which nothing here can
- * help), stressed: Compute Pressure serious or worse (no step up), waited: the share of its frames that waited on
- * the GPU }. Returns { m: the mean interval, late, good, behind: give something up (two windows late in a row: a
- * hitch or two is not a frame rate missed; or frames off time just after a step up, which takes it back), room:
- * three windows on time }.
+ * help), stressed: Compute Pressure serious or worse (no step up) }. Returns { m: the mean interval, late, good,
+ * behind: give something up (LATE_WINDOWS late in a row, or two BAD: a hitch or two is not a frame rate missed; or
+ * frames late just after a step up, which takes it back), room: three windows on time }.
  */
-export function judge(w, dts, T, { climbed = false, cheap = false, stressed = false, waited = 0 } = {}) {
+export function judge(w, dts, T, { climbed = false, cheap = false, stressed = false } = {}) {
   const m = dts.reduce((a, b) => a + b, 0) / Math.max(1, dts.length), slipped = m > ON_TIME * T && !cheap;
-  const late = m > LATE * T || (slipped && waited > 0.03) ? w.late + 1 : 0;
+  const over = m > LATE * T, late = over ? w.late + 1 : 0;
   const good = late || slipped || stressed ? 0 : w.good + 1;
-  return { m, late, good, behind: late >= 2 || (climbed && slipped), room: good >= 3 };
+  return { m, late, good, behind: late >= LATE_WINDOWS || (late >= 2 && m > BAD * T) || (climbed && over), room: good >= 3 };
 }
+
+// How long a frame rate or a knob that just proved too slow is held off (main.js adaptQuality): a climb taken back is
+// held a little longer each time, at most a minute, and a window late without a climb starts over (until 2026-11-17 the
+// hold doubled to 4 min, and a world that could run at 60 again sat at 30 for minutes).
+export const HOLDS = [20000, 40000, 60000];
+export const holdAfter = (fails) => HOLDS[Math.min(HOLDS.length - 1, Math.max(0, fails))];
 
 // The frame rate aimed for, on Auto, in the order of what is given up (main.js adaptQuality): slow, the divisor of the
 // display's rate it aims at (1: 60 fps; 2: 30; 3, 4: 20, 15). Behind, 60 → 30 goes first of all, before work done

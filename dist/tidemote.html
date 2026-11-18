@@ -36810,14 +36810,18 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
   var NB_GUESS = { 64: 0.75, 88: 0.85, 112: 1 };
   var nbRel = (k, n) => Math.max(0.05, k?.rel?.[KNOBS.neighbors.levels.indexOf(n)] ?? NB_GUESS[n] ?? 1);
   var ROOM = 0.85;
-  var LATE2 = 1.125;
-  var ON_TIME = 1.03;
-  function judge(w, dts, T2, { climbed = false, cheap = false, stressed = false, waited = 0 } = {}) {
+  var LATE2 = 1.15;
+  var ON_TIME = 1.05;
+  var BAD = 1.5;
+  var LATE_WINDOWS = 3;
+  function judge(w, dts, T2, { climbed = false, cheap = false, stressed = false } = {}) {
     const m = dts.reduce((a, b) => a + b, 0) / Math.max(1, dts.length), slipped = m > ON_TIME * T2 && !cheap;
-    const late = m > LATE2 * T2 || slipped && waited > 0.03 ? w.late + 1 : 0;
+    const over = m > LATE2 * T2, late = over ? w.late + 1 : 0;
     const good = late || slipped || stressed ? 0 : w.good + 1;
-    return { m, late, good, behind: late >= 2 || climbed && slipped, room: good >= 3 };
+    return { m, late, good, behind: late >= LATE_WINDOWS || late >= 2 && m > BAD * T2 || climbed && over, room: good >= 3 };
   }
+  var HOLDS = [2e4, 4e4, 6e4];
+  var holdAfter = (fails) => HOLDS[Math.min(HOLDS.length - 1, Math.max(0, fails))];
   var slowerFirst = ({ slow, simBound = false, lighter = false, max = 4 }) => slow < max && (slow === 1 || simBound && !lighter);
   var fasterFirst = ({ slow, best }) => slow > 2 || slow === 2 && best;
   var SCALE_LOSS = 12;
@@ -37566,13 +37570,19 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       why: "",
       raisedAt: 0,
       hold: 0,
+      fails: 0,
+      probeFails: 0,
+      probeUntil: 0,
+      probed: false,
       raised: null,
       profAt: performance.now(),
       calmUntil: 0,
       lateWindows: 0,
       judged: 1,
       log: [],
-      waits: 0
+      waits: 0,
+      frameMain: 0,
+      mainAcc: 0
     };
     const clearFrames = () => {
       perf.frameDt.length = 0;
@@ -41704,6 +41714,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       perf.why = "";
       perf.raisedAt = 0;
       perf.hold = 0;
+      perf.fails = 0;
+      perf.probeFails = 0;
+      perf.probeUntil = 0;
+      perf.probed = false;
       perf.raised = null;
       perf.calmUntil = performance.now() + 2e3;
       for (const k of Object.values(tune)) k.hold = 0;
@@ -41747,7 +41761,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       }
       const T2 = frameTarget(), auto = state.perf.scale === "auto", autoD = state.perf.density === "auto", autoF = state.perf.fps === "auto";
       const cheap = perf.gpu + perf.mainMs * frameEvery() < T2 / 4;
-      const j = judge({ late: perf.lateWindows, good: perf.goodWindows }, perf.frameDt, T2, { climbed: !!perf.raised && now - perf.raisedAt < 6e3, cheap, stressed: stressed(), waited: perf.waits / perf.frameDt.length });
+      const j = judge({ late: perf.lateWindows, good: perf.goodWindows }, perf.frameDt, T2, { climbed: !!perf.raised && now - perf.raisedAt < 6e3, cheap, stressed: stressed() });
       const m = j.m;
       clearFrames();
       perf.lastAdjust = now;
@@ -41758,9 +41772,15 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const simBound = hasTS && !state.paused && (perf.split ? halfShare() : 1) * perf.simS > 2 * perf.renderR;
       if (j.behind) {
         perf.why = "frames late";
-        perf.hold = now - perf.raisedAt < 6e3 ? Math.min(24e4, (perf.hold || 3e4) * 2) : 3e4;
+        const climbed = !!perf.raised && now - perf.raisedAt < 6e3;
+        if (climbed && perf.probed) {
+          perf.probeFails++;
+          perf.probeUntil = now + Math.min(24e4, 3e4 * 2 ** (perf.probeFails - 1));
+        }
+        perf.fails = climbed && !perf.probed ? perf.fails + 1 : 0;
+        perf.hold = holdAfter(perf.fails);
         perf.ceilingUntil = now + perf.hold;
-        if (perf.raised && now - perf.raisedAt < 6e3) {
+        if (climbed) {
           undoClimb(now);
           return;
         }
@@ -41788,25 +41808,30 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         }
         return;
       }
+      if (perf.raised && now - perf.raisedAt >= 6e3) {
+        if (perf.probed) perf.probeFails = 0;
+        perf.raised = null;
+      }
       if (!j.room) return;
-      const held = now < perf.ceilingUntil;
+      const held = now < perf.ceilingUntil, probeOk = !held && now >= perf.probeUntil;
       const best = Object.keys(tune).every((k) => !tuneAuto(k) || tune[k].level === KNOBS[k].levels.length - 1) && (!auto || renderScale >= 1 - 1e-3);
       if (perf.slow > 1 && fasterFirst({ slow: perf.slow, best })) {
         const faster = T2 * (perf.slow - 1) / perf.slow, m2 = ticksFor(faster);
         const per = m2 === 1 ? state.perf.split === "off" ? 1 : splitPer() : tickCost(m2);
         const est = hasTS && perf.simS && perf.renderR ? perf.renderR + perf.simS * per / tickCost(stepTicks()) : perf.gpu;
-        const fits = !est || est < faster * 0.75;
-        if (!(held && perf.slow - 1 <= perf.slowCeiling) && (fits || !held)) {
+        const fits = (!est || est < faster * 0.75) && perf.frameMain < faster * 0.75;
+        if (fits ? !(held && perf.slow - 1 <= perf.slowCeiling) : probeOk) {
           perf.slow--;
           perf.goodWindows = 0;
           perf.raisedAt = now;
           perf.raised = "fps";
+          perf.probed = !fits;
           tuneLog(now, "fps", perf.slow, fits ? "" : "probe");
         }
         if (perf.slow === 1) perf.why = "";
         return;
       }
-      if (tuneSteps(false, now, T2, auto ? state.perf.floor : renderScale, 1, held)) {
+      if (tuneSteps(false, now, T2, auto ? state.perf.floor : renderScale, 1, held, null, probeOk)) {
         perf.goodWindows = 0;
         perf.raisedAt = now;
       }
@@ -41851,7 +41876,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       perf.log.push([Math.round(now / 1e3), +perf.judged.toFixed(2), +(perf.gpu / T2).toFixed(2), what, to, how]);
       if (perf.log.length > 40) perf.log.shift();
     }
-    function tuneSteps(behind, now, T2, floor, n = 1, held = false, only = null) {
+    function tuneSteps(behind, now, T2, floor, n = 1, held = false, only = null, probe = !held) {
       const nb = tune.neighbors;
       if (perf.simS && now - (nb.since || 0) > 6e3) {
         (nb.at ||= [])[nb.level] = perf.simS;
@@ -41872,13 +41897,14 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           draw,
           knobs,
           held: heldK,
-          probe: !behind && !held,
+          probe: !behind && probe,
           scale: only ? null : { cur: renderScale, ladder: SCALES, floor, auto: state.perf.scale === "auto" }
         });
         if (!d) break;
         stepTo(d.id, d.to, now);
         tuneLog(now, d.id, d.id === "scale" ? d.to : KNOBS[d.id].levels[d.to], d.probe ? "probe" : d.rebalance ? "rebalance" : "");
         perf.raised = behind || d.rebalance ? null : d.id;
+        perf.probed = !!d.probe;
         acted = true;
       }
       return acted;
@@ -43117,6 +43143,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       if (due && inflight >= 2) perf.gpuHeld = true;
       if (!state.busy && inflight < 2 && due) {
         perf.frames++;
+        perf.frameMain = perf.frameMain ? perf.frameMain + (perf.mainAcc - perf.frameMain) * 0.1 : perf.mainAcc;
+        perf.mainAcc = 0;
         if (perf.lastSubmit) {
           perf.frameDt.push(Math.min(Math.max(50, frameTarget() * 2.5), now - perf.lastSubmit));
           if (perf.gpuHeld) perf.waits++;
@@ -43245,7 +43273,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       }
       adaptQuality(now);
       tuneProfile(now);
-      perf.mainMs += (performance.now() - t0 - perf.mainMs) * 0.1;
+      const spent = performance.now() - t0;
+      perf.mainMs += (spent - perf.mainMs) * 0.1;
+      perf.mainAcc += spent;
     }
     let lastStop = -Infinity;
     function frame(now) {

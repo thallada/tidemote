@@ -29,8 +29,10 @@
 //   frames every frame's passes kept, up to that many   thermalEvery  (--android) the phone's thermal state every N s
 //   lab    a Field Lab tab to hold open ('species', 'census', ...; closed by default); its updates are timed
 //   auto   true: the auto camera films while measuring (as the p key starts it; zoom is then the director's)
+//   gaps   true: every submitted frame's time and perf.waits kept (gaps) with the display interval measured (rafMs)
 //   trace  seconds of a Chrome trace and a JS CPU profile taken while measuring (from its start): OUT-WORLD-SCENARIO.trace.json
-//          and .cpuprofile beside the report, summarized by tools/perf/trace.mjs (main thread per frame, tasks, GC)
+//          and .cpuprofile beside the report, summarized by tools/perf/trace.mjs (main thread per frame, tasks, GC);
+//          jsOnly: true, the JS profile alone (a minute's trace runs past a gigabyte)
 // --android runs Chrome on the phone adb is connected to (tools/android.mjs: on USB under WSL through gpu-node.sh), each
 // scenario with the phone's thermal state and battery beside it (`phone`).
 // --electron EXE runs the packaged desktop app (desktop/) instead, launched afresh for each world, its
@@ -298,7 +300,9 @@ async function measure(page, sc) {
     const rec = { slow: [], raf: [], submits: [], encode: [], gpu: [], sim: [], steps: 0, passes: {}, passFrames: 0, scale: [], long: 0, longMs: 0 };
     const origFrame = eng.frame.bind(eng);
     rec.dts = [];
-    eng.frame = (o) => { const t = performance.now(); if (rec.dts.length < 40) rec.dts.push([+o.simDt.toFixed(4), o.steps, o.paused ? 1 : 0]); origFrame(o); rec.encode.push(performance.now() - t); rec.submits.push(t); };
+    // gaps: every submit's [ms since recording began, frames that waited on the GPU so far in the page's window (perf.waits)]
+    rec.gaps = sc.gaps ? [] : null;
+    eng.frame = (o) => { const t = performance.now(); if (rec.dts.length < 40) rec.dts.push([+o.simDt.toFixed(4), o.steps, o.paused ? 1 : 0]); origFrame(o); rec.encode.push(performance.now() - t); rec.submits.push(t); if (rec.gaps) rec.gaps.push([+(t - t0).toFixed(1), perf.waits]); };
     eng.passProfile = true;
     // the Lab's updates (main-thread time each)
     rec.lab = [];
@@ -371,6 +375,8 @@ async function measure(page, sc) {
       encodeMs: { mean: mean(rec.encode), p95: q(rec.encode, 0.95) },
       scale: { min: Math.min(...rec.scale), mean: mean(rec.scale), end: rec.scale.at(-1) }, slow: { mean: mean(rec.slow), end: rec.slow.at(-1), why: perf.why },
       audio: T.sound.loadInfo, longTasks: rec.long, longMs: Math.round(rec.longMs), lab: rec.lab.length ? { n: rec.lab.length, mean: mean(rec.lab), max: q(rec.lab, 1) } : undefined, passes, dispatch, series: sc.then || sc.series ? rec.series : undefined, adapt: rec.adapt, adaptLog: perf.log, spikes: rec.spikes, dts: rec.dts, frames: rec.frames || undefined,
+      // (gaps: true) every submit, and the display's interval the page measured (frames are aimed at whole numbers of it)
+      gaps: rec.gaps || undefined, rafMs: +(perf.rafMs || 0).toFixed(3),
     };
   }, sc);
 }
@@ -407,14 +413,20 @@ try {
         const done = new Promise((r) => cdp.once('Tracing.tracingComplete', r));
         await cdp.send('Profiler.enable');
         await cdp.send('Profiler.setSamplingInterval', { interval: 200 });
-        await cdp.send('Tracing.start', { transferMode: 'ReportEvents', traceConfig: { includedCategories: ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'disabled-by-default-devtools.timeline.frame', 'v8', 'v8.execute', 'blink', 'blink.user_timing', 'toplevel', 'gpu', 'viz', 'cc', 'benchmark', 'disabled-by-default-gpu.service'] } });
+        if (!sc.jsOnly) await cdp.send('Tracing.start', { transferMode: 'ReportEvents', traceConfig: { includedCategories: ['devtools.timeline', 'disabled-by-default-devtools.timeline', 'disabled-by-default-devtools.timeline.frame', 'v8', 'v8.execute', 'blink', 'blink.user_timing', 'toplevel', 'gpu', 'viz', 'cc', 'benchmark', 'disabled-by-default-gpu.service'] } });
         await cdp.send('Profiler.start');
         await page.waitForTimeout(Math.min(sc.trace, sc.seconds ?? 8) * 1000);
         const { profile } = await cdp.send('Profiler.stop');
-        await cdp.send('Tracing.end');
-        await done;
+        if (!sc.jsOnly) { await cdp.send('Tracing.end'); await done; }
         fs.writeFileSync(`${stem}.cpuprofile`, JSON.stringify(profile));
-        fs.writeFileSync(`${stem}.trace.json`, JSON.stringify({ traceEvents: events }));
+        if (!sc.jsOnly) {
+        // (written an event at a time: a minute's trace is past the longest string JSON.stringify can make)
+        const fd = fs.openSync(`${stem}.trace.json`, 'w');
+        fs.writeSync(fd, '{"traceEvents":[');
+        for (let i = 0; i < events.length; i += 10000) fs.writeSync(fd, (i ? ',' : '') + events.slice(i, i + 10000).map((e) => JSON.stringify(e)).join(','));
+        fs.writeSync(fd, ']}');
+        fs.closeSync(fd);
+        }
         await cdp.detach();
         console.log(`  trace: ${stem}.trace.json (${events.length} events), ${stem}.cpuprofile`);
       })();

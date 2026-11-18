@@ -1099,18 +1099,25 @@ The weakest GPU at hand (Android 12, Chrome, 393×786 CSS pixels at 2.75). Chrom
   the faster rate, so a display near an edge doesn't flip between two: `displayFrames`). Display rate means one
   simulation step per refresh, 2.4 times the work of 60 at 143 Hz.
 - **Adaptive quality,** every two seconds at real time or slower, judged by the frames (`judge` in `src/tuner.js`):
-  behind when the mean interval between submitted frames runs an eighth over the frame aimed for, or 3% over while
-  more than 3% of the frames waited on the GPU (two frames still in flight when one was due), two windows in a row. A
-  hitch counts as one frame of at most 50 ms, so a few hitches, or one bad window (a tab come back, a panel opened),
-  ease nothing. Not by the GPU's measured time: until 2026-11-12 a GPU busy for more than 92% of the frame counted as
+  behind when the mean interval between submitted frames runs 15% over the frame aimed for three windows in a row
+  (under 52 fps by the frames at 60), or 50% over two in a row; on time within 5%, and between the two nothing moves
+  either way: a view at 55 fps is better than one at 30 (the viewer's judgement, 2026-11-17). A hitch counts as one
+  frame of at most 50 ms, so a few hitches, or one bad window (a tab come back, a panel opened), ease nothing. Until
+  2026-11-17 frames 3% late were off time, and 3% late with over 3% of them waiting on the GPU late; at 175 Hz a frame
+  a display frame late is a third late, so that was one frame in eleven (55 fps): an RTX 4070 Ti in a 2M world with
+  the auto camera on, its GPU busy 7 ms of 17, fell to 30 fps every few minutes, and to 20 (runs/perf/fps20). Android's
+  frame pacing (Swappy) slows only when over 10% of a 2 s window's frames missed their vsync; Unity's and Unreal's
+  dynamic resolution cut on a clear overrun and raise only after headroom held a while. Not by the GPU's measured time: until 2026-11-12 a GPU busy for more than 92% of the frame counted as
   behind with its frames on time, and a GPU that slows its clock to its work (Apple's at 60 fps; docs above: "the GPU
   idles between frames and its clock drops") measures busy for most of the frame whatever it has to spare. An M1 in a
   32k world eased its render scale, microscope, glow and insides at a steady 60 fps, and never won them back, since a
   step up had to fit in 85% of the frame (`ROOM`) beside that same inflated time. Compute Pressure at `serious` now
   only keeps anything from coming back. With three windows on time a step up is taken where the GPU's time says it
-  fits; where it does not, and no frame has been late for the hold (30 s, twice as long after each climb that failed,
-  up to 4 min), the best step up is tried anyway (`probe`), and one that frames slip after (over 3% late in the next
-  windows) is taken back at once and held. The emergency step-down (`overload`: three drawn frames over max(50 ms,
+  fits; where it does not, and no frame has been late for the hold, the best step up is tried anyway (`probe`). A
+  step up that frames run late after (15% late in the next windows) is taken back at once and held: a climb the GPU's
+  time said would fit 20 s, 40 s after another that failed, at most a minute (`HOLDS`); a probe's next try 30 s on,
+  twice as long after each that fails, up to 4 min, until one holds (a device that cannot keep it would stutter each
+  time). Until 2026-11-17 every failed climb doubled the hold to 4 min, and a world that could run at 60 sat at 30. The emergency step-down (`overload`: three drawn frames over max(50 ms,
   three intervals)) acts only while frames come at under half the rate aimed for. The last 40 moves are in Copy
   profile (`adapt`) and a bench report (`adaptLog`): [s, the window's mean frame and the GPU's time as shares of the
   frame aimed for, what moved, to what, how]. Behind: with Auto pixel density, a film's scene drawn at more than
@@ -1157,10 +1164,12 @@ The weakest GPU at hand (Android 12, Chrome, 393×786 CSS pixels at 2.75). Chrom
   cadences last of the tuner's steps; a major effect back before the scale's last step to 100%), and **60 fps last**
   (`fasterFirst`), only once nothing the tuner moves is held back. The climb to 60 is judged by the estimate of a
   60 fps frame (the drawing and a 1/60 s step, or the dearer half of a split 2-tick one, `splitPer`, unless Split steps
-  is Off) in 75% of its interval; where it says no, 60 is tried anyway once no frame has been late for the hold
+  is Off) in 75% of its interval, and the page's own main-thread work a submitted frame (`perf.frameMain`) in 75% too
+  (as Android's frame pacing asks of the CPU's time: a rate held back by the main thread looked able to climb by the
+  GPU's time alone, and was taken back every 40 s); where it says no, 60 is tried anyway once no frame has been late for the hold
   (`probe`: an M1, whose GPU slows its clock to fill a 30 fps frame, would never look able to). Like any step up, a
-  climb that frames slip after (3% late in the next window) is taken back at once (`undoClimb`) and that rate held off
-  for the hold (30 s, doubled after each failure, up to 4 min), so 60 and 30 never see-saw. The split step is not one of
+  climb that frames run late after (15% late in the next window) is taken back at once (`undoClimb`) and that rate held
+  off for the hold (20 s, 40 s, at most a minute; a probe's doubling to 4 min), so 60 and 30 never see-saw. The split step is not one of
   the steps given up: at 60 fps it begins before frames run late (`splitTicks`, by the GPU's timestamps each second),
   and is how 60 is kept where a 1/60 s step does not fit beside the drawing; frames late even so drop to 30, where no
   step is split. The emergency (`overload`) is as it was: every free knob to its floor at once.
