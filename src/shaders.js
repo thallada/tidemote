@@ -7404,6 +7404,10 @@ struct Post {
   edgePh: vec4f,
   // xy where the view is in focus, as a share of it (Engine.focusAt); zw unused
   focus: vec4f,
+  // the display (docs/hdr.md, Engine.display): x its headroom, the brightest it shows over SDR white (1 or less: SDR),
+  // y how far the most saturated colors reach toward the wide gamut's edge (0 none), z the canvas's primaries (0 sRGB,
+  // 1 Display P3); w unused. All zero (a card's own page) is SDR in sRGB.
+  display: vec4f,
 };
 `;
 
@@ -8183,13 +8187,79 @@ fn sensor(c: vec3f, pos: vec2f, k: f32) -> vec3f {
   return c + (n.g + (n - n.g) * 0.35) * (0.016 + 0.03 * sqrt(max(lum, 0.0))) * k;
 }
 
-fn tonemap(hdrIn: vec3f) -> vec3f {
-  let l = dot(hdrIn, vec3f(0.2126, 0.7152, 0.0722));
+// ------------------------------------------------------------ the display (docs/hdr.md)
+// The display's headroom: how much brighter than SDR white its brightest is (1 on an SDR display, or while filming).
+fn peakWhite() -> f32 { return max(post.display.x, 1.0); }
+// The HDR curve (docs/hdr.md, The curve): below HDR_KNEE (display-linear; scene luminance HDR_KNEE_L) an HDR display
+// shows what an SDR one does. The look is graded so its brightest things (rims, glints, the sea's focus) reach SDR
+// white at scene luminance HDR_WHITE_L (√6, the SDR curve's white): on an HDR display they show at HDR_SPEC of the way
+// from the knee to the peak, as SDR-graded highlights are expanded (ITU-R BT.2446's way), and what SDR clipped fills
+// the rest, softly, never reaching it.
+const HDR_KNEE = 0.6;
+const HDR_KNEE_L = ${f((-2.4 + Math.sqrt(2.4 * 2.4 + 4 * 3.6)) / 2)};
+const HDR_WHITE_L = ${f(Math.sqrt(6))};
+const HDR_SPEC = 0.5;
+// The tone curve's luminance (display-linear) for scene luminance l: SDR's (Reinhard's, extended to white at √6), and
+// on an HDR display (peak > 1) eased from it into the expanded curve between the knee and SDR's white (smoothstep:
+// the two meet at the knee with no change of slope, so no ring shows where a glow's gradient crosses it).
+fn toneLum(l: f32, peak: f32) -> f32 {
   let tl = l * (1.0 + l / 6.0) / (1.0 + l);
-  var c = hdrIn * (tl / max(l, 1e-5));
-  let m = max(c.r, max(c.g, c.b));
-  if (m > 1.0) { c = mix(c / m, vec3f(1.0), clamp((m - 1.0) * 0.35, 0.0, 1.0)); }
+  if (peak <= 1.0 || l <= HDR_KNEE_L) { return tl; }
+  let t = (l - HDR_KNEE_L) / (HDR_WHITE_L - HDR_KNEE_L) * HDR_SPEC / (1.0 - HDR_SPEC);
+  let e = HDR_KNEE + (peak - HDR_KNEE) * t / (1.0 + t);
+  return mix(tl, e, smoothstep(HDR_KNEE_L, HDR_WHITE_L, l));
+}
+fn tonemap(hdrIn: vec3f) -> vec3f {
+  let peak = peakWhite();
+  let l = dot(hdrIn, vec3f(0.2126, 0.7152, 0.0722));
+  var c = hdrIn * (toneLum(l, peak) / max(l, 1e-5));
+  // (a channel past the peak: the color kept, run toward white as far past it as it is, at the peak's scale)
+  let m = max(c.r, max(c.g, c.b)) / peak;
+  if (m > 1.0) { c = peak * mix(c / (m * peak), vec3f(1.0), clamp((m - 1.0) * 0.35, 0.0, 1.0)); }
   return c;
+}
+// How much brighter an HDR display shows scene luminance l than an SDR one: 1 below the knee, up to the peak in the
+// highlights. Curves made for SDR (AgX's) are carried into HDR by it.
+fn hdrLift(l: f32, peak: f32) -> f32 {
+  if (peak <= 1.0) { return 1.0; }
+  return max(1.0, toneLum(l, peak) / min(toneLum(l, 1.0), 1.0));
+}
+
+// sRGB's transfer curves, extended past 1 (as a float canvas in an sRGB-encoded color space takes them).
+fn srgbDecode(v: vec3f) -> vec3f {
+  let x = max(v, vec3f(0.0));
+  return select(pow((x + 0.055) / 1.055, vec3f(2.4)), x / 12.92, x <= vec3f(0.04045));
+}
+fn srgbEncode(l: vec3f) -> vec3f {
+  let x = max(l, vec3f(0.0));
+  return select(1.055 * pow(x, vec3f(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3f(0.0031308));
+}
+// Linear sRGB to linear Display P3 (the same white, D65), colorimetric: a color shows as it does on an sRGB display.
+fn srgbToP3(l: vec3f) -> vec3f {
+  return mat3x3f(0.8224621, 0.0331941, 0.0170827, 0.1775380, 0.9668058, 0.0723974, 0.0, 0.0, 0.9105199) * l;
+}
+// A wide gamut's colors (docs/hdr.md, Wide color): the view's colors are made in sRGB, and on a P3 display the most
+// saturated reach out toward its edge, as far as post.display.y asks. The colorimetric conversion keeps a color as it
+// is; the same numbers read as P3 move each sRGB primary out to P3's (sRGB's gamut stretched onto P3's, nothing out of
+// it). Between them by how saturated the color is: greys (where both agree) and pale colors as they are, a cell's
+// pure pigment out to the edge. Linear in, linear P3 out.
+fn wideGamut(l: vec3f) -> vec3f {
+  let p = srgbToP3(l);
+  let hi = max(l.r, max(l.g, l.b));
+  if (post.display.y <= 0.0 || hi <= 1e-6) { return p; }
+  let s = 1.0 - max(min(l.r, min(l.g, l.b)), 0.0) / hi;
+  return mix(p, max(l, vec3f(0.0)), post.display.y * smoothstep(0.15, 0.85, s));
+}
+// The view as the canvas takes it. v: display values after the gamma curve the look grades in (pow 1/2.2), SDR in
+// [0, 1], HDR's highlights above 1. An SDR canvas in sRGB takes them as they are (as the page always has); otherwise
+// what the browser makes of them in SDR is kept (its sRGB decoding, so SDR's colors show the same) and HDR's
+// highlights are the linear light the curves made (v^2.2), then encoded for the canvas (sRGB's curve, extended, in its
+// primaries).
+fn displayOut(v: vec3f) -> vec3f {
+  if (post.display.x <= 1.0 && post.display.z < 0.5) { return v; }
+  let lin = select(srgbDecode(v), pow(max(v, vec3f(1.0)), vec3f(2.2)), v > vec3f(1.0));
+  if (post.display.z < 0.5) { return select(v, srgbEncode(lin), v > vec3f(1.0)); }
+  return srgbEncode(wideGamut(lin));
 }
 
 // ------------------------------------------------------------ the look
@@ -8274,13 +8344,16 @@ fn agx(hdr: vec3f) -> vec3f {
 fn lookTone(hdr: vec3f) -> vec3f {
   let f = post.look[1].z;
   if (f <= 0.0) { return tonemap(hdr); }
-  return mix(tonemap(hdr), agx(hdr), f);
+  // (AgX's curve is made for SDR: on an HDR display its highlights are lifted as tonemap's are, by scene luminance)
+  return mix(tonemap(hdr), agx(hdr) * hdrLift(lookL(hdr), peakWhite()), f);
 }
 
-// The grade, in display space (after the gamma curve): contrast, the black level, saturation and density, grain.
+// The grade, in display space (after the gamma curve): contrast, the black level, saturation and density, grain. An
+// HDR highlight (a channel past 1) is graded as the SDR color of its hue at white, then brought back to its brightness.
 fn lookGrade(cIn: vec3f, pos: vec2f) -> vec3f {
   let L2 = post.look[2];
-  var c = clamp(cIn, vec3f(0.0), vec3f(1.0));
+  let hdrScale = max(1.0, max(cIn.r, max(cIn.g, cIn.b)));
+  var c = clamp(cIn / hdrScale, vec3f(0.0), vec3f(1.0));
   c = mix(c, c * c * (3.0 - 2.0 * c), L2.z);
   // the darks pressed down in proportion, so what shows in the dark water still shows
   c *= 1.0 - L2.w * 0.6 * (1.0 - smoothstep(0.0, 0.4, lookL(c)));
@@ -8297,7 +8370,7 @@ fn lookGrade(cIn: vec3f, pos: vec2f) -> vec3f {
     let n = vnoise(g) + 0.5 * vnoise(g * 2.3 + 17.0) - 0.75;
     c += n * grain * 0.09 * (0.2 + 3.0 * y2 * (1.0 - y2));
   }
-  return c;
+  return c * hdrScale;
 }
 // The grade over the water's view: under a full map (the light or heat map) mostly held back, so the map reads true.
 fn lookDisplay(cIn: vec3f, pos: vec2f) -> vec3f {
@@ -9604,9 +9677,11 @@ fn litShow(cIn: vec3f, l: Lit, cells: f32) -> vec3f {
   let c = max(vec3f(0.0), mix(vec3f(y), cIn, 1.0 + LIT_RICH * cells * clamp(l.r, 0.0, 1.0))) * litGain(l, cells) * shine;
   // (by its brightest channel, so a bright cell keeps its hue: rolled off channel by channel, the lit and the sea's
   // focus turned cells and the rims round them white)
+  // (toward the display's peak: SDR white, or an HDR display's brightest, where the light's glints show brighter)
   let m = max(c.r, max(c.g, c.b));
   if (m <= LIT_KNEE) { return c; }
-  return c * (LIT_KNEE + (1.0 - LIT_KNEE) * (1.0 - exp(-(m - LIT_KNEE) / (1.0 - LIT_KNEE)))) / m;
+  let top = peakWhite() - LIT_KNEE;
+  return c * (LIT_KNEE + top * (1.0 - exp(-(m - LIT_KNEE) / top))) / m;
 }
 // The light on the pond's floor, seen through the dark water behind what lies in it (display-linear, added as the
 // background is): its mud (the murk there) faintly golden in the sun, amber under the lamp, more where the sea focuses
@@ -10030,7 +10105,7 @@ fn fieldWater(c: vec4f) -> vec3f { return vec3f(c.z, c.w, 0.0); }
   c = c * (1.0 - 0.12 * op.z) + vec3f(0.003, 0.0031, 0.0036) * op.z;
   c = lookDisplay(pow(max(c, vec3f(0.0)), vec3f(1.0 / 2.2)), i.pos.xy);
   c += (hash12(i.pos.xy + fract(post.time) * 91.7) - 0.5) / 255.0 * 2.0;
-  return vec4f(sensor(c, i.pos.xy, k), 1.0);
+  return vec4f(displayOut(sensor(c, i.pos.xy, k)), 1.0);
 }
 
 // loupe: a circular lens composited over the main view
@@ -10133,7 +10208,7 @@ fn loupeScene(r: vec2f) -> vec3f {
   let ring = smoothstep(0.012 + 0.012 * k, 0.0, abs(d - 1.0)) * 0.85;
   c = mix(c, rimCol, ring);
   let a = select(1.0, smoothstep(1.035, 1.0, d), d > 1.0);
-  return vec4f(c, a * loupe.strength);
+  return vec4f(displayOut(c), a * loupe.strength);
 }
 
 // trails: carry last frame's image along with the camera, then fade it
@@ -10166,7 +10241,7 @@ fn loupeScene(r: vec2f) -> vec3f {
     gain = litGain(lit, 0.0);
   }
   c = pondMicro(c + vec3f(0.006, 0.005, 0.012), hdr, microView.cam, i.pos.xy - microView.res * 0.5, microView.ppu, microView.ppu, 0.0, gain);
-  return vec4f(lookGrade(pow(max(c, vec3f(0.0)), vec3f(1.0 / 2.2)), i.pos.xy), 1.0);
+  return vec4f(displayOut(lookGrade(pow(max(c, vec3f(0.0)), vec3f(1.0 / 2.2)), i.pos.xy)), 1.0);
 }
 
 // Which composite draws this frame (the draws' arguments: the full one, the lean one, the lean one with the ice, with the
@@ -10242,7 +10317,8 @@ export const GLASS_WGSL = /* wgsl */ `
     c += (textureSampleLevel(src, samp, at + o, 0.0).rgb + textureSampleLevel(src, samp, at - o, 0.0).rgb) * (w1 + w2);
     w += 2.0 * (w1 + w2);
   }
-  return vec4f(c / w, 1.0);
+  // (no brighter than SDR white behind a panel, its words on an HDR display read over it: docs/hdr.md)
+  return vec4f(min(c / w, vec3f(1.0)), 1.0);
 }
 `;
 

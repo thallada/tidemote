@@ -52,6 +52,8 @@ body {
 }
 #stage, #overlay { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 #stage { touch-action: none; cursor: crosshair; }
+/* the world and the close-up shown in the display's full range where HDR is on (docs/hdr.md; the browser's default, said) */
+#stage, #specimen { dynamic-range-limit: no-limit; }
 #stage.lens { cursor: none; }
 #stage.grabbing { cursor: grabbing; }
 /* its own layer: drawn every frame, it would otherwise repaint the whole page with it */
@@ -702,6 +704,11 @@ body.set-grabbing, body.set-grabbing * { cursor: var(--grab-cursor) !important; 
 .vol-row { display: flex; align-items: center; gap: var(--s3); height: 32px; }
 .vol-row input { flex: 1; min-width: 0; height: 24px; }
 .vol-row b { width: 4ch; text-align: right; font-weight: 400; color: var(--ink-2); }
+/* HDR's calibration swatch (Settings → Display → Color, docs/hdr.md): under the Highlights slider, its words beside */
+.hdr-cal-row { grid-template-columns: 9.6em minmax(0, 1fr); }
+.hdr-cal { width: 100%; height: 44px; border-radius: 4px; display: block; dynamic-range-limit: no-limit; }
+.hdr-cal-say { margin: 0; color: var(--ink-2); font-size: 12px; line-height: 1.35; grid-column: 2; grid-row: 1; }
+.settings.placed .hdr-cal-say { grid-column: auto; grid-row: auto; }
 /* Settings → About: a few paragraphs of prose */
 .about p { margin: 0 0 var(--s3); color: var(--ink-2); line-height: 1.6; font-size: 13.5px; }
 .about p:last-child { margin-bottom: 0; }

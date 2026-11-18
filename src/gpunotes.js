@@ -23,7 +23,8 @@ const TAU = Math.PI * 2;
 const K_SEG = 0, K_GLYPH = 1, K_RECT = 2, K_HATCH = 3, K_RING = 4, K_COVER = 5, K_FRAME = 6;
 
 const WGSL = /* wgsl */ ` // i18n-ignore (WGSL)
-struct U { size: vec2f, _p: vec2f }
+// size: the frame's; p3: 1 where the canvas is in Display P3 (docs/hdr.md), whose colors the notes' sRGB ones become
+struct U { size: vec2f, p3: f32, _p: f32 }
 @group(0) @binding(0) var<uniform> u: U;
 @group(0) @binding(1) var<storage, read> clipBuf: array<f32>;
 @group(0) @binding(2) var atlas: texture_2d<f32>;
@@ -43,6 +44,14 @@ fn covRect(p: vec2f, r: vec4f) -> f32 {
   let x = clamp(min(p.x + 0.5, r.z) - max(p.x - 0.5, r.x), 0.0, 1.0);
   let y = clamp(min(p.y + 0.5, r.w) - max(p.y - 0.5, r.y), 0.0, 1.0);
   return x * y;
+}
+
+// a note's color (sRGB) in the canvas's color space: on a P3 canvas the same color, colorimetrically (displayOut's)
+fn canvasColor(c: vec4f) -> vec4f {
+  if (u.p3 < 0.5) { return c; }
+  let l = select(pow((c.rgb + 0.055) / 1.055, vec3f(2.4)), c.rgb / 12.92, c.rgb <= vec3f(0.04045));
+  let p = max(mat3x3f(0.8224621, 0.0331941, 0.0170827, 0.1775380, 0.9668058, 0.0723974, 0.0, 0.0, 0.9105199) * l, vec3f(0.0));
+  return vec4f(select(1.055 * pow(p, vec3f(1.0 / 2.4)) - 0.055, p * 12.92, p <= vec3f(0.0031308)), c.a);
 }
 
 fn ndc(p: vec2f, z: f32) -> vec4f { return vec4f(p.x / u.size.x * 2.0 - 1.0, 1.0 - p.y / u.size.y * 2.0, z, 1.0); }
@@ -99,7 +108,7 @@ fn clipCov(p: vec2f, c: u32) -> f32 {
   o.p = p;
   o.a = a;
   o.b = b;
-  o.col = unpack4x8unorm(col);
+  o.col = canvasColor(unpack4x8unorm(col));
   o.kc = vec2u(kind, clip);
   return o;
 }
@@ -168,7 +177,7 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
   var o: TO;
   o.pos = ndc(p, 0.0);
   o.p = p;
-  o.col = unpack4x8unorm(col);
+  o.col = canvasColor(unpack4x8unorm(col));
   o.clip = clip;
   return o;
 }
@@ -232,6 +241,7 @@ export class NoteCanvas {
   constructor(device, format) {
     this.device = device;
     this.format = format;
+    this.p3 = false; // the canvas in Display P3 (docs/hdr.md): the notes' colors converted to it
     // (canvases for measuring and rasterizing text; none under Node, where only the shapes are tested)
     const canvas = (w, h) => (typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : typeof document !== 'undefined' ? document.createElement('canvas') : null);
     this.mctx = canvas(8, 8)?.getContext('2d');
@@ -247,13 +257,32 @@ export class NoteCanvas {
     if (typeof document !== 'undefined') document.fonts?.addEventListener?.('loadingdone', () => { this.layouts.clear(); this._resetAtlas(); });
   }
 
+  /** Draw into a canvas of format fmt from now on (an HDR display's float canvas: Engine.prepareFormat). */
+  setFormat(fmt) {
+    if (fmt === this.format) return;
+    this.format = fmt;
+    this._makePipes();
+  }
+
   _pipelines() {
-    const d = this.device, mod = d.createShaderModule({ code: WGSL, label: 'noteDraw' });
+    const d = this.device;
+    this.mod = d.createShaderModule({ code: WGSL, label: 'noteDraw' });
     this.bgl = d.createBindGroupLayout({ entries: [
       { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
       { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
       { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
     ] });
+    this._makePipes();
+    this.ubuf = d.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.atlas = d.createTexture({ size: [this.atlasSize, this.atlasSize], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+    this._resetAtlas();
+    this.bufs = { inst: null, tri: null, clip: null };
+    this.bg = null;
+  }
+
+  // the pipelines, which draw into the canvas's format
+  _makePipes() {
+    const d = this.device, mod = this.mod;
     const layout = d.createPipelineLayout({ bindGroupLayouts: [this.bgl] });
     const blend = { color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' } };
     const inst = { arrayStride: INST_W * 4, stepMode: 'instance', attributes: [
@@ -276,11 +305,6 @@ export class NoteCanvas {
       triPlain: make('noteTri', 'vsTri', 'fsTri', tri),
       triFan: make('noteFan', 'vsTri', 'fsTri', tri, { noColor: true, stencil: { compare: 'always', passOp: 'invert', failOp: 'keep', depthFailOp: 'keep' } }),
     };
-    this.ubuf = d.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.atlas = d.createTexture({ size: [this.atlasSize, this.atlasSize], format: 'rgba8unorm', usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
-    this._resetAtlas();
-    this.bufs = { inst: null, tri: null, clip: null };
-    this.bg = null;
   }
 
   _resetAtlas() { this.glyphs.clear(); this.shelf = { x: 0, y: 0, h: 0 }; }
@@ -567,7 +591,7 @@ export class NoteCanvas {
     if (this.nInst) d.queue.writeBuffer(ib, 0, this.inst, 0, this.nInst * INST_W);
     if (this.nTri) d.queue.writeBuffer(tb, 0, this.tri, 0, this.nTri * TRI_W);
     if (this.nClip) d.queue.writeBuffer(cb, 0, this.clipData, 0, this.nClip);
-    d.queue.writeBuffer(this.ubuf, 0, new Float32Array([w, h, 0, 0]));
+    d.queue.writeBuffer(this.ubuf, 0, new Float32Array([w, h, this.p3 ? 1 : 0, 0]));
     this.bg ??= d.createBindGroup({ layout: this.bgl, entries: [{ binding: 0, resource: { buffer: this.ubuf } }, { binding: 1, resource: { buffer: cb } }, { binding: 2, resource: this.atlas.createView() }] });
     const pass = enc.beginRenderPass({ label: 'notes', colorAttachments: [{ view: target, loadOp: 'load', storeOp: 'store' }],
       depthStencilAttachment: { view: this.dsView, depthClearValue: 0, depthLoadOp: 'clear', depthStoreOp: 'discard', stencilClearValue: 0, stencilLoadOp: 'clear', stencilStoreOp: 'discard' } });

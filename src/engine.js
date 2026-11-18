@@ -23,8 +23,10 @@ const POST_MURK = POST_LOOK + LOOK_WORDS;
 const POST_EDGE = POST_MURK + 8;
 // then where the view is in focus (Post.focus)
 const POST_FOCUS = POST_EDGE + 4;
+// then the display (Post.display: Engine.display, docs/hdr.md)
+export const POST_DISPLAY = POST_FOCUS + 4;
 // the post uniforms' floats (struct Post)
-export const POST_WORDS = POST_FOCUS + 4;
+export const POST_WORDS = POST_DISPLAY + 4;
 // how much slower than the focal plane each of the murk's layers pans (MUD_DEPTH in POST_WGSL)
 const MUD_DEPTH = [0.93, 0.85, 0.76];
 
@@ -78,7 +80,7 @@ export async function createEngine(device, format, { hasTimestamps = false, K = 
   const errs = await e.compileErrors();
   if (errs.length) throw new Error('Shader compile failed:\n' + errs.join('\n'));
   await e.pipelinesReady(onProgress);
-  if (late) e._compileLate();
+  if (late) e._lateDone = e._compileLate();
   return e;
 }
 
@@ -209,6 +211,10 @@ class Engine {
     this.postData = new Float32Array(POST_WORDS);
     // the look (src/look.js): its words, set by the page (all 0: the bare view)
     this.look = new Float32Array(LOOK_WORDS);
+    // the display the canvas is shown on (docs/hdr.md), set by the page: its headroom (the brightest it shows over SDR
+    // white: 1 for SDR), how far saturated colors reach toward the wide gamut's edge, and whether the canvas is in
+    // Display P3 (Post.display)
+    this.display = { peak: 1, wide: 0, p3: false };
     // the warm stage's or cold probe's lens (center, radius, 1 shown), set by the page: the thermal camera inside the
     // tool's reach
     this.lens = new Float32Array(4);
@@ -650,7 +656,27 @@ class Engine {
     const glassMod = shader({ code: GLASS_WGSL, label: 'glass' });
     const glassP = (blend) => rPipe({ layout: 'auto', label: 'fsGlass', primitive: { topology: 'triangle-list' },
       vertex: { module: glassMod, entryPoint: 'vsGlass' }, fragment: { module: glassMod, entryPoint: 'fsGlass', targets: [{ format, blend }] } });
-    this.pGlass = [glassP(undefined), glassP({ color: { srcFactor: 'constant', dstFactor: 'one-minus-constant', operation: 'add' }, alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' } })];
+    const glassFade = { color: { srcFactor: 'constant', dstFactor: 'one-minus-constant', operation: 'add' }, alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' } };
+    this.pGlass = [glassP(undefined), glassP(glassFade)];
+    // every pipeline that draws into the canvas, as [descriptor, set] for a canvas of format fmt (prepareFormat: an HDR
+    // display's canvas is a float one)
+    this._canvasJobs = (fmt) => {
+      const cd = (c) => rpDesc(this.postModule, 'vsComp', 'fsComposite', 'triangle-list', undefined, fmt, c);
+      const glassD = (blend) => ({ layout: 'auto', label: 'fsGlass', primitive: { topology: 'triangle-list' },
+        vertex: { module: glassMod, entryPoint: 'vsGlass' }, fragment: { module: glassMod, entryPoint: 'fsGlass', targets: [{ format: fmt, blend }] } });
+      return [
+        [cd({}), (p) => { this.pComp = p; }],
+        [cd({ MICRO_SUSPENSION: 0 }), (p) => { this.pCompClear = p; }],
+        [cd({ LEAN: 1 }), (p) => { this.pCompLean = p; }],
+        [cd({ LEAN: 1, MICRO_SUSPENSION: 0 }), (p) => { this.pCompClearLean = p; }],
+        ...this.compParts.flatMap((q, k) => [{}, { MICRO_SUSPENSION: 0 }].map((m, i) => [cd({ LEAN: 1, ...m, ...(k ? { HOT: 1 } : { ICE: 1 }) }), (p) => { q.p[i] = p; }])),
+        [rpDesc(this.postModule, 'vsLoupe', 'fsLoupe', 'triangle-list', over, fmt), (p) => { this.pLoupe = p; }],
+        [rpDesc(this.postModule, 'vsFull', 'fsPlain', 'triangle-list', undefined, fmt), (p) => { this.pPlain = p; }],
+        [rpDesc(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined, fmt), (p) => { this.pHold = p; }],
+        [glassD(undefined), (p) => { this.pGlass[0] = p; }],
+        [glassD(glassFade), (p) => { this.pGlass[1] = p; }],
+      ];
+    };
     this.glassU = [0, 1].map(() => d.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
     this.glass = [];
 
@@ -699,9 +725,35 @@ class Engine {
       { binding: 0, resource: { buffer: b.thermal } }, { binding: 1, resource: { buffer: b.iceShowU } }, { binding: 2, resource: { buffer: b.heatTiles } }] });
     this.iceArgsBG = d.createBindGroup({ layout: this.cpIceArgs.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.thermal } }, { binding: 1, resource: { buffer: b.iceShowU } }, { binding: 3, resource: { buffer: b.iceArgs } }] });
-    this._leanP();
-    this._partsP();
+    this._wave1 = Promise.all([this._leanP(), this._partsP()]);
     this._rebindLate();
+  }
+
+  /**
+   * Draw into a canvas of format fmt (docs/hdr.md: 'rgba16float' for an HDR display, else the preferred 8-bit one):
+   * every pipeline that draws into the canvas is compiled anew in the background while the page draws on in the old
+   * format. Resolves to a function that switches them in, to be called in the same task as the canvas is configured
+   * anew (before the next frame), or to null when the format stays.
+   */
+  async prepareFormat(fmt) {
+    // (pipelines still landing in the old format would land over the new ones)
+    await Promise.allSettled([this._lateDone, this._wave1]);
+    if (fmt === this.format) return null;
+    const jobs = this._canvasJobs(fmt);
+    const pipes = await Promise.all(jobs.map(([desc]) => this.device.createRenderPipelineAsync(desc)));
+    return () => {
+      if (fmt === this.format) return;
+      this.format = fmt;
+      jobs.forEach(([, set], i) => set(pipes[i]));
+      // (their bind groups, and the targets in the canvas's format, made anew)
+      this.compBG = this.compClearBG = this.compLeanBG = this.compClearLeanBG = null;
+      for (const q of this.compParts) q.bg = [null, null];
+      this.loupeBG = this.specBG = null;
+      this.glassTex?.forEach((t) => t.destroy());
+      this.glassTex = null;
+      if (this.holdTex) this._holdTarget(this.holdTex.width, this.holdTex.height);
+      this._rebindLate();
+    };
   }
 
   // The second wave (late, the page): compiled two at a time, each in place as it lands, its bind groups made then
@@ -911,6 +963,17 @@ class Engine {
     return true;
   }
 
+  // Max and coarse speeds' last drawn world (the canvas's format), carried onto the frames between draws
+  _holdTarget(w, h) {
+    const d = this.device;
+    this.holdTex?.destroy();
+    this.holdTex = d.createTexture({ size: [w, h], format: this.format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+    this.holdView = this.holdTex.createView();
+    this.holdBG = d.createBindGroup({ layout: this.pHold.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: this.sampler }, { binding: 1, resource: this.holdView }, { binding: 5, resource: { buffer: this.b.holdU } }] });
+    this.holdCam = null;
+  }
+
   // the ice's target (fsIce) for a view w x h, at fx.iceScale of it each way
   _iceTarget(w, h) {
     const s = this.fx.iceScale, size = [Math.max(1, Math.ceil(w * s)), Math.max(1, Math.ceil(h * s))];
@@ -1083,12 +1146,7 @@ class Engine {
     this.compBGOf = compBG;
     this.reprojBG = this.accumViews.map((v) => d.createBindGroup({ layout: this.main.reproj.getBindGroupLayout(0), entries: [
       { binding: 0, resource: this.sampler }, { binding: 1, resource: v }, { binding: 5, resource: { buffer: this.b.reprojU } }] }));
-    this.holdTex?.destroy();
-    this.holdTex = d.createTexture({ size: [w, h], format: this.format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
-    this.holdView = this.holdTex.createView();
-    this.holdBG = d.createBindGroup({ layout: this.pHold.getBindGroupLayout(0), entries: [
-      { binding: 0, resource: this.sampler }, { binding: 1, resource: this.holdView }, { binding: 5, resource: { buffer: this.b.holdU } }] });
-    this.holdCam = null;
+    this._holdTarget(w, h);
     this.clearAccum = !this.carry;
     this.b.splat?.destroy();
     this.b.splat = d.createBuffer({ size: w * h * 20, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
@@ -3158,9 +3216,11 @@ class Engine {
     pd.set(clk.edgePh, POST_EDGE);
     pd.set(this.focusAt, POST_FOCUS);
     pd.set(this.look, POST_LOOK);
-    // (a card's portrait, the close-up not live, reads its own copy: the look whole, the suspension shown; the live
-    // close-up the main view's)
-    if (specimen && specimen.target && !specimen.live) d.queue.writeBuffer(this.b.postPlain, 0, Float32Array.from(pd).fill(1, 3, 4));
+    const dsp = this.display;
+    pd[POST_DISPLAY] = dsp.peak; pd[POST_DISPLAY + 1] = dsp.p3 ? dsp.wide : 0; pd[POST_DISPLAY + 2] = dsp.p3 ? 1 : 0;
+    // (a card's portrait, the close-up not live, reads its own copy: the look whole, the suspension shown, in SDR's
+    // sRGB whatever the display, as a PNG holds it; the live close-up the main view's)
+    if (specimen && specimen.target && !specimen.live) d.queue.writeBuffer(this.b.postPlain, 0, Float32Array.from(pd).fill(1, 3, 4).fill(0, POST_DISPLAY, POST_DISPLAY + 4));
     if (this.fxFade.look < 1) pd.set(this.look.map((v) => v * this.fxFade.look), POST_LOOK);
     d.queue.writeBuffer(this.b.post, 0, pd);
     if (specimen && specimen.target && specimen.live) d.queue.writeBuffer(this.b.postPlain, 0, pd);

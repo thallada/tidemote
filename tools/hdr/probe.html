@@ -1,0 +1,37 @@
+<!doctype html><meta charset=utf-8><body style="margin:0;background:#000">
+<canvas id=c width=64 height=64></canvas>
+<script type=module>
+const out = {};
+out.ua = navigator.userAgent;
+for (const q of ['(dynamic-range: high)', '(video-dynamic-range: high)', '(color-gamut: srgb)', '(color-gamut: p3)', '(color-gamut: rec2020)']) out[q] = matchMedia(q).matches;
+out.getConfiguration = 'getConfiguration' in GPUCanvasContext.prototype;
+out.screenHeadroom = 'highDynamicRangeHeadroom' in screen ? screen.highDynamicRangeHeadroom : 'n/a';
+const ad = await navigator.gpu.requestAdapter(); const device = await ad.requestDevice();
+out.preferred = navigator.gpu.getPreferredCanvasFormat();
+const tryCfg = (cfg) => { const cv = document.createElement('canvas'); cv.width = cv.height = 4; const ctx = cv.getContext('webgpu');
+  try { ctx.configure({ device, ...cfg }); const g = ctx.getConfiguration?.(); return g ? { ok: true, cs: g.colorSpace, tm: g.toneMapping?.mode, fmt: g.format } : { ok: true }; } catch (e) { return { ok: false, err: String(e.message || e).slice(0, 120) }; } };
+for (const cs of ['srgb', 'display-p3', 'srgb-linear', 'display-p3-linear', 'rec2100-pq', 'rec2100-hlg'])
+  for (const fmt of ['rgba16float', 'bgra8unorm']) out[`cfg ${fmt} ${cs}`] = tryCfg({ format: fmt, colorSpace: cs, toneMapping: { mode: 'extended' } });
+// what does a float canvas with colorSpace X mean? write v, draw into a float16 srgb-linear 2D canvas, read
+async function probe(cs, v, fmt = 'rgba16float') {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 4; const ctx = cv.getContext('webgpu');
+  ctx.configure({ device, format: fmt, colorSpace: cs, toneMapping: { mode: 'extended' }, alphaMode: 'opaque' });
+  const enc = device.createCommandEncoder();
+  enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: v, g: v * 0.5, b: 0, a: 1 } }] }).end();
+  device.queue.submit([enc.finish()]); await device.queue.onSubmittedWorkDone();
+  const res = {};
+  for (const [dcs, ct] of [['srgb-linear', 'float16'], ['srgb', 'float16'], ['srgb', 'unorm8']]) {
+    try {
+      const c2 = document.createElement('canvas'); c2.width = c2.height = 4;
+      const x = c2.getContext('2d', { colorSpace: dcs, colorType: ct });
+      x.drawImage(cv, 0, 0);
+      const d = x.getImageData(0, 0, 1, 1, ct === 'float16' ? { pixelFormat: 'rgba-float16', colorSpace: dcs } : { colorSpace: dcs });
+      res[`${dcs}/${ct}`] = Array.from(d.data).slice(0, 3).map((n) => +(+n).toFixed(4));
+    } catch (e) { res[`${dcs}/${ct}`] = 'ERR ' + String(e.message || e).slice(0, 80); }
+  }
+  return res;
+}
+for (const cs of ['srgb', 'display-p3', 'srgb-linear']) for (const v of [0.5, 1.0, 2.0]) { try { out[`probe ${cs} ${v}`] = await probe(cs, v); } catch (e) { out[`probe ${cs} ${v}`] = 'ERR ' + e.message; } }
+out.probe8 = await probe('srgb', 0.5, 'bgra8unorm');
+window.__out = out; document.title = 'done';
+</script>

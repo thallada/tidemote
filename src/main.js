@@ -20,6 +20,7 @@ import { retraceBody, settleMembers, nearBody, largestBody, bodyPatch } from './
 import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS, SIM_CLOCK, G_WORDS, DEFAULT_K, P_BYTES, TUBE_N, TUBE_K, STUDIO_N, PIPETTE_DOF, CYST, NOTE_TG } from './shaders.js';
 import { flowAt, tideAt, duckShade } from './flow.js';
 import { DARKFIELD, FOCUS, packLook } from './look.js';
+import { displayCaps, displayPlan, createCalibration, halfsToRGBA8, PEAK, WIDE, WIDE_DEF, peakToSlider, sliderToPeak, clampPeak } from './hdr.js';
 import { MIX as SOUND_MIX, defaultMix } from './audio/mix.js';
 import { startLoader } from './loader.js';
 import { Director } from './director.js';
@@ -181,12 +182,17 @@ async function boot(tries = 4) {
     tr('err.device-lost.detail', '{why} The world running on the device was lost; reload the page to start a new one.', { why: info.message || tr('err.device-lost.reset', 'The driver reset the device.') }), [RELOAD]); });
   device.addEventListener('uncapturederror', (e) => console.error('[tidemote]', e.error.message));
 
-  const format = navigator.gpu.getPreferredCanvasFormat();
+  // the display: HDR and wide color as the screen can show them and the viewer asks (src/hdr.js, docs/hdr.md); the
+  // canvas a float one where HDR is shown, else the 8-bit one the browser prefers
+  const preferred = navigator.gpu.getPreferredCanvasFormat();
+  const caps = displayCaps(device, (c) => onDisplayChange?.(c));
+  const plan = displayPlan(displayPrefs(loadPrefs()), caps, { preferred, format: preferred });
+  const format = plan.format;
   const ctx = canvas.getContext('webgpu');
   // (the panels' glass is blurred from a copy of the frame: Engine.setGlass)
-  ctx.configure({ device, format, alphaMode: 'opaque', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+  ctx.configure({ ...canvasConfig(device, format, plan.config), usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
   const specCtx = $('specimen').getContext('webgpu');
-  specCtx.configure({ device, format, alphaMode: 'opaque' });
+  specCtx.configure(canvasConfig(device, format, plan.config));
   // #k={"shade":0.1} opens the page with tunables overridden (DEFAULT_K), to watch a variant live
   let K = {};
   const kHash = /[#&]k=([^&]*)/.exec(location.hash);
@@ -212,7 +218,7 @@ async function boot(tries = 4) {
   }
   started = true;
   bootTimes.engine = Math.round(performance.now());
-  run(eng, device, ctx, specCtx, hasTS);
+  run(eng, device, ctx, specCtx, hasTS, { caps, preferred });
 }
 
 // Time multipliers of real time. Infinity is "Max": as fast as the GPU goes. Speeds above 1× are
@@ -254,9 +260,19 @@ const CELL_MARK = 'rgba(241,227,160,0.95)'; // the watched cell, inside its orga
 const loadPrefs = () => { try { const p = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'); return p && p.v === PREFS_V ? p : {}; } catch { return {}; } };
 const savePrefs = (p) => { try { localStorage.setItem(PREFS_KEY, JSON.stringify(p)); } catch { /* storage unavailable */ } };
 
-function run(eng, device, ctx, specCtx, hasTS) {
+// The display's choices as saved (Settings → Display → Color): HDR on (off by default on touch screens, whose GPUs have
+// least to spare for a float canvas), its headroom, and how wide the colors reach (WIDE's index).
+const displayPrefs = (p) => ({ hdr: p.hdr ?? !isCoarse, peak: clampPeak(p.peak ?? PEAK.def), wide: p.wide ?? WIDE_DEF });
+// a canvas's configuration for the display (displayPlan's config: its color space and tone mapping)
+const canvasConfig = (device, format, cfg) => ({ device, format, alphaMode: 'opaque', colorSpace: cfg.colorSpace, toneMapping: cfg.toneMapping });
+// told when the screen's range or gamut changes (a window moved to another screen, the system's HDR switched)
+let onDisplayChange = null;
+
+function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   const K = eng.K;
   const prefs = loadPrefs();
+  // the display's choices (HDR, its headroom, wide color: applyDisplay)
+  const dsp = displayPrefs(prefs);
   let lab = null, specimen = null, view = null; // panels, created below
   let dockTop = innerHeight, railBottom = 0;
   // The Field Lab's right edge and the specimen panel's inset, read once a page frame (pageFrame): the lens's readout,
@@ -340,7 +356,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, focus: state.focus, fixed: state.fixed, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+    savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, focus: state.focus, hdr: dsp.hdr, peak: dsp.peak, wide: dsp.wide, fixed: state.fixed, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   // the look (src/look.js, docs/look.md): Darkfield as the Display settings ask, how strong as a whole and how much
@@ -2110,13 +2126,16 @@ function run(eng, device, ctx, specCtx, hasTS) {
   async function readPortrait() {
     const j = portraitJob;
     portraitJob = null;
-    const S = j.size, row = S * 4, buf = device.createBuffer({ size: row * S, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    // (an HDR display's canvas is a float one: the portrait, drawn in SDR's sRGB all the same, comes back as halves)
+    const half = j.tex.format === 'rgba16float', fmt = j.tex.format;
+    const S = j.size, row = S * (half ? 8 : 4), buf = device.createBuffer({ size: row * S, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
     const enc = device.createCommandEncoder();
     enc.copyTextureToBuffer({ texture: j.tex }, { buffer: buf, bytesPerRow: row }, [S, S]);
     device.queue.submit([enc.finish()]);
     try {
       await buf.mapAsync(GPUMapMode.READ);
-      j.resolve({ data: buf.getMappedRange().slice(0), w: S, h: S, bgra: eng.format.startsWith('bgra') });
+      const data = half ? halfsToRGBA8(new Uint16Array(buf.getMappedRange())).buffer : buf.getMappedRange().slice(0);
+      j.resolve({ data, w: S, h: S, bgra: fmt.startsWith('bgra') });
       buf.unmap();
     } catch { j.resolve(null); }
     buf.destroy(); j.tex.destroy();
@@ -2638,6 +2657,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + (state.look ? choice('focus', tr('settings.display.focus', 'Focus blur'), '', [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], state.focus, 'focusblur') : '')
         + autoOnOff('bloom', NAMES.bloom, 'Y', 'bloom')
         + choice('trails', tr('settings.display.trails', 'Trails'), 'T', trailNames.map((n, i) => [i, n]), trailIdx))
+        + color_()
         + group('water', tr('settings.display.water-group', 'Water'), autoRow('water', NAMES.sea, '', [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], 'watersurface')
         + (state.water ? choice('waves', tr('settings.display.waves', 'Wave motion'), '', [[0, tr('settings.display.waves-slow', 'Slow')], [1, NORMAL], [2, tr('settings.display.waves-lively', 'Lively')]], state.waves, 'wavemotion') : '')
         + (K.heat ? autoOnOff('haze', NAMES.haze, '', 'haze') : '')
@@ -2655,6 +2675,31 @@ function run(eng, device, ctx, specCtx, hasTS) {
         + onoff('auto', tr('settings.display.auto-idle', 'Auto when idle'), '', state.auto, 'autoidle')
         + (film.supported ? `<div class="opt"><span class="lbl">${term('film', filmL)} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="${filmL}">${film.state === 'idle' ? `<button type="button" class="chip" data-o="film" data-v="now">${tr('settings.display.film-now', 'Start filming')}</button>` : `<button type="button" class="chip" data-o="film" data-v="stop">${tr('settings.display.film-stop', 'Stop filming')}</button>`}</div></div>` : ''));
     }
+    // Color (docs/hdr.md): HDR on an HDR display, how far its highlights go (a slider, and the swatch to set it by), and
+    // wide color on a wide-gamut one; none of it on a screen that shows neither
+    function color_() {
+      const plan = displayPlan(dsp, caps, { format: eng.format, preferred });
+      const hdrRow = caps.toneMapping && caps.hdrScreen;
+      const wideRow = caps.p3Canvas && (caps.p3Screen || plan.hdr);
+      if (!hdrRow && !wideRow) return '';
+      const peakL = tr('settings.display.hdr-peak', 'Highlights');
+      return group('color', tr('settings.display.color', 'Color'), (hdrRow ? onoff('hdr', tr('settings.display.hdr', 'HDR'), '', dsp.hdr, 'hdr') : '')
+        + (plan.hdr ? `<div class="opt"><span class="lbl">${term('hdrpeak', peakL)}</span><div class="vol-row"><input type="range" id="set-peak" min="0" max="1000" step="1" value="${peakToSlider(dsp.peak)}" aria-label="${peakL}"><b id="set-peak-v">${peakWords(dsp.peak)}</b></div></div>`
+          // i18n: Settings → Display → Color, under the Highlights slider: how to set it by the swatch beside
+          + `<div class="opt hdr-cal-row"><canvas id="hdr-cal" class="hdr-cal" aria-hidden="true"></canvas><p class="hdr-cal-say">${tr('settings.display.hdr-calibrate', 'Raise Highlights until the disc just disappears.')}</p></div>` : '')
+        + (wideRow ? choice('wide', tr('settings.display.wide', 'Wide color'), '', [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, tr('settings.display.wide-vivid', 'Vivid')]], dsp.wide, 'widecolor') : ''));
+    }
+    // i18n: Settings → Display → Color: the HDR highlights' brightest, {x} times white (as 4 or 2.5)
+    const peakWords = (p) => tr('settings.display.hdr-peak-x', '{x}×', { x: +p.toFixed(p < 10 ? 1 : 0) });
+    let cal = null;
+    // the calibration swatch, on the canvas render() made (or none)
+    const drawCal = () => {
+      const cv = $('hdr-cal');
+      if (!cv) return;
+      cal ||= createCalibration(device);
+      if (cal.canvas !== cv) { cal.attach(cv); cal.canvas = cv; }
+      cal.draw(dsp.peak);
+    };
     // Audio: the soundtrack on or off and its volume (the dock's slider is only on wide screens), what it does while
     // the page is hidden, its layers' levels and its space and tone (src/audio/mix.js), each by what it sounds like
     function audio_() {
@@ -2870,6 +2915,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
         state.currents = false; state.songMarks = 1; state.notes = 1; state.closeup = true;
         state.water = 2; state.waves = 1; applyWater();
         state.look = 2; state.grain = 1; state.focus = 2; applyLook();
+        Object.assign(dsp, displayPrefs({})); applyDisplay();
         state.fixed = {};
         state.auto = true; renderAuto(director.active);
       } else if (tab === 'audio') {
@@ -2890,6 +2936,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
       const typing = document.activeElement?.id === 'w-name';
       setHTML(opts, (tab === 'display' ? display() : tab === 'audio' ? audio_() : tab === 'performance' ? performance_() : tab === 'climate' ? climate_() : tab === 'about' ? about_() : worlds_()) + foot());
       if (typing && !$('w-name').disabled) { const i = $('w-name'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+      if (tab === 'display') drawCal();
       if (tab === 'worlds' && saves == null) refreshSaves();
       readout(true);
     }
@@ -2996,6 +3043,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
       else if (id.startsWith('mix-')) sound.setMix({ [id.slice(4)]: +v });
       else if (id === 'grain') { state.grain = +v; applyLook(); }
       else if (id === 'focus') { state.focus = +v; applyLook(); }
+      else if (id === 'hdr') { dsp.hdr = !!+v; applyDisplay(); }
+      else if (id === 'wide') { dsp.wide = +v; applyDisplay(); }
       else if (id === 'ev-start') { if (!climate.event) climate.force(v); toggle(false); return; }
       else if (id === 'film') { toggle(false); filmAct(); return; }
       else if (id.startsWith('ev-')) { state.events[id.slice(3)] = !!+v; applyEvents(); }
@@ -3024,7 +3073,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
     opts.addEventListener('input', (e) => {
       if (e.target.id === 'w-name') wName = e.target.value;
       else if (e.target.id === 'set-vol') { if (!sound.on) toggleSound(); sound.setVolume(Number(e.target.value) / 100); }
+      else if (e.target.id === 'set-peak') { dsp.peak = sliderToPeak(+e.target.value); setLive($('set-peak-v'), peakWords(dsp.peak)); applyDisplay(); drawCal(); }
     });
+    opts.addEventListener('change', (e) => { if (e.target.id === 'set-peak') persist(); });
     opts.addEventListener('keydown', (e) => { if (e.target.id === 'w-name' && e.key === 'Enter') { e.preventDefault(); worldAct('w-save'); } });
     // (another tab opens at its top)
     tabs.forEach((b) => b.addEventListener('click', () => { if (tab !== b.dataset.tab) $('set-body').scrollTop = 0; tab = b.dataset.tab; confirming = false; ask = null; render(); }));
@@ -5520,7 +5571,8 @@ function run(eng, device, ctx, specCtx, hasTS) {
     title: () => tr('film.title', 'TIDEMOTE · {time} · {era}', { time: fmtClock(eng.simTime), era: eraName(climate.name) }),
     name: () => `tidemote-${fmtClock(eng.simTime).replace(/:/g, '-')}`,
     desktop: desk?.film || null,
-    onChange: renderFilm,
+    // (a film is made in SDR's sRGB: applyDisplay)
+    onChange: (s) => { renderFilm(s); applyDisplay(); },
     onSaved: (f) => {
       if (f.blob) saveFile(f.blob, f.name);
       // i18n: a film saved (or stopped at its limit), in the desktop app into its Videos folder; {size} its size
@@ -5528,6 +5580,36 @@ function run(eng, device, ctx, specCtx, hasTS) {
     },
     onError: (m) => flash(m),
   });
+  // The display (src/hdr.js, docs/hdr.md): the canvases configured and the composite told what the screen shows and the
+  // viewer asks (Settings → Display → Color), again when either changes or a film starts or stops. HDR first shown in
+  // an 8-bit canvas needs a float one: every pipeline that draws into the canvas compiles again in the background
+  // (Engine.prepareFormat), the view in SDR meanwhile, and all is switched in one task, before the next frame.
+  let dspKey = '', dspBusy = false;
+  // tools' one-shot looks at the world's canvas while its texture is current (T.display.onFrame)
+  const frameTaps = [];
+  function applyDisplay() {
+    const plan = displayPlan(dsp, caps, { filming: film.state === 'recording', format: eng.format, preferred });
+    const ready = plan.format === eng.format;
+    const key = JSON.stringify([eng.format, plan.config]);
+    if (key !== dspKey) {
+      dspKey = key;
+      ctx.configure({ ...canvasConfig(device, eng.format, plan.config), usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+      specCtx.configure(canvasConfig(device, eng.format, plan.config));
+    }
+    eng.display = ready ? plan.display : { ...plan.display, peak: 1 };
+    noteGL.p3 = plan.p3;
+    if (!ready && !dspBusy) {
+      dspBusy = true;
+      eng.prepareFormat(plan.format).then((commit) => {
+        dspBusy = false;
+        if (commit) { commit(); noteGL.setFormat(eng.format); }
+        applyDisplay();
+      }, (e) => { dspBusy = false; console.error('[tidemote] display', e?.message || e); });
+    }
+    return plan;
+  }
+  onDisplayChange = () => { applyDisplay(); view?.render(); };
+  applyDisplay();
   // the panels whose glass shows the view through it (the floating ones are opaque)
   const glass = trackGlass(['lab', 'spec', 'bench', 'held'].map($), canvas);
   let glassFilming = false;
@@ -5884,8 +5966,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
       // (the needle and the rod sweep from here on)
       if (step.steps && !state.paused) hand.stepped();
       if (portraitJob?.drawn) readPortrait();
-      // a film copies the world's canvas while its texture is current
+      // a film copies the world's canvas while its texture is current (and so do tools: T.display.onFrame)
       film.frame();
+      if (frameTaps.length) for (const f of frameTaps.splice(0)) f(canvas, frameTex);
       inflight++;
       nudge();
       const sent = cur;
@@ -5971,6 +6054,15 @@ function run(eng, device, ctx, specCtx, hasTS) {
     loadWorld: applyWorld, hand, loadCard, saveCard, cabinet,
     // the look, for the tools (until the Display settings next set it): tunables over Darkfield's at a strength, or off
     look: { set: (p = {}, strength = 1) => applyLook({ ...DARKFIELD, ...p }, strength), off: () => applyLook(DARKFIELD, 0) },
+    // the display (docs/hdr.md): what the screen is taken to show (caps) and the viewer's choices (prefs: hdr, peak,
+    // wide) as a tool sets them (tools/hdr/check.mjs takes an SDR screen for an HDR one); state() what is shown now
+    display: {
+      set: ({ caps: c = {}, prefs: p = {} } = {}) => { Object.assign(caps, c); Object.assign(dsp, p); return applyDisplay(); },
+      // a save's preview (as SDR's sRGB bytes whatever the canvas): its size and mean byte, for a tool to compare
+      preview: () => takeView().then((r) => { if (!r) return null; const u8 = new Uint8Array(r.data); let s = 0; for (const v of u8) s += v; return { w: r.w, h: r.h, n: u8.length, mean: s / u8.length }; }),
+      onFrame: (f) => { frameTaps.push(f); },
+      state: () => ({ format: eng.format, display: { ...eng.display }, caps: { ...caps }, prefs: { ...dsp }, config: ctx.getConfiguration?.() && { colorSpace: ctx.getConfiguration().colorSpace, toneMapping: ctx.getConfiguration().toneMapping?.mode } }),
+    },
     // a .tidemote file's bytes, as Settings → Worlds opens one
     openWorld: async (bytes) => loadWorld(await openWorld(bytes)),
     // riding, for tools/ridelab.mjs: its state, the specimen, the body traced

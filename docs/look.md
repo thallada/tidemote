@@ -15,6 +15,8 @@ Adaptation; docs/performance.md), in every live view: the loupe and the live clo
 uniforms, so the look, Glow, Suspension and the tuner's knobs ease in all three at once. A card's portrait (the
 close-up not live) reads its own copy (`b.postPlain`) with the look whole and the suspension shown, so it never keeps a
 faded look.
+On an HDR or wide-gamut display the tone curve's highlights go past white and the composite's last step makes the view
+for the canvas's color space (docs/hdr.md).
 
 The loupe and the live close-up are the main view's finish at another view: each draws its cells (with a new
 species' sparkle where insides are left out: `_drawScene`'s split), stone, its own bloom (`_bloomChain`, the main
