@@ -74,20 +74,24 @@ const open = () => {
     e.preventDefault();
     if (/^https?:/.test(url)) shell.openExternal(url);
   });
-  // F11 as in a browser; the page's own fullscreen button (requestFullscreen) fills the screen too.
+  // Full screen is the window's alone (F11 here, the page's button and F key through tidemoteDesktop.fullscreen,
+  // never requestFullscreen, which F11 would bypass); the page hears each change to show it.
   win.webContents.on('before-input-event', (e, input) => {
     if (input.type === 'keyDown' && input.key === 'F11') { win.setFullScreen(!win.isFullScreen()); e.preventDefault(); }
   });
+  for (const [ev, on] of [['enter-full-screen', true], ['leave-full-screen', false]]) win.on(ev, () => win.webContents.send('fullscreen', on));
   // Arguments after `--` pass DEFAULT_K overrides as the page's #k= hash: `electron . -- --k '{...}'`.
   const k = process.argv.indexOf('--k');
   win.loadURL(`${ORIGIN}/${k > 0 ? `#k=${encodeURIComponent(process.argv[k + 1])}` : ''}`);
 };
 
 // Only the page itself may call the shell.
-const handle = (ch, fn) => ipcMain.handle(ch, (e, ...a) => {
-  if (!e.senderFrame?.url.startsWith(ORIGIN)) throw new Error('not the page');
-  return fn(...a);
-});
+const fromPage = (e) => { if (!e.senderFrame?.url.startsWith(ORIGIN)) throw new Error('not the page'); };
+const handle = (ch, fn) => ipcMain.handle(ch, (e, ...a) => { fromPage(e); return fn(...a); });
+// the page's window's full screen, toggled and read
+const handleWin = (ch, fn) => ipcMain.handle(ch, (e) => { fromPage(e); const w = BrowserWindow.fromWebContents(e.sender); return w ? fn(w) : false; });
+handleWin('fullscreen:toggle', (w) => { w.setFullScreen(!w.isFullScreen()); }); // the change arrives as 'fullscreen'
+handleWin('fullscreen:get', (w) => w.isFullScreen());
 handle('worlds:list', worlds.list);
 handle('worlds:put', worlds.put);
 handle('worlds:get', worlds.get);

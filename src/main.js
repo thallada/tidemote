@@ -3074,21 +3074,25 @@ function run(eng, device, ctx, specCtx, hasTS) {
       world, frameMs: per(gpu), passes: Object.fromEntries(Object.entries(passes).sort((x, y) => y[1] - x[1]).map(([k, x]) => [k, per(x)])), step });
     try { await navigator.clipboard.writeText(json); flash(tr('flash.profile-copied', 'Profile copied')); } catch { prompt(tr('settings.perf.profile-prompt', 'The profile, to copy:'), json); }
   }
+  // In the desktop app full screen is the window's (F11's too), so the button toggles and follows it.
+  const deskFs = desk?.fullscreen || null;
   function toggleFullscreen() {
-    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
+    if (deskFs) deskFs.toggle().catch(() => {});
+    else if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
     else document.exitFullscreen?.();
   }
   // full screen from the rail, where the browser allows it (not on iPhone)
   const fsBtn = $('fs');
-  fsBtn.hidden = !document.fullscreenEnabled;
+  fsBtn.hidden = !deskFs && !document.fullscreenEnabled;
   fsBtn.addEventListener('click', toggleFullscreen);
-  document.addEventListener('fullscreenchange', () => {
-    const on = !!document.fullscreenElement;
+  function showFullscreen(on) {
     fsBtn.setAttribute('aria-pressed', String(on));
     fsBtn.setAttribute('aria-label', on ? tr('rail.fs.aria-exit', 'Exit full screen') : tr('rail.fs.aria', 'Full screen'));
     fsBtn.dataset.hint = on ? tr('rail.fs.hint-exit', 'Exit full screen · F') : tr('rail.fs.hint', 'Full screen · F');
-    fsBtn.innerHTML = `<svg><use href="#i-${on ? 'unfull' : 'full'}"/></svg>`;
-  });
+    fsBtn.innerHTML = `<svg><use href="#i-${on ? 'unfull' : 'full'}"/></svg>`; // i18n-ignore (icon ids)
+  }
+  if (deskFs) { deskFs.on(showFullscreen); deskFs.get().then(showFullscreen).catch(() => {}); }
+  else document.addEventListener('fullscreenchange', () => showFullscreen(!!document.fullscreenElement));
   for (const row of document.querySelectorAll('.tabs')) wireTabRow(row);
   function toggleHelp(on = $('help').hidden) { $('help').hidden = !on; if (on) view.toggle(false); }
   $('help-close').addEventListener('click', () => toggleHelp(false));

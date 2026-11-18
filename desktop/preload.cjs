@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('tidemoteDesktop', {
   steam: call('steam:status'),
   achieve: call('steam:achieve'),
   workshop: { share: call('workshop:share'), browse: call('workshop:browse'), open: call('workshop:open') },
+  // the window's full screen (F11's too): toggle(), get() -> on, on(fn) calls fn(on) whenever it changes
+  fullscreen: { toggle: call('fullscreen:toggle'), get: call('fullscreen:get'), on: (fn) => { ipcRenderer.on('fullscreen', (_, on) => fn(on)); } },
   // a film written as it is made, into Videos/Tidemote (src/film.js): open(name) -> { id, free }, then
   // write(id, bytes) in order, patch(id, at, bytes), close(id) -> its path
   film: { open: call('film:open'), write: call('film:write'), patch: call('film:patch'), close: call('film:close'), abort: call('film:abort') },

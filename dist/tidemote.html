@@ -40377,21 +40377,28 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         prompt(tr("settings.perf.profile-prompt", "The profile, to copy:"), json);
       }
     }
+    const deskFs = desk?.fullscreen || null;
     function toggleFullscreen() {
-      if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {
+      if (deskFs) deskFs.toggle().catch(() => {
+      });
+      else if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {
       });
       else document.exitFullscreen?.();
     }
     const fsBtn = $2("fs");
-    fsBtn.hidden = !document.fullscreenEnabled;
+    fsBtn.hidden = !deskFs && !document.fullscreenEnabled;
     fsBtn.addEventListener("click", toggleFullscreen);
-    document.addEventListener("fullscreenchange", () => {
-      const on = !!document.fullscreenElement;
+    function showFullscreen(on) {
       fsBtn.setAttribute("aria-pressed", String(on));
       fsBtn.setAttribute("aria-label", on ? tr("rail.fs.aria-exit", "Exit full screen") : tr("rail.fs.aria", "Full screen"));
       fsBtn.dataset.hint = on ? tr("rail.fs.hint-exit", "Exit full screen · F") : tr("rail.fs.hint", "Full screen · F");
       fsBtn.innerHTML = `<svg><use href="#i-${on ? "unfull" : "full"}"/></svg>`;
-    });
+    }
+    if (deskFs) {
+      deskFs.on(showFullscreen);
+      deskFs.get().then(showFullscreen).catch(() => {
+      });
+    } else document.addEventListener("fullscreenchange", () => showFullscreen(!!document.fullscreenElement));
     for (const row of document.querySelectorAll(".tabs")) wireTabRow(row);
     function toggleHelp(on = $2("help").hidden) {
       $2("help").hidden = !on;
