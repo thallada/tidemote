@@ -865,8 +865,9 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
         if (d >= 0.2 * Math.min(world[0], world[1])) {
           // chasing its food?
           const [food, fm, fsum] = topBy(st.diet);
-          const fst = food && fm >= 0.4 * fsum && S.sp.get(food);
-          const fn = fst?.rng.at(-1), ft = fst?.rng.find((x) => x[0] >= t - 12 * MIN && x[0] <= t - 8 * MIN);
+          // (a ternary, not `&&`: a false fst is not nullish, and `false?.rng.at` throws)
+          const fst = food && fm >= 0.4 * fsum ? S.sp.get(food) : null;
+          const fn = fst?.rng?.at(-1), ft = fst?.rng?.find((x) => x[0] >= t - 12 * MIN && x[0] <= t - 8 * MIN);
           const chase = fn && ft && Math.min(fn[3], fn[4]) >= 0.35 && wrap01(fn[1] - ft[1]) * dx + wrap01(fn[2] - ft[2]) * dy > 0.5 * (dx * dx + dy * dy);
           add({ kind: 'range', score: chase ? 0.6 : 0.45, col: sp.genome.col, subjects: chase ? [sp.serial, food] : [sp.serial], key: `move:${sp.serial}`, keyGap: 30 * MIN,
             html: chase

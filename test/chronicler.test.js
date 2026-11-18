@@ -213,6 +213,21 @@ test('hunter and hunted in a cycle', () => {
   assert.match(cyc.text, /bound together as hunter and hunted/);
 });
 
+test('a species on the move with no one main food is weighed without chasing anything', () => {
+  // (its diet split three ways, no food is its quarry: the chase check once read `false?.rng.at` and threw; whether
+  // the move is told is the budget's business)
+  const ch = createChronicler();
+  const w = world(10);
+  const preys = ['grazer', 'plankton', 'grazer'].map((k, i) => w.add(k, { genus: `Q${i}`, pop: 2000 }));
+  const hunter = w.add('hunter', { genus: 'Vorath', pop: 3000 });
+  for (const [i, q] of preys.entries()) w.place(q, 0.2 + 0.3 * i, 0.5, 0.8);
+  const told = run(ch, w, 240, 10, (w2) => {
+    w2.place(hunter, (0.1 + w2.t / 4000) % 1, 0.5, 0.2);
+    for (const q of preys) w2.meal(ch, hunter, q, 30, 10);
+  });
+  assert.ok(!told.some((s) => /pursued/.test(s.text)), told.map((x) => x.text).join(' | '));
+});
+
 test('an event’s aftermath names who slept through it and who was lost', () => {
   const ch = createChronicler();
   const w = world(10);
