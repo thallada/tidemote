@@ -161,17 +161,12 @@ under plain node), on a 78k world (`slow-mac-world.tidemote`, 32k living) in a 1
   before the projection) is measured again nearer it, and its cost a cell is the difference between the two worlds'
   (about 2.6 ns there): it sizes 1.76-2.09M (five fresh worlds), and a 1.8M one four minutes in (640k living) draws in
   5.3-8 ms at every zoom. A GPU without that room (the M1) takes one measure, as before.
-- **Sizing after the step's split (2026-11-18).** The desktop app on the RTX 4070 Ti sized worlds at 3.7M (6.1M in a
-  visitor's window), which fell to 30 fps once life filled them, and Chrome at 2.5M. Two errors: `LIVING_PASSES` still
-  named `lifeMain` alone of the living cells' kernels, so `senseMain`, split from it on 2026-11-13 and the dearest pass
-  of a grown world (2.7 of a 6.4 ms step at 2.6M and 950k living, against 0.19 fresh), was never projected; and
-  Chrome rounds timestamps to 65.5 µs without its WebGPU developer features (Electron to about 4 µs), so the
-  founders' passes read 0 and a median of five kept 0 (the projection gone; the 1.3× cap alone sized the world).
-  `livingMs` now counts `senseMain` and takes the mean of 24 steps (rounded at a phase the steps do not keep, the
-  mean of the readings is the time). Now Chrome (`bench.mjs --quantized`, as visitors run it) sizes 2.17M and the
-  desktop 2.09M at 2560×1440, 2.38M in its 1600×900 window; each bloomed to about 50% living at 58-60 fps at full
-  scale (step 6-7.4 ms). The measure is taken at the window's size: a window enlarged later draws dearer, which the
-  render scale takes up. `perf.calib` keeps what Auto measured (the bench's growth report carries it).
+- **Sizing after the step's split (2026-11-18).** The desktop app on the RTX 4070 Ti sized worlds at 3.7-6.1M, 30
+  fps once grown. `LIVING_PASSES` lacked `senseMain` (split from `lifeMain` on 11-13; 2.7 of a 6.4 ms grown step at
+  2.6M), and Chrome's timestamps, rounded to 65.5 µs without developer features, read the founders' passes as 0 in
+  a median of five. `livingMs` now counts `senseMain` and takes the mean of 24 steps: Chrome (`bench.mjs
+  --quantized`) sizes 2.17M, the desktop 2.38M in its 1600×900 window, each 58-60 fps at full scale at ~50% living.
+  `perf.calib` keeps what Auto measured.
 
 ## Phones (a Pixel 11 Pro, 2026-11-04)
 

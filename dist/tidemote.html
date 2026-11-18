@@ -38702,9 +38702,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       try {
         await device.queue.onSubmittedWorkDone();
         let sum = 0;
-        const RUNS = 24;
-        for (let i = 0; i < RUNS; i++) for (const [k, t] of await eng.profileStep(1 / 60)) if (LIVING_PASSES.has(k)) sum += t;
-        return sum / RUNS;
+        for (let i = 0; i < 24; i++) for (const [k, t] of await eng.profileStep(1 / 60)) if (LIVING_PASSES.has(k)) sum += t;
+        return sum / 24;
       } catch {
         return 0;
       } finally {
@@ -38729,7 +38728,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       calStep(tr("intro.measuring", "Measuring the GPU · {n, plural, other {# particles}}", { n }), 0.6);
       let t = await measure2();
       if (calibCut) return n;
-      const log = perf.calib = { target: target2, n1: n, t1: t, size: [canvas.width, canvas.height] };
+      const log = perf.calib = { size: [canvas.width, canvas.height], n1: n, t1: t };
       const founders = (m) => Math.max(1, m * K.foundLife);
       const ms1 = log.ms1 = await livingMs();
       let perCell = ms1 / founders(n);

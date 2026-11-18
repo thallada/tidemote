@@ -113,7 +113,6 @@ if (v.android) serve(server.address().port);
 
 const W = +v.width, H = +v.height;
 const userDir = fs.mkdtempSync(path.join(process.env.TEMP || process.env.TMPDIR || '/tmp', 'tidemote-perf-'));
-// (--quantized: without WebGPU's developer features, timestamps rounded to 100 µs as a visitor's Chrome has them)
 const args = [`--window-size=${W},${H}`, '--window-position=0,0', ...(v.quantized ? [] : ['--enable-webgpu-developer-features']), '--autoplay-policy=no-user-gesture-required',
   // (silent: a run's soundtrack still plays through the audio thread, unheard)
   '--mute-audio', ...UNTHROTTLED, '--no-first-run', '--no-default-browser-check',
@@ -123,7 +122,6 @@ let ctx = null, desk = null;
 async function launch() {
   if (v.android) { ctx ??= await androidChrome(); return; }
   if (v.electron) {
-    // (a profile of its own: never the installed app's saves, settings and shader caches, nor held by it)
     desk = await _electron.launch({ executablePath: v.electron, args: [...UNTHROTTLED, `--user-data-dir=${userDir}`], env: { ...process.env, TIDEMOTE_STEAM_APPID: '' } });
     await desk.firstWindow();
     await desk.evaluate(({ BrowserWindow }, [w, h]) => { const win = BrowserWindow.getAllWindows()[0]; win.setPosition(0, 0); win.setContentSize(w, h); }, [W, H]);
@@ -238,7 +236,6 @@ async function growth(page, sc) {
         step: +Object.values(d).reduce((a, b) => a + b, 0).toFixed(3), life: +d.lifeMain.toFixed(3), scale: +T.renderScale().toFixed(2) });
       console.log(`perf growth ${JSON.stringify(out.at(-1))}`);
     }
-    // (and what Auto measured as the world began, where it measured)
     return { name: sc.name, count: eng.count, calib: perf.calib ?? null, growth: out };
   }, sc);
 }
