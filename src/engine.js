@@ -2516,6 +2516,8 @@ class Engine {
       const pass = enc.beginRenderPass({ colorAttachments: [{ view: target, loadOp: 'clear', clearValue: [0, 0, 0, 1], storeOp: 'store' }], timestampWrites: tw });
       pass.setPipeline(this.pHold); pass.setBindGroup(0, this.holdBG); pass.draw(3); pass.end();
     }
+    // the live annotations, drawn over the world (src/gpunotes.js: a frame's recording from the page's notes, if any)
+    if (target && this.noteLayer?.count) this.noteLayer.encode(enc, target, targetTex ? targetTex.width : this.size[0], targetTex ? targetTex.height : this.size[1]);
     if (target && targetTex && this.glass.length) this._glass(enc, targetTex, target);
     // this frame's step begun, its first half after everything above has read the world as the last step left it (the
     // true positions back first), its uniforms through the ring (the drawing above read the last step's); timestamp 3

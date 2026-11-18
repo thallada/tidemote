@@ -373,9 +373,7 @@ export class Notes {
         for (const [k, at] of this.keyAt) if (at < cold) this.keyAt.delete(k);
       }
     }
-    // (pinned, for measuring: the notes showing stay, as they are, while the view goes on being read; tools/perf/bench.mjs
-    // pinNotes)
-    if (!this.pinned) this.schedule(ctx);
+    this.schedule(ctx);
     return this.notes;
   }
 
@@ -1166,7 +1164,9 @@ export class Notes {
         && (c.one || now - (this.firstSeen.get(c.key) ?? now) >= T.hold) && ctx.ahead >= (c.one ? T.aheadOne : T.ahead) && inner(c)
         && (!ctx.leaving || this._goesTo({ data: c, pins: c.anchor != null ? [c.anchor] : [] }, ctx)))
       .sort((a, b) => score(b) - score(a))[0];
-    if (!pick) return;
+    // (pinned, for measuring: the notes showing stay, their figures followed, and none comes or goes; tools/perf/bench.mjs
+    // pinNotes)
+    if (!pick || this.pinned) return;
     if (on.length >= maxOn) {
       // a much stronger story takes the place of the weakest that has been read
       const weak = on.filter((n) => now - n.born > T.dwell).sort((a, b) => score(a.data) - score(b.data))[0];
@@ -1200,6 +1200,7 @@ export class Notes {
   }
 
   _exit(n, now, why = '') {
+    if (this.pinned) return;
     n.exitAt = now;
     // (one the camera takes before it could be read fades out slowly, rather than blinking away)
     // (readable, past half its alpha, for a moment and a half at least: its fade as long as that takes)

@@ -128,7 +128,8 @@ pipette's draws); the song (cells that sing in view, from the listening scan); f
 
 ## How it is drawn (`src/noteview.js`)
 
-On the page's overlay canvas, with the brackets, so a film keeps it. In the manner of a drone's HUD (GMUNK's
+Into the world's own frame by WebGPU (`src/gpunotes.js`, below), or, with `state.notesGpu` off (prefs `notesGpu: 0`),
+on the page's overlay canvas with the brackets; a film keeps it either way. In the manner of a drone's HUD (GMUNK's
 Oblivion work): two hues, a pale cyan-white for structure and the second party and a red-orange for the subject,
 danger and a kill (a cold cyan for the cold); hairline rules with end ticks; thin hero numerals; tracked
 micro-labels in Saira; 45° leaders onto level shelves; stepped, hatched hazard zones; reticles; text that types
@@ -222,6 +223,35 @@ time between frames as drawn and the browser's long tasks, into `frames.json` (`
 the audit's `blinks` should be none.
 
 ## What it costs
+
+### Drawn by WebGPU (`src/gpunotes.js`, 2026-11-18)
+
+Drawn on the overlay canvas, the notes held up the world's frames. Chrome rasterizes a 2D canvas on its GPU process's
+main thread, which also runs WebGPU's commands, and the overlay was cleared and drawn whole every frame: a 2M world on
+an RTX 4070 Ti, held still at 87 pixels a unit with the notes on, kept that thread busy 915-963 ms a second (179 with
+them off), almost all of it `DoRasterCHROMIUM` replaying the canvas's drawing (about 16 ms a frame), and its frames ran
+late with the GPU's own passes idle half the frame (runs/perf/fps20). Under the auto camera, 8 minutes each way: none
+of 240 two-second windows over 15% late with the notes off, 27 with them on. The text's halos (`strokeText`, each
+glyph's outline stroked) cost most, then dashes, arcs and the hatch; fewer glyphs, glyphs stamped from sprites (0.4 ms
+each from an OffscreenCanvas) and halos as offset fills did not help, or could not be told from the noise.
+
+So `noteview.js` draws on `NoteCanvas`, a stand-in for the part of a 2D context it uses (paths with arcs, strokes and
+fills, dashes, even-odd clips, save/restore and transforms, a hatch, text with letter spacing), which records each
+frame's drawing and draws it over the composite in one render pass (`Engine.frame`, before the frosted glass):
+strokes as antialiased capsules a segment and a whole circle as one ring (a census of 400 dormant rings: 900 instances,
+not 15,000), each stroke at a depth of its own so its overlapping segments never blend twice; an axis-aligned rectangle
+as a quad, a convex shape as triangles, anything else even-odd by stencil-then-cover; the hatch worked out per pixel;
+text from a glyph atlas, each glyph rasterized once by the browser with its fill and its 3 px halo in two channels and
+laid out by the browser's own measures, on whole pixels; clips as their rectangles and circles, tested per pixel. The
+notes are drawn with the frame's own camera and moment, not the last finished frame's, so they no longer trail it, and
+the overlay canvas, with only the brackets and the scale left on it, is drawn again only when they change. Measured
+on the same pinned notes (`notes.pinned`, bench `pinNotes`; a still view's notes otherwise turn over and no two runs
+see the same scene), alternating on one page, 30 s each: WebGPU 0 of 45 windows over 15% late, mean 1.09 of the
+frame (1.08 with the notes off); the canvas 23 of 45, mean 1.13-1.24; the GPU process's main thread 189 ms a second
+against 915. The drawing's JS is about the canvas's (150 ms a second for 400 rings). Check changes with
+`test/gpunotes.test.js` and bench `shots` (both renderers on the same paused frame).
+
+### Before
 
 Smoothness is the first rule: the annotations must never make the world stutter. A look at the view runs a step a
 frame (a generator: the tallies, the core stories, bodies, stalking, the web and balance, scavengers and the fastest,

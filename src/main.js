@@ -25,6 +25,7 @@ import { startLoader } from './loader.js';
 import { Director } from './director.js';
 import { Notes } from './notes.js';
 import { createNoteView } from './noteview.js';
+import { NoteCanvas } from './gpunotes.js';
 import { createChronicler, watchMap, durWords } from './chronicler.js';
 import { earned } from './achievements.js';
 import { createCards, strangerCard, PORTRAIT_BOX, PORTRAIT_SHOWN, CARD_SCALE, CARD_W, CARD_H } from './card.js';
@@ -277,6 +278,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     events: { ...EVENTS_ON(), ...prefs.events },
     songMarks: prefs.songMarks ?? 1, // mark the cells that sing: 0 off, 1 the picked species, 2 all
     notes: prefs.notes ?? 1, // live annotations (docs/annotations.md): 0 off, 1 with the auto camera, 2 always
+    notesGpu: prefs.notesGpu ?? 1, // drawn by WebGPU into the world's frame (src/gpunotes.js), else on the overlay canvas
     water: prefs.water ?? 2, // the water's surface: 0 off, 1 subtle, 2 normal, 3 strong (applyWater)
     waves: prefs.waves ?? 1, // its waves' motion: 0 slow, 1 normal, 2 lively
     look: prefs.look ?? 2, // the microscope (applyLook, the optics with it): 0 off, 1 subtle, 2 normal, 3 strong
@@ -337,7 +339,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, focus: state.focus, fixed: state.fixed, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+    savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, notesGpu: state.notesGpu, water: state.water, waves: state.waves, look: state.look, grain: state.grain, focus: state.focus, fixed: state.fixed, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   // the look (src/look.js, docs/look.md): Darkfield as the Display settings ask, how strong as a whole and how much
@@ -4644,7 +4646,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     const now = performance.now();
     const marking = markSlot() !== -2 && songEvents.some((e) => now - e.at < MARK_MS);
     const R = reticleAt();
-    const key = state.currents || (sel && sel.particle) || L || R || marking || notesShown ? null
+    const key = state.currents || (sel && sel.particle) || L || R || marking || (notesShown && !gpuNotes()) ? null
       : `${state.hud}|${state.ui}|${director.active}|${cssPPU()}|${cam.x}|${dockTop}|${film.state}|${innerWidth}|${overlay.width}|${specimen.isOpen() && specInset().right}|${document.fonts.status}`;
     if (key !== null && key === overlayKey) return;
     overlayKey = key;
@@ -4717,7 +4719,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     }
     if (R) drawReticle(R);
     drawSongMarks(now, L);
-    if (notesShown) drawNotes(dt, L);
+    if (notesShown && !gpuNotes()) drawNotes(dt, L);
   }
   // The will as drawn, from the ridden cell (screen px: WILL_PX at the throttle full open), eased as the specimen's
   // compass eases its arrows: a new way turns to over a moment, the shorter way round, and its length follows, never snapping.
@@ -5276,6 +5278,11 @@ function run(eng, device, ctx, specCtx, hasTS) {
   };
   const notes = new Notes({ species: noteSp, world: () => eng.grid });
   const noteView = createNoteView(octx);
+  // the same notes drawn by WebGPU into the world's frame (src/gpunotes.js): the overlay canvas, rasterized afresh each
+  // frame on the browser's GPU process, held up the world's frames behind it (docs/annotations.md, What it costs)
+  const noteGL = new NoteCanvas(device, eng.format), noteViewGL = createNoteView(noteGL);
+  eng.noteLayer = noteGL;
+  const gpuNotes = () => !!state.notesGpu;
   let notesShown = false, notesSince = 0, noteGridL = null, noteOpen = { l: 0, t: 0, r: innerWidth, b: innerHeight }, plateRect = null;
   eng.onNotes = (scan) => { if (!notesShown) return; const t0 = performance.now(); notes.ingest(scan); const ms = performance.now() - t0; notes.ms.ingest += ms; notes.worst('ingest', ms, { n: scan.n }); };
   const notesOn = () => state.ui && state.phase === 'running' && (state.notes === 2 || (state.notes === 1 && director.active));
@@ -5373,7 +5380,7 @@ function run(eng, device, ctx, specCtx, hasTS) {
     if (plateRect) avoid.push(plateRect);
     const sh = director.active ? director.shot : null;
     const mode = director.active ? NOTE_MODE[sh && sh.why && sh.why.kind] || NOTE_MODE.auto : NOTE_MODE.observe;
-    noteView.draw({ now, dt: dtMs / 1000, ppu: cssPPU(), world: eng.grid, flow: noteFlow, shade: noteShade, lens: noteLens, notes: list, model: notes, species: (k) => notes.sp(k), project: noteProject, radius: noteRadius,
+    (gpuNotes() ? noteViewGL : noteView).draw({ now, dt: dtMs / 1000, ppu: cssPPU(), world: eng.grid, flow: noteFlow, shade: noteShade, lens: noteLens, notes: list, model: notes, species: (k) => notes.sp(k), project: noteProject, radius: noteRadius,
       open: noteOpen, avoid, mode, pool: eng.tbg, phone: phone(), roster: true, since: notesSince, cap: cssPPU() >= notes.T.close ? 400 : 220 });
     const ms = performance.now() - t0;
     notes.ms.draw += ms;
@@ -5773,6 +5780,9 @@ function run(eng, device, ctx, specCtx, hasTS) {
       Object.assign(cam, { x: seen.x, y: seen.y, zoom: seen.zoom }); viewSimTime = seen.t;
       drawOverlay(dt, inflight && shownFrame ? loupeGeom() : L);
       Object.assign(cam, { x: cur.x, y: cur.y, zoom: cur.zoom }); viewSimTime = cur.t;
+      // (the notes drawn into this frame itself, with its own camera and moment: they no longer trail the world it shows)
+      noteGL.begin(canvas.width / innerWidth);
+      if (notesShown && gpuNotes()) drawNotes(dt, L);
       specimen.drawViewerUI(now);
       specimen.mindTick(now);
       // Max and coarse speeds draw the world only when due (step.world), carrying it with the camera between

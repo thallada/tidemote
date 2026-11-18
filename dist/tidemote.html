@@ -20326,6 +20326,7 @@ ${e.message}` : String(e?.message || e));
         pass.draw(3);
         pass.end();
       }
+      if (target2 && this.noteLayer?.count) this.noteLayer.encode(enc, target2, targetTex ? targetTex.width : this.size[0], targetTex ? targetTex.height : this.size[1]);
       if (target2 && targetTex && this.glass.length) this._glass(enc, targetTex, target2);
       if (half2) {
         if (this._lerpN) {
@@ -29026,7 +29027,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
           for (const [k, at] of this.keyAt) if (at < cold) this.keyAt.delete(k);
         }
       }
-      if (!this.pinned) this.schedule(ctx);
+      this.schedule(ctx);
       return this.notes;
     }
     // ------------------------------------------------------------------ detectors
@@ -30104,7 +30105,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       };
       const subject = (c) => `${c.type}~${c.akind ?? c.kind ?? ""}`;
       const pick4 = this.cands.filter((c) => !(fast && c.one) && !on.some((n) => n.key === c.key || this._clash(n.data, c)) && now - (this.keyAt.get(c.key) ?? -1e9) > T2.keyCool && now - (this.typeAt.get(c.type) ?? -1e9) > T2.typeCool && now - (this.keyAt.get(subject(c)) ?? -1e9) > T2.subjectCool && (c.type !== "web" || this.panelFree !== false) && (c.one || now - (this.firstSeen.get(c.key) ?? now) >= T2.hold) && ctx.ahead >= (c.one ? T2.aheadOne : T2.ahead) && inner(c) && (!ctx.leaving || this._goesTo({ data: c, pins: c.anchor != null ? [c.anchor] : [] }, ctx))).sort((a, b) => score(b) - score(a))[0];
-      if (!pick4) return;
+      if (!pick4 || this.pinned) return;
       if (on.length >= maxOn) {
         const weak = on.filter((n) => now - n.born > T2.dwell).sort((a, b) => score(a.data) - score(b.data))[0];
         if (!weak || score(pick4) < score(weak.data) + 0.3) return;
@@ -30136,6 +30137,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       return true;
     }
     _exit(n, now, why = "") {
+      if (this.pinned) return;
       n.exitAt = now;
       const read = n.readAt != null ? now - n.readAt : null;
       n.fade = why === "camera" && read != null && read < this.T.minLife ? Math.max(1.2, 2 * (1.5 - read) + 0.2) : this.T.exit;
@@ -30443,6 +30445,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     // a note whose cell is lost from view fades out where it was last seen over this long
   };
   function createNoteView(g) {
+    const newPath = () => g.newPath ? g.newPath() : new Path2D();
     const widths = /* @__PURE__ */ new Map();
     const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
     const hatch = {};
@@ -30527,6 +30530,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       return hatch[tone] = g.createPattern(c.canvas, "repeat");
     }
     function hatchAt(tone, x, y, px) {
+      if (g.hatch) return g.hatch(tone, x, y, px);
       const p2 = hatchOf(tone);
       if (p2.setTransform && typeof DOMMatrix !== "undefined") {
         const k = px / 6;
@@ -30696,7 +30700,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       }
       let far = 1;
       for (const p2 of pts) far = Math.max(far, Math.hypot(p2[0] - from[0], p2[1] - from[1]));
-      const P = new Path2D(), a0 = g.globalAlpha, fading = [];
+      const P = newPath(), a0 = g.globalAlpha, fading = [];
       const add = (Pt, x, y, Q2) => {
         if (glyph === "plus") {
           Pt.moveTo(x - Q2, y);
@@ -30735,7 +30739,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       };
       draw2(P);
       if (fading.length) {
-        const bands = [new Path2D(), new Path2D(), new Path2D(), new Path2D()];
+        const bands = [newPath(), newPath(), newPath(), newPath()];
         for (const [x, y, Q2, a] of fading) add(bands[Math.min(3, Math.floor(a * 4))], x, y, Q2);
         bands.forEach((Pt, b) => {
           g.globalAlpha = a0 * (b + 0.5) / 4;
@@ -31436,7 +31440,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     }
     function blob(loops, tone, t, F, o = {}) {
       if (!loops.length) return null;
-      const P = new Path2D(), a = g.globalAlpha;
+      const P = newPath(), a = g.globalAlpha;
       let top = null, n = 0;
       const [W2, H2] = F.world, c0 = F.toWorld([(F.open.l + F.open.r) / 2, (F.open.t + F.open.b) / 2]), o0 = o.at ? o.at() : [0, 0];
       for (const L of loops) {
@@ -32788,6 +32792,802 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       return w;
     } };
   }
+
+  // src/gpunotes.js
+  var INST_W = 12;
+  var TRI_W = 4;
+  var TAU4 = Math.PI * 2;
+  var K_SEG = 0;
+  var K_GLYPH = 1;
+  var K_RECT = 2;
+  var K_HATCH = 3;
+  var K_RING = 4;
+  var WGSL = (
+    /* wgsl */
+    ` // i18n-ignore (WGSL)
+struct U { size: vec2f, _p: vec2f }
+@group(0) @binding(0) var<uniform> u: U;
+@group(0) @binding(1) var<storage, read> clipBuf: array<f32>;
+@group(0) @binding(2) var atlas: texture_2d<f32>;
+
+struct VO {
+  @builtin(position) pos: vec4f,
+  @location(0) p: vec2f,
+  @location(1) @interpolate(flat) a: vec4f,
+  @location(2) @interpolate(flat) b: vec4f,
+  @location(3) @interpolate(flat) col: vec4f,
+  @location(4) @interpolate(flat) kc: vec2u,
+  @location(5) uv: vec2f,
+}
+
+fn ndc(p: vec2f, z: f32) -> vec4f { return vec4f(p.x / u.size.x * 2.0 - 1.0, 1.0 - p.y / u.size.y * 2.0, z, 1.0); }
+
+// inside every clip of the set at word c - 1 (0: none): each a list of rectangles and circles, inside when an odd
+// number of them hold the point
+fn clipCov(p: vec2f, c: u32) -> f32 {
+  if (c == 0u) { return 1.0; }
+  var o = c - 1u;
+  let n = u32(clipBuf[o]);
+  o = o + 1u;
+  var cov = 1.0;
+  for (var l = 0u; l < n; l = l + 1u) {
+    let cnt = u32(clipBuf[o]);
+    o = o + 1u;
+    var inside = false;
+    for (var i = 0u; i < cnt; i = i + 1u) {
+      let k = clipBuf[o];
+      let a = vec4f(clipBuf[o + 1u], clipBuf[o + 2u], clipBuf[o + 3u], clipBuf[o + 4u]);
+      o = o + 5u;
+      var hit = false;
+      if (k < 0.5) { hit = p.x >= a.x && p.y >= a.y && p.x < a.z && p.y < a.w; } else { hit = distance(p, a.xy) < a.z; }
+      if (hit) { inside = !inside; }
+    }
+    if (!inside) { cov = 0.0; }
+  }
+  return cov;
+}
+
+@vertex fn vsInst(@builtin(vertex_index) vi: u32, @location(0) a: vec4f, @location(1) b: vec4f, @location(2) col: u32,
+    @location(3) kind: u32, @location(4) clip: u32, @location(5) z: f32) -> VO {
+  var C = array<vec2f, 6>(vec2f(0, 0), vec2f(1, 0), vec2f(0, 1), vec2f(1, 0), vec2f(1, 1), vec2f(0, 1));
+  let c = C[vi];
+  var o: VO;
+  var p: vec2f;
+  if (kind == ${K_RING}u) {
+    let e = a.z + a.w + 1.0;
+    p = a.xy + (c * 2.0 - 1.0) * e;
+  } else if (kind == ${K_SEG}u) {
+    let d = a.zw - a.xy;
+    let len = length(d);
+    let dir = select(vec2f(1, 0), d / max(len, 1e-6), len > 1e-6);
+    let nrm = vec2f(-dir.y, dir.x);
+    let e = b.x + 1.0;
+    p = a.xy + dir * (-e + c.x * (len + 2.0 * e)) + nrm * (-e + c.y * 2.0 * e);
+  } else {
+    p = mix(a.xy, a.zw, c);
+    o.uv = b.xy + c * (a.zw - a.xy);
+  }
+  o.pos = ndc(p, z);
+  o.p = p;
+  o.a = a;
+  o.b = b;
+  o.col = unpack4x8unorm(col);
+  o.kc = vec2u(kind, clip);
+  return o;
+}
+
+@fragment fn fsInst(in: VO) -> @location(0) vec4f {
+  var cov = clipCov(in.p, in.kc.y);
+  let kind = in.kc.x;
+  if (kind == ${K_SEG}u) {
+    let pa = in.p - in.a.xy;
+    let ba = in.a.zw - in.a.xy;
+    let h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
+    let d = length(pa - ba * h);
+    let s = clamp(in.b.x - d + 0.5, 0.0, 1.0);
+    if (s <= 0.0) { discard; }
+    cov = cov * s;
+  } else if (kind == ${K_RING}u) {
+    // a circle stroked: its distance from the circle; dashed by the length along it from angle 0 (where a canvas's arc
+    // begins it), b.xy the dash's on and off
+    let q = in.p - in.a.xy;
+    let s = clamp(in.a.w - abs(length(q) - in.a.z) + 0.5, 0.0, 1.0);
+    if (s <= 0.0) { discard; }
+    if (in.b.x > 0.0) {
+      var an = atan2(q.y, q.x);
+      if (an < 0.0) { an = an + 6.2831853; }
+      let L = an * in.a.z;
+      let P = in.b.x + in.b.y;
+      if (L - P * floor(L / P) >= in.b.x) { discard; }
+    }
+    cov = cov * s;
+  } else if (kind == ${K_GLYPH}u) {
+    let t = textureLoad(atlas, vec2i(floor(in.uv)), 0);
+    cov = cov * select(t.r, t.g, in.b.z > 0.5);
+  } else if (kind == ${K_HATCH}u) {
+    // lines x + y = 0 (mod 6) of the hatch's tile (noteview hatchOf), 1 of it wide, about its origin and at its scale
+    let q = (in.p - in.b.xy) / in.b.z;
+    let m = (q.x + q.y) - 6.0 * floor((q.x + q.y) / 6.0);
+    let dist = min(m, 6.0 - m) * 0.70710678 * in.b.z;
+    cov = cov * clamp(0.5 * in.b.z - dist + 0.5, 0.0, 1.0);
+  }
+  let a = in.col.a * cov;
+  return vec4f(in.col.rgb * a, a);
+}
+
+struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @interpolate(flat) col: vec4f, @location(2) @interpolate(flat) clip: u32 }
+@vertex fn vsTri(@location(0) p: vec2f, @location(1) col: u32, @location(2) clip: u32) -> TO {
+  var o: TO;
+  o.pos = ndc(p, 0.0);
+  o.p = p;
+  o.col = unpack4x8unorm(col);
+  o.clip = clip;
+  return o;
+}
+@fragment fn fsTri(in: TO) -> @location(0) vec4f {
+  let a = in.col.a * clipCov(in.p, in.clip);
+  return vec4f(in.col.rgb * a, a);
+}
+`
+  );
+  var colors2 = /* @__PURE__ */ new Map();
+  function parseColor(s) {
+    let c = colors2.get(s);
+    if (c !== void 0) return c;
+    let r = 0, g = 0, b = 0, a = 1;
+    const m = /^rgba?\(([^)]+)\)$/.exec(s);
+    if (m) {
+      const v = m[1].split(",").map(Number);
+      [r, g, b] = v;
+      a = v.length > 3 ? v[3] : 1;
+    } else if (s[0] === "#") {
+      const h = s.length === 4 ? s.slice(1).split("").map((x) => x + x).join("") : s.slice(1, 7);
+      r = parseInt(h.slice(0, 2), 16);
+      g = parseInt(h.slice(2, 4), 16);
+      b = parseInt(h.slice(4, 6), 16);
+    }
+    c = [r, g, b, a];
+    if (colors2.size > 2e3) colors2.clear();
+    colors2.set(s, c);
+    return c;
+  }
+  var GPath = class {
+    constructor(xf = null) {
+      this.subs = [];
+      this.cur = null;
+      this.xf = xf;
+    }
+    _pt(x, y) {
+      const m = this.xf;
+      return m ? [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]] : [x, y];
+    }
+    _scale() {
+      const m = this.xf;
+      return m ? Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2])) : 1;
+    }
+    moveTo(x, y) {
+      const [px, py] = this._pt(x, y);
+      this.cur = { pts: [px, py], closed: false, circle: null, rect: false };
+      this.subs.push(this.cur);
+    }
+    lineTo(x, y) {
+      if (!this.cur) return this.moveTo(x, y);
+      const [px, py] = this._pt(x, y);
+      this.cur.pts.push(px, py);
+      this.cur.circle = null;
+      this.cur.rect = false;
+    }
+    closePath() {
+      if (this.cur) {
+        this.cur.closed = true;
+        const p2 = this.cur.pts;
+        this.cur = { pts: [p2[0], p2[1]], closed: false, circle: null, rect: false };
+        this.subs.push(this.cur);
+      }
+    }
+    rect(x, y, w, h) {
+      this.moveTo(x, y);
+      this.lineTo(x + w, y);
+      this.lineTo(x + w, y + h);
+      this.lineTo(x, y + h);
+      this.cur.closed = true;
+      this.cur.rect = true;
+      this.cur = null;
+    }
+    arc(x, y, r, a0, a1, ccw = false) {
+      let sweep2 = a1 - a0;
+      if (!ccw) {
+        if (sweep2 >= TAU4) sweep2 = TAU4;
+        else {
+          sweep2 %= TAU4;
+          if (sweep2 < 0) sweep2 += TAU4;
+        }
+      } else {
+        if (-sweep2 >= TAU4) sweep2 = -TAU4;
+        else {
+          sweep2 %= TAU4;
+          if (sweep2 > 0) sweep2 -= TAU4;
+        }
+      }
+      const sx = x + r * Math.cos(a0), sy = y + r * Math.sin(a0);
+      const [psx, psy] = this._pt(sx, sy), c = this.cur;
+      const fresh = c && c.pts.length === 2 && Math.abs(c.pts[0] - psx) < 1e-3 && Math.abs(c.pts[1] - psy) < 1e-3;
+      if (!c) this.moveTo(sx, sy);
+      else if (!fresh) this.lineTo(sx, sy);
+      const n = Math.max(6, Math.min(256, Math.ceil(Math.abs(sweep2) * r * this._scale() / 2)));
+      for (let i = 1; i <= n; i++) {
+        const a = a0 + sweep2 * i / n, [px, py] = this._pt(x + r * Math.cos(a), y + r * Math.sin(a));
+        this.cur.pts.push(px, py);
+      }
+      this.cur.rect = false;
+      const [cx, cy] = this._pt(x, y);
+      this.cur.circle = (fresh || !c) && Math.abs(sweep2) >= TAU4 - 1e-6 ? { x: cx, y: cy, r: r * this._scale() } : null;
+      if (this.cur.circle) this.cur.closed = true;
+    }
+  };
+  var NoteCanvas = class {
+    constructor(device, format) {
+      this.device = device;
+      this.format = format;
+      const canvas2 = (w, h) => typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(w, h) : typeof document !== "undefined" ? document.createElement("canvas") : null;
+      this.mctx = canvas2(8, 8)?.getContext("2d");
+      this.gctx = canvas2(64, 64)?.getContext("2d", { willReadFrequently: true });
+      this.inst = new Float32Array(INST_W * 4096);
+      this.instU = new Uint32Array(this.inst.buffer);
+      this.tri = new Float32Array(TRI_W * 4096);
+      this.triU = new Uint32Array(this.tri.buffer);
+      this.clipData = new Float32Array(1024);
+      this.layouts = /* @__PURE__ */ new Map();
+      this.glyphs = /* @__PURE__ */ new Map();
+      this.atlasSize = 2048;
+      this.ms = { record: 0, encode: 0, inst: 0, tri: 0, cmds: 0 };
+      this._pipelines();
+      this.begin(1);
+      if (typeof document !== "undefined") document.fonts?.addEventListener?.("loadingdone", () => {
+        this.layouts.clear();
+        this._resetAtlas();
+      });
+    }
+    _pipelines() {
+      const d = this.device, mod = d.createShaderModule({ code: WGSL, label: "noteDraw" });
+      this.bgl = d.createBindGroupLayout({ entries: [
+        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }
+      ] });
+      const layout = d.createPipelineLayout({ bindGroupLayouts: [this.bgl] });
+      const blend = { color: { srcFactor: "one", dstFactor: "one-minus-src-alpha" }, alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha" } };
+      const inst = { arrayStride: INST_W * 4, stepMode: "instance", attributes: [
+        { shaderLocation: 0, offset: 0, format: "float32x4" },
+        { shaderLocation: 1, offset: 16, format: "float32x4" },
+        { shaderLocation: 2, offset: 32, format: "uint32" },
+        { shaderLocation: 3, offset: 36, format: "uint32" },
+        { shaderLocation: 4, offset: 40, format: "uint32" },
+        { shaderLocation: 5, offset: 44, format: "float32" }
+      ] };
+      const tri = { arrayStride: TRI_W * 4, attributes: [
+        { shaderLocation: 0, offset: 0, format: "float32x2" },
+        { shaderLocation: 1, offset: 8, format: "uint32" },
+        { shaderLocation: 2, offset: 12, format: "uint32" }
+      ] };
+      const keep = { compare: "always", passOp: "keep", failOp: "keep", depthFailOp: "keep" };
+      const ds = (o = {}) => ({
+        format: "depth24plus-stencil8",
+        depthWriteEnabled: !!o.depth,
+        depthCompare: o.depth ? "greater" : "always",
+        stencilFront: o.stencil || keep,
+        stencilBack: o.stencil || keep,
+        stencilReadMask: 255,
+        stencilWriteMask: o.stencil ? 255 : 0
+      });
+      const make = (label3, vs, fs, buf, o = {}) => d.createRenderPipeline({
+        label: label3,
+        layout,
+        vertex: { module: mod, entryPoint: vs, buffers: [buf] },
+        fragment: { module: mod, entryPoint: fs, targets: [{ format: this.format, blend, writeMask: o.noColor ? 0 : GPUColorWrite.ALL }] },
+        primitive: { topology: "triangle-list" },
+        depthStencil: ds(o)
+      });
+      this.pipes = {
+        instPlain: make("noteInst", "vsInst", "fsInst", inst),
+        instStroke: make("noteStroke", "vsInst", "fsInst", inst, { depth: true }),
+        instCover: make("noteCover", "vsInst", "fsInst", inst, { stencil: { compare: "not-equal", passOp: "zero", failOp: "keep", depthFailOp: "keep" } }),
+        triPlain: make("noteTri", "vsTri", "fsTri", tri),
+        triFan: make("noteFan", "vsTri", "fsTri", tri, { noColor: true, stencil: { compare: "always", passOp: "invert", failOp: "keep", depthFailOp: "keep" } })
+      };
+      this.ubuf = d.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+      this.atlas = d.createTexture({ size: [this.atlasSize, this.atlasSize], format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+      this._resetAtlas();
+      this.bufs = { inst: null, tri: null, clip: null };
+      this.bg = null;
+    }
+    _resetAtlas() {
+      this.glyphs.clear();
+      this.shelf = { x: 0, y: 0, h: 0 };
+    }
+    // ------------------------------------------------------------------ a frame's recording
+    /** A new frame's drawing, at `scale` device pixels a CSS pixel (the overlay's transform). */
+    begin(scale) {
+      this.nInst = 0;
+      this.nTri = 0;
+      this.nClip = 0;
+      this.cmds = [];
+      this.strokes = 0;
+      this.m = [scale, 0, 0, scale, 0, 0];
+      this.base = scale;
+      this.stack = [];
+      this.clips = [];
+      this.clipAt = 0;
+      this.clipOf = null;
+      this.path = new GPath(this.m);
+      this.globalAlpha = 1;
+      this.fillStyle = "#000";
+      this.strokeStyle = "#000";
+      this.lineWidth = 1;
+      this.lineJoin = "miter";
+      this.textAlign = "start";
+      this.font = "10px sans-serif";
+      this.dash = [];
+      this._t0 = performance.now();
+    }
+    get count() {
+      return this.cmds.length;
+    }
+    save() {
+      this.stack.push({
+        m: this.m.slice(),
+        clips: this.clips,
+        globalAlpha: this.globalAlpha,
+        fillStyle: this.fillStyle,
+        strokeStyle: this.strokeStyle,
+        lineWidth: this.lineWidth,
+        lineJoin: this.lineJoin,
+        textAlign: this.textAlign,
+        font: this.font,
+        fontStretch: this.fontStretch,
+        letterSpacing: this.letterSpacing,
+        dash: this.dash
+      });
+    }
+    restore() {
+      const s = this.stack.pop();
+      if (!s) return;
+      Object.assign(this, s);
+      this.path.xf = this.m;
+    }
+    setTransform(a, b, c, d, e, f2) {
+      if (typeof a === "object") ({ a, b, c, d, e, f: f2 } = a);
+      const k = this.base;
+      this.m = [a * k, b * k, c * k, d * k, e * k, f2 * k];
+      this.path.xf = this.m;
+    }
+    getTransform() {
+      const k = this.base, m = this.m;
+      return { a: m[0] / k, b: m[1] / k, c: m[2] / k, d: m[3] / k, e: m[4] / k, f: m[5] / k };
+    }
+    translate(x, y) {
+      const m = this.m;
+      m[4] += m[0] * x + m[2] * y;
+      m[5] += m[1] * x + m[3] * y;
+    }
+    rotate(t) {
+      const m = this.m, c = Math.cos(t), s = Math.sin(t);
+      this.m = [m[0] * c + m[2] * s, m[1] * c + m[3] * s, m[2] * c - m[0] * s, m[3] * c - m[1] * s, m[4], m[5]];
+      this.path.xf = this.m;
+    }
+    setLineDash(d) {
+      this.dash = d && d.length ? d.slice() : [];
+    }
+    getLineDash() {
+      return this.dash.slice();
+    }
+    clearRect() {
+    }
+    newPath() {
+      return new GPath();
+    }
+    beginPath() {
+      this.path = new GPath(this.m);
+    }
+    moveTo(x, y) {
+      this.path.moveTo(x, y);
+    }
+    lineTo(x, y) {
+      this.path.lineTo(x, y);
+    }
+    closePath() {
+      this.path.closePath();
+    }
+    rect(x, y, w, h) {
+      this.path.rect(x, y, w, h);
+    }
+    arc(x, y, r, a0, a1, ccw) {
+      this.path.arc(x, y, r, a0, a1, ccw);
+    }
+    // a path's subpaths in device pixels: the current path's are already; a Path2D's taken through the transform now
+    _subs(P) {
+      if (!P || P === this.path) return this.path.subs;
+      const m = this.m, k = Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]));
+      return P.subs.map((s) => {
+        const pts = new Array(s.pts.length);
+        for (let i = 0; i < s.pts.length; i += 2) {
+          const x = s.pts[i], y = s.pts[i + 1];
+          pts[i] = m[0] * x + m[2] * y + m[4];
+          pts[i + 1] = m[1] * x + m[3] * y + m[5];
+        }
+        return { pts, closed: s.closed, rect: s.rect, circle: s.circle && { x: m[0] * s.circle.x + m[2] * s.circle.y + m[4], y: m[1] * s.circle.x + m[3] * s.circle.y + m[5], r: s.circle.r * k } };
+      });
+    }
+    // ------------------------------------------------------------------ emitting
+    _cmd(p2, first, buf) {
+      const last = this.cmds[this.cmds.length - 1];
+      if (last && last.p === p2 && last.first + last.count === first) {
+        last.count++;
+        return;
+      }
+      this.cmds.push({ p: p2, first, count: 1, buf });
+    }
+    _growInst() {
+      const a = new Float32Array(this.inst.length * 2);
+      a.set(this.inst);
+      this.inst = a;
+      this.instU = new Uint32Array(a.buffer);
+    }
+    _growTri() {
+      const a = new Float32Array(this.tri.length * 2);
+      a.set(this.tri);
+      this.tri = a;
+      this.triU = new Uint32Array(a.buffer);
+    }
+    _rgba(style, alpha = 1) {
+      const [r, g, b, a] = parseColor(style), A = Math.round(Math.max(0, Math.min(1, a * this.globalAlpha * alpha)) * 255);
+      return (r | g << 8 | b << 16 | A << 24) >>> 0;
+    }
+    // the clip set the next draws are under (written once each time the clips change), as a word offset + 1 (0: none)
+    _clip() {
+      if (!this.clips.length) return 0;
+      if (this.clipOf === this.clips) return this.clipAt;
+      let need = 1;
+      for (const L of this.clips) need += 1 + L.length * 5;
+      while (this.nClip + need > this.clipData.length) {
+        const a = new Float32Array(this.clipData.length * 2);
+        a.set(this.clipData);
+        this.clipData = a;
+      }
+      const o = this.nClip, D = this.clipData;
+      let w = o;
+      D[w++] = this.clips.length;
+      for (const L of this.clips) {
+        D[w++] = L.length;
+        for (const q of L) {
+          D[w++] = q[0];
+          D[w++] = q[1];
+          D[w++] = q[2];
+          D[w++] = q[3];
+          D[w++] = q[4];
+        }
+      }
+      this.nClip = w;
+      this.clipOf = this.clips;
+      this.clipAt = o + 1;
+      return this.clipAt;
+    }
+    _inst(p2, kind, a0, a1, a2, a3, b0, b1, b2, b3, col, z = 0) {
+      if ((this.nInst + 1) * INST_W > this.inst.length) this._growInst();
+      const o = this.nInst * INST_W, F = this.inst, W2 = this.instU;
+      F[o] = a0;
+      F[o + 1] = a1;
+      F[o + 2] = a2;
+      F[o + 3] = a3;
+      F[o + 4] = b0;
+      F[o + 5] = b1;
+      F[o + 6] = b2;
+      F[o + 7] = b3;
+      W2[o + 8] = col;
+      W2[o + 9] = kind;
+      W2[o + 10] = this._clip();
+      F[o + 11] = z;
+      this._cmd(p2, this.nInst++, "inst");
+    }
+    _triV(p2, x, y, col, clip) {
+      if ((this.nTri + 1) * TRI_W > this.tri.length) this._growTri();
+      const o = this.nTri * TRI_W;
+      this.tri[o] = x;
+      this.tri[o + 1] = y;
+      this.triU[o + 2] = col;
+      this.triU[o + 3] = clip;
+      this._cmd(p2, this.nTri++, "tri");
+    }
+    stroke(P) {
+      const subs = this._subs(P), col = this._rgba(this.strokeStyle);
+      if (!(col >>> 24)) return;
+      const k = Math.sqrt(Math.abs(this.m[0] * this.m[3] - this.m[1] * this.m[2])), hw = this.lineWidth * k / 2;
+      const z = ++this.strokes / 4194304;
+      const dash = this.dash.length ? this.dash.map((x) => x * k) : null, dashSum = dash ? dash.reduce((a, b) => a + b, 0) : 0;
+      for (const s of subs) {
+        if (s.circle && (!dash || dash.length === 2)) {
+          this._inst("instStroke", K_RING, s.circle.x, s.circle.y, s.circle.r, hw, dash ? dash[0] : 0, dash ? dash[1] : 0, 0, 0, col, z);
+          continue;
+        }
+        const p2 = s.pts, n = p2.length / 2;
+        if (n < 2) continue;
+        let di = 0, dleft = dash ? dash[0] : 0, on = true;
+        const segs = s.closed ? n : n - 1;
+        for (let i = 0; i < segs; i++) {
+          const x0 = p2[2 * i], y0 = p2[2 * i + 1], j = (i + 1) % n, x1 = p2[2 * j], y1 = p2[2 * j + 1];
+          const len2 = Math.hypot(x1 - x0, y1 - y0);
+          if (len2 < 1e-6) continue;
+          if (!dash || dashSum <= 0) {
+            this._inst("instStroke", K_SEG, x0, y0, x1, y1, hw, 0, 0, 0, col, z);
+            continue;
+          }
+          let t = 0;
+          while (t < len2) {
+            const step = Math.min(dleft, len2 - t);
+            if (on && step > 0) {
+              const u0 = t / len2, u1 = (t + step) / len2;
+              this._inst("instStroke", K_SEG, x0 + (x1 - x0) * u0, y0 + (y1 - y0) * u0, x0 + (x1 - x0) * u1, y0 + (y1 - y0) * u1, hw, 0, 0, 0, col, z);
+            }
+            t += step;
+            dleft -= step;
+            if (dleft <= 1e-6) {
+              di = (di + 1) % dash.length;
+              dleft = dash[di];
+              on = !on;
+            }
+          }
+        }
+      }
+    }
+    fill(P, rule) {
+      if (typeof P === "string") P = null;
+      const subs = this._subs(P).filter((s) => s.pts.length >= 6);
+      if (!subs.length) return;
+      const st = this.fillStyle, hatch = typeof st === "object" && st && st.hatch ? st : null;
+      const col = this._rgba(hatch ? hatch.color : st);
+      if (!(col >>> 24)) return;
+      if (subs.length === 1 && subs[0].rect && this._axisRect(subs[0].pts)) {
+        const r2 = this._bbox(subs);
+        if (hatch) this._inst("instPlain", K_HATCH, r2[0], r2[1], r2[2], r2[3], hatch.x * this.base, hatch.y * this.base, hatch.px / 6 * this.base, 0, col);
+        else this._inst("instPlain", K_RECT, r2[0], r2[1], r2[2], r2[3], 0, 0, 0, 0, col);
+        return;
+      }
+      const clip = this._clip();
+      if (!hatch && subs.length === 1 && this._convex(subs[0].pts)) {
+        const p2 = subs[0].pts, n = p2.length / 2;
+        for (let i = 1; i < n - 1; i++) {
+          this._triV("triPlain", p2[0], p2[1], col, clip);
+          this._triV("triPlain", p2[2 * i], p2[2 * i + 1], col, clip);
+          this._triV("triPlain", p2[2 * i + 2], p2[2 * i + 3], col, clip);
+        }
+        return;
+      }
+      for (const s of subs) {
+        const p2 = s.pts, n = p2.length / 2;
+        for (let i = 1; i < n - 1; i++) {
+          this._triV("triFan", p2[0], p2[1], 0, 0);
+          this._triV("triFan", p2[2 * i], p2[2 * i + 1], 0, 0);
+          this._triV("triFan", p2[2 * i + 2], p2[2 * i + 3], 0, 0);
+        }
+      }
+      const r = this._bbox(subs);
+      if (hatch) this._inst("instCover", K_HATCH, r[0] - 1, r[1] - 1, r[2] + 1, r[3] + 1, hatch.x * this.base, hatch.y * this.base, hatch.px / 6 * this.base, 0, col);
+      else this._inst("instCover", K_RECT, r[0] - 1, r[1] - 1, r[2] + 1, r[3] + 1, 0, 0, 0, 0, col);
+    }
+    _bbox(subs) {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const s of subs) for (let i = 0; i < s.pts.length; i += 2) {
+        const x = s.pts[i], y = s.pts[i + 1];
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+      return [x0, y0, x1, y1];
+    }
+    _axisRect(p2) {
+      return p2.length === 8 && (p2[1] === p2[3] && p2[2] === p2[4] && p2[5] === p2[7] && p2[6] === p2[0] || p2[0] === p2[2] && p2[3] === p2[5] && p2[4] === p2[6] && p2[7] === p2[1]);
+    }
+    _convex(p2) {
+      const n = p2.length / 2;
+      if (n < 3 || n > 300) return false;
+      let sign = 0;
+      for (let i = 0; i < n; i++) {
+        const a = i, b = (i + 1) % n, c = (i + 2) % n;
+        const cr = (p2[2 * b] - p2[2 * a]) * (p2[2 * c + 1] - p2[2 * b + 1]) - (p2[2 * b + 1] - p2[2 * a + 1]) * (p2[2 * c] - p2[2 * b]);
+        if (Math.abs(cr) < 1e-9) continue;
+        const sg = cr > 0 ? 1 : -1;
+        if (sign && sg !== sign) return false;
+        sign = sg;
+      }
+      return true;
+    }
+    fillRect(x, y, w, h) {
+      const P = new GPath();
+      P.rect(x, y, w, h);
+      this.fill(P);
+    }
+    strokeRect(x, y, w, h) {
+      const P = new GPath();
+      P.rect(x, y, w, h);
+      this.stroke(P);
+    }
+    clip(P, rule) {
+      if (typeof P === "string") P = null;
+      const L = [];
+      for (const s of this._subs(P)) {
+        if (s.circle) {
+          L.push([1, s.circle.x, s.circle.y, s.circle.r, 0]);
+          continue;
+        }
+        if (s.pts.length < 6) continue;
+        const r = this._bbox([s]);
+        L.push([0, r[0], r[1], r[2], r[3]]);
+      }
+      this.clips = [...this.clips, L];
+    }
+    // the hatch noteview fills its zones with (hatchOf): lines of a tone, fixed to a point of the world, px apart
+    hatch(tone, x, y, px) {
+      return { hatch: true, color: `rgba(${tone},0.55)`, x, y, px };
+    }
+    createPattern() {
+      return null;
+    }
+    // ------------------------------------------------------------------ text
+    _font(ctx, k = 1) {
+      const f2 = k === 1 ? this.font : this.font.replace(/([\d.]+)px/, (_, n) => `${+n * k}px`);
+      if (ctx.font !== f2) ctx.font = f2;
+      ctx.fontStretch = this.fontStretch;
+      return f2;
+    }
+    measureText(s) {
+      this._font(this.mctx);
+      this.mctx.letterSpacing = this.letterSpacing;
+      return this.mctx.measureText(s);
+    }
+    // each glyph's place along a string, as the browser lays it out (cached by its font and words)
+    _layout(s) {
+      const key = `${this.font}|${this.fontStretch}|${this.letterSpacing}|${s}`;
+      let L = this.layouts.get(key);
+      if (L) return L;
+      const c = this.mctx;
+      this._font(c);
+      c.letterSpacing = this.letterSpacing;
+      const xs = new Float32Array(s.length);
+      for (let i = 1; i < s.length; i++) xs[i] = c.measureText(s.slice(0, i)).width;
+      L = { xs, w: c.measureText(s).width };
+      if (this.layouts.size > 4e3) this.layouts.clear();
+      this.layouts.set(key, L);
+      return L;
+    }
+    // a glyph's place in the atlas: its fill (red) and its 3 px halo (green), rasterized once at this scale
+    _glyph(ch, k) {
+      const key = `${this.font}|${this.fontStretch}|${k}|${ch}`;
+      let g = this.glyphs.get(key);
+      if (g !== void 0) return g;
+      const c = this.gctx;
+      this._font(c, k);
+      c.letterSpacing = "0px";
+      const mt = c.measureText(ch), pad3 = Math.ceil(2 * k) + 1;
+      const l = Math.ceil(mt.actualBoundingBoxLeft || 0), r = Math.ceil(mt.actualBoundingBoxRight || 0), asc = Math.ceil(mt.actualBoundingBoxAscent || 0), desc = Math.ceil(mt.actualBoundingBoxDescent || 0);
+      const w = l + r + 2 * pad3, h = asc + desc + 2 * pad3;
+      if (r + l <= 0 || w > 256 || h > 256) {
+        this.glyphs.set(key, null);
+        return null;
+      }
+      const S = this.shelf;
+      if (S.x + w > this.atlasSize) {
+        S.x = 0;
+        S.y += S.h;
+        S.h = 0;
+      }
+      if (S.y + h > this.atlasSize) {
+        this._resetAtlas();
+        return this._glyph(ch, k);
+      }
+      if (c.canvas.width < w || c.canvas.height < h) {
+        c.canvas.width = Math.max(c.canvas.width, w);
+        c.canvas.height = Math.max(c.canvas.height, h);
+        this._font(c, k);
+        c.letterSpacing = "0px";
+      }
+      const ox = pad3 + l, oy = pad3 + asc, out = new Uint8Array(w * h * 4);
+      for (const ch2 of [1, 0]) {
+        c.clearRect(0, 0, w, h);
+        c.textAlign = "left";
+        c.textBaseline = "alphabetic";
+        if (ch2) {
+          c.lineJoin = "round";
+          c.lineWidth = 3 * k;
+          c.strokeStyle = "#fff";
+          c.strokeText(ch, ox, oy);
+        } else {
+          c.fillStyle = "#fff";
+          c.fillText(ch, ox, oy);
+        }
+        const px = c.getImageData(0, 0, w, h).data;
+        for (let i = 0; i < w * h; i++) out[i * 4 + ch2] = px[i * 4 + 3];
+      }
+      for (let i = 0; i < w * h; i++) out[i * 4 + 3] = 255;
+      this.device.queue.writeTexture({ texture: this.atlas, origin: [S.x, S.y] }, out, { bytesPerRow: w * 4 }, [w, h]);
+      g = { ax: S.x, ay: S.y, w, h, ox, oy };
+      S.x += w;
+      S.h = Math.max(S.h, h);
+      this.glyphs.set(key, g);
+      return g;
+    }
+    _text(s, x, y, halo) {
+      if (!s) return;
+      const col = this._rgba(halo ? this.strokeStyle : this.fillStyle);
+      if (!(col >>> 24)) return;
+      const L = this._layout(s), m = this.m, k = Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]));
+      const al = this.textAlign, x0 = al === "center" ? x - L.w / 2 : al === "right" || al === "end" ? x - L.w : x;
+      for (let i = 0; i < s.length; i++) {
+        const ch = s[i];
+        if (ch === " ") continue;
+        const g = this._glyph(ch, k);
+        if (!g) continue;
+        const gx = x0 + L.xs[i], dx = Math.round(m[0] * gx + m[2] * y + m[4]), dy = Math.round(m[1] * gx + m[3] * y + m[5]);
+        const qx = dx - g.ox, qy = dy - g.oy;
+        this._inst("instPlain", K_GLYPH, qx, qy, qx + g.w, qy + g.h, g.ax, g.ay, halo ? 1 : 0, 0, col);
+      }
+    }
+    fillText(s, x, y) {
+      this._text(s, x, y, false);
+    }
+    strokeText(s, x, y) {
+      this._text(s, x, y, true);
+    }
+    // ------------------------------------------------------------------ the GPU's
+    /** Draws the frame's recording over target (a GPUTextureView of w x h), in a pass of its own. */
+    encode(enc, target2, w, h) {
+      this.ms.record += performance.now() - this._t0;
+      if (!this.cmds.length) return;
+      const t0 = performance.now(), d = this.device, U2 = GPUBufferUsage;
+      if (!this.ds || this.ds.width !== w || this.ds.height !== h) {
+        this.ds?.destroy();
+        this.ds = d.createTexture({ size: [w, h], format: "depth24plus-stencil8", usage: GPUTextureUsage.RENDER_ATTACHMENT });
+        this.dsView = this.ds.createView();
+      }
+      const fit3 = (name, bytes, usage) => {
+        const b = this.bufs[name];
+        if (b && b.size >= bytes) return b;
+        b?.destroy();
+        this.bg = null;
+        return this.bufs[name] = d.createBuffer({ size: Math.max(4096, 2 ** Math.ceil(Math.log2(bytes))), usage });
+      };
+      const ib = fit3("inst", Math.max(16, this.nInst * INST_W * 4), U2.VERTEX | U2.COPY_DST);
+      const tb = fit3("tri", Math.max(16, this.nTri * TRI_W * 4), U2.VERTEX | U2.COPY_DST);
+      const cb = fit3("clip", Math.max(16, this.nClip * 4), U2.STORAGE | U2.COPY_DST);
+      if (this.nInst) d.queue.writeBuffer(ib, 0, this.inst, 0, this.nInst * INST_W);
+      if (this.nTri) d.queue.writeBuffer(tb, 0, this.tri, 0, this.nTri * TRI_W);
+      if (this.nClip) d.queue.writeBuffer(cb, 0, this.clipData, 0, this.nClip);
+      d.queue.writeBuffer(this.ubuf, 0, new Float32Array([w, h, 0, 0]));
+      this.bg ??= d.createBindGroup({ layout: this.bgl, entries: [{ binding: 0, resource: { buffer: this.ubuf } }, { binding: 1, resource: { buffer: cb } }, { binding: 2, resource: this.atlas.createView() }] });
+      const pass = enc.beginRenderPass({
+        label: "notes",
+        colorAttachments: [{ view: target2, loadOp: "load", storeOp: "store" }],
+        depthStencilAttachment: { view: this.dsView, depthClearValue: 0, depthLoadOp: "clear", depthStoreOp: "discard", stencilClearValue: 0, stencilLoadOp: "clear", stencilStoreOp: "discard" }
+      });
+      pass.setBindGroup(0, this.bg);
+      pass.setStencilReference(0);
+      let cur = null;
+      for (const c of this.cmds) {
+        if (c.p !== cur) {
+          pass.setPipeline(this.pipes[c.p]);
+          pass.setVertexBuffer(0, c.buf === "inst" ? ib : tb);
+          cur = c.p;
+        }
+        if (c.buf === "inst") pass.draw(6, c.count, 0, c.first);
+        else pass.draw(c.count, 1, c.first, 0);
+      }
+      pass.end();
+      this.ms.encode += performance.now() - t0;
+      this.ms.inst = this.nInst;
+      this.ms.tri = this.nTri;
+      this.ms.cmds = this.cmds.length;
+    }
+  };
 
   // src/chronicler.js
   var NC = SPL_CAUSES.length;
@@ -37098,7 +37898,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
   var PACED = { sea: "seaEvery", contacts: "contactsEvery", stone: "stoneEvery", ice: "iceScale" };
   var KNOB_OF = Object.fromEntries(Object.entries(PACED).map(([knob, row]) => [row, knob]));
   var NONE6 = 4294967295;
-  var TAU4 = Math.PI * 2;
+  var TAU5 = Math.PI * 2;
   var genomeOfWords = (w) => {
     const u = Uint32Array.from(w);
     return readGenome(u, new Float32Array(u.buffer), 0);
@@ -37145,9 +37945,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "9a92954ca27d2534") return;
+      if (localStorage.getItem(key) === "7c3757f27de321be") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "9a92954ca27d2534");
+      if (res) localStorage.setItem(key, "7c3757f27de321be");
     } catch {
     }
   }
@@ -37303,6 +38103,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       // mark the cells that sing: 0 off, 1 the picked species, 2 all
       notes: prefs.notes ?? 1,
       // live annotations (docs/annotations.md): 0 off, 1 with the auto camera, 2 always
+      notesGpu: prefs.notesGpu ?? 1,
+      // drawn by WebGPU into the world's frame (src/gpunotes.js), else on the overlay canvas
       water: prefs.water ?? 2,
       // the water's surface: 0 off, 1 subtle, 2 normal, 3 strong (applyWater)
       waves: prefs.waves ?? 1,
@@ -37372,7 +38174,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     document.body.classList.toggle("no-closeup", !state.closeup);
     const persist = () => {
       const s = eng.settings;
-      savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, focus: state.focus, fixed: state.fixed, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+      savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, notesGpu: state.notesGpu, water: state.water, waves: state.waves, look: state.look, grain: state.grain, focus: state.focus, fixed: state.fixed, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
       document.body.classList.toggle("no-closeup", !state.closeup);
     };
     let lookLast = state.look || 2;
@@ -40774,7 +41576,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const it = items[0], whole = it.org || sp;
       if (whole !== spit.org) {
         spit.org = whole;
-        spit.dir = Math.random() * TAU4;
+        spit.dir = Math.random() * TAU5;
       }
       if (R2) spit.tip = toWorld(R2.sx, R2.sy);
       const at = spit.pt || spit.tip;
@@ -41564,9 +42366,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const heatBars = [...$2("thermo").querySelectorAll(".bar")], heatBulbs = [...document.querySelectorAll("#g-heat .bulb")], heatLvl = $2("thermo-i").querySelector(".lvl");
     $2("g-heat").hidden = !K.heat;
     const wave = $2("tide-wave");
-    wave.querySelector(".wave").setAttribute("d", Array.from({ length: 31 }, (_, i) => `${i ? "L" : "M"}${i * 2},${(8 - 6 * Math.sin(i / 30 * TAU4)).toFixed(2)}`).join(""));
+    wave.querySelector(".wave").setAttribute("d", Array.from({ length: 31 }, (_, i) => `${i ? "L" : "M"}${i * 2},${(8 - 6 * Math.sin(i / 30 * TAU5)).toFixed(2)}`).join(""));
     const eraTide = $2("era-tide");
-    eraTide.querySelector("path").setAttribute("d", Array.from({ length: 61 }, (_, i) => `${i ? "L" : "M"}${i},${(3 - 2.6 * Math.sin(i / 60 * TAU4)).toFixed(2)}`).join(""));
+    eraTide.querySelector("path").setAttribute("d", Array.from({ length: 61 }, (_, i) => `${i ? "L" : "M"}${i},${(3 - 2.6 * Math.sin(i / 60 * TAU5)).toFixed(2)}`).join(""));
     function heatCause() {
       const d = eng.excursion;
       if (!(Math.abs(d) > 0.5)) return "";
@@ -41634,9 +42436,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const ph = (eng.simTime % 300 + 300) % 300 / 300;
       const dot = wave.querySelector(".dot");
       dot.setAttribute("cx", (ph * 60).toFixed(1));
-      dot.setAttribute("cy", (8 - 6 * Math.sin(ph * TAU4)).toFixed(2));
+      dot.setAttribute("cy", (8 - 6 * Math.sin(ph * TAU5)).toFixed(2));
       eraTide.style.setProperty("--x", ph.toFixed(3));
-      eraTide.style.setProperty("--y", Math.sin(ph * TAU4).toFixed(3));
+      eraTide.style.setProperty("--y", Math.sin(ph * TAU5).toFixed(3));
       setText2("tide-v", tr("rail.pct", "{n}%", { n: Math.round(eng.season * 100) }));
       $2("g-tide").setAttribute("aria-label", tr("rail.tide.aria", "Tide {n}%, {dir, select, rising {rising} other {ebbing}}", { n: Math.round(eng.season * 100), dir: seasonAt(eng.simTime + 5) >= seasonAt(eng.simTime) ? "rising" : "ebbing" }));
       $2("g-light").setAttribute("aria-label", tr("rail.light.aria", "Light {n}%", { n: L }));
@@ -42034,7 +42836,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const now = performance.now();
       const marking = markSlot() !== -2 && songEvents.some((e) => now - e.at < MARK_MS);
       const R2 = reticleAt();
-      const key = state.currents || sel && sel.particle || L || R2 || marking || notesShown ? null : `${state.hud}|${state.ui}|${director.active}|${cssPPU()}|${cam.x}|${dockTop}|${film.state}|${innerWidth}|${overlay.width}|${specimen.isOpen() && specInset().right}|${document.fonts.status}`;
+      const key = state.currents || sel && sel.particle || L || R2 || marking || notesShown && !gpuNotes() ? null : `${state.hud}|${state.ui}|${director.active}|${cssPPU()}|${cam.x}|${dockTop}|${film.state}|${innerWidth}|${overlay.width}|${specimen.isOpen() && specInset().right}|${document.fonts.status}`;
       if (key !== null && key === overlayKey) return;
       overlayKey = key;
       octx.setTransform(1, 0, 0, 1, 0, 0);
@@ -42098,13 +42900,13 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         }
         octx.fillStyle = "rgba(255,255,255,0.95)";
         octx.beginPath();
-        octx.arc(sx, sy, 1.2, 0, TAU4);
+        octx.arc(sx, sy, 1.2, 0, TAU5);
         octx.fill();
         octx.lineCap = "butt";
       }
       if (R2) drawReticle(R2);
       drawSongMarks(now, L);
-      if (notesShown) drawNotes(dt, L);
+      if (notesShown && !gpuNotes()) drawNotes(dt, L);
     }
     const WILL_EASE = 80;
     const WILL_PX = 120;
@@ -42112,7 +42914,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     function easeWill(dt) {
       const u = ride.th.u, a = Math.atan2(u[1], u[0] + 1e-9), l = Math.hypot(u[0], u[1]) * WILL_PX, w = willShown;
       const k = 1 - Math.exp(-dt / WILL_EASE);
-      w.a += (a - w.a - TAU4 * Math.round((a - w.a) / TAU4)) * k;
+      w.a += (a - w.a - TAU5 * Math.round((a - w.a) / TAU5)) * k;
       w.l += (l - w.l) * k;
       return [Math.cos(w.a) * w.l, Math.sin(w.a) * w.l];
     }
@@ -42130,7 +42932,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       octx.stroke();
       octx.setLineDash([]);
       octx.beginPath();
-      octx.arc(x1, y1, 6, 0, TAU4);
+      octx.arc(x1, y1, 6, 0, TAU5);
       octx.stroke();
       octx.restore();
     }
@@ -42152,12 +42954,12 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         octx.strokeStyle = c;
         octx.lineWidth = w2;
         octx.beginPath();
-        octx.arc(sx, sy, r, 0, TAU4);
+        octx.arc(sx, sy, r, 0, TAU5);
         octx.stroke();
         octx.beginPath();
         const n = r < 24 ? 4 : 24;
         for (let i = 0; i < n; i++) {
-          const a = i / n * TAU4, q = i % (n / 4) === 0, l = r < 24 ? 4 : q ? 9 : 4;
+          const a = i / n * TAU5, q = i % (n / 4) === 0, l = r < 24 ? 4 : q ? 9 : 4;
           octx.moveTo(sx + Math.cos(a) * (r + (q ? 3 : 0)), sy + Math.sin(a) * (r + (q ? 3 : 0)));
           octx.lineTo(sx + Math.cos(a) * (r - l), sy + Math.sin(a) * (r - l));
         }
@@ -42345,7 +43147,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         octx.strokeStyle = cssCol(g.col);
         octx.globalAlpha = 0.5 * (1 - u) * (1 - u);
         octx.beginPath();
-        octx.arc(sx, sy, R2, 0, TAU4);
+        octx.arc(sx, sy, R2, 0, TAU5);
         octx.stroke();
       }
       octx.globalAlpha = 1;
@@ -42688,6 +43490,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     };
     const notes = new Notes({ species: noteSp, world: () => eng.grid });
     const noteView = createNoteView(octx);
+    const noteGL = new NoteCanvas(device, eng.format), noteViewGL = createNoteView(noteGL);
+    eng.noteLayer = noteGL;
+    const gpuNotes = () => !!state.notesGpu;
     let notesShown = false, notesSince = 0, noteGridL = null, noteOpen = { l: 0, t: 0, r: innerWidth, b: innerHeight }, plateRect = null;
     eng.onNotes = (scan) => {
       if (!notesShown) return;
@@ -42819,7 +43624,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       if (plateRect) avoid.push(plateRect);
       const sh = director.active ? director.shot : null;
       const mode = director.active ? NOTE_MODE[sh && sh.why && sh.why.kind] || NOTE_MODE.auto : NOTE_MODE.observe;
-      noteView.draw({
+      (gpuNotes() ? noteViewGL : noteView).draw({
         now,
         dt: dtMs / 1e3,
         ppu: cssPPU(),
@@ -43217,6 +44022,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         drawOverlay(dt, inflight && shownFrame ? loupeGeom() : L);
         Object.assign(cam, { x: cur.x, y: cur.y, zoom: cur.zoom });
         viewSimTime = cur.t;
+        noteGL.begin(canvas.width / innerWidth);
+        if (notesShown && gpuNotes()) drawNotes(dt, L);
         specimen.drawViewerUI(now);
         specimen.mindTick(now);
         const hold = (state.speed === Infinity || perf.held) && !state.paused && state.phase === "running" ? !!step.world : null;

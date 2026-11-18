@@ -57,6 +57,8 @@ const STEADY = {
 };
 
 export function createNoteView(g) {
+  // (a path the context will take: a canvas's Path2D, or the WebGPU layer's own, src/gpunotes.js)
+  const newPath = () => (g.newPath ? g.newPath() : new Path2D());
   const widths = new Map();
   const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
   const hatch = {};
@@ -125,6 +127,8 @@ export function createNoteView(g) {
   }
   // the hatching fixed to the world: its lines `px` apart on screen, through screen point (x, y)
   function hatchAt(tone, x, y, px) {
+    // (the WebGPU layer works the hatch out itself)
+    if (g.hatch) return g.hatch(tone, x, y, px);
     const p = hatchOf(tone);
     if (p.setTransform && typeof DOMMatrix !== 'undefined') { const k = px / 6; p.setTransform(new DOMMatrix([k, 0, 0, k, x, y])); }
     return p;
@@ -241,7 +245,7 @@ export function createNoteView(g) {
     let far = 1;
     for (const p of pts) far = Math.max(far, Math.hypot(p[0] - from[0], p[1] - from[1]));
     // the settled ones in one path, stroked twice (its dark halo, then the glyph); those fading, each at its own alpha
-    const P = new Path2D(), a0 = g.globalAlpha, fading = [];
+    const P = newPath(), a0 = g.globalAlpha, fading = [];
     const add = (Pt, x, y, Q) => {
       if (glyph === 'plus') { Pt.moveTo(x - Q, y); Pt.lineTo(x + Q, y); Pt.moveTo(x, y - Q); Pt.lineTo(x, y + Q); }
       else if (glyph === 'ring') { Pt.moveTo(x + Q * 1.3, y); Pt.arc(x, y, Q * 1.3, 0, TAU); }
@@ -266,7 +270,7 @@ export function createNoteView(g) {
     draw(P);
     // (those fading in four bands of alpha: a few strokes in all)
     if (fading.length) {
-      const bands = [new Path2D(), new Path2D(), new Path2D(), new Path2D()];
+      const bands = [newPath(), newPath(), newPath(), newPath()];
       for (const [x, y, Q, a] of fading) add(bands[Math.min(3, Math.floor(a * 4))], x, y, Q);
       bands.forEach((Pt, b) => { g.globalAlpha = a0 * (b + 0.5) / 4; draw(Pt); });
     }
@@ -817,7 +821,7 @@ export function createNoteView(g) {
   // the loops drawn: hatched (fixed to the world), filled, outlined solid, dotted or dashed; fading in
   function blob(loops, tone, t, F, o = {}) {
     if (!loops.length) return null;
-    const P = new Path2D(), a = g.globalAlpha;
+    const P = newPath(), a = g.globalAlpha;
     let top = null, n = 0;
     // (each loop moved, whole, by the world's size to lie on the side of its wrap the view is on: a shape found about
     // one side of the seam shows whole wherever the camera is)

@@ -31,6 +31,9 @@
 //   auto   true: the auto camera films while measuring (as the p key starts it; zoom is then the director's)
 //   pinNotes  a regex of note keys: the annotations' notes pinned once one matching shows (pinWait s at most), so
 //          every build is measured on the same notes (still views: zoom and adapt 'off' with them)
+//   eval   an expression of the page's (T: globalThis.__tidemote) run before settling
+//   shots  [{ name, eval, wait }]: screenshots after measuring (OUT-WORLD-SCENARIO-NAME.png), the world paused, each
+//          after its expression of the page's (T: globalThis.__tidemote)
 //   probe  an expression of the page's (T: globalThis.__tidemote) evaluated every second, kept as probes: [[ms, value]]
 //   gaps   true: every submitted frame's time and perf.waits kept (gaps) with the display interval measured (rafMs)
 //   trace  seconds of a Chrome trace and a JS CPU profile taken while measuring (from its start): OUT-WORLD-SCENARIO.trace.json
@@ -298,6 +301,8 @@ async function measure(page, sc) {
     T.setSpeed(sc.speed === 'max' ? Infinity : sc.speed ?? 1);
     // 'off': no adaptation at all (the frame rate aimed for held, whatever the frames cost)
     if (sc.adapt === 'off') { perf.slow = 1; perf.lastAdjust = Infinity; }
+    // eval: an expression of the page's (T) run before settling (a setting to compare on the same page and scene)
+    if (sc.eval) new Function('T', sc.eval)(T);
     await sleep((sc.settle ?? 3) * 1000);
     // pinNotes: wait (at most pinWait s) until a note whose key matches shows, settled 3 s, and pin the notes showing
     // (src/notes.js pinned): every build measured on the same notes
@@ -450,6 +455,13 @@ try {
       })();
       const r = await measure(page, sc);
       if (tracer) await tracer;
+      // shots: screenshots after measuring, the world paused, each after its own expression of the page's (T)
+      for (const shot of sc.shots || []) {
+        if (!v.out) break;
+        await page.evaluate((x) => { const T = globalThis.__tidemote; T.state.paused = true; new Function('T', x)(T); }, shot.eval || '');
+        await page.waitForTimeout(shot.wait ?? 800);
+        await page.screenshot({ path: `${v.out.replace(/\.json$/, '')}-${w.name}-${sc.name}-${shot.name}.png` });
+      }
       if (sc.auto) await page.keyboard.press('p');
       if (sampler) { clearInterval(sampler); r.thermal = thermal; }
       moving = false; await mover;
