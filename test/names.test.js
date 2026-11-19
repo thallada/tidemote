@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { prng, word, cap, genusName, speciesEpithet, roman } from '../src/names.js';
 
-test('names preserve the original seeded outputs', () => {
+test('names are pinned to their seeded outputs', () => {
   for (const [seed, genus, epithet] of [
-    [1, 'Biachyl', 'nymens'], [42, 'Thabel', 'saxoth'],
-    [123456, 'Nyghex', 'phyghisyx'], [0xffffffff, 'Quaeyophesh', 'xernora'],
+    [1, 'Biachyl', 'nytrokae'], [42, 'Thabel', 'saphousex'],
+    [123456, 'Nyghex', 'phyghisyx'], [0xffffffff, 'Quaeyophesh', 'xecheoneosa'],
   ]) {
     assert.equal(genusName(seed, new Set()), genus);
     assert.equal(speciesEpithet(seed), epithet);

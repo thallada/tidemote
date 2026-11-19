@@ -21874,7 +21874,8 @@ ${e.message}` : String(e?.message || e));
   }
   function speciesEpithet(serial) {
     const r = prng(Math.imul(serial ^ 2654435769, 40503));
-    return word(r, 1 + (r() < 0.5 ? 1 : 0)) + pick2(r, SUFFIX);
+    const u = r();
+    return word(r, u < 0.1 ? 1 : u < 0.85 ? 2 : 3) + pick2(r, SUFFIX);
   }
   function roman(n) {
     let s = "";
@@ -39569,14 +39570,25 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       memberKind = members ? kind : NONE6;
       pushFocus();
     }
+    const GENUS_SPLIT = 0.7;
     function gdist(a, b) {
       let s = 0;
       for (let r = 0; r < 3; r++) for (let i = 0; i < 8; i++) s += (a.roles[r].surf[i] - b.roles[r].surf[i]) ** 2 + (a.roles[r].rec[i] - b.roles[r].rec[i]) ** 2;
       let d = Math.sqrt(s / 48);
       d += 0.5 * (Math.abs(a.dGlint - b.dGlint) + Math.abs(a.dHusk - b.dHusk) + Math.abs(a.dFlesh - b.dFlesh));
-      d += 0.4 * Math.abs(a.photo - b.photo) + 0.15 * Math.abs(a.swim - b.swim) + 0.3 * Math.abs((a.adhesion || 0) - (b.adhesion || 0));
-      const dh = Math.abs(a.hue - b.hue);
-      return d + Math.min(dh, 1 - dh);
+      return d + 0.4 * Math.abs(a.photo - b.photo) + 0.15 * Math.abs(a.swim - b.swim) + 0.3 * Math.abs((a.adhesion || 0) - (b.adhesion || 0));
+    }
+    function nearestGenus(g) {
+      let best = null, bd = GENUS_SPLIT;
+      for (const gen of life.genera.values()) {
+        if (!gen.founder) continue;
+        const d = gdist(g, gen.founder);
+        if (d < bd) {
+          bd = d;
+          best = gen.name;
+        }
+      }
+      return best;
     }
     function newGenus(g, from) {
       let name = genusName(g.serial, life.genera);
@@ -39584,27 +39596,32 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       life.genera.set(name, { name, founder: g, from, born: g.born, announced: false });
       return name;
     }
+    const taken = (name) => {
+      for (const sp of life.reg.values()) if (sp.name === name) return true;
+      return false;
+    };
     function register(g) {
       let genus;
       const parent = life.reg.get(g.parent);
       if (parent) {
         const gen = life.genera.get(parent.genus);
-        genus = gen && (!gen.founder || gdist(g, gen.founder) < 0.5) ? parent.genus : null;
+        genus = gen && (!gen.founder || gdist(g, gen.founder) < GENUS_SPLIT) ? parent.genus : null;
         if (!genus) genus = newGenus(g, parent.genus);
       } else if (g.parent === 0) {
         genus = newGenus(g, null);
       } else {
         const key = g.parent;
-        if (!life.orphan.has(key)) life.orphan.set(key, newGenus(g, null));
+        if (!life.orphan.has(key)) life.orphan.set(key, nearestGenus(g) || newGenus(g, null));
         genus = life.orphan.get(key);
       }
-      const epithet = speciesEpithet(g.serial);
+      let name = `${genus} ${speciesEpithet(g.serial)}`;
+      if (taken(name)) for (let n = 2, base = name; taken(name); n++) name = `${base} ${roman(n)}`;
       const sp = {
         serial: g.serial,
         slot: g.slot,
         genome: g,
         genus,
-        name: `${genus} ${epithet}`,
+        name,
         parent: g.parent,
         parentName: parent ? parent.name : null,
         born: g.born,

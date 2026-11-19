@@ -1181,14 +1181,27 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   }
 
   // ------------------------------------------------------------ census → registry, events, history
+  // How far a genome has drifted from its genus's founder: signatures, diet, light, swimming and adhesion. Not
+  // hue: colour drifts on its own and is only a look (counted, it alone tipped a fifth of the splits). Past
+  // GENUS_SPLIT a child founds a genus of its own; 0.5 with hue split a third of children off, 0.7 without about
+  // an eighth, so most of a line keeps its genus (tools/names/dump.mjs).
+  const GENUS_SPLIT = 0.7;
   function gdist(a, b) {
     let s = 0;
     for (let r = 0; r < 3; r++) for (let i = 0; i < 8; i++) s += (a.roles[r].surf[i] - b.roles[r].surf[i]) ** 2 + (a.roles[r].rec[i] - b.roles[r].rec[i]) ** 2;
     let d = Math.sqrt(s / 48);
     d += 0.5 * (Math.abs(a.dGlint - b.dGlint) + Math.abs(a.dHusk - b.dHusk) + Math.abs(a.dFlesh - b.dFlesh));
-    d += 0.4 * Math.abs(a.photo - b.photo) + 0.15 * Math.abs(a.swim - b.swim) + 0.3 * Math.abs((a.adhesion || 0) - (b.adhesion || 0));
-    const dh = Math.abs(a.hue - b.hue);
-    return d + Math.min(dh, 1 - dh);
+    return d + 0.4 * Math.abs(a.photo - b.photo) + 0.15 * Math.abs(a.swim - b.swim) + 0.3 * Math.abs((a.adhesion || 0) - (b.adhesion || 0));
+  }
+  // the genus whose founder is nearest g, if within GENUS_SPLIT (for a species whose parent was never recorded)
+  function nearestGenus(g) {
+    let best = null, bd = GENUS_SPLIT;
+    for (const gen of life.genera.values()) {
+      if (!gen.founder) continue;
+      const d = gdist(g, gen.founder);
+      if (d < bd) { bd = d; best = gen.name; }
+    }
+    return best;
   }
   function newGenus(g, from) {
     let name = genusName(g.serial, life.genera);
@@ -1197,23 +1210,28 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     life.genera.set(name, { name, founder: g, from, born: g.born, announced: false });
     return name;
   }
+  const taken = (name) => { for (const sp of life.reg.values()) if (sp.name === name) return true; return false; };
   function register(g) {
     let genus;
     const parent = life.reg.get(g.parent);
     if (parent) {
       const gen = life.genera.get(parent.genus);
-      genus = gen && (!gen.founder || gdist(g, gen.founder) < 0.5) ? parent.genus : null;
+      genus = gen && (!gen.founder || gdist(g, gen.founder) < GENUS_SPLIT) ? parent.genus : null;
       if (!genus) genus = newGenus(g, parent.genus);
     } else if (g.parent === 0) {
       genus = newGenus(g, null);
     } else {
+      // its parent died before a census saw it: it and its siblings join the genus nearest them (most are
+      // within reach of one), else found one of their own
       const key = g.parent;
-      if (!life.orphan.has(key)) life.orphan.set(key, newGenus(g, null));
+      if (!life.orphan.has(key)) life.orphan.set(key, nearestGenus(g) || newGenus(g, null));
       genus = life.orphan.get(key);
     }
-    const epithet = speciesEpithet(g.serial);
+    // a full name already on record (rare: the epithets number over a million) is numbered, as genera are
+    let name = `${genus} ${speciesEpithet(g.serial)}`;
+    if (taken(name)) for (let n = 2, base = name; taken(name); n++) name = `${base} ${roman(n)}`;
     const sp = {
-      serial: g.serial, slot: g.slot, genome: g, genus, name: `${genus} ${epithet}`,
+      serial: g.serial, slot: g.slot, genome: g, genus, name,
       parent: g.parent, parentName: parent ? parent.name : null, born: g.born,
       ancestor: parent ? (parent.established ? parent.serial : parent.ancestor) : null,
       pop: 0, peak: 0, alive: true, established: false, extinct: null, founder: g.parent === 0,

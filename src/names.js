@@ -1,4 +1,5 @@
-// Deterministic, pronounceable names for species and genera.
+// Deterministic, pronounceable names for species and genera. The audio worklet bundles this file (through
+// eras.js): keep it free of imports.
 export function prng(seed) {
   let a = seed >>> 0;
   return () => {
@@ -33,9 +34,12 @@ export function genusName(serial, existing) {
   return name;
 }
 
+// Mostly two syllables: half of them one syllable left about 94k distinct epithets, few enough that a long
+// world met the same full name twice; 10/75/15 gives about 1.2M (the rare repeat is numbered in register).
 export function speciesEpithet(serial) {
   const r = prng(Math.imul(serial ^ 0x9e3779b9, 40503));
-  return word(r, 1 + (r() < 0.5 ? 1 : 0)) + pick(r, SUFFIX);
+  const u = r();
+  return word(r, u < 0.1 ? 1 : u < 0.85 ? 2 : 3) + pick(r, SUFFIX);
 }
 
 /** n in Roman numerals (a genus name taken twice over gets one: "Vela II"). */
