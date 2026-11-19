@@ -766,6 +766,7 @@ body.set-grabbing, body.set-grabbing * { cursor: var(--grab-cursor) !important; 
 .hdr-cal.idle { visibility: hidden; }
 .hdr-cal-say { margin: 0; min-height: calc(3 * 1.35em); display: flex; align-items: center; color: var(--ink-2); font-size: 12px; line-height: 1.35; }
 /* Settings → About: a few paragraphs of prose */
+.about { user-select: text; -webkit-user-select: text; }
 .about p { margin: 0 0 var(--s3); color: var(--ink-2); line-height: 1.6; font-size: 13.5px; }
 .about p:last-child { margin-bottom: 0; }
 .about button.link { font: inherit; font-weight: 500; letter-spacing: inherit; text-transform: none; padding: 0; min-height: 0; }
@@ -1264,7 +1265,19 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 /* The menu: under Begin, two buttons for those who know Tidemote (the new world's particle count, the saved
    worlds), each framed with a caret like a select and opening a framed panel; opened, the reticle and the line
    under the title fold away so the panel takes their room and the whole stays centered */
-.intro.menu-open .intro-anim, .intro.menu-open .intro-in > p { display: none; }
+.intro.menu-open .intro-anim, .intro.menu-open .intro-in > p, .intro.menu-open .intro-note { display: none; }
+/* a phone's note, under everything and quieter than it: a line of small type and the stores as hairline chips */
+.intro-note { display: flex; flex-direction: column; align-items: center; gap: var(--s3); margin-top: var(--s2); padding-top: var(--s3); border-top: 1px solid var(--line-faint); width: min(520px, 100%); }
+.intro .intro-note p { font-size: 12px; color: var(--ink-3); line-height: 1.5; max-width: 52ch; }
+.stores { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+.intro-note .stores { justify-content: center; }
+.store {
+  display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 10px 0 8px; color: var(--ink-3); border: 1px solid var(--line);
+  text-decoration: none; font-size: 11px; letter-spacing: .2em; text-transform: uppercase; font-weight: 500; font-stretch: 112%;
+  transition: color .2s, border-color .2s;
+}
+.store svg { flex: none; }
+.store:hover, .store:focus-visible { color: var(--cyan); border-color: var(--line-2); outline: none; }
 .menu { display: flex; flex-direction: column; align-items: center; gap: var(--s3); width: min(520px, 100vw - 48px); }
 .menu-row { display: flex; align-items: stretch; justify-content: center; gap: var(--s2); }
 .menu-tab {
@@ -1880,6 +1893,11 @@ Double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-
       </div>
       <div class="menu-panel" id="menu-panel" hidden></div>
       <input type="file" id="menu-file" accept=".tidemote,application/gzip" hidden>
+    </div>
+    <!-- on a phone: its worlds are kept small, and the desktop app's stores (main.js, stores.js) -->
+    <div class="intro-note" id="intro-note" hidden>
+      <p data-i18n="intro.phone-note">On a phone the world is kept small: its GPU is shared with the screen and slows as it warms. Tidemote is at its best on a desktop computer with a dedicated graphics card.</p>
+      <div class="stores" id="intro-stores"></div>
     </div>
   </div>
 </div>
@@ -23552,14 +23570,14 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       const set = new Set(lit);
       for (const r2 of el2.querySelectorAll("rect[data-k]")) r2.classList.toggle("lit", set.has(`${r2.dataset.l}:${r2.dataset.k}`));
     }
-    const svg = el2.querySelector("svg.song-roll"), ph = svg && svg.querySelector(".ph");
+    const svg2 = el2.querySelector("svg.song-roll"), ph = svg2 && svg2.querySelector(".ph");
     if (!ph) return key;
-    const r = last && last.step > 0 && svg.querySelector(`rect[data-k="${last.k}"][data-l="${last.line}"]`);
-    const cyc = +svg.dataset.cycle, t = r ? +r.dataset.at + (now - last.at) / last.step : 0;
+    const r = last && last.step > 0 && svg2.querySelector(`rect[data-k="${last.k}"][data-l="${last.line}"]`);
+    const cyc = +svg2.dataset.cycle, t = r ? +r.dataset.at + (now - last.at) / last.step : 0;
     const on = !!r && t < cyc + GLIDE / last.step;
     ph.classList.toggle("on", on);
     if (on) {
-      const x = (+svg.dataset.x0 + Math.min(t, cyc) * +svg.dataset.sx).toFixed(2);
+      const x = (+svg2.dataset.x0 + Math.min(t, cyc) * +svg2.dataset.sx).toFixed(2);
       ph.setAttribute("x1", x);
       ph.setAttribute("x2", x);
     }
@@ -35711,8 +35729,8 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
 .on{stroke-width:.8;opacity:.9}.rail{stroke:rgba(130,205,214,.22);stroke-width:.6}.rail.tonic{stroke:rgba(150,222,230,.55);stroke-width:.7}
 .bar{stroke:rgba(150,222,230,.55);stroke-dasharray:2 2;stroke-width:.6}.contour{fill:none;stroke-width:.8;opacity:.4}.v2{fill:none;stroke-width:1;opacity:.75}
 .ghost{display:none}.chrom{stroke:#f1e3a0;stroke-width:1}.ph{display:none}.bonds line{opacity:.6;stroke-linecap:round}`;
-  function svgImage(svg) {
-    const src = svg.replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ').replace(/(<svg[^>]*>)/, `$1<style>${SVG_CSS}</style>`);
+  function svgImage(svg2) {
+    const src = svg2.replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ').replace(/(<svg[^>]*>)/, `$1<style>${SVG_CSS}</style>`);
     return new Promise((res) => {
       const img = new Image();
       img.onload = () => res(img);
@@ -38151,6 +38169,32 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     return K.will * (K.willDrift + (1 - K.willDrift) * swim) * (1 + (K.willAnchored - 1) * smoothstep2(0.35, 0.1, g.advect ?? 1));
   }
 
+  // src/stores.js
+  var svg = (body) => `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round" stroke-linecap="round">${body}</svg>`;
+  var STORES = [
+    {
+      id: "itch",
+      name: "itch.io",
+      url: "https://thallada.itch.io/tidemote",
+      // the shop under its scalloped awning, with its two eyes
+      icon: svg('<path d="M3 2.5h10l1.8 3.3H1.2z"/><path d="M1.2 5.8a1.36 1.36 0 0 0 2.72 0a1.36 1.36 0 0 0 2.72 0a1.36 1.36 0 0 0 2.72 0a1.36 1.36 0 0 0 2.72 0a1.36 1.36 0 0 0 2.72 0"/><path d="M2.2 7.6v6h11.6v-6"/><circle cx="6" cy="10.2" r=".9"/><circle cx="10" cy="10.2" r=".9"/>')
+    },
+    {
+      id: "steam",
+      name: "Steam",
+      url: null,
+      // i18n-ignore (a store's name)
+      // the valve: a disc, its wheel and the arm to the small wheel at its edge
+      icon: svg('<circle cx="8" cy="8" r="6.6"/><circle cx="10.4" cy="6.2" r="2"/><circle cx="5.3" cy="10.6" r="1.2"/><path d="M6.2 9.8l2.5-2.2"/>')
+    }
+  ];
+  function storeLinks(stores = STORES) {
+    return stores.filter((s) => s.url).map((s) => {
+      const label3 = tr("stores.link", "Tidemote for desktop on {store}", { store: s.name });
+      return `<a class="store" href="${s.url}" target="_blank" rel="noopener" aria-label="${esc2(label3)}" data-store="${s.id}">${s.icon}<span translate="no">${s.name}</span></a>`;
+    }).join("");
+  }
+
   // src/main.js
   var $2 = (id) => document.getElementById(id);
   var canvas = $2("stage");
@@ -38205,6 +38249,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
   };
   var phone = () => innerWidth <= 720;
   var stopLoader = startLoader($2("intro-anim"));
+  if (throttles && !globalThis.tidemoteDesktop) {
+    $2("intro-stores").innerHTML = storeLinks();
+    $2("intro-note").hidden = false;
+  }
   var RELOAD = { label: tr("err.reload", "Reload the page"), run: () => location.reload() };
   function fail(title, detail, actions = []) {
     $2("nogpu-title").textContent = title;
@@ -39002,6 +39050,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     }
     let measuredN = null;
     const MATURE_LIVING = 0.5;
+    const AUTO_60 = 102400;
     const LIVING_PASSES = /* @__PURE__ */ new Set(["senseMain", "lifeMain", "contactMain", "bondBackMain", "bodyTick"]);
     async function livingMs() {
       if (!hasTS) return 0;
@@ -39027,7 +39076,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         return n2;
       }
       armCut();
-      const target2 = (!hasTS ? 9 : 10) * (throttles ? 0.55 : 1);
+      const target60 = !hasTS ? 9 : 10, target30 = 2 * target60 * (throttles ? 0.8 : 1);
+      const pick4 = (n60, n30) => throttles ? n30 : Math.max(n60, Math.min(n30, AUTO_60));
       const clampN = (x) => clamp6(Math.round(x / 4096) * 4096, Math.min(MIN_PARTICLES, maxN), maxN);
       let n = await allocDown(Math.min(isCoarse ? 131072 : 262144, maxN));
       seedWorld(n);
@@ -39039,7 +39089,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const founders = (m) => Math.max(1, m * K.foundLife);
       const ms1 = log.ms1 = await livingMs();
       let perCell = ms1 / founders(n);
-      const room = clampN(n * target2 / t);
+      const room = pick4(clampN(n * target60 / t), clampN(n * target30 / t));
       if (room > n * 1.2) {
         const m = await allocDown(room);
         seedWorld(m);
@@ -39055,8 +39105,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         t = t2;
       }
       const grown = t + perCell * n * Math.max(0, MATURE_LIVING - K.foundLife);
-      const next = Math.min(clampN(n * target2 / grown), clampN(n * 1.3));
-      Object.assign(log, { perCell, grown, next });
+      const fit4 = (target2) => Math.min(clampN(n * target2 / grown), clampN(n * 1.3));
+      const next = pick4(fit4(target60), fit4(target30));
+      Object.assign(log, { perCell, grown, n60: fit4(target60), n30: fit4(target30), next });
       const final = next === n ? n : await allocDown(next);
       seedWorld(final);
       state.busy = false;
@@ -41123,7 +41174,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         const privacy = tr("settings.about.privacy", "{app, select,desktop {Everything runs on this computer: there is no account and no analytics. Saved worlds are files on this computer and synced to Steam Cloud if connected.}other {Everything runs on this device: there is no account and no analytics. Saved worlds stay in this browser unless you download them.}}", { app: globalThis.tidemoteDesktop ? "desktop" : "web" });
         return group("intro", "", `<div class="about"><p>${tr("settings.about.p1", "A sealed biosphere of up to millions of particles, and all of them live, eat, breed, and die in your browser, simulated on the GPU with WebGPU. Some cells drink the moving light of the tide. Others graze on the producers, and others hunt the grazers. Scavengers break down the dead and return them to the water as silt, and from that silt the next generation builds its children. Children mutate into new species. Species that bond grow into bodies: filaments, branched fronds, spirals, packed tissues. Some of these bodies grow beating tails and swim. Every 10 to 18 minutes the climate turns, and the world has to begin again in its own way. It makes its own music, too: each cell sings its species' song, over a chorus of the births, kills, and deaths in view.")}</p>
 <p>${tr("settings.about.p2", "No hand steers any of this: every ecological rule is local. The complex interacting colonies emerge from simple rules acting on the mutating genome each cell carries. The Field Lab's <guide>Guide</guide> explains how it works.", { guide: (c) => `<button type="button" class="link" data-o="guide" data-v="0">${c.join("")}</button>` })}</p></div>`) + group("made", tr("settings.about.made-by", "Made by"), `<div class="about"><p>${tr("settings.about.credits", "Developed by <a1>Tyler Hallada</a1> with AI coding tools (<a2>Claude Code</a2> and <a4>Codex</a4>), which wrote most of the code. Graphics and sounds in this game are procedurally generated from code. No generative image, video, or sound AI model content is used in this game. The soundtrack is composed live from the simulation and the cells in view, played in a custom browser port of <a3>SuperCollider</a3>. Every line of text in the interface was reviewed and edited by hand.", { a1: link("https://www.hallada.net"), a2: link("https://claude.com/claude-code"), a3: link("https://supercollider.github.io/"), a4: link("https://openai.com/codex/") })}</p></div>`) + group("src", tr("settings.about.source", "Source"), `<div class="about"><p>${tr("settings.about.license", "Free software under the <a1>GPL-3.0</a1>: the code, design notes, and tools used in development are on <a2>GitHub</a2>. Feedback, bug reports, and ideas are welcome as issues.", { a1: link("https://www.gnu.org/licenses/gpl-3.0.html"), a2: link("https://github.com/thallada/tidemote") })}</p>
-<p>${privacy}</p></div>`);
+<p>${privacy}</p></div>`) + (globalThis.tidemoteDesktop ? "" : group("desktop", tr("settings.about.desktop", "Desktop"), `<div class="about"><p>${tr("settings.about.desktop-p", "Tidemote is also a desktop app, at its best on a computer with a dedicated graphics card.")}</p><div class="stores">${storeLinks()}</div></div>`));
       }
       const keysNote = `<span class="keys-note">${tr("settings.keys-note", "Keyboard: <kbd>?</kbd> lists every shortcut.")}</span>`;
       function foot() {
@@ -42745,11 +42796,12 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         const hide = () => state.phase === "running" ? hideIntro() : setTimeout(hide, 150);
         hide();
       }
+      const note = $2("intro-note");
       const MODS = /* @__PURE__ */ new Set(["Tab", "Shift", "Control", "Alt", "Meta", "CapsLock", "ContextMenu"]);
       function onAny(e) {
         if (!$2("nogpu").hidden || introHidden) return;
         if (e.type === "pointerdown") {
-          if (e.target instanceof Node && el2.contains(e.target)) return;
+          if (e.target instanceof Node && (el2.contains(e.target) || note.contains(e.target))) return;
           if (open && !$2("begin").contains(e.target)) {
             toggle(null);
             return;
@@ -42764,7 +42816,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
             if (inside) tabN.focus({ preventScroll: true });
             return;
           }
-          if (e.target instanceof Node && el2.contains(e.target) && (e.key === "Enter" || e.key === " " || /^Arrow/.test(e.key))) return;
+          if (e.target instanceof Node && (el2.contains(e.target) || note.contains(e.target)) && (e.key === "Enter" || e.key === " " || /^Arrow/.test(e.key))) return;
           if (!navigator.webdriver && MODS.has(e.key)) return;
           e.preventDefault();
         }

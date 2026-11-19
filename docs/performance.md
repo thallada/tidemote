@@ -1223,10 +1223,15 @@ The weakest GPU at hand (Android 12, Chrome, 393×786 CSS pixels at 2.75). Chrom
 - **Hidden page:** requestAnimationFrame stops, so the GPU rests; the soundtrack fades out and its
   audio thread is suspended.
 - **Sizing a new world (calibrate).** Auto measures a frame of a fresh world and sizes it to 10 ms of
-  GPU (9 by submit-to-done time without timestamps), down to 8k particles (`MIN_PARTICLES`). A phone or tablet aims at 55% of that: it is
+  GPU (9 by submit-to-done time without timestamps), down to 8k particles (`MIN_PARTICLES`), when that
+  world holds at least 100k (`AUTO_60`). A smaller GPU is sized for 30 fps instead, twice the time (the
+  tuner's first fallback, which keeps the whole look), but to no more than 100k, so the count never
+  jumps where the two meet. A phone or tablet is always sized for 30 fps, with a fifth in hand: it is
   measured cool, and its GPU slows by a third or more once it runs hot, besides sharing the GPU with
   the compositor (a Pixel 11 Pro, 2026-10-11, held at 30 fps and was still late in a 32k world at 1.5×
-  density: step 11.4 ms, scene and composite about 7 ms). 16k against 32k (32 seeds × 30 min each,
+  density: step 11.4 ms, scene and composite about 7 ms). Until 2026-11-18 phones aimed at 55% of the
+  60 fps budget, which left the Pixel 11 Pro at 8k, where a larger world chosen by hand ran at 60 fps in
+  13-16 ms of GPU. 16k against 32k (32 seeds × 30 min each,
   2026-10-23, `runs/lowend/`): no other gated metric differs (persistence, food webs, guilds,
   monocultures); effective species fall from 111 to 81, as a world half the size holds fewer niches,
   and the living swing a little more (CV 0.24 → 0.31). Sampling 144 neighbors instead of 192 in such

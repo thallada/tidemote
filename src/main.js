@@ -46,6 +46,7 @@ import { isRideKey, keyWay, pointerWay, createThrottle, stepThrottle, throttleGr
 import { createCabinetStore, encodeCard, decodeCard, cardLink, cardFromHash, cardFromPng, cardIntoPng } from './cabinet.js';
 import { fmt, fmtClock, fmtDur, kfmt, when, esc, cssCol, clamp, term, spLink, saveFile, ROLE, MATTER, LIVING_CSS, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
 import { tr, LOCALE } from './i18n.js';
+import { storeLinks } from './stores.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('stage');
@@ -99,6 +100,8 @@ const median = (a) => { const s = [...a].sort((x, y) => x - y); return s[s.lengt
 const phone = () => innerWidth <= 720;
 // the intro's animation while the shaders compile and the GPU is measured (drawn on the CPU)
 const stopLoader = startLoader($('intro-anim'));
+// a phone's intro says its worlds are kept small and where the desktop app is (not in the desktop app itself)
+if (throttles && !globalThis.tidemoteDesktop) { $('intro-stores').innerHTML = storeLinks(); $('intro-note').hidden = false; }
 
 // The screen for a world that cannot go on: why, then what can be done. With actions (buttons, each
 // { label, run(button) }) it covers the page and leaves it as it was, for a way back; without, it is a
@@ -831,6 +834,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   // founders. ms of those passes, or 0 without timestamps.
   // (every pass whose cost follows the living: senseMain, split from lifeMain, is a grown world's dearest)
   const MATURE_LIVING = 0.5;
+  // a desktop GPU that runs this many particles at 60 fps gets worlds sized for 60 fps; below it, for 30 (calibrate)
+  const AUTO_60 = 102400;
   const LIVING_PASSES = new Set(['senseMain', 'lifeMain', 'contactMain', 'bondBackMain', 'bodyTick']);
   // The founders' passes take tens of µs and Chrome rounds timestamps to 65.5 µs: a median of readings reads 0, while
   // their mean over many steps is the time.
@@ -858,11 +863,17 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     }
     // GPU ms a frame of the new world may take: a mature world costs about what it measures at the
     // start (life fills it within minutes, then swings ±30% with the climate), drawn at 60 fps that
-    // leaves room for zooming and swings, and the adaptive frame rate covers the rest. Phones keep
-    // more in hand: their GPU is shared with the screen, and is measured here cool, before it
-    // throttles. Without timestamps the measure overstates.
+    // leaves room for zooming and swings, and the adaptive frame rate covers the rest. Without
+    // timestamps the measure overstates. A GPU with room for a large world (AUTO_60 particles at
+    // 60 fps) gets the world it runs at 60; a smaller one is sized for 30 fps (twice the time),
+    // the rate the tuner falls back to first, keeping the whole look (tuner.js), but no larger than
+    // the large world's AUTO_60 (so a GPU just short of it never gets a world bigger than one just
+    // above). Phones are always sized for 30, keeping a fifth in hand: their GPU is shared with
+    // the screen, and is measured here cool, before it throttles. (Worlds sized for 60 fps with
+    // 0.55 in hand left a Pixel 11 Pro at 8k, where a larger world chosen by hand ran at 60 in 13-16 ms, 2026-11-18.)
     armCut();
-    const target = (!hasTS ? 9 : 10) * (throttles ? 0.55 : 1);
+    const target60 = !hasTS ? 9 : 10, target30 = 2 * target60 * (throttles ? 0.8 : 1);
+    const pick = (n60, n30) => (throttles ? n30 : Math.max(n60, Math.min(n30, AUTO_60)));
     const clampN = (x) => clamp(Math.round(x / 4096) * 4096, Math.min(MIN_PARTICLES, maxN), maxN);
     let n = await allocDown(Math.min(isCoarse ? 131072 : 262144, maxN));
     seedWorld(n);
@@ -880,7 +891,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     // A GPU with room for more is measured again nearer its count. Too few founders to fill a large GPU take about
     // as long as one cell's work (an RTX 4070 Ti, 262k particles: 35 ns a founder against 5 in a grown world, which
     // sized its worlds at half), so there the cost a cell is the difference between the two worlds' (about 2.6 ns).
-    const room = clampN((n * target) / t);
+    // (measured again near the world it will likely get)
+    const room = pick(clampN((n * target60) / t), clampN((n * target30) / t));
     if (room > n * 1.2) {
       const m = await allocDown(room);
       seedWorld(m);
@@ -896,8 +908,9 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       t = t2;
     }
     const grown = t + perCell * n * Math.max(0, MATURE_LIVING - K.foundLife);
-    const next = Math.min(clampN((n * target) / grown), clampN(n * 1.3));
-    Object.assign(log, { perCell, grown, next });
+    const fit = (target) => Math.min(clampN((n * target) / grown), clampN(n * 1.3));
+    const next = pick(fit(target60), fit(target30));
+    Object.assign(log, { perCell, grown, n60: fit(target60), n30: fit(target30), next });
     const final = next === n ? n : await allocDown(next);
     seedWorld(final);
     state.busy = false;
@@ -2897,7 +2910,9 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
         // i18n: the credits: <a1> a link to the developer's site, <a2> to Claude Code's page, <a4> to Codex's, <a3> to SuperCollider's
         + group('made', tr('settings.about.made-by', 'Made by'), `<div class="about"><p>${tr('settings.about.credits', "Developed by <a1>Tyler Hallada</a1> with AI coding tools (<a2>Claude Code</a2> and <a4>Codex</a4>), which wrote most of the code. Graphics and sounds in this game are procedurally generated from code. No generative image, video, or sound AI model content is used in this game. The soundtrack is composed live from the simulation and the cells in view, played in a custom browser port of <a3>SuperCollider</a3>. Every line of text in the interface was reviewed and edited by hand.", { a1: link('https://www.hallada.net'), a2: link('https://claude.com/claude-code'), a3: link('https://supercollider.github.io/'), a4: link('https://openai.com/codex/') })}</p></div>`)
         + group('src', tr('settings.about.source', 'Source'), `<div class="about"><p>${tr('settings.about.license', 'Free software under the <a1>GPL-3.0</a1>: the code, design notes, and tools used in development are on <a2>GitHub</a2>. Feedback, bug reports, and ideas are welcome as issues.', { a1: link('https://www.gnu.org/licenses/gpl-3.0.html'), a2: link('https://github.com/thallada/tidemote') })}</p>
-<p>${privacy}</p></div>`);
+<p>${privacy}</p></div>`)
+        // (the desktop app's stores, but in the desktop app)
+        + (globalThis.tidemoteDesktop ? '' : group('desktop', tr('settings.about.desktop', 'Desktop'), `<div class="about"><p>${tr('settings.about.desktop-p', 'Tidemote is also a desktop app, at its best on a computer with a dedicated graphics card.')}</p><div class="stores">${storeLinks()}</div></div>`));
     }
     // the keyboard note, and this tab's reset (which asks first)
     const keysNote = `<span class="keys-note">${tr('settings.keys-note', 'Keyboard: <kbd>?</kbd> lists every shortcut.')}</span>`;
@@ -4214,6 +4229,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       const hide = () => (state.phase === 'running' ? hideIntro() : setTimeout(hide, 150));
       hide();
     }
+    // (a store's link in the phone's note opens it, and the world waits)
+    const note = $('intro-note');
     const MODS = new Set(['Tab', 'Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'ContextMenu']); // i18n-ignore (key names)
     // A click anywhere but the menu begins (a click outside an open panel closes it first); so does a key,
     // but those a menu control uses (Enter, Space, arrows), Escape (closes the panel) and Tab. While the
@@ -4221,7 +4238,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     function onAny(e) {
       if (!$('nogpu').hidden || introHidden) return;
       if (e.type === 'pointerdown') {
-        if (e.target instanceof Node && el.contains(e.target)) return;
+        if (e.target instanceof Node && (el.contains(e.target) || note.contains(e.target))) return;
         if (open && !$('begin').contains(e.target)) { toggle(null); return; }
       } else {
         e.stopPropagation();
@@ -4233,7 +4250,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
           if (inside) tabN.focus({ preventScroll: true }); // (a keyboard user's focus, not lost with the panel)
           return;
         }
-        if (e.target instanceof Node && el.contains(e.target) && (e.key === 'Enter' || e.key === ' ' || /^Arrow/.test(e.key))) return;
+        if (e.target instanceof Node && (el.contains(e.target) || note.contains(e.target)) && (e.key === 'Enter' || e.key === ' ' || /^Arrow/.test(e.key))) return;
         if (!navigator.webdriver && MODS.has(e.key)) return;
         e.preventDefault(); // the key only starts the world
       }
