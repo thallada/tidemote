@@ -12,7 +12,7 @@ import { section, block, wireTabRow } from './ui.js';
 import { setText as setLive, setHTML } from './live.js';
 import { createTips } from './tip.js';
 import { drawLiving, chartPointer } from './charts.js';
-import { speciesName, roman } from './names.js';
+import { genusName, speciesEpithet, roman } from './names.js';
 import { record, seal } from './lineage/model.js';
 import { createWorldStore, encodeWorld, decodeWorld, SAVE_VERSION, openable, WHY_NOT } from './worlds.js';
 import { facets, describe, DIET_COL, MOB_COL, FACET_NAME } from './facets.js';
@@ -765,7 +765,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   function resetLife() {
     censusQueue.length = 0;
     life = {
-      reg: new Map(), genera: new Map(), chronicle: [], history: [], histEvery: 3, lastHist: -1e9,
+      reg: new Map(), genera: new Map(), orphan: new Map(), chronicle: [], history: [], histEvery: 3, lastHist: -1e9,
       counts: [0, 0, 0, 0, 0], roles: [0, 0, 0], alive: 0, thriving: 0, arisen: 0, maxDepth: 0, top: 0, lastCensus: null, matter: [],
       estThreshold: 30, births: 0, prevG: null, prevD: null, prevT: 0, prunedAt: 0, chartSp: new Map(),
       // the hand's acts on this world (hand.js): a world touched says so wherever its record goes; what the
@@ -1181,26 +1181,39 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   }
 
   // ------------------------------------------------------------ census → registry, events, history
-  // A species' name is its genome's (src/names.js; docs/naming.md): the genus its body plan's, the epithet a hash of
-  // its genes, the same in every world. Two different genomes whose names meet in one world (rare: about one in
-  // millions of pairs within a genus) number the later one, so a name on record is never two species'.
-  function nameOf(g) {
-    const n = speciesName(g);
-    let name = `${n.genus} ${n.epithet}`;
-    const taken = (x) => { for (const sp of life.reg.values()) if (sp.name === x && sp.hash !== n.hash) return true; return false; };
-    for (let k = 2; taken(name); k++) name = `${n.genus} ${n.epithet} ${roman(k)}`;
-    return { ...n, name };
+  function gdist(a, b) {
+    let s = 0;
+    for (let r = 0; r < 3; r++) for (let i = 0; i < 8; i++) s += (a.roles[r].surf[i] - b.roles[r].surf[i]) ** 2 + (a.roles[r].rec[i] - b.roles[r].rec[i]) ** 2;
+    let d = Math.sqrt(s / 48);
+    d += 0.5 * (Math.abs(a.dGlint - b.dGlint) + Math.abs(a.dHusk - b.dHusk) + Math.abs(a.dFlesh - b.dFlesh));
+    d += 0.4 * Math.abs(a.photo - b.photo) + 0.15 * Math.abs(a.swim - b.swim) + 0.3 * Math.abs((a.adhesion || 0) - (b.adhesion || 0));
+    const dh = Math.abs(a.hue - b.hue);
+    return d + Math.min(dh, 1 - dh);
+  }
+  function newGenus(g, from) {
+    let name = genusName(g.serial, life.genera);
+    // its tries all taken (likely only after weeks of a world): a numbered name, never another genus's record
+    for (let n = 2; life.genera.has(name); n++) name = `${name.replace(/ [IVXLCDM]+$/, '')} ${roman(n)}`;
+    life.genera.set(name, { name, founder: g, from, born: g.born, announced: false });
+    return name;
   }
   function register(g) {
+    let genus;
     const parent = life.reg.get(g.parent);
-    const named = nameOf(g), genus = named.genus;
-    // a genus on record from the first of its body plan this world has seen, and the genus that species came from
-    if (!life.genera.has(genus)) {
-      const from = parent && parent.genus !== genus ? parent.genus : null;
-      life.genera.set(genus, { name: genus, founder: g, from, born: g.born, announced: false });
+    if (parent) {
+      const gen = life.genera.get(parent.genus);
+      genus = gen && (!gen.founder || gdist(g, gen.founder) < 0.5) ? parent.genus : null;
+      if (!genus) genus = newGenus(g, parent.genus);
+    } else if (g.parent === 0) {
+      genus = newGenus(g, null);
+    } else {
+      const key = g.parent;
+      if (!life.orphan.has(key)) life.orphan.set(key, newGenus(g, null));
+      genus = life.orphan.get(key);
     }
+    const epithet = speciesEpithet(g.serial);
     const sp = {
-      serial: g.serial, slot: g.slot, genome: g, genus, name: named.name, hash: named.hash,
+      serial: g.serial, slot: g.slot, genome: g, genus, name: `${genus} ${epithet}`,
       parent: g.parent, parentName: parent ? parent.name : null, born: g.born,
       ancestor: parent ? (parent.established ? parent.serial : parent.ancestor) : null,
       pop: 0, peak: 0, alive: true, established: false, extinct: null, founder: g.parent === 0,
@@ -1224,7 +1237,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   // what can still be shown or reached: the living; species the viewer named, the log links to or a panel
   // shows; the extinct of the last PRUNE_KEEP seconds; and the established ancestors
   // of what is kept, PRUNE_LINEAGE generations back (the specimen panel shows six, a card four: a whole
-  // lineage lengthens as long as the world runs). Genera none of them belongs to go too. The
+  // lineage lengthens as long as the world runs). Genera and orphan lines none of them belongs to go too. The
   // history chart's samples span the whole world, so the species it stacks are many and keep turning over:
   // of those it keeps only what the chart draws (life.chartSp: name and color).
   const PRUNE_EVERY = 600, PRUNE_KEEP = 6 * 3600, PRUNE_LINEAGE = 8;
@@ -1263,6 +1276,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     Object.assign(pruned, { at: t, kept: life.reg.size, removed: before - life.reg.size, why });
     const used = new Set();
     for (const sp of life.reg.values()) used.add(sp.genus);
+    for (const [parent, genus] of life.orphan) if (!used.has(genus)) life.orphan.delete(parent);
     for (const name of life.genera.keys()) if (!used.has(name)) life.genera.delete(name);
   }
   function originWord(sp) {
@@ -1411,9 +1425,9 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
         if (t > 20) {
           if (gen && gen.from && !gen.announced) {
             gen.announced = true;
-            // i18n: the log: {genus} a genus (a body plan) new to this world, {from} the genus its first species came from, {name} that species (a link),
+            // i18n: the log: {genus} the new genus, {from} the genus it split from, {name} its first species (a link),
             // {desc} a short description of the species (its body, diet, movement)
-            pushEvent(tr('log.genus', 'New genus <b>{genus}</b> arises from {from}: {name} · {desc}', { genus: esc(gen.name), from: esc(gen.from), name: spLink(sp.serial, sp.name), desc: describe(g, K) }), g.col, 'genus');
+            pushEvent(tr('log.genus', 'New genus <b>{genus}</b> splits from {from}: {name} · {desc}', { genus: esc(gen.name), from: esc(gen.from), name: spLink(sp.serial, sp.name), desc: describe(g, K) }), g.col, 'genus');
           } else {
             const anc = sp.ancestor && life.reg.get(sp.ancestor);
             const name = spLink(sp.serial, sp.name), desc = describe(g, K);

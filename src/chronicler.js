@@ -890,24 +890,17 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     }
   }
 
-  // A line radiating: many new species at once, into new ways of living. A line is the descendants of one species
-  // established before the window (a genus is a body plan, the same diet, movement and body throughout, so a
-  // radiation into new ways of living crosses genera).
+  // A genus radiating: many new species at once.
   function detectRadiation(ctx, add) {
     const { reg, t } = ctx;
     if (t < T.warm) return;
-    const since = t - 15 * MIN, fresh = new Map();
-    const isFresh = (sp) => sp.established && (sp.establishedAt ?? 0) >= since;
+    const fresh = new Map();
     for (const sp of reg.values()) {
-      if (!isFresh(sp)) continue;
-      let a = sp;
-      for (let up = 0; up < 64; up++) { const b = a.ancestor != null && reg.get(a.ancestor); if (!b || !isFresh(b)) break; a = b; }
-      const head = a.ancestor != null && reg.get(a.ancestor);
-      if (!head) continue; // its line's head pruned or never recorded: nothing to call the line
-      if (!fresh.has(head.serial)) fresh.set(head.serial, []);
-      fresh.get(head.serial).push(sp);
+      if (!sp.established || (sp.establishedAt ?? 0) < t - 15 * MIN) continue;
+      if (!fresh.has(sp.genus)) fresh.set(sp.genus, []);
+      fresh.get(sp.genus).push(sp);
     }
-    for (const [head, list] of fresh) {
+    for (const [genus, list] of fresh) {
       const alive = list.filter((sp) => sp.alive);
       if (list.length < 6 || alive.length < 4) continue;
       // a radiation spreads into new ways of living: three kinds at least (diet, movement, body)
@@ -916,15 +909,14 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       if (kinds.size < 3) continue;
       const sorted = [...kinds.values()];
       const lead = alive.sort((a, b) => b.pop - a.pop)[0];
-      add({ kind: 'radiation', score: Math.min(0.75, 0.45 + 0.05 * kinds.size), col: lead.genome.col, subjects: [lead.serial], key: `rad:${head}`, keyGap: 40 * MIN,
-        // i18n: a line of species radiating: {ancestor}, the species they descend from (a link); {count}: how many new species, in words ({n} as a number); {dur}: in how long; {first}, {last}: two of their ways of living (chron.word.kinds); {name}: the most numerous (a link)
-        html: tr('chron.radiation', 'The line of {ancestor} flourishes: {count} new species in {dur}, from {first} to {last}, with {name} at their head.',
-          { ancestor: L(reg, head), count: numWord(list.length), n: list.length, dur: durWords(t - Math.min(...list.map((sp) => sp.establishedAt ?? t))), first: kindsWords(sorted[0]), last: kindsWords(sorted[sorted.length - 1]), name: L(reg, lead.serial) }) });
+      add({ kind: 'radiation', score: Math.min(0.75, 0.45 + 0.05 * kinds.size), col: lead.genome.col, subjects: [lead.serial], key: `rad:${genus}`, keyGap: 40 * MIN,
+        // i18n: a genus radiating: {genus}, its name; {count}: how many new species, in words ({n} as a number); {dur}: in how long; {first}, {last}: two of their ways of living (chron.word.kinds); {name}: the most numerous (a link)
+        html: tr('chron.radiation', 'The genus <b>{genus}</b> flourishes: {count} new species in {dur}, from {first} to {last}, with {name} at their head.',
+          { genus: esc(genus), count: numWord(list.length), n: list.length, dur: durWords(t - Math.min(...list.map((sp) => sp.establishedAt ?? t))), first: kindsWords(sorted[0]), last: kindsWords(sorted[sorted.length - 1]), name: L(reg, lead.serial) }) });
     }
   }
 
-  // Genera tracking the water, and growing or shrinking, over the last hour. (A genus is a body plan, so none
-  // goes from single cells to bodies: that is a lineage moving to another genus.)
+  // Lineages tracking the water, and growing or shrinking, over the last hour.
   function detectTrends(ctx, add) {
     const { reg, t } = ctx;
     if (t - (S.genusMarks.at(-1)?.t ?? -1e9) >= 5 * MIN) {
@@ -932,12 +924,12 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       for (const sp of reg.values()) {
         if (!sp.alive || !sp.established) continue;
         let m = mark.g.get(sp.genus);
-        if (!m) mark.g.set(sp.genus, (m = { n: 0, topt: 0, size: 0, swim: 0, pop: 0 }));
+        if (!m) mark.g.set(sp.genus, (m = { n: 0, topt: 0, size: 0, swim: 0, multi: 0, pop: 0 }));
         const g = sp.genome, w = sp.pop;
         m.pop += w; m.n++;
-        m.topt += w * (g.topt ?? 19); m.size += w * g.size; m.swim += w * g.swim * (1 - g.photo);
+        m.topt += w * (g.topt ?? 19); m.size += w * g.size; m.swim += w * g.swim * (1 - g.photo); m.multi += w * ((g.adhesion || 0) > K.adhMin ? 1 : 0);
       }
-      for (const m of mark.g.values()) for (const k of ['topt', 'size', 'swim']) m[k] /= Math.max(1, m.pop);
+      for (const m of mark.g.values()) for (const k of ['topt', 'size', 'swim', 'multi']) m[k] /= Math.max(1, m.pop);
       S.genusMarks.push(mark);
       while (S.genusMarks.length && S.genusMarks[0].t < t - 2 * 3600) S.genusMarks.shift();
     }
@@ -969,6 +961,10 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
           // i18n: a genus ({genus}, its name) taken to swimming over {ago}; {name}: its most numerous species (a link); {much}: twice, or other (far more)
           html: tr('chron.trend.swim', 'In {ago} the <b>{genus}</b> have learned to swim: {name} and its kin now swim {much, select, twice {twice as hard as} other {far harder than}} their forebears did.',
             { ago, genus: esc(genus), name: L(reg, lead.serial), much: a.swim / Math.max(0.05, b.swim) >= 2 ? 'twice' : 'far' }) });
+      } else if (a.multi >= 0.6 && b.multi <= 0.2) {
+        add({ kind: 'trend', score: 0.55, col: lead.genome.col, subjects: [lead.serial], key: `multi:${genus}`, keyGap: 90 * MIN,
+          // i18n: a genus ({genus}, its name) become many-celled over {ago}; {name}: its most numerous species (a link)
+          html: tr('chron.trend.multi', 'The <b>{genus}</b>, solitary once, now live in bodies: in {ago} their single cells gave way to multicellular kin such as {name}.', { genus: esc(genus), ago, name: L(reg, lead.serial) }) });
       }
     }
   }

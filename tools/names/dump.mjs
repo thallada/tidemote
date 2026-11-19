@@ -1,4 +1,4 @@
-// Species registries of real worlds, for studying how species are named (docs/naming.md): the built page run
+// Species registries of real worlds, for studying how species are named: the built page run
 // headless to a simulated time, then every species on record (serial, parent, name, genome) written as JSON.
 //
 // usage: tools/gpu-node.sh tools/names/dump.mjs [--n 32768] [--minutes 60] [--speed Infinity] [--out reg.json]

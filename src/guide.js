@@ -66,7 +66,7 @@ export const GLOSSARY = {
   mutation: tr('gloss.mutation', 'Chance per division that the child creates a new species with a slightly altered genome. Rarely, a whole cell type is reinvented or copied.'),
   size: tr('gloss.size', 'Physical size of the cell. Larger cells have a small upkeep cost. Shape is cosmetic: twelve families with species-specific proportions and irregular, slowly deforming outlines.'),
   share: tr('gloss.share', 'This species’ fraction of all living cells.'),
-  genus: tr('gloss.genus', 'Species that share a body plan: diet, movement, body form, cell types and cell shape. A genus is named for its plan, so the same plan has the same name in every world.'),
+  genus: tr('gloss.genus', 'A family of species within a set genetic distance of the genus founder. A lineage that drifts far enough founds a new genus.'),
   species: tr('gloss.species', 'Every mutant founds a new species. Most die out unseen; a species counts as thriving once it reaches a population threshold.'),
   thriving: tr('gloss.thriving', 'Species that have reached the population threshold (scaled to world size) and are still alive.'),
   alive: tr('gloss.alive', 'Every species with at least one living cell, including brand-new mutants.'),
@@ -277,7 +277,7 @@ export const GUIDE = [
     id: 'evolution', title: tr('guide.evolution.title', 'Evolution and naming'), short: tr('guide.evolution.short', 'Evolution'),
     html: html(
       p(tr('guide.evolution.p1', 'Every mutant creates a new <species>species</species>. Mutations nudge every gene: signatures, diet, swimming, adhesion, color and more. Occasionally a whole cell type is reinvented or copied over another. Most mutants vanish within seconds; those that reach the population threshold become <thriving>thriving</thriving> and are named.', T)),
-      p(tr('guide.evolution.p2', 'Names are a <genus>genus</genus> plus an epithet, both read from the genome: the genus names its body plan and the epithet its genes, so the same species has the same name in every world. A lineage whose body plan changes moves to another genus. Colors are inherited with drift, so related species look related.', T)),
+      p(tr('guide.evolution.p2', 'Names are a <genus>genus</genus> plus an epithet. A lineage that drifts far enough from its genus founder starts a new genus, which gets its own new name. Colors are inherited with drift, so related species look related.', T)),
     ),
   },
   {

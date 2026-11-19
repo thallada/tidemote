@@ -568,7 +568,7 @@ export class Notes {
       }
       if (bal) out.push({ type: 'balance', key: `bal:${bal.kind}`, prio: 0.44, strength: bal.born + bal.dead, ...bal, census: bal.kind });
 
-      // Kindred species: several of one genus (one body plan) side by side.
+      // Sister species: several of one genus side by side, descendants of one founder.
       const genera = new Map();
       for (const s of S.by.values()) {
         const g = this.sp(s.kind);
