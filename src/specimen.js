@@ -366,8 +366,8 @@ export function createSpecimen(api) {
       // i18n: {at} a time on the world's clock; {origin} how a founder came to be (a founder's only)
       s += kv(tr('spec.sp.arose', 'Arose'), tr('spec.sp.arose-value', '{at}{founder, select, yes { · {origin}} other {}}', { at: fmtClock(src.born || 0), founder: src.founder ? 'yes' : 'no', origin: src.founder ? api.originWord(src) : '' }));
       const gen = life.genera.get(src.genus);
-      // i18n: {name} a genus' name; {from} the genus it split from
-      s += kv(tr('spec.sp.genus', 'Genus'), gen ? (gen.from ? tr('spec.sp.genus-split', '{name} · split from {from}', { name: esc(gen.name), from: esc(gen.from) }) : esc(gen.name)) : '–', 'genus');
+      // i18n: {name} a genus' name; {from} the genus the first of it in this world came from
+      s += kv(tr('spec.sp.genus', 'Genus'), gen ? (gen.from ? tr('spec.sp.genus-split', '{name} · arose from {from}', { name: esc(gen.name), from: esc(gen.from) }) : esc(gen.name)) : '–', 'genus');
       // i18n: {n} mutations
       s += kv(tr('spec.sp.mutations', 'Mutations'), tr('spec.sp.mutations-value', '{n} from its founder', { n: g.depth }), 'depth');
       if (K.heat) s += kv(tr('spec.sp.niche', 'Thermal niche'), nicheWords(g), 'optimum');

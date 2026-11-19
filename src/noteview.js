@@ -1287,9 +1287,9 @@ export function createNoteView(g) {
       P.anchor = an;
       P.pts = groups.flatMap((G) => G.pts);
       const total = d.kinds.reduce((a, k) => a + (M.stats.by.get(k)?.n || 0), 0) || 1;
-      // i18n: Live annotations: sister species of one genus ({name}, its name)
-      P.label = { tone: INK, eye: tr('notes.genus.eye', 'SISTER SPECIES'), num: String(d.species), main: tr('notes.genus.main', 'SPECIES OF {name}', { name: up(d.genusName) }),
-        data: [tr('notes.genus.data', 'DESCENDED FROM ONE ANCESTOR, SIDE BY SIDE')],
+      // i18n: Live annotations: several species of one genus, one body plan ({name}, the genus' name)
+      P.label = { tone: INK, eye: tr('notes.genus.eye', 'ONE BODY PLAN'), num: String(d.species), main: tr('notes.genus.main', 'SPECIES OF {name}', { name: up(d.genusName) }),
+        data: [tr('notes.genus.data', 'ALIKE IN BODY, SIDE BY SIDE')],
         table: d.kinds.map((k) => { const n2 = M.stats.by.get(k)?.n || 0; return { kind: k, name: up(sp(k)?.name), value: String(Math.round(n2 * M.stats.scale)), share: n2 / total }; }) };
       for (const G of groups) P.keys.push({ glyph: G.glyph, text: nm(G.k), tone: INK });
     } else if (d.type === 'clump') {

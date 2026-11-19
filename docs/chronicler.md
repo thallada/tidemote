@@ -50,8 +50,8 @@ hundred extinctions an hour: the counts that look dramatic are its ordinary chur
 | diet | a consumer of weight (≥ 1% of the living) eating one species for ≥ 75% of its meals (once); that food fallen below 40% of its peak: "X may follow" | 0.4; 0.55–0.65 |
 | cycle | a hunter and the species that is ≥ 40% of its meals: three or more prey peaks each followed by a hunter peak within 15 min (zigzag turning points of ≥ 35% on the one-minute series) | 0.7 |
 | range | a species of weight (≥ 3%) whose cells gather (circular concentration ≥ 0.45) and moved ≥ a fifth of the world in ten minutes, following its food if that moved alike; broken out of a pocket across the pool; pushed back into one | 0.45–0.6 |
-| radiation | a genus with ≥ 6 species newly established in 15 min, ≥ 4 alive, spread over ≥ 3 ways of living (diet, movement, body) | 0.6–0.75 |
-| trend | a genus of weight, over 30–50 min: its cells' optimum followed the water by ≥ 5° (the water moving ≥ 4° the same way); its size ×1.3 or ÷1.3; swimming much harder; turned to living in bodies | 0.5–0.6 |
+| radiation | a line (the descendants of one species established before the window) with ≥ 6 species newly established in 15 min, ≥ 4 alive, spread over ≥ 3 ways of living (diet, movement, body); a line, not a genus, since a genus is one body plan (docs/naming.md) | 0.6–0.75 |
+| trend | a genus of weight, over 30–50 min: its cells' optimum followed the water by ≥ 5° (the water moving ≥ 4° the same way); its size ×1.3 or ÷1.3; swimming much harder (a genus is one body plan, so none turns to living in bodies: docs/naming.md) | 0.5–0.6 |
 | era | as an era ends: who rose, who fell, the genera of note lost, and its character (a guild's era when that guild's share rose ≥ 0.1; of losses, of new species, flourishing, lean); at most one in 30 min | 0.2–0.75 |
 | aftermath | as an event ends: who slept through it as cysts, who flourished, who lost most of its cells, the species of weight it took | 0.55–0.85 (forced) |
 | heat | as a heat wave ends: the cells it scalded (≥ 3% of the living) and the species worst hit; a cold snap's cysts | 0.45–0.7 |
