@@ -43,9 +43,19 @@ draw. The buffer has `min(n, 2^20)` slots of `SWAY_BYTES`: only cells in view ne
 | Cyst / waking | It curls up by degrees: its outline rounds into a disc of the same area and stops flowing, its wall thickens, it grays; waking reverses it (`SLEEP_T`). A cell woken in view does not flash as a birth. | `cellOutline` (`rest`), `spriteOf` |
 | Husk eaten or rotted away | It shrinks and fades into the grain of silt it leaves (`EATEN_T`). | `spriteOf` |
 | Husk with no death seen (dung, or out of view) | It swells into view. | `spriteOf` |
+| Stone worn away (or a spent framboid) | It cracks into a handful of shards (cells about points spread over its outline) that slump apart, tip and turn, then crumble raggedly from their rims into dust that settles and fades, the middle shard shrinking into the chip of silt it leaves (`CRUMBLE_T`). Seen from afar, the grain shrinks into silt. | `crumbleColor` |
 
 A ghost needs the record from when the cell was alive, so a cell that died before it came into view
 just shows its husk swelling in.
+
+Stone needs no record: a grain worn away becomes silt in place, which keeps the grain's color and id (so its kind,
+size and turn), the cause (7, or 13 for a framboid), whether it was reef (`CRUMB_REEF`, the role's bit, which silt has
+no use for; set in `matterMain`) and its age since. The shards are drawn on that silt in the point pass. The main view
+serves stone from a cache lit every half second while the world runs (docs/look.md, Stone), so a grain stays whole
+there for a moment after it is gone: the engine passes the cache's last eight lightings (`View.crumble`, when each was
+drawn and lit), and `crumbleAt` hides the shards while the cache still shows the grain and starts them when the cache
+that let it go was lit. Grain and shards are never both drawn, nor neither. The loupe and the close-up draw stone each
+frame and start at once. A grain lying under others crumbles over them (the points are drawn over all stone).
 
 ## Filming
 

@@ -16,7 +16,7 @@ const POST_LAMP = 104 + 4 * SEA_CASCADES;
 // the look's words (Post.look, src/look.js) after the hand's
 export const POST_LOOK = POST_LAMP + 16;
 // the draw's view uniforms (struct View in DRAW_WGSL), the world's light at their end
-export const VIEW_BYTES = 224;
+export const VIEW_BYTES = 288;
 // then the murk's cameras (Post.murk, murkB: _murkCam)
 const POST_MURK = POST_LOOK + LOOK_WORDS;
 // then the water's edge's phases (Post.edgePh)
@@ -112,8 +112,10 @@ const REAL_WRAP = 4096;
 // The draw's view uniforms (struct View in DRAW_WGSL) into data (VIEW_BYTES): the view (cam, its size in pixels W × H,
 // dpr, the real time, the selected cell, whether cells show their insides, culled, splat, lit, split) and the world it shows
 // (w: its grid, the exposure, the focus, the pool's level, interiors, the tide and its phases, the season, the open
-// water's light, the sky, the simulated clock, the hand's lamp). Engine._writeView, and the card page's studio.
-export function viewWords(data, K, { cam, W, H, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false, split = false }, w) {
+// water's light, the sky, the simulated clock, the hand's lamp; crumble: how long ago in sim time the stone cache the view is
+// served from was drawn and lit, its last eight lightings newest first, for grains crumbling, crumbleAt; none where stone is
+// drawn every frame). Engine._writeView, and the card page's studio.
+export function viewWords(data, K, { cam, W, H, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false, split = false, crumble = null }, w) {
   const ppu = cam.ppu;
   // a cell keeps one world size at every zoom, so zooming in only resolves it
   const pointSize = Math.max(1.1 * dpr, 0.085 * ppu);
@@ -144,6 +146,8 @@ export function viewWords(data, K, { cam, W, H, dpr, time, selId, detail = true,
   v.set(w.tide, 28); v.set(w.tidePh, 44);
   v[48] = w.season; v[49] = w.ambient; v[50] = w.sky; v[51] = w.t;
   v.set(w.hand.subarray(0, 4), 52);
+  v.fill(1e9, 56, 72);
+  if (crumble) v.set(crumble.slice(0, 16), 56); else v[56] = -1;
 }
 
 class Engine {
@@ -2957,9 +2961,9 @@ class Engine {
   }
 
   // detail: resolve cells as they grow on screen (false keeps the distant sprite at every zoom)
-  _writeView(buf, data, cam, W, H, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false, split = false) {
+  _writeView(buf, data, cam, W, H, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false, split = false, crumble) {
     const clk = this._clock();
-    viewWords(data, this.K, { cam, W, H, dpr, time, selId, detail, culled, splat, lit, split }, {
+    viewWords(data, this.K, { cam, W, H, dpr, time, selId, detail, culled, splat, lit, split, crumble }, {
       grid: this.grid, exposure: this.settings.exposure, focus: this.focus, level: this.K.pond ? this.level : 1,
       interiors: this.fx.interiors, tide: this.tide, tidePh: clk.tidePh, season: this.season, ambient: this.ambient,
       sky: this.K.pond ? this.sky : 1, t: clk.t, hand: this.hand });
@@ -3161,7 +3165,21 @@ class Engine {
     // full and bare point pipelines have landed (_compileLate): the lean one drawing in their place would draw the
     // full one's count of a list it does not read, and none of the cells resolved past interiorLOD
     const listed = !plain && !splat && this.settings.nodes && !!this.sceneBG[0].point && !!this.sceneBG[0].pointBare;
-    this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId, lod, culled[0], listed ? -1 : splat, true);
+    // The stone cache: lit at once when the view or a setting leaves it stale; lit again where it is every so often
+    // while the world runs, over three frames (the top bands, the rest and the edges, then the light), which the view
+    // reads only once lit: at once, an M1 spent about 1.8 ms more on that frame twice a second (now 1.2, then less).
+    // Decided before the view is written: a grain worn away is drawn crumbling only once the cache it is read from
+    // lets it go (crumbleAt), from when it was drawn (the first part) and lit.
+    const stale = this._stoneStale(cam, W, H, selId, realT);
+    if (stale === 2) this._stonePart = 0;
+    else if (stale === 1 && !this._stonePart) this._stonePart = 1;
+    const stonePart = stale === 2 || this._stonePart ? (stale === 2 ? 0 : this._stonePart) : -1;
+    const lit = (this._stoneLit ??= []);
+    if (lit.length && lit[0].drawn > this.simTime) lit.length = 0; // (a new world's clock)
+    if (stonePart === 0 || stonePart === 1) this._stoneDrawnAt = this.simTime;
+    if (stonePart === 0 || stonePart === 3) { lit.unshift({ drawn: this._stoneDrawnAt, lit: this.simTime }); lit.length = Math.min(lit.length, 8); }
+    const crumble = lit.flatMap((c) => [Math.min(1e8, this.simTime - c.drawn), Math.min(1e8, this.simTime - c.lit)]);
+    this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId, lod, culled[0], listed ? -1 : splat, true, false, crumble);
     if (listed) {
       d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0]));
       d.queue.writeBuffer(this.b.smallArgs, 0, new Uint32Array([4, 0, 0, 0]));
@@ -3323,14 +3341,9 @@ class Engine {
       if (this.tubeN && this.tubeBG) { pass.setPipeline(this.main.tube); pass.setBindGroup(0, this.tubeBG); pass.draw(4, this.tubeN); }
       pass.end();
     }
-    // The stone cache: lit at once when the view or a setting leaves it stale; lit again where it is every so often
-    // while the world runs, over three frames (the top bands, the rest and the edges, then the light), which the view
-    // reads only once lit: at once, an M1 spent about 1.8 ms more on that frame twice a second (now 1.2, then less)
-    const stale = this._stoneStale(cam, W, H, selId, realT);
-    if (stale === 2) this._stonePart = 0;
-    else if (stale === 1 && !this._stonePart) this._stonePart = 1;
-    if (stale === 2 || this._stonePart) {
-      const [cw, ch] = this.stoneSize, part = stale === 2 ? 0 : this._stonePart;
+    // (the stone cache, as decided above)
+    if (stonePart >= 0) {
+      const [cw, ch] = this.stoneSize, part = stonePart;
       if (part < 3) {
         this._writeView(this.b.viewC, this.viewDataC, this.stoneCam, cw, ch, dpr, time, selId, lod);
         this._drawStone(enc, this.stoneView, this.bgStone, part);
