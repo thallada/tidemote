@@ -2696,7 +2696,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     let cal = null, calUntil = 0, calTimer = 0, calHeld = false;
     const calShown = () => calHeld || performance.now() < calUntil;
     // i18n: Settings → Display → Color, beside the Highlights slider's guide: how to use it while shown, and how to show it
-    const calWords = () => (calShown() ? tr('settings.display.hdr-calibrate', 'Raise highlights until the inner gray disk disappears into the white circle') : tr('settings.display.hdr-calibrate-idle', 'Hold the highlights slider to show the guide'));
+    const calWords = () => (calShown() ? tr('settings.display.hdr-calibrate', 'Raise highlights until the inner gray disk disappears into the white circle') : tr('settings.display.hdr-calibrate-idle', 'Hold the highlights slider to show the test pattern'));
     const drawCal = () => {
       const cv = $('hdr-cal');
       if (!cv) return;

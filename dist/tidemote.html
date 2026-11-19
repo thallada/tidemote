@@ -40964,7 +40964,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const peakWords = (p2) => tr("settings.display.hdr-peak-x", "{x}×", { x: +p2.toFixed(p2 < 10 ? 1 : 0) });
       let cal = null, calUntil = 0, calTimer = 0, calHeld = false;
       const calShown = () => calHeld || performance.now() < calUntil;
-      const calWords = () => calShown() ? tr("settings.display.hdr-calibrate", "Raise highlights until the inner gray disk disappears into the white circle") : tr("settings.display.hdr-calibrate-idle", "Hold the highlights slider to show the guide");
+      const calWords = () => calShown() ? tr("settings.display.hdr-calibrate", "Raise highlights until the inner gray disk disappears into the white circle") : tr("settings.display.hdr-calibrate-idle", "Hold the highlights slider to show the test pattern");
       const drawCal = () => {
         const cv = $2("hdr-cal");
         if (!cv) return;

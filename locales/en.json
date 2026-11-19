@@ -436,7 +436,7 @@
   "settings.display.wide-vivid": "Vivid",
   "settings.display.hdr-peak-x": "{x}×",
   "settings.display.hdr-calibrate": "Raise highlights until the inner gray disk disappears into the white circle",
-  "settings.display.hdr-calibrate-idle": "Hold the highlights slider to show the guide",
+  "settings.display.hdr-calibrate-idle": "Hold the highlights slider to show the test pattern",
   "settings.audio.playback": "Playback",
   "settings.audio.soundtrack": "Soundtrack",
   "settings.audio.volume": "Volume <kbd>− =</kbd>",
