@@ -107,7 +107,15 @@ Highlights starts at 2×. No web API tells a display's headroom, nor its brightn
   white is the *SDR content brightness* slider's.
 - **macOS** (Chrome, the desktop app): EDR; the headroom changes with the display's brightness (more at lower
   brightness), so calibrate at the brightness usually used.
-- **Android** Chrome on HDR phones: the same path, HDR off by default (touch screens).
+- **Android** Chrome on HDR phones: the same path, HDR off by default (touch screens). Known issue (Chrome 157,
+  Pixel 11 Pro, measured 2026-11-18): with the float canvas shown Chrome asks for about 4.9× headroom whatever the
+  page uses; Android raises the panel (up to about 4.5×, by the brightness) and dims every other SDR layer, but leaves
+  Chrome's page layer (`V0_SCRGB`, white point at the panel's full brightness) undimmed, so the whole page, panels
+  too, shows brighter and black reads grey. The page's values reach the compositor unchanged (screen captures are
+  identical either way; only an eye sees it), and no web API tells the boost to compensate for, so the page leaves
+  it to Chrome. To check a newer Chrome: switch HDR on and off on a dark view and compare the page's black with
+  Chrome's address bar (`adb shell dumpsys SurfaceFlinger` shows the page layer's dataspace, white point and
+  dimming ratio).
 - **Linux** (and the Steam Deck): Chromium's HDR there is experimental; `(dynamic-range: high)` is false and the page
   stays SDR. Wide color follows `(color-gamut: p3)`.
 - Safari and Firefox: the page uses HDR only where the browser reports it takes `toneMapping` (`displayCaps` configures
