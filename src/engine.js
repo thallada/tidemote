@@ -1342,7 +1342,8 @@ class Engine {
     const cells = this.grid[0] * this.grid[1];
     const rockR = mix(1.2, 3.0, rng());
     const cover = rng() ** 1.5 * 0.08 * this.K.rocks;
-    this.rock.set([Math.min(256, Math.round((cover * cells) / (10 * rockR * rockR))), rockR, 0, 0]);
+    // z: the world's own seed for fields that last (reefGround; sim.seed changes every step), 24 bits a float keeps exactly
+    this.rock.set([Math.min(256, Math.round((cover * cells) / (10 * rockR * rockR))), rockR, this.seedValue >>> 8, 0]);
 
     const gbuf = new ArrayBuffer(MAXK * G_BYTES);
     const gu = new Uint32Array(gbuf);

@@ -16,7 +16,7 @@ function fieldStats({ temp, ice }, tbg) {
   return { mean, sd: Math.sqrt(Math.max(0, sq / n - mean * mean)), p99: d[Math.floor(0.99 * (n - 1))], max: d[n - 1], min: d[0], hotFrac: hot / n, coldFrac: cold / n, ice: frozen / n };
 }
 
-export async function runHeadless(device, config, { print, width = 640, height = 360, snapshot } = {}) {
+export async function runHeadless(device, config, { print, width = 640, height = 360, snapshot, tap } = {}) {
   const originalRandom = Math.random;
   const errors = [];
   const onError = (e) => errors.push(e.error.message);
@@ -195,6 +195,8 @@ export async function runHeadless(device, config, { print, width = 640, height =
       }
       eng.frame({ target: null, simDt: dt, time: f * dt });
       checkErrors();
+      // tap: { every: frames, fn(eng, f) }, a tool's look at the world as it runs (tools/reeflab.mjs)
+      if (tap && (f + 1) % tap.every === 0) await tap.fn(eng, f + 1);
     }
     while (eng.censusStage.some((s) => s.busy)) {
       checkErrors();

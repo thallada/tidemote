@@ -31,9 +31,10 @@ bindings of those buffers (`thermal` read-only with the heat accumulators moved 
 `stoneCells` an alias of `stoneGrid`) and the pond and flow sampled once per particle brought `matterMain`
 at low water from 6.9 to 1.4 ms and the step to 10.6 ms either way. Never `atomicLoad` a field many
 threads read: bind it read-only. And the level now settles exactly at 1 after a low era (it crept
-toward it for minutes before, keeping the shore's work on). Reef wear walks its 9×9 neighborhood every
+toward it for minutes before, keeping the shore's work on). Reef wear walked its 9×9 neighborhood every
 eighth frame by runs of 64 particles (whole warps skip it together), eight frames' worth: `matterMain`
-1.15 → 0.66 ms at 4M.
+1.15 → 0.66 ms at 4M. (The walk is gone since 2026-11-19: reef wear now reads what the ground holds, a few noise
+lookups, on the same eighth-frame schedule.)
 
 Life fills a world within a couple of simulated minutes (30 to 70% of particles living after that),
 so the cost the page calibrates against at start is close to the mature one; it then swings with

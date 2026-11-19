@@ -273,9 +273,15 @@ export const DEFAULT_K = {
   wearLoose: 3,     // how fast a loose grain of reef stone wears, relative to stoneLife...
   wearPacked: 0.3,  // ...and a grain packed into a reef...
   packedAt: 8,      // ...with this many grains in its grid cell
-  regionWear: 30,   // extra wear on reef stone whose neighborhood (cells within regionR) holds more than...
-  regionR: 4,
-  regionCap: 2.0,   // ...this many reef grains per cell on average: reefs grow as separate patches
+  // How much reef the ground holds: each world's ground takes reefs well in lobes of warped noise (reefGround cells
+  // across), as its bedrock lies, and poorly between them. A cell of reef holds up to reefDense grains where the ground
+  // is best, thinning from reefGood toward reefFloor's share anywhere; grains beyond that wear fast, so reefs grow
+  // into outcrops of the ground's shape wherever calcifiers settle on it, and at most the good ground fills.
+  reefGround: 14,   // cells across the lobes
+  reefDense: 14,    // grains a cell of the best ground holds
+  reefGood: 0.4,    // ground (-1 to 1) above which it holds more than the floor
+  reefFloor: 0.15,  // share of reefDense any ground holds: loose rubble wherever calcifiers die
+  reefOver: 4,      // wear added per grain over what the ground holds (× stoneLife's rate)
   rocks: 0.5,       // scales each world's bedrock outcrops (0: none)
   stoneR: 0.32,     // distance within which stone pushes cells away
   stoneWall: 5.0,   // how hard stone pushes (scaled down for calcifiers, which settle on it)
@@ -1478,9 +1484,6 @@ export const senseWords = (K) => (K.diag ? 40 : 34);
 // dp4a: the WGSL language feature packed_4x8_integer_dot_product is available; lifeWG: the workgroup size of
 // the passes over the living list (contactMain, bondBackMain, senseMain, lifeMain, bodyTick), which the list is padded to
 export function simWGSL(K, { dp4a = false, lifeWG = 128 } = {}) {
-  // reef stone's neighborhood: a disc of the square's area (side 2 regionR + 1), in cells, and its reach
-  const REGION_DISC = (2 * (K.regionR | 0) + 1) / Math.sqrt(Math.PI);
-  const REGION_REACH = Math.ceil(REGION_DISC + 0.5);
   return commonWGSL(K) + /* wgsl */ `
 // Coarse steps (sim.ticks > 1) run lifeMain and mindMain as pipelines of their own (lifeMainCoarse):
 // a 1/60 s step's leaves out everything only a coarse step needs, which saves it registers.
@@ -2238,20 +2241,28 @@ fn newId() -> u32 {
 }
 // Smooth noise over the world, 0..1, its lattice about size across and a whole number of cells across each side (so it
 // wraps with the world), drawn from the world's seed and salt.
-fn rockGrad(c: vec2f, f: vec2f, cells: vec2f, salt: u32) -> f32 {
+fn rockGrad(c: vec2f, f: vec2f, cells: vec2f, seed: u32, salt: u32) -> f32 {
   let m = vec2u(c - cells * floor(c / cells));
-  let h = f32(pcg(sim.seed ^ pcg(m.x * 7919u + m.y * 104729u + salt)) >> 8u) / 16777216.0;
+  let h = f32(pcg(seed ^ pcg(m.x * 7919u + m.y * 104729u + salt)) >> 8u) / 16777216.0;
   return dot(vec2f(h, fract(h * 37.17)) * 2.0 - 1.0, f) * 1.3;
 }
-fn rockNoise(p: vec2f, size: f32, salt: u32) -> f32 {
+fn rockNoise(p: vec2f, size: f32, seed: u32, salt: u32) -> f32 {
   let cells = max(vec2f(1.0), round(sim.world / size));
   let q = p / sim.world * cells;
   let c = floor(q);
   let f = q - c;
   let w = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
-  let n = mix(mix(rockGrad(c, f, cells, salt), rockGrad(c + vec2f(1.0, 0.0), f - vec2f(1.0, 0.0), cells, salt), w.x),
-    mix(rockGrad(c + vec2f(0.0, 1.0), f - vec2f(0.0, 1.0), cells, salt), rockGrad(c + vec2f(1.0, 1.0), f - vec2f(1.0, 1.0), cells, salt), w.x), w.y);
+  let n = mix(mix(rockGrad(c, f, cells, seed, salt), rockGrad(c + vec2f(1.0, 0.0), f - vec2f(1.0, 0.0), cells, seed, salt), w.x),
+    mix(rockGrad(c + vec2f(0.0, 1.0), f - vec2f(0.0, 1.0), cells, seed, salt), rockGrad(c + vec2f(1.0, 1.0), f - vec2f(1.0, 1.0), cells, seed, salt), w.x), w.y);
   return clamp(0.5 + 0.9 * n, 0.0, 1.0);
+}
+// How well the ground at p takes a reef, -1 to 1 (K.reefGround): lobes of warped noise about reefGround cells
+// across, frayed by a finer octave, drawn from the world's own seed (sim.rock.z: sim.seed changes every step).
+fn reefGround(p: vec2f) -> f32 {
+  let L = ${f(K.reefGround)};
+  let seed = u32(sim.rock.z);
+  let w = p + (vec2f(rockNoise(p, 0.7 * L, seed, 21u), rockNoise(p, 0.7 * L, seed, 22u)) - 0.5) * 1.2 * L;
+  return 2.0 * smoothstep(0.25, 0.75, 0.7 * rockNoise(w, L, seed, 23u) + 0.3 * rockNoise(w, 0.35 * L, seed, 24u)) - 1.0;
 }
 // Bedrock: the chance a grain of the founding mud at p is bedrock. sim.rock.x outcrops, each about a wandering chain of
 // five discs of radius about sim.rock.y, as it was laid down rather than cut out: the chain's outline warped and
@@ -2259,7 +2270,7 @@ fn rockNoise(p: vec2f, size: f32, salt: u32) -> f32 {
 // sparser in patches within.
 fn rockChance(p: vec2f) -> f32 {
   let R = sim.rock.y;
-  let w = p + (vec2f(rockNoise(p, 1.6 * R, 1u), rockNoise(p, 1.6 * R, 2u)) - 0.5) * 2.2 * R;
+  let w = p + (vec2f(rockNoise(p, 1.6 * R, sim.seed, 1u), rockNoise(p, 1.6 * R, sim.seed, 2u)) - 0.5) * 2.2 * R;
   var field = -9.0; // 1 at a disc's middle, 0 at its edge
   for (var b = 0u; b < u32(sim.rock.x); b++) {
     var s = pcg(sim.seed ^ pcg(b * 7919u + 17u));
@@ -2275,7 +2286,7 @@ fn rockChance(p: vec2f) -> f32 {
       c += vec2f(cos(a), sin(a)) * r * 1.3;
     }
   }
-  return smoothstep(-0.4, 0.15, field + 0.65 * (rockNoise(p, 0.6 * R, 3u) - 0.5)) * (0.55 + 0.45 * smoothstep(0.3, 0.7, rockNoise(p, 0.45 * R, 4u)));
+  return smoothstep(-0.4, 0.15, field + 0.65 * (rockNoise(p, 0.6 * R, sim.seed, 3u) - 0.5)) * (0.55 + 0.45 * smoothstep(0.3, 0.7, rockNoise(p, 0.45 * R, sim.seed, 4u)));
 }
 
 // ---------------------------------------------------------------- seeding
@@ -2677,8 +2688,8 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
   if (p.kind == STONE || p.kind == FRAMBOID) {
     // stone stays put and wears away; its energy is the time it has left. Reef stone (bedrock has cause 0)
     // wears by its surroundings: loose grains fast and grains packed into a reef slowly, so rubble clears
-    // and reefs stay solid, but a neighborhood that is mostly reef wears fast (waves and borers on a reef
-    // flat), so reefs grow as separate patches about as wide as that neighborhood.
+    // and reefs stay solid, and grains beyond what the ground holds wear fast, so reefs take the shape of the
+    // ground that takes them (reefGround).
     var wear = 1.0;
     let framboid = p.kind == FRAMBOID;
     if (framboid) {
@@ -2687,33 +2698,20 @@ fn matterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
       // and oxidizes faster the warmer its water, so a crowded, hot cluster burns itself out
       wear = pow(2.0, (heatSample(p.pos).x - TREF) / 10.0);
     } else if ((p.info & 15u) != 0u) {
-      // both read the grid smoothly around the grain itself (bilinear between cell centers, and a round
-      // neighborhood weighted by distance), not by the grid cell it sits in: counted cell by cell, a reef
-      // lasted only when it fit inside one cell, and the square neighborhood spaced reefs on a square
-      // lattice along the grid's axes
+      // the grid read smoothly around the grain itself (bilinear between cell centers), not by the grid cell it
+      // sits in: counted cell by cell, a reef lasted only when it fit inside one cell
       let u = p.pos - 0.5;
       let i0 = vec2i(floor(u));
       let t = u - floor(u);
       let here = mix(mix(reefCell(i0.x, i0.y), reefCell(i0.x + 1, i0.y), t.x),
         mix(reefCell(i0.x, i0.y + 1), reefCell(i0.x + 1, i0.y + 1), t.x), t.y);
-      var region = 0.0;
-      var area = 0.0;
-      // the neighborhood is walked every eighth frame, its wear eight frames' worth: by runs of 64
-      // particles, so whole warps skip the walk together
-      let regionDue = ((sim.frame + (i >> 6u)) & 7u) == 0u;
-      if (${f(K.regionWear)} > 0.0 && regionDue) {
-        // a disc as large as the square of side 2 regionR + 1 it replaces, its rim a cell wide
-        let rr = ${f(REGION_DISC)};
-        let c = vec2i(floor(p.pos));
-        for (var dy = -${REGION_REACH}; dy <= ${REGION_REACH}; dy++) {
-          for (var dx = -${REGION_REACH}; dx <= ${REGION_REACH}; dx++) {
-            let w = 1.0 - smoothstep(rr - 0.5, rr + 0.5, length(vec2f(c + vec2i(dx, dy)) + 0.5 - p.pos));
-            if (w > 0.0) { region += w * reefCell(c.x + dx, c.y + dy); area += w; }
-          }
-        }
+      wear = mix(${f(K.wearLoose)}, ${f(K.wearPacked)}, smoothstep(2.0, ${f(K.packedAt)}, here));
+      // what the ground here holds (reefGround): grains beyond it wear fast, dense where the ground is best and thinning
+      // to rubble. Every eighth frame, eight frames' worth, by runs of 64 particles so whole warps skip it together
+      if (((sim.frame + (i >> 6u)) & 7u) == 0u) {
+        let holds = ${f(K.reefDense)} * mix(${f(K.reefFloor)}, 1.0, smoothstep(${f(K.reefGood)}, 1.0, reefGround(p.pos)));
+        wear += 8.0 * ${f(K.reefOver)} * max(0.0, here - holds);
       }
-      wear = mix(${f(K.wearLoose)}, ${f(K.wearPacked)}, smoothstep(2.0, ${f(K.packedAt)}, here))
-        * (1.0 + 8.0 * ${f(K.regionWear)} * max(0.0, region / max(area, 1.0) / ${f(K.regionCap)} - 1.0));
     }
     p.energy -= sim.dt * wear;
     p.age += sim.dt;

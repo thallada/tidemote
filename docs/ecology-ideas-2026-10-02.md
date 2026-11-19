@@ -241,7 +241,7 @@ matter and the worst 55%, highest in sessile-heavy worlds. Tried, on 131k × 60 
 - **Plus a regional brake** (reef stone wears faster when its 9×9-cell neighborhood holds more than 2
   reef grains per cell on average): short-range help and long-range inhibition, the recipe for patterns
   with a characteristic size. Reefs grow as separate patches. With the brake at ×4 it was too soft (worst
-  peak 48%); at ×30 it holds.
+  peak 48%); at ×30 it holds. (Replaced on 2026-11-19 by the ground below: it spaced reefs as a lattice.)
 - **Calcifiers settle on stone**: the wall's push is scaled by `1 − calcify`, so builders live on their
   own reef and extend it, while everything else goes around. Without this each reef stayed colony-sized.
 
@@ -251,3 +251,31 @@ matter and the worst 55%, highest in sessile-heavy worlds. Tried, on 131k × 60 
 | packing + regional brake ×30 + settling (adopted) | 16% | 23% | 75% | 0 |
 
 The 32k gate passes against the previous stone rules (food web 47% → 56%, effective species 80 → 89).
+
+### Reefs shaped by the ground (2026-11-19)
+
+The regional brake bounded stone but drew it as a lattice: every reef a round island of 50-150 grains, about
+2 `regionR` apart (nearest-neighbour spacing CV 0.2-0.3, where scattered points give 0.5), because short-range help
+and long-range inhibition make spots of one size. Packing alone rounds each reef too (loose edge grains wear 10× faster
+than packed ones, like surface tension). The brake is gone (`regionWear`, `regionR`, `regionCap` removed) and the ground bounds reefs instead:
+each world draws lobes of warped noise (`reefGround`, 14 cells across; `reefGround()` in `src/shaders.js`, seeded by
+the world's own seed in `sim.rock.z`, since `sim.seed` changes every step) and a cell of reef holds up to `reefDense`
+14 grains (about bedrock's density) where the ground is best, from `reefGood` 0.4 down to `reefFloor` 0.15 of that
+anywhere; grains beyond it wear fast (`reefOver`). Reefs grow into outcrops of the ground's shape wherever calcifiers
+settle on it, with rubble around them, and at most the good ground (about a sixth of the area) fills: about as much
+as the brake allowed (2 grains per cell over the world against 14 over a sixth). It is local, and cheaper than the
+brake's 13 × 13 walk.
+
+Checked with `tools/reeflab.mjs` (positions of reef, bedrock and calcifiers as a world runs) and `tools/reeflab.py`
+(maps, patch sizes, spacing and outline; `--summary` pools a run's worlds):
+
+| 131k × 60 min (step 4), 12 worlds | peak stone, mean | worst | patch size CV | patches > 300 grains | outline |
+| --- | --- | --- | --- | --- | --- |
+| regional brake | 3.6% | 8.6% | 0.86 | 1% | 1.97 |
+| ground (adopted) | 2.8% | 9.5% | 3.41 | 13% | 2.75 |
+
+Tried first: scaling the brake's cap by the ground (spacing no longer regular, but reefs still round discs); a ground
+that let best lobes hold 16 grains from ground 0 up (one world in four filled its good ground, 24% of the area and 15%
+of matter, and a calcifier boom briefly overshot to 18%); 12 grains (loose and grainy). Reef amounts swing hugely
+between worlds with calcifier booms, so compare 8+ worlds over an hour, not a few. The 32k gate passes (no gated metric
+moved).
