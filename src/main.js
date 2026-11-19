@@ -42,10 +42,17 @@ import { studioPortrait } from './studiorender.js';
 import { encodeImages, encodeBytes } from './encode.js';
 import { KNOBS, decide, costOf, adaptation, judge, holdAfter, slowerFirst, fasterFirst } from './tuner.js';
 import { trackGlass } from './glass.js';
-import { isRideKey, keyWay, pointerWay, createThrottle, stepThrottle, throttleGrip, createRideCam, stepRideCam, willSpeed } from './ride.js';
+import { keyWay, pointerWay, createThrottle, stepThrottle, throttleGrip, createRideCam, stepRideCam, willSpeed } from './ride.js';
 import { createCabinetStore, encodeCard, decodeCard, cardLink, cardFromHash, cardFromPng, cardIntoPng } from './cabinet.js';
 import { fmt, fmtClock, fmtDur, kfmt, when, esc, cssCol, clamp, term, spLink, saveFile, ROLE, MATTER, LIVING_CSS, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
 import { tr, LOCALE } from './i18n.js';
+import { BTN, matchKey, isMoveKey, zoomKey, ROSE_TOOLS, ROSE_VIEW } from './input/actions.js';
+import { createPads, REPEAT_MS } from './input/pad.js';
+import { createMode, noteInput } from './input/mode.js';
+import { familyOf, FAMILIES, glyph } from './input/glyphs.js';
+import { createFocus, canFocus } from './input/focus.js';
+import { controlsTable } from './input/controls.js';
+import { createRose } from './rose.js';
 import { storeLinks } from './stores.js';
 
 const $ = (id) => document.getElementById(id);
@@ -296,6 +303,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     // the Field Lab's column, open or folded to its header ("world": its name when it was the census)
     labOpen: prefs.labOpen ?? (innerWidth > 1100 && innerHeight > 600),
     closeup: prefs.closeup ?? true,
+    // whose buttons a controller's hints draw: 'auto' (the pad's own) or a family (input/glyphs.js)
+    prompts: prefs.prompts ?? 'auto',
     // the pool's events (docs/catastrophes.md): all on, or off, or some of them
     events: { ...EVENTS_ON(), ...prefs.events },
     songMarks: prefs.songMarks ?? 1, // mark the cells that sing: 0 off, 1 the picked species, 2 all
@@ -362,7 +371,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, focus: state.focus, hdr: dsp.hdr, peak: dsp.peak, wide: dsp.wide, fixed: state.fixed, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+    savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, prompts: state.prompts, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, focus: state.focus, hdr: dsp.hdr, peak: dsp.peak, wide: dsp.wide, fixed: state.fixed, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   // the look (src/look.js, docs/look.md): Darkfield as the Display settings ask, how strong as a whole and how much
@@ -504,12 +513,17 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   // The middle of the part of the screen the panels leave open, as a world offset from the camera:
   // a followed specimen sits there rather than behind the panel.
   function viewOffset() {
+    const [cx, cy] = viewMiddle();
+    const p = cssPPU();
+    return [(innerWidth / 2 - cx) / p, (innerHeight / 2 - cy) / p];
+  }
+
+  // ...that middle on the screen (px): where a controller's reticle sits
+  function viewMiddle() {
     const ins = specInset();
     const top = phone() ? 48 : 52, bot = phone() ? 62 : 56;
     const left = lab && lab.isOpen() && !phone() && state.ui ? labRight() : 0;
-    const cx = (left + innerWidth - ins.right) / 2, cy = (top + innerHeight - Math.max(bot, ins.bottom)) / 2;
-    const p = cssPPU();
-    return [(innerWidth / 2 - cx) / p, (innerHeight / 2 - cy) / p];
+    return [(left + innerWidth - ins.right) / 2, (top + innerHeight - Math.max(bot, ins.bottom)) / 2];
   }
 
   // ------------------------------------------------------------ loupe
@@ -1694,7 +1708,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     if (sel.particle.kind < FIRST_LIFE && !sel.rehome) { endRide('died'); return; }
     const fast = state.speed > 2, live = !fast && !state.paused;
     const [px, py] = predicted(), [W, H] = eng.grid;
-    const way = ride.at ? pointerWay(wrapD(ride.at[0] - px, W), wrapD(ride.at[1] - py, H)) : keyWay(ride.keys);
+    const way = ride.at ? pointerWay(wrapD(ride.at[0] - px, W), wrapD(ride.at[1] - py, H)) : input.way;
     const held = way[0] !== 0 || way[1] !== 0;
     if (fast && held && !ride.warned) { ride.warned = true; flash(tr('flash.ride-too-fast', 'Steering only works at ×2 speed or slower')); }
     if (!fast) ride.warned = false;
@@ -1763,7 +1777,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   }
 
   // (riding: a click on nothing, on matter or on the ridden body does nothing; on another living cell it gets off and selects it)
-  async function selectAt(sx, sy, pxPerWorld, world, riding = false) {
+  // (reach: how far from the point, px, a living cell is taken; a controller's reticle takes them from farther)
+  async function selectAt(sx, sy, pxPerWorld, world, riding = false, reach = 0) {
     if (state.phase !== 'running') return;
     const [wx, wy] = world || toWorldShown(sx, sy);
     const p = pxPerWorld || cssPPU();
@@ -1780,7 +1795,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     // a click anywhere on a cell's body counts, however far in the view is zoomed
     // a stone grain is a cobble ~0.17 across (vsStone), a framboid about half that; other matter is a small chip
     const anyR = bestAny && bestAny.kind === 3 ? 0.17 : bestAny && bestAny.kind === 4 ? 0.09 : 0.05;
-    const touchR = isCoarse ? 30 : 22;
+    const touchR = reach || (isCoarse ? 30 : 22);
     const chosen = bestLife && bl < Math.max(touchR, 0.2 * p) ? bestLife : bestAny && ba < Math.max(isCoarse ? 20 : 14, anyR * p) ? bestAny : null;
     if (riding) {
       if (!chosen || chosen.kind < FIRST_LIFE || !ride.on || !sel || chosen.id === sel.id || sel.members?.has(chosen.id)) return;
@@ -1925,7 +1940,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   // ------------------------------------------------------------ organism tracing
   // One GPU pass copies every cell of the selected species and its bond partner IDs.
   // On the CPU a BFS traces the body through those bonds, treating either direction as a connection.
-  let gatherBusy = false;
+  let gatherBusy = false, gatherN = 0;
   function gatherTick(force) {
     if (!sel || sel.lost || gatherBusy || state.phase !== 'running') return;
     const now = performance.now();
@@ -2631,6 +2646,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       if (EASES[id]) return { text: '', pick: String(tune[EASES[id]].level === 0 ? 0 : rowVal[id]()) };
       // (a Pacing row: the value its knob holds now; the split step, On beside Auto while a step is split)
       if (KNOB_OF[id]) return { text: '', pick: String(KNOBS[KNOB_OF[id]].levels[tune[KNOB_OF[id]].level]) };
+      if (id === 'prompts') return { text: FAMILY_NAME()[padFamily()], pick: '' };
       if (id === 'split') return perf.split ? { text: tr('settings.on', 'On'), pick: '' } : { text: '', pick: 'off' };
       if (id === 'fps') { const f = Math.round(1000 / frameTarget()); return { text: String(f), pick: String([30, 60].find((v) => Math.abs(v - f) <= 3) ?? '') }; }
       // (sos: below Auto lowest, overload's emergency: marked in red)
@@ -2704,6 +2720,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
         + choice('notes', tr('settings.display.annotations', 'Annotations'), '', [[1, tr('settings.display.annotations-auto', 'Auto camera')], [2, tr('settings.display.annotations-always', 'Always')], [0, OFF]], state.notes, 'annotations'))
         + group('view', tr('settings.display.view', 'View'), (isCoarse ? '' : onoff('ui', tr('settings.display.interface', 'Interface'), 'U', state.ui, 'interface'))
         + onoff('closeup', tr('settings.display.closeup', 'Live close-up'), '', state.closeup, 'closeup')
+        // i18n: Settings → Display → Button prompts: whose buttons a controller's hints draw (Auto: the controller's own)
+        + choice('prompts', tr('settings.display.prompts', 'Button prompts'), '', [['auto', tr('settings.auto', 'Auto')], ...FAMILIES.map((f) => [f, FAMILY_NAME()[f]])], state.prompts, 'prompts', 5)
         + onoff('auto', tr('settings.display.auto-idle', 'Auto when idle'), '', state.auto, 'autoidle')
         + (film.supported ? `<div class="opt"><span class="lbl">${term('film', filmL)} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="${filmL}">${film.state === 'idle' ? `<button type="button" class="chip" data-o="film" data-v="now">${tr('settings.display.film-now', 'Start filming')}</button>` : `<button type="button" class="chip" data-o="film" data-v="stop">${tr('settings.display.film-stop', 'Stop filming')}</button>`}</div></div>` : ''));
     }
@@ -2748,7 +2766,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       const m = sound.mix, mix = (k) => choice(`mix-${k}`, SOUND_MIX[k].name, '', SOUND_MIX[k].choices.map(([label], i) => [i, label]), m[k], `audio${k}`);
       const vol = Math.round(sound.volume * 100);
       return group('sound', tr('settings.audio.playback', 'Playback'), onoff('sound', tr('settings.audio.soundtrack', 'Soundtrack'), 'M', sound.on)
-        + `<div class="opt"><span class="lbl">${tr('settings.audio.volume', 'Volume <kbd>− =</kbd>')}</span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${vol}" aria-label="${tr('settings.audio.volume.aria', 'Volume')}"><b id="set-vol-v">${tr('settings.audio.volume-pct', '{pct}%', { pct: vol })}</b></div></div>`
+        + `<div class="opt"><span class="lbl">${tr('settings.audio.volume', 'Volume')}</span><div class="vol-row"><input type="range" id="set-vol" min="0" max="100" step="1" value="${vol}" aria-label="${tr('settings.audio.volume.aria', 'Volume')}"><b id="set-vol-v">${tr('settings.audio.volume-pct', '{pct}%', { pct: vol })}</b></div></div>`
         + mix('background'))
         + group('mix', tr('settings.audio.mix', 'Mix'), ['music', 'cells', 'water', 'tools'].map(mix).join(''))
         + group('character', tr('settings.audio.character', 'Character'), mix('space') + mix('tone'));
@@ -2934,7 +2952,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
         + (globalThis.tidemoteDesktop ? '' : group('desktop', tr('settings.about.desktop', 'Desktop'), `<div class="about"><p>${tr('settings.about.desktop-p', 'Tidemote is also a desktop app, at its best on a computer with a dedicated graphics card.')}</p><div class="stores">${storeLinks()}</div></div>`));
     }
     // the keyboard note, and this tab's reset (which asks first)
-    const keysNote = `<span class="keys-note">${tr('settings.keys-note', 'Keyboard: <kbd>?</kbd> lists every shortcut.')}</span>`;
+    const keysNote = `<button type="button" class="link keys-note" data-open="help">${tr('settings.keys-note', 'Controls: every key and button')}</button>`;
     function foot() {
       if (tab === 'about') return `<div class="set-foot">${keysNote}</div>`;
       // i18n: where saved worlds are kept (Settings → Worlds, at the foot)
@@ -3079,6 +3097,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       else if (id === 'specks') s.specks = !!+v;
       else if (id === 'lod') s.lod = !!+v;
       else if (id === 'closeup') state.closeup = !!+v;
+      else if (id === 'prompts') { state.prompts = v; mode.family = padFamily(); applyMode(); }
       else if (id === 'songmarks') state.songMarks = +v;
       else if (id === 'notes') state.notes = +v;
       else if (id === 'water') { state.water = +v; applyWater(); }
@@ -3200,7 +3219,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     }
     btn.addEventListener('click', () => toggle());
     $('brand').addEventListener('click', () => toggle(true, 'about'));
-    $('set-close').addEventListener('click', () => toggle(false));
+    $('set-close').addEventListener('click', () => { toggle(false); restoreFocus(el); });
     return { render, toggle, readout, adapt, isOpen: () => !el.hidden };
   })();
   // How the page runs on this device, to report it: three seconds of frames timed pass by pass on the
@@ -3255,8 +3274,11 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   if (deskFs) { deskFs.on(showFullscreen); deskFs.get().then(showFullscreen).catch(() => {}); }
   else document.addEventListener('fullscreenchange', () => showFullscreen(!!document.fullscreenElement));
   for (const row of document.querySelectorAll('.tabs')) wireTabRow(row);
-  function toggleHelp(on = $('help').hidden) { $('help').hidden = !on; if (on) view.toggle(false); }
-  $('help-close').addEventListener('click', () => toggleHelp(false));
+  // the Controls dialog: every key and button, from the action table, in the controller family in use
+  function renderHelp() { $('help-keys').innerHTML = controlsTable(padFamily()); }
+  function toggleHelp(on = $('help').hidden) { if (on) renderHelp(); $('help').hidden = !on; if (on) view.toggle(false); }
+  document.addEventListener('click', (e) => { if (e.target.closest?.('[data-open="help"]')) { toggleHelp(true); settle($('help'), true, true); } });
+  $('help-close').addEventListener('click', () => { toggleHelp(false); restoreFocus($('help')); });
   function closeMenus() { view.toggle(false); toggleHelp(false); }
   // The interface hidden (U, or Display → Interface; U or Esc brings it back): only the world shows.
   // The loupe still follows the mouse (it has its own setting) and the auto camera still films, without
@@ -3850,6 +3872,336 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     zoomedByHand();
   }, { passive: false });
 
+  // ------------------------------------------------------------ keys and controllers (docs/controller.md)
+  // One table (input/actions.js) says what each key and each pad button does; act() does it, so a key, a button and
+  // the Controls dialog cannot disagree. Held keys and the sticks move the camera (or steer a ride) and zoom each
+  // frame (driveInput); the pad is read once a frame (input/pad.js). mode (input/mode.js) says whose names the
+  // hints show and what points: the mouse, a finger, or the pad's reticle at the view's middle.
+  const mode = createMode({ coarse: isCoarse });
+  const pads = createPads();
+  const nav = createFocus();
+  const zoomHeld = new Map(); // a zoom key held, by its code: its direction
+  const input = { way: [0, 0], stickNav: null, apply: null, lastTool: 'loupe' };
+  // the panels a controller's focus moves within (focus.js remembers each one's last control)
+  for (const id of ['intro', 'card', 'help', 'settings', 'ladder', 'bench', 'held', 'spec', 'lab', 'dock', 'rail']) $(id).dataset.navRoot = '';
+  const rose = createRose($('rose'));
+  // the controller family the hints draw: the viewer's choice (Settings → Display → Button prompts), else the pad's own
+  // i18n: the controller families' names (Settings → Display → Button prompts); hardware makers' names, kept as such
+  const FAMILY_NAME = () => ({ xbox: tr('prompts.xbox', 'Xbox'), ps: tr('prompts.ps', 'PlayStation'), switch: tr('prompts.switch', 'Switch'), deck: tr('prompts.deck', 'Steam Deck') });
+  let onDeck = false;
+  desk?.deck?.().then((v) => { onDeck = !!v; }).catch(() => {});
+  const padFamily = () => (FAMILIES.includes(state.prompts) ? state.prompts : familyOf(pads.id, { steamDeck: onDeck }));
+  // A text field a controller presses A on (a card's name, a world's, a search): in the desktop app on Steam, Steam's
+  // floating keyboard opens clear of it and types into it (only in Big Picture and the Deck's Game Mode; elsewhere
+  // Steam+X opens it by hand). A browser has no keyboard to call.
+  const isText = (t) => t.matches?.('input:not([type=range], [type=checkbox], [type=radio], [type=file], [type=button]), textarea');
+  function typeInto(t) {
+    t.focus();
+    if (!desk?.keyboard) return;
+    const r = t.getBoundingClientRect(), d = devicePixelRatio || 1;
+    desk.keyboard({ x: r.left * d, y: r.top * d, w: r.width * d, h: r.height * d }).catch(() => {});
+  }
+  function applyMode() {
+    const b = document.body.dataset;
+    b.glyphs = mode.glyphs; b.pad = mode.family; b.pointer = mode.pointer;
+    if (!$('help').hidden) renderHelp();
+    tips.refresh?.();
+  }
+  addEventListener('keydown', (e) => { if (noteInput(mode, { kind: 'key', key: e.key })) applyMode(); }, true);
+  addEventListener('pointerdown', (e) => { if (noteInput(mode, { kind: 'pointer', type: e.pointerType })) applyMode(); }, true);
+  addEventListener('wheel', () => { if (noteInput(mode, { kind: 'wheel' })) applyMode(); }, { capture: true, passive: true });
+  addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse' && noteInput(mode, { kind: 'move', d: Math.abs(e.movementX) + Math.abs(e.movementY) })) applyMode(); }, true);
+  applyMode();
+
+  // The middle of the part of the screen the panels leave open, where the pad's reticle sits (screen px)
+  const aim = () => viewMiddle();
+  const introUp = () => !introHidden && !$('intro').classList.contains('gone');
+  // The panel a pad's presses go to, if any: the intro while it waits, a dialog or float that is open, else the panel
+  // that has focus. None: the world.
+  function padRoot() {
+    if (introUp()) return $('intro');
+    if (cards.isOpen()) return $('card');
+    if (!$('help').hidden) return $('help');
+    if (view.isOpen()) return $('settings');
+    if (ladder.isOpen()) return $('ladder');
+    const a = document.activeElement;
+    return a && a !== document.body && a !== canvas ? a.closest('[data-nav-root]') : null;
+  }
+  const padCtx = () => (rose.shown ? 'rose' : padRoot() ? 'panel' : ride.on ? 'ride' : inHand() ? 'tool' : 'world');
+  // the side panel Y goes into: the specimen's, the Lab, the bench, else the dock
+  const sidePanel = () => [$('spec'), lab.isOpen() ? $('lab') : null, bench.isOpen() ? $('bench') : null].find((el) => el && !el.hidden) || null;
+
+  // The walk back Esc (and the pad's B) takes, one step a press: the interface shown again, then the ladder closed,
+  // the tool put down, the ride ended, the dialogs and the bench closed, the selection and highlight and map cleared,
+  // and the Lab back along its Lineage and narrowed or closed. Whether it did anything.
+  function back() {
+    if (!state.ui) setInterface(true);
+    else if (ladder.isOpen()) ladder.toggle(false);
+    else if (inHand()) pickTool('none');
+    else if (ride.on) toggleRide(false);
+    else if (!$('help').hidden) { toggleHelp(false); restoreFocus($('help')); }
+    else if (view.isOpen()) { view.toggle(false); restoreFocus($('settings')); }
+    else if (bench.isOpen()) { bench.toggle(false); restoreFocus($('bench')); }
+    else if (sel || spView != null) deselect();
+    else if (focus.key) clearFocus();
+    else if (mapOn()) clearMaps();
+    else if (lab.back()) {} // the Lineage view back the way it came, before the Lab goes back to its census
+    else if (lab.isWide() && !phone()) lab.narrow();
+    else if (lab.isOpen() && phone()) lab.close();
+    else return false;
+    return true;
+  }
+  // a dialog or float the pad has focus in, closed by B (a side panel: focus back to the world)
+  function panelBack() {
+    const root = padRoot();
+    if (!root) return false;
+    if (root === $('intro')) { menu.back(); return true; }
+    if (root === $('card')) cards.close();
+    else if (root === $('help')) toggleHelp(false);
+    else if (root === $('settings')) view.toggle(false);
+    else if (root === $('ladder')) ladder.toggle(false);
+    else if (root === $('bench')) bench.toggle(false);
+    restoreFocus(root);
+    return true;
+  }
+  const flashMap = (i, on, off) => { toggleMap(MAPS[i]); flash(state.map === MAPS[i].id ? on : off); };
+  // a pad entering a panel it opened (keys and pointers leave focus where it was)
+  const enterIfPad = (root, first) => { if (mode.glyphs === 'pad' && root && !root.hidden) nav.enter(root, first); };
+  // A panel just opened, entered by a pad (and a dialog, by a key too: what opened it remembered), or just closed, left
+  // for what opened it (focus never stays in a closed panel)
+  const openers = new Map();
+  function settle(root, open, dialog = false) {
+    if (!open) { restoreFocus(root); return; }
+    if (mode.glyphs !== 'pad' && !dialog) return;
+    const a = document.activeElement;
+    if (a && a !== document.body && !root.contains(a)) openers.set(root, a);
+    nav.enter(root);
+  }
+  function restoreFocus(root) {
+    const a = document.activeElement, was = openers.get(root);
+    openers.delete(root);
+    if (a && a !== document.body && !root.contains(a)) return;
+    if (was?.isConnected && canFocus(was)) was.focus({ preventScroll: true }); else a?.blur?.();
+  }
+
+  /** Carry out an action (actions.js) by its id; how: { key, repeat } for a key. Whether it was handled. */
+  function act(id, how = {}) {
+    if (id.startsWith('tool-')) {
+      // a digit takes up its tool (0: none), or puts down the one in hand; held down past a moment, a tool taken up
+      // is only for as long as it is held
+      if (how.repeat) return true;
+      const tid = id.slice(5);
+      if (how.key) quasi = tid !== hand.tool && tid !== 'none' ? { key: how.key, prev: hand.tool, at: performance.now() } : null;
+      pickTool(tid);
+      return true;
+    }
+    switch (id) {
+      case 'back': return back();
+      case 'lineage-back': return lab.back();
+      case 'pause': togglePause(); return true;
+      case 'slower': stepSpeed(-1); return true;
+      case 'faster': stepSpeed(1); return true;
+      case 'realtime': setSpeed(1); return true;
+      case 'max': setSpeed(Infinity); return true;
+      case 'help': toggleHelp(); settle($('help'), !$('help').hidden, true); return true;
+      case 'ride':
+        if (!sel) return false;
+        if (!ride.on && sel.rideEnded && sel.memory) rideRelative(); else toggleRide();
+        return true;
+      case 'hop':
+        if (sel && !ride.on && sel.rideEnded && sel.memory) { rideRelative(); return true; }
+        if (ride.on) { hopRide(); return true; }
+        return false;
+      case 'trails': trailIdx = (trailIdx + 1) % trailLevels.length; eng.settings.trails = trailLevels[trailIdx]; flash(tr('flash.trails', 'Trails {level, select, 0 {off} 1 {short} 2 {long} other {exposure}}', { level: trailIdx })); persist(); view.render(); return true;
+      // (Y and O turn an effect off as the viewer's choice, and back on as Auto, or at the Microscope's own strength)
+      case 'glow': eng.settings.bloom = eng.settings.bloom > 0 ? 0 : 0.012; fixRow('bloom', !eng.settings.bloom); flash(eng.settings.bloom ? tr('flash.bloom-on', 'Glow on') : tr('flash.bloom-off', 'Glow off')); displayChanged(); return true;
+      case 'look': state.look = state.look ? 0 : lookLast; fixRow('microlook', state.look !== AUTO_VAL.microlook); applyLook(); flash(state.look ? tr('flash.optics-on', 'Microscope on') : tr('flash.optics-off', 'Microscope off')); displayChanged(); return true;
+      case 'map-light': flashMap(0, tr('flash.light-map-on', 'Light map'), tr('flash.light-map-off', 'Light map off')); return true;
+      case 'map-heat': if (!K.heat) return false; flashMap(1, tr('flash.heat-camera', 'Thermal camera'), tr('flash.heat-off', 'Heat map off')); return true;
+      case 'map-tide': flashMap(2, tr('flash.tide-map-on', 'Tide map'), tr('flash.tide-map-off', 'Tide map off')); return true;
+      case 'currents': state.currents = !state.currents; flash(state.currents ? tr('flash.currents-on', 'Currents shown') : tr('flash.currents-off', 'Currents hidden')); persist(); view.render(); return true;
+      case 'bench': bench.toggle(); settle($('bench'), bench.isOpen()); return true;
+      case 'settings': view.toggle(); settle($('settings'), view.isOpen(), true); return true;
+      case 'lab': closeMenus(); lab.toggle(); settle($('lab'), lab.isOpen()); return true;
+      case 'reach-down': case 'reach-up': {
+        const d = id === 'reach-up' ? 1 : -1;
+        if (inHand()) { setReach(reachStep(hand.reach, d), true); return true; }
+        // i18n: the loupe's magnification, {n} times
+        state.loupeMag = clamp(state.loupeMag * (d > 0 ? 1.25 : 1 / 1.25), 1.5, 20); flash(tr('flash.loupe', 'Loupe ×{n}', { n: state.loupeMag.toFixed(1) }));
+        return true;
+      }
+      case 'auto': playAuto(); return true;
+      case 'next-scene': if (!director.active) return false; nextScene(); return true;
+      case 'auto-next': if (director.active) nextScene(); else playAuto(); return true;
+      case 'film': filmAct(); return true;
+      case 'sound': toggleSound(); return true;
+      case 'interface': setInterface(!state.ui); return true;
+      case 'readouts': state.hud = !state.hud; $('hud').classList.toggle('off', !state.hud); document.body.classList.toggle('hud-off', !state.hud); flash(state.hud ? tr('flash.readouts-on', 'Readouts shown') : tr('flash.readouts-off', 'Readouts hidden')); return true;
+      case 'fullscreen': toggleFullscreen(); return true;
+      case 'zoom-reset': takeOver(); cam.zoomTarget = 1; cam.anchor = null; zoomedByHand(); return true;
+      case 'reset-world': {
+        if (state.phase !== 'running') return false;
+        const now = performance.now();
+        if (now - state.confirmReset < 2500) { state.confirmReset = 0; seedWorld(eng.count); sound.overture(); flash(tr('flash.new-world', 'A new world begins')); }
+        else { state.confirmReset = now; flash(tr('flash.reset-confirm', 'Press Shift+R again to discard this world')); }
+        return true;
+      }
+      // the controller's own
+      case 'select': { const [x, y] = aim(); selectAt(x, y, undefined, undefined, false, 40); return true; }
+      case 'apply': case 'apply-alt': padApply(id === 'apply-alt'); return true;
+      case 'swap-tool':
+        if (hand.tool !== 'none') { input.lastTool = hand.tool; pickTool('none'); } else pickTool(input.lastTool || 'loupe');
+        return true;
+      case 'panel': { const p = sidePanel() || $('dock'); return nav.enter(p); }
+      case 'panel-back': return panelBack();
+      case 'activate': {
+        const a = document.activeElement, root = padRoot();
+        if (!root || !a || !root.contains(a) || a === root) return !!root && nav.move(root, 'down');
+        if (isText(a)) typeInto(a); else a.click();
+        return true;
+      }
+      case 'activate-alt': return false;
+      case 'nav-up': case 'nav-down': case 'nav-left': case 'nav-right': { const root = padRoot(); return !!root && nav.move(root, id.slice(4)); }
+      case 'tab-prev': case 'tab-next': { const root = padRoot(); return !!root && nav.tab(root, id === 'tab-next' ? 1 : -1); }
+      case 'help:end': return true; // (the Controls dialog stays open once the button that held it open is let go)
+      case 'rose-tools': openRose('tools'); return true;
+      case 'rose-view': openRose('view'); return true;
+      case 'rose-tools:end': case 'rose-view:end': {
+        const kind = rose.kind, picked = rose.close();
+        if (!picked) return true;
+        if (kind === 'tools') { if (picked !== hand.tool) pickTool(picked); } else act(picked);
+        return true;
+      }
+    }
+    return false;
+  }
+  // The roses: the tools, or the view's toggles, about the reticle (or the view's middle)
+  function openRose(kind) {
+    const [x, y] = aim();
+    const items = kind === 'tools'
+      ? ROSE_TOOLS.map((id) => ({ id, label: esc(toolOf(id).name), icon: `<svg aria-hidden="true"><use href="#i-t-${id}"/></svg>` }))
+      : ROSE_VIEW.map((id) => ({ id, label: esc(viewNames()[id]) }));
+    // i18n: the controller's two roses, named for screen readers
+    rose.open(items, x, y, kind === 'tools' ? tr('rose.tools', 'Tools') : tr('rose.view', 'View'));
+    rose.kind = kind;
+  }
+  let viewNamesMade = null;
+  // i18n: the view rose's choices
+  const viewNames = () => (viewNamesMade ??= { 'map-light': tr('rose.map-light', 'Light map'), 'map-heat': tr('rose.map-heat', 'Heat map'), 'map-tide': tr('rose.map-tide', 'Tide map'),
+    currents: tr('rose.currents', 'Currents'), trails: tr('rose.trails', 'Trails'), glow: tr('rose.glow', 'Glow'), look: tr('rose.look', 'Microscope'), film: tr('rose.film', 'Film') });
+
+  // A tool applied with the pad's button, at the reticle: pressed, held (the stick sweeps it through the water as the
+  // view pans under it) and let go (a tap without moving is the tool's tap: Touch rings the water, the needle pricks)
+  function padApply(alt) {
+    if (state.phase !== 'running' || input.apply) return;
+    const [x, y] = aim(), btn = alt ? BTN.W : BTN.S;
+    input.apply = { btn, t: performance.now(), moved: false, pip: hand.tool === 'pipette' };
+    if (input.apply.pip) pipettePress({ clientX: x, clientY: y, shiftKey: alt });
+    else hand.down(...toWorld(x, y), eng.simTime);
+    takeOver();
+  }
+  function padApplyTick() {
+    const a = input.apply;
+    if (!a) return;
+    const [x, y] = aim();
+    if (pads.state.down[a.btn] >= 0 && inHand()) {
+      if (input.way[0] || input.way[1]) a.moved = true;
+      if (!a.pip) hand.move(...toWorld(x, y));
+      return;
+    }
+    input.apply = null;
+    if (a.pip) pipetteUp();
+    else {
+      if (!a.moved && performance.now() - a.t < 300) tapTool(x, y);
+      hand.up(eng.simTime);
+    }
+  }
+
+  // The pad's legend over the dock (a controller in use): what its buttons do here and now, since a controller never
+  // hovers to find a hint. Built when what it would say changes.
+  let legendKey = '';
+  // i18n: the controller's legend: what each button does in the world, with a tool, riding and in a panel
+  const LEGEND = () => ({
+    select: tr('legend.select', 'Select'), back: tr('legend.back', 'Back'), ride: tr('legend.ride', 'Ride'), panel: tr('legend.panel', 'Panel'),
+    tools: tr('legend.tools', 'Tools'), view: tr('legend.view', 'View'), settings: tr('legend.settings', 'Settings'), lab: tr('legend.lab', 'Lab'),
+    use: tr('legend.use', 'Use'), other: tr('legend.other', 'Other way'), down: tr('legend.down', 'Put down'), reach: tr('legend.reach', 'Reach'),
+    steer: tr('legend.steer', 'Steer'), hop: tr('legend.hop', 'Next of kin'), off: tr('legend.off', 'Get off'),
+    choose: tr('legend.choose', 'Choose'), tabs: tr('legend.tabs', 'Tabs'), move: tr('legend.move', 'Move'), zoom: tr('legend.zoom', 'Zoom'),
+  });
+  function renderLegend(ctx) {
+    const el = $('padbar');
+    const show = mode.glyphs === 'pad' && state.ui && !introUp() && ctx !== 'rose';
+    const L = LEGEND();
+    const items = !show ? [] : ctx === 'panel' ? [['S', L.choose], ['E', L.back], ...(padRoot()?.querySelector('[role="tablist"]') ? [['LB', ''], ['RB', L.tabs]] : [])]
+      : ctx === 'ride' ? [['L', L.steer], ['S', L.hop], ['E', L.off], ['LT', ''], ['RT', L.zoom]]
+      : ctx === 'tool' ? [['S', L.use], ...(hand.tool === 'pipette' ? [['W', L.other]] : []), ['E', L.down], ['R', L.reach], ['LB', L.tools]]
+      : [['S', L.select], ['E', L.back], ...(sel && !sel.lost ? [['W', L.ride]] : []), ...(sidePanel() ? [['N', L.panel]] : []), ['LB', L.tools], ['RB', L.view], ['MENU', L.settings], ['VIEW', L.lab]];
+    // (under the middle of the view the panels leave open)
+    const x = `${Math.round(aim()[0])}px`;
+    if (el.style.left !== x) el.style.left = x;
+    const key = `${show}|${ctx}|${mode.family}|${items.map((i) => i.join(':')).join(',')}`;
+    if (key === legendKey) return;
+    legendKey = key;
+    el.hidden = !items.length;
+    el.innerHTML = items.map(([b, t]) => `<span>${glyph(b, padFamily())}${t ? `<b>${esc(t)}</b>` : ''}</span>`).join('');
+  }
+
+  // Each frame: the pad read and acted on, then the held keys and the sticks moving the camera (or steering a ride)
+  // and zooming, the right stick scrolling a panel or changing the tool's reach, the reticle placed.
+  function driveInput(dt) {
+    const s = dt / 1000, now = performance.now();
+    const ctx = padCtx();
+    for (const ev of pads.poll(now, ctx === 'rose' ? 'world' : ctx)) act(ev.id);
+    const P = pads.state;
+    if (P.active) {
+      if (noteInput(mode, { kind: 'pad', family: padFamily() })) applyMode();
+      poke(); sound.unlock();
+    }
+    const panel = ctx === 'panel' ? padRoot() : null;
+    if (rose.shown) rose.steer(P.left, now);
+    // movement: the keys held, or the left stick (in a panel the stick moves focus instead)
+    let way = keyWay(ride.keys);
+    if (!panel && !rose.shown && Math.hypot(P.left[0], P.left[1]) > Math.hypot(way[0], way[1])) way = P.left;
+    input.way = way;
+    const running = state.phase === 'running' && !introUp();
+    if (running && !ride.on && (way[0] || way[1])) {
+      takeOver();
+      if (state.follow) { state.follow = false; dirty = true; }
+      const v = viewShort() * 0.9 * s;
+      cam.x += way[0] * v; cam.y += way[1] * v;
+    }
+    // a direction held on the stick in a panel steps focus, repeating as a held d-pad does
+    if (panel && Math.hypot(P.left[0], P.left[1]) > 0.5) {
+      const dir = Math.abs(P.left[0]) > Math.abs(P.left[1]) ? (P.left[0] > 0 ? 'right' : 'left') : P.left[1] > 0 ? 'down' : 'up';
+      const sn = input.stickNav;
+      if (!sn || sn.dir !== dir) { input.stickNav = { dir, next: now + REPEAT_MS[0] }; nav.move(panel, dir); }
+      else if (now >= sn.next) { sn.next = now + REPEAT_MS[1]; nav.move(panel, dir); }
+    } else input.stickNav = null;
+    // zoom: the keys held and the triggers, about the view's middle
+    let z = 0;
+    for (const d of zoomHeld.values()) z += d;
+    if (!rose.shown) z += P.rt - P.lt;
+    z = clamp(z, -1, 1);
+    if (running && z) { takeOver(); const [x, y] = aim(); zoomAt(Math.exp(z * 1.8 * s), x, y); zoomedByHand(); }
+    // the right stick: a panel's scroll, the tool's reach (or the loupe's magnification), else the side panel's scroll
+    const ry = P.right[1];
+    if (ry) {
+      if (panel) nav.scroll(panel, ry * 900 * s);
+      else if (inHand()) setReach(clamp(hand.reach * Math.exp(-ry * 1.6 * s), REACH.min, REACH.max));
+      else if (hand.tool === 'loupe') state.loupeMag = clamp(state.loupeMag * Math.exp(-ry * 1.6 * s), 1.5, 20);
+      else { const sp = sidePanel(); if (sp) nav.scroll(sp, ry * 900 * s); }
+    }
+    padApplyTick();
+    renderLegend(padCtx());
+    // the pad points from the view's middle: the loupe and the tools' reticles go there, and a mark shows it
+    const padPoints = mode.pointer === 'pad' && running;
+    if (padPoints) { const [x, y] = aim(); hover.x = x; hover.y = y; hover.on = true; }
+    const showAim = padPoints && state.ui && !panel && !rose.shown && !inHand() && !ride.on && hand.tool !== 'loupe';
+    const aimEl = $('aim');
+    aimEl.hidden = !showAim;
+    if (showAim) { const [x, y] = aim(); aimEl.style.transform = `translate(${x}px, ${y}px)`; } // i18n-ignore (key names, selectors and styles)
+  }
+
   addEventListener('keydown', (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const t = e.target;
@@ -3861,86 +4213,29 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     const k = e.key;
     // the species card open (a modal dialog): Esc closes it before anything else, and no other shortcut acts behind it
     if (cards.isOpen()) { if (k === 'Escape') { e.preventDefault(); cards.close(); } return; }
-    let handled = true;
-    // riding, WASD and the arrows steer (whatever they do otherwise); a living cell selected, they start a ride
-    if (isRideKey(e.code) && (ride.on || (sel && !sel.lost && sel.particle.kind >= FIRST_LIFE && state.phase === 'running'))) {
-      if (!ride.on) toggleRide(true);
-      ride.keys.add(e.code);
+    // focus in a panel: the arrows move it there (a tab row keeps its own arrows)
+    const root = t !== document.body && t !== canvas && t.closest?.('[data-nav-root]');
+    if (root && /^Arrow/.test(k) && t.getAttribute?.('role') !== 'tab') {
+      e.preventDefault();
+      nav.move(root, k.slice(5).toLowerCase());
+      return;
     }
-    else if (k === 'R' && e.shiftKey) {
-      if (state.phase !== 'running') return;
-      const now = performance.now();
-      if (now - state.confirmReset < 2500) { state.confirmReset = 0; seedWorld(eng.count); sound.overture(); flash(tr('flash.new-world', 'A new world begins')); }
-      else { state.confirmReset = now; flash(tr('flash.reset-confirm', 'Press Shift+R again to discard this world')); }
-    }
-    else if (k === 't' || k === 'T') { trailIdx = (trailIdx + 1) % trailLevels.length; eng.settings.trails = trailLevels[trailIdx]; flash(tr('flash.trails', 'Trails {level, select, 0 {off} 1 {short} 2 {long} other {exposure}}', { level: trailIdx })); persist(); view.render(); }
-    // (Y and O turn an effect off as the viewer's choice, and back on as Auto, or at the Microscope's own strength)
-    else if (k === 'y' || k === 'Y') { eng.settings.bloom = eng.settings.bloom > 0 ? 0 : 0.012; fixRow('bloom', !eng.settings.bloom); flash(eng.settings.bloom ? tr('flash.bloom-on', 'Glow on') : tr('flash.bloom-off', 'Glow off')); displayChanged(); }
-    else if (k === 'b' || k === 'B') bench.toggle();
-    else if (/^[0-8]$/.test(k)) {
-      // a digit takes up its tool (0: none), or puts down the one in hand; held down past a moment, a tool taken up
-      // is only for as long as it is held
-      if (!e.repeat) { const id = TOOLS[+k].id; quasi = id !== hand.tool && id !== 'none' ? { key: k, prev: hand.tool, at: performance.now() } : null; pickTool(id); }
-    }
-    // (O: the Microscope off, or back at the level it had)
-    else if (k === 'o' || k === 'O') { state.look = state.look ? 0 : lookLast; fixRow('microlook', state.look !== AUTO_VAL.microlook); applyLook(); flash(state.look ? tr('flash.optics-on', 'Microscope on') : tr('flash.optics-off', 'Microscope off')); displayChanged(); }
-    else if (k === 'g' || k === 'G') { toggleMap(MAPS[0]); flash(state.map === 'light' ? tr('flash.light-map-on', 'Light map') : tr('flash.light-map-off', 'Light map off')); }
-    else if ((k === 'e' || k === 'E') && K.heat) { toggleMap(MAPS[1]); flash(state.map === 'heat' ? tr('flash.heat-camera', 'Thermal camera') : tr('flash.heat-off', 'Heat map off')); }
-    else if (k === 'h' || k === 'H') { toggleMap(MAPS[2]); flash(state.map === 'tide' ? tr('flash.tide-map-on', 'Tide map') : tr('flash.tide-map-off', 'Tide map off')); }
-    else if (k === 'c' || k === 'C') { state.currents = !state.currents; flash(state.currents ? tr('flash.currents-on', 'Currents shown') : tr('flash.currents-off', 'Currents hidden')); persist(); view.render(); }
-    else if (k === 'v' || k === 'V') view.toggle();
-    else if (k === 'k' || k === 'K') { closeMenus(); lab.toggle(); }
-    else if ((k === '[' || k === ']') && inHand()) setReach(reachStep(hand.reach, k === ']' ? 1 : -1), true);
-    // i18n: the loupe's magnification, {n} times
-    else if (k === '[') { state.loupeMag = clamp(state.loupeMag / 1.25, 1.5, 20); flash(tr('flash.loupe', 'Loupe ×{n}', { n: state.loupeMag.toFixed(1) })); }
-    else if (k === ']') { state.loupeMag = clamp(state.loupeMag * 1.25, 1.5, 20); flash(tr('flash.loupe', 'Loupe ×{n}', { n: state.loupeMag.toFixed(1) })); }
-    else if ((k === 'Enter' || k === 'Tab') && sel && !ride.on && sel.rideEnded && sel.memory) rideRelative();
-    else if (k === 'Enter' && sel) toggleRide();
-    else if (k === 'Tab' && ride.on) hopRide();
-    else if (k === 'p' || k === 'P') playAuto();
-    else if ((k === 'x' || k === 'X') && director.active) nextScene();
-    else if (k === 'r' || k === 'R') filmAct();
-    else if (k === 'm' || k === 'M') toggleSound();
-    else if (k === '-' || k === '_') nudgeVolume(-0.1);
-    else if (k === '=' || k === '+') nudgeVolume(0.1);
-    else if (k === 'u' || k === 'U') setInterface(!state.ui);
-    else if (k === 'Escape') {
-      if (!state.ui) setInterface(true);
-      else if (ladder.isOpen()) ladder.toggle(false);
-      else if (inHand()) pickTool('none');
-      else if (ride.on) toggleRide(false);
-      else if (!$('help').hidden) toggleHelp(false);
-      else if (view.isOpen()) view.toggle(false);
-      else if (bench.isOpen()) bench.toggle(false);
-      else if (sel || spView != null) deselect();
-      else if (focus.key) clearFocus();
-      else if (mapOn()) clearMaps();
-      else if (lab.back()) {} // the Lineage view back the way it came, before the Lab goes back to its census
-      else if (lab.isWide() && !phone()) lab.narrow();
-      else if (lab.isOpen() && phone()) lab.close();
-      else handled = false;
-    }
-    else if (k === 'Backspace' && lab.back()) {}
-    else if (k === ' ') togglePause();
-    else if (k === ',') stepSpeed(-1);
-    else if (k === '.') stepSpeed(1);
-    else if (k === '/' || k === '<') setSpeed(1);
-    else if (k === '>') setSpeed(Infinity);
-    else if (k === '?') toggleHelp();
-    else if (k === 'i' || k === 'I') { state.hud = !state.hud; $('hud').classList.toggle('off', !state.hud); document.body.classList.toggle('hud-off', !state.hud); flash(state.hud ? tr('flash.readouts-on', 'Readouts shown') : tr('flash.readouts-off', 'Readouts hidden')); }
-    else if (k === 'f' || k === 'F') toggleFullscreen();
-    else if (k === 'z' || k === 'Z') { takeOver(); cam.zoomTarget = 1; cam.anchor = null; zoomedByHand(); }
-    else handled = false;
-    if (handled) { e.preventDefault(); hideIntro(); }
+    // held: the movement keys (WASD, the arrows) pan the view, or steer a ride; − and = zoom
+    if (isMoveKey(e.code)) { ride.keys.add(e.code); e.preventDefault(); hideIntro(); return; }
+    if (zoomKey(k)) { zoomHeld.set(e.code, zoomKey(k)); e.preventDefault(); hideIntro(); return; }
+    const id = matchKey(e);
+    if (id && act(id, { key: k, repeat: e.repeat })) { e.preventDefault(); hideIntro(); }
   });
   // a tool's key held down past a moment (a quasimode): let go, the tool that was in hand before
   let quasi = null;
   addEventListener('keyup', (e) => {
     ride.keys.delete(e.code);
+    zoomHeld.delete(e.code);
     if (!quasi || e.key !== quasi.key) return;
     if (performance.now() - quasi.at > 450 && quasi.prev !== hand.tool) pickTool(quasi.prev);
     quasi = null;
   });
+  addEventListener('blur', () => zoomHeld.clear());
 
   // ------------------------------------------------------------ dock and messages
   const flashEl = $('flash');
@@ -4229,6 +4524,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     });
     tabN.addEventListener('click', () => toggle('n'));
     tabW.addEventListener('click', () => toggle('w'));
+    // (Begin pressed as a click alone: a controller's A, or assistive technology; a pointer or a key has begun already)
+    $('begin').addEventListener('click', () => { if (!go || introHidden) return; if (busy) startAfter = true; else start(); });
     panel.addEventListener('click', (e) => {
       const b = e.target.closest('button');
       if (!b || b.disabled) return;
@@ -4281,6 +4578,13 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     refresh();
     render();
     return {
+      // a controller's B in the intro: an open panel closed, focus back on its tab
+      back() {
+        if (!open) return;
+        const inside = panel.contains(document.activeElement);
+        toggle(null);
+        if (inside) tabN.focus({ preventScroll: true });
+      },
       // the world runs for the first time (calibrate done): hold it on the menu, or let it go
       ready() {
         whenStarted();
@@ -5870,6 +6174,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       rafDt.length = 0;
     }
     tickClock(now);
+    driveInput(dt);
     updateSpeedCap(now);
     updateWarm();
     updateTicks(now);
@@ -6031,7 +6336,9 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       nudge();
       const sent = cur;
       device.queue.onSubmittedWorkDone().then(() => { inflight--; shownFrame = sent; }, () => { inflight--; });
-      if (sel && frameCount % 10 === 0 && !state.paused) gatherTick(false);
+      // (every tenth frame drawn: counted by the frames drawn, as a count of display frames drawn every other one could
+      // skip its tenths for good)
+      if (sel && ++gatherN % 10 === 0 && !state.paused) gatherTick(false);
       // a census's work, now the frame is on its way (censusQueue)
       drainCensus();
     }
@@ -6124,7 +6431,13 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     // a .tidemote file's bytes, as Settings → Worlds opens one
     openWorld: async (bytes) => loadWorld(await openWorld(bytes)),
     // riding, for tools/ridelab.mjs: its state, the specimen, the body traced
-    ride: { state: ride, sel: () => sel, members: () => members, viewShort } };
+    ride: { state: ride, sel: () => sel, members: () => members, viewShort },
+    // keys and controllers (docs/controller.md), for tools/keys-check.mjs and tools/pad-check.mjs: the input in use,
+    // the pad's state, an action by id, and which panels are open
+    input: { mode, pads, act, rose, padCtx, aim,
+      // the camera moved so that world point (wx, wy) sits under the reticle
+      lookAt(wx, wy) { const [ax, ay] = aim(), p = cssPPU(); state.follow = false; cam.x = wx - (ax - innerWidth / 2) / p; cam.y = wy - (ay - innerHeight / 2) / p; },
+      open: () => ({ settings: view.isOpen(), help: !$('help').hidden, bench: bench.isOpen(), lab: lab.isOpen(), spec: !$('spec').hidden, card: cards.isOpen(), ladder: ladder.isOpen() }) } };
 
   calibrate().then(() => {
     state.phase = 'running';

@@ -43,9 +43,9 @@ edge.
 
 ## Riding
 
-Enter, the specimen panel's Ride, or the first press of W A S D or an arrow key with a living cell selected, rides
-the specimen: the view follows it (untouched, a ride is a follow; there is no separate Follow), and W A S D, the
-arrows, or a held click or finger steer it. The toasts say Ride On and Ride Off (with why, when it died or was lost). While riding those keys only steer
+Enter (a controller's X), or the specimen panel's Ride, rides the specimen: the view follows it (untouched, a ride is a
+follow; there is no separate Follow), and W A S D, the arrows, a controller's left stick, or a held click or finger steer
+it. Outside a ride those keys pan the view, a cell selected or not (docs/controller.md). The toasts say Ride On and Ride Off (with why, when it died or was lost). While riding those keys only steer
 (the keys they would otherwise be are elsewhere: C currents, H the tide map, P the auto camera, M sound).
 
 How it handles (`src/ride.js`, pure, `test/ride.test.js`): the way held (keys, a unit vector, diagonals no faster;

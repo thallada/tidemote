@@ -3,6 +3,7 @@
 // carry data-live, a note on what it shows right now, put before its glossary entry. A hint the page builds itself
 // (rich: { key: () => html }, its element's data-tip naming the key) is drawn as it opens and kept current while open.
 import { GLOSSARY } from './guide.js';
+import { padGlyphFor } from './input/glyphs.js';
 
 export function createTips(tip) {
   let owner = null;
@@ -18,6 +19,13 @@ export function createTips(tip) {
     // a term with a live explanation (no shortcut key to split off)
     if (el.classList.contains('term')) return { text: h, more };
     const i = h.lastIndexOf(' · ');
+    // a controller in use (docs/controller.md): its button for the control's action (data-act) in place of the key,
+    // and no keyboard key shown at all (the speed chip's hint lists several, all cut)
+    if (document.body.dataset.glyphs === 'pad') {
+      const act = el.dataset.act, g = act ? padGlyphFor(act, document.body.dataset.pad) : null;
+      const cut = act === 'speed' ? h.indexOf(' · ') : act || (i > 0 && h.length - i <= 9) ? i : -1;
+      return { text: cut > 0 ? h.slice(0, cut) : h, glyph: g, more };
+    }
     return i > 0 ? { text: h.slice(0, i), key: h.slice(i + 3), more } : { text: h, more };
   };
   function show(el, how) {
@@ -28,8 +36,9 @@ export function createTips(tip) {
     via = how;
     tip.classList.toggle('rich', !!t.html);
     if (t.html) tip.innerHTML = t.html; else tip.textContent = t.text;
-    shown = t.html ?? t.text;
+    shown = (t.html ?? t.text) + (t.glyph || '');
     if (t.key) { const k = document.createElement('kbd'); k.textContent = t.key; tip.append(k); }
+    if (t.glyph) { const k = document.createElement('span'); k.className = 'tip-pad'; k.innerHTML = t.glyph; tip.append(k); }
     if (t.more) { const m = document.createElement('div'); m.textContent = t.more; tip.append(m); }
     tip.hidden = false;
     const r = el.getBoundingClientRect();
@@ -79,7 +88,7 @@ export function createTips(tip) {
     if (!owner) return;
     if (owner.isConnected) {
       const t = textFor(owner);
-      if (t && (t.html ?? t.text) !== shown) show(owner, via);
+      if (t && (t.html ?? t.text) + (t.glyph || '') !== shown) show(owner, via);
       return;
     }
     const key = owner.dataset.tip ? `[data-tip="${owner.dataset.tip}"]` : `[data-hint="${CSS.escape(owner.dataset.hint || '')}"]`;
@@ -92,5 +101,7 @@ export function createTips(tip) {
     }
     if (best) { owner = best; owner.setAttribute('aria-describedby', 'tip'); } else hide();
   }
-  return { hide, check, rich };
+  // the input in use changed (keys or a controller): an open hint drawn again with its names
+  const refresh = () => { if (owner && owner.isConnected) show(owner, via); };
+  return { hide, check, rich, refresh };
 }

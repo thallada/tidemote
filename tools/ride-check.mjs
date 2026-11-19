@@ -142,10 +142,18 @@ if (other) {
   await page.waitForTimeout(900);
   s0 = await st();
   check('a quick click on another cell gets off and selects it', !s0.on && !s0.follow && s0.id !== id0, JSON.stringify(s0));
+  // (the arrows and WASD pan the view outside a ride, a cell selected or not: Enter rides; docs/controller.md)
+  const kst = () => page.evaluate(() => ({ on: globalThis.__tidemote.ride.state.on, x: globalThis.__tidemote.cam.x, u: Math.hypot(...globalThis.__tidemote.ride.state.th.u), flash: document.getElementById('flash').textContent }));
+  const k0 = await kst();
   await page.keyboard.down('ArrowLeft'); await page.waitForTimeout(600);
-  const kr = await page.evaluate(() => ({ on: globalThis.__tidemote.ride.state.on, u: Math.hypot(...globalThis.__tidemote.ride.state.th.u), flash: document.getElementById('flash').textContent }));
+  const kp = await kst();
   await page.keyboard.up('ArrowLeft');
-  check('an arrow key with a cell selected rides it and steers at once', kr.on && kr.u > 0.1, JSON.stringify(kr));
+  check('an arrow key with a cell selected pans the view, and rides nothing', !kp.on && kp.x !== k0.x, JSON.stringify(kp));
+  await page.keyboard.press('Enter');
+  await page.keyboard.down('ArrowLeft'); await page.waitForTimeout(600);
+  const kr = await kst();
+  await page.keyboard.up('ArrowLeft');
+  check('Enter rides it, and an arrow key steers at once', kr.on && kr.u > 0.1, JSON.stringify(kr));
   check('the toast says Ride On', /^Ride On/.test(kr.flash), kr.flash);
 } else check('found another cell in view to click', false);
 
@@ -172,7 +180,7 @@ check('C toggles currents and H the tide map', k1.c !== k0.c && !!k1.h !== !!k0.
 await page.keyboard.press('p'); await page.waitForTimeout(600);
 check('P starts the auto camera', await page.evaluate(() => globalThis.__tidemote.director.active));
 await page.keyboard.press('p');
-const help = await page.evaluate(() => document.getElementById('help').textContent);
+const help = await page.evaluate(() => { const i = globalThis.__tidemote.input; i.act('help'); const t = document.getElementById('help').textContent; i.act('help'); return t; });
 check('the shortcuts list W A S D for riding and no Follow', /W A S D/.test(help) && !/Follow the specimen/.test(help));
 check('no page errors', errs.length === 0, errs.join(' | '));
 await browser.close(); server.close();

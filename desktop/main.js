@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statfsSync, wr
 import { open as openFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { startSteam, status, achieve } from './steam.js';
+import { startSteam, status, achieve, onDeck, keyboard } from './steam.js';
 import { worlds, workshop } from './worlds.js';
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
@@ -102,6 +102,8 @@ handle('worlds:get', worlds.get);
 handle('worlds:remove', worlds.remove);
 handle('steam:status', status);
 handle('steam:achieve', achieve);
+handle('steam:deck', onDeck);
+handle('steam:keyboard', keyboard);
 handle('workshop:share', workshop.share);
 handle('workshop:browse', workshop.browse);
 handle('workshop:open', workshop.open);

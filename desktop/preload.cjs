@@ -7,6 +7,10 @@ contextBridge.exposeInMainWorld('tidemoteDesktop', {
   worlds: { list: call('worlds:list'), put: call('worlds:put'), get: call('worlds:get'), remove: call('worlds:remove') },
   steam: call('steam:status'),
   achieve: call('steam:achieve'),
+  // a controller (docs/controller.md): deck() -> whether this is a Steam Deck; keyboard({ x, y, w, h }) -> whether Steam's
+  // floating keyboard showed for the text field there
+  deck: call('steam:deck'),
+  keyboard: call('steam:keyboard'),
   workshop: { share: call('workshop:share'), browse: call('workshop:browse'), open: call('workshop:open') },
   // the window's full screen (F11's too): toggle(), get() -> on, on(fn) calls fn(on) whenever it changes
   fullscreen: { toggle: call('fullscreen:toggle'), get: call('fullscreen:get'), on: (fn) => { ipcRenderer.on('fullscreen', (_, on) => fn(on)); } },

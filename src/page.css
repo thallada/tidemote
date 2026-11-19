@@ -789,8 +789,62 @@ body.lab-wide .recframe { left: min(620px, 100%); }
 body.spec-open .recframe { right: var(--spec-pw); }
 @media (prefers-reduced-motion: reduce) { .rec-sq { animation: none; } }
 .help-src { margin: var(--s4) 0 0; padding-top: var(--s2); border-top: 1px solid var(--line); color: var(--ink-3); font-size: 12px; }
-.keys { display: grid; grid-template-columns: max-content 1fr; gap: 9px 18px; margin: 10px 0 0; }
-dd { margin: 0; color: var(--ink-2); }
+.help { width: min(720px, calc(100% - 32px)); }
+/* the Controls dialog's table (input/controls.js): what, keys and mouse, controller; the column in use leads in colour */
+.keys { width: 100%; border-collapse: collapse; margin: 10px 0 0; font-size: 13px; }
+.keys th, .keys td { text-align: left; vertical-align: middle; padding: 5px var(--s2) 5px 0; border-bottom: 1px solid rgba(130, 205, 214, 0.08); }
+.keys thead th { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; border-bottom-color: var(--line); }
+.keys tbody th[scope="row"] { font-weight: 400; color: var(--ink-2); }
+.keys tr.g th { padding-top: var(--s3); font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--cyan); font-weight: 500; border-bottom: 0; }
+.keys td { white-space: nowrap; }
+.keys td:nth-child(2) { width: 30%; }
+.keys td:nth-child(3) { width: 24%; }
+.keys kbd { color: var(--sun); display: inline-block; padding: 1px 5px; border: 1px solid var(--line); margin: 1px 4px 1px 0; letter-spacing: .06em; }
+.keys td .gl, .keys td .w { margin: 1px 4px 1px 0; }
+.keys .w { color: var(--ink-3); font-size: 12px; }
+body:not([data-glyphs="pad"]) .keys td:nth-child(3) .gl, body[data-glyphs="pad"] .keys td:nth-child(2) kbd { opacity: .6; }
+
+/* a controller's button glyphs (input/glyphs.js): face buttons round, shoulders and the rest pill-shaped */
+.gl { display: inline-grid; place-items: center; vertical-align: middle; min-width: 20px; height: 20px; padding: 0 2px; box-sizing: border-box; border-radius: 10px; border: 1px solid rgba(190, 230, 235, 0.55); background: #1d2a2c; color: var(--ink); font: 600 10.5px/1 inherit; letter-spacing: 0; text-transform: none; }
+.gl > span { display: inline-grid; place-items: center; }
+.gl svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.gl-sh, .gl-menu { padding: 0 6px; border-radius: 6px; }
+.gl-stick { border-style: dashed; }
+.gl-dpad { border: 0; background: none; min-width: 18px; }
+.gl-dpad svg { width: 20px; height: 20px; stroke-width: 1; }
+.gl-dpad .arm { fill: none; stroke: rgba(190, 230, 235, 0.45); }
+.gl-dpad .on { fill: var(--sun); stroke: none; }
+.tip-pad { margin-left: 8px; display: inline-flex; gap: 4px; vertical-align: middle; }
+.tip-pad .gl { color: var(--ink); }
+
+/* a controller in use: its focus ring bold enough to find across a room; the bench's digit keys hidden */
+body[data-glyphs="pad"] :focus:not(.card-dlg, canvas, [data-nav-root]) { outline: 2px solid var(--sun) !important; outline-offset: 2px; }
+body[data-glyphs="pad"] .bench kbd, body[data-glyphs="pad"] #tools kbd, body[data-glyphs="pad"] #held-k, body[data-glyphs="pad"] .opt kbd { display: none; }
+/* its reticle at the view's middle: four corners and a dot */
+.aim { position: fixed; left: 0; top: 0; width: 0; height: 0; z-index: 6; pointer-events: none; }
+.aim i { position: absolute; width: 9px; height: 9px; border: 0 solid var(--sun); filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.8)); }
+.aim i:nth-child(1) { left: -16px; top: -16px; border-width: 1.5px 0 0 1.5px; }
+.aim i:nth-child(2) { left: 7px; top: -16px; border-width: 1.5px 1.5px 0 0; }
+.aim i:nth-child(3) { left: -16px; top: 7px; border-width: 0 0 1.5px 1.5px; }
+.aim i:nth-child(4) { left: 7px; top: 7px; border-width: 0 1.5px 1.5px 0; }
+.aim::after { content: ''; position: absolute; left: -1.5px; top: -1.5px; width: 3px; height: 3px; border-radius: 50%; background: var(--sun); }
+/* the pad's legend over the dock: what its buttons do here and now */
+.padbar { position: fixed; left: 50%; bottom: calc(var(--bot) + 10px); transform: translateX(-50%); z-index: 7; pointer-events: none; display: flex; gap: var(--s3); align-items: center;
+  padding: 5px 12px; background: rgba(6, 10, 11, 0.82); border: 1px solid var(--line); font-size: 12px; letter-spacing: .06em; color: var(--ink-2); white-space: nowrap; }
+.padbar span { display: inline-flex; align-items: center; gap: 5px; }
+.padbar b { font-weight: 400; }
+body.ui-off .padbar { display: none; }
+/* the rose (rose.js): a ring about the reticle, the lit octant's wedge */
+.rose { position: fixed; z-index: 40; width: 340px; height: 340px; margin: -170px 0 0 -170px; border-radius: 50%; pointer-events: none; box-sizing: border-box;
+  border: 1px solid rgba(150, 222, 230, 0.35); background: radial-gradient(closest-side, transparent 34%, rgba(6, 9, 10, 0.86) 35%, rgba(6, 9, 10, 0.86) 99%, transparent); }
+.rose-wedge { position: absolute; inset: 0; border-radius: 50%; opacity: 0; transform: rotate(var(--lit, 0deg));
+  background: conic-gradient(from -22.5deg, rgba(241, 227, 160, 0.18) 0 45deg, transparent 45deg);
+  -webkit-mask: radial-gradient(closest-side, transparent 35%, #000 36%); mask: radial-gradient(closest-side, transparent 35%, #000 36%); }
+.rose.lit .rose-wedge { opacity: 1; }
+.rose-it { position: absolute; left: calc(50% + var(--x) * 340px); top: calc(50% + var(--y) * 340px); transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 4px;
+  color: var(--ink-2); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
+.rose-it svg { width: 22px; height: 22px; }
+.rose-it.on { color: var(--sun); }
 
 /* ------------------------------------------------------------------ tabs */
 /* a row too wide for its panel scrolls (wireTabRow): a fade marks each clipped edge */

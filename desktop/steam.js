@@ -48,3 +48,22 @@ export function achieve(id) {
   if (ok) client.stats.store(); // sent to Steam now, not when the game quits
   return ok;
 }
+
+/**
+ * Whether this is a Steam Deck (Steam sets SteamDeck=1 in Game Mode; Steam's own answer besides): the page then draws
+ * the Deck's buttons for Steam's virtual pad, which looks to it like any Xbox pad (docs/controller.md).
+ */
+export function onDeck() {
+  if (process.env.SteamDeck === '1') return true;
+  try { return !!client?.utils.isSteamRunningOnSteamDeck(); } catch { return false; }
+}
+
+/**
+ * Steam's floating keyboard for a text field the controller focused, kept clear of rect { x, y, w, h } (the field, in
+ * the window's pixels): it types into the field as keys. Whether it showed (only in Big Picture or the Deck's Game Mode).
+ */
+export async function keyboard(rect = {}) {
+  if (!client) return false;
+  const n = (v) => Math.max(0, Math.round(Number(v) || 0));
+  try { return await client.utils.showFloatingGamepadTextInput(0, n(rect.x), n(rect.y), n(rect.w), n(rect.h)); } catch { return false; }
+}

@@ -24,6 +24,7 @@ const SIZES = [
   { id: 'l1536', w: 1536, h: 730, dpr: 1.25, note: '1920×1080 at 125%' },
   { id: 'l1440', w: 1440, h: 789, dpr: 2, note: 'MacBook Air 13' },
   { id: 'd1920', w: 1920, h: 969, dpr: 1, note: '1920×1080 desktop' },
+  { id: 's1280', w: 1280, h: 800, dpr: 1, note: 'Steam Deck, full screen (docs/controller.md)' },
   { id: 'p390', w: 390, h: 700, dpr: 3, touch: true, note: 'phone, portrait' },
   { id: 'p844', w: 844, h: 340, dpr: 3, touch: true, note: 'phone, landscape' },
 ].filter((s) => !args.sizes || args.sizes.split(',').includes(s.id));

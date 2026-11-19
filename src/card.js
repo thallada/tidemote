@@ -7,6 +7,7 @@
 //
 // cardData is pure (tested); drawCard draws on any 2D context; createCards is the page's dialog.
 
+import { controlsOf } from './input/focus.js';
 import { facets, dietMix } from './facets.js';
 import { thermalGuild, roleColor, divEnergy } from './genome.js';
 import { voiceOf } from './audio/mapping.js';
@@ -372,7 +373,7 @@ export function createCards(api) {
     acts();
     tune(sp.genome);
     note.textContent = ready ? '' : tr('card.note.portrait', 'Taking its portrait…');
-    root.focus({ preventScroll: true });
+    takeFocus();
     if (ready) return;
     const p = await portraitOf(serial);
     if (cur !== serial) return;
@@ -415,7 +416,7 @@ export function createCards(api) {
     root.hidden = false;
     acts();
     tune(card.genome);
-    root.focus({ preventScroll: true });
+    takeFocus();
   }
   // the buttons for what is showing: saved or not, loading the pipette, its species here to inspect
   function acts() {
@@ -428,10 +429,21 @@ export function createCards(api) {
     $('card-remove').hidden = !card;
     $('card-inspect').hidden = api.inspectable(saved || cur) == null;
   }
+  // A modal dialog (docs/controller.md): focus comes into it from what opened it, stays within it (Tab wraps), and
+  // goes back to what opened it when it closes.
+  let opener = null;
+  function takeFocus() {
+    const a = document.activeElement;
+    if (a && a !== root && !root.contains(a)) opener = a;
+    root.focus({ preventScroll: true });
+  }
   function close() {
     if (root.hidden) return;
+    const inside = root.contains(document.activeElement) || document.activeElement === document.body;
     root.hidden = true;
     cur = null; saved = null; tag = '';
+    if (inside && opener?.isConnected && !opener.closest('[hidden]')) opener.focus({ preventScroll: true });
+    opener = null;
   }
   const fileName = (ext) => {
     const name = saved ? saved.name : reg().get(cur)?.name || 'species';
@@ -494,7 +506,15 @@ export function createCards(api) {
     btn.disabled = false;
   });
   $('card-close').addEventListener('click', close);
-  root.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } });
+  root.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); return; }
+    if (e.key !== 'Tab') return;
+    const els = controlsOf(root);
+    if (!els.length) return;
+    const i = els.indexOf(document.activeElement), n = els.length;
+    const to = e.shiftKey ? (i <= 0 ? n - 1 : i - 1) : (i < 0 || i >= n - 1 ? 0 : i + 1);
+    if ((e.shiftKey && i <= 0) || (!e.shiftKey && (i < 0 || i >= n - 1))) { e.preventDefault(); els[to].focus(); }
+  });
   function reset() { close(); }
   return { open, openSaved, render, close, reset, songTick, refresh: () => { if (!root.hidden) acts(); }, isOpen: () => !root.hidden };
 }

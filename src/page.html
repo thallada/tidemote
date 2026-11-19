@@ -132,21 +132,21 @@
   <!-- transport dock -->
   <nav data-i18n="dock.nav" class="dock" id="dock" aria-label="Controls">
     <div data-i18n="dock.time" class="grp time" role="group" aria-label="Time Controls">
-      <button data-i18n="dock.t-play" type="button" class="ico" id="t-play" aria-label="Pause" data-hint="Pause · Space"><svg><use id="t-play-i" href="#i-pause"/></svg><span data-i18n="dock.play-label" id="t-play-l">Pause</span></button>
-      <button data-i18n="dock.t-slower" type="button" class="ico step" id="t-slower" aria-label="Slower" data-hint="Slower · ,"><svg><use href="#i-slower"/></svg></button>
-      <button data-i18n="dock.t-speed" type="button" class="speed" id="t-speed" aria-label="Speed ×1" aria-haspopup="listbox" aria-expanded="false" aria-controls="ladder" data-hint="Speed · slower: , · faster: . · real time: / · max: >
+      <button data-i18n="dock.t-play" type="button" class="ico" id="t-play" data-act="pause" aria-label="Pause" data-hint="Pause · Space"><svg><use id="t-play-i" href="#i-pause"/></svg><span data-i18n="dock.play-label" id="t-play-l">Pause</span></button>
+      <button data-i18n="dock.t-slower" type="button" class="ico step" id="t-slower" data-act="slower" aria-label="Slower" data-hint="Slower · ,"><svg><use href="#i-slower"/></svg></button>
+      <button data-i18n="dock.t-speed" type="button" class="speed" id="t-speed" data-act="speed" aria-label="Speed ×1" aria-haspopup="listbox" aria-expanded="false" aria-controls="ladder" data-hint="Speed · slower: , · faster: . · real time: / · max: >
 Double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-rate"></small></button>
-      <button data-i18n="dock.t-faster" type="button" class="ico step" id="t-faster" aria-label="Faster" data-hint="Faster · ."><svg><use href="#i-faster"/></svg></button>
+      <button data-i18n="dock.t-faster" type="button" class="ico step" id="t-faster" data-act="faster" aria-label="Faster" data-hint="Faster · ."><svg><use href="#i-faster"/></svg></button>
     </div>
     <div data-i18n="dock.tools" class="grp tools" id="tools" role="toolbar" aria-label="Tools"></div>
-    <button data-i18n="dock.bench-open" type="button" class="act bench-btn" id="bench-open" aria-expanded="false" aria-controls="bench" data-hint="Bench · B"><svg><use id="bench-i" href="#i-bench"/></svg><span data-i18n="dock.bench-l" id="bench-l">Bench</span><svg class="bench-c" aria-hidden="true"><use href="#i-chev"/></svg></button>
+    <button data-i18n="dock.bench-open" type="button" class="act bench-btn" id="bench-open" data-act="bench" aria-expanded="false" aria-controls="bench" data-hint="Bench · B"><svg><use id="bench-i" href="#i-bench"/></svg><span data-i18n="dock.bench-l" id="bench-l">Bench</span><svg class="bench-c" aria-hidden="true"><use href="#i-chev"/></svg></button>
     <div class="grp acts">
-      <button data-i18n="dock.auto-play" type="button" class="act" id="auto-play" aria-label="Auto camera" aria-pressed="false" data-hint="Auto camera · P"><svg><use href="#i-auto"/></svg><span data-i18n="dock.auto-label">Auto</span></button>
-      <button data-i18n="dock.auto-next" type="button" class="act" id="auto-next" aria-label="Next scene" data-hint="Next scene · X" hidden><svg><use href="#i-next"/></svg></button>
+      <button data-i18n="dock.auto-play" type="button" class="act" id="auto-play" data-act="auto-next" aria-label="Auto camera" aria-pressed="false" data-hint="Auto camera · P"><svg><use href="#i-auto"/></svg><span data-i18n="dock.auto-label">Auto</span></button>
+      <button data-i18n="dock.auto-next" type="button" class="act" id="auto-next" data-act="auto-next" aria-label="Next scene" data-hint="Next scene · X" hidden><svg><use href="#i-next"/></svg></button>
       <button data-i18n="dock.film" type="button" class="act" id="film" aria-label="Film" aria-pressed="false" data-hint="Film · R" hidden><svg><use href="#i-film"/></svg><span data-i18n="dock.film-label" id="film-v">Film</span></button>
       <span class="snd-wrap"><button data-i18n="dock.snd" type="button" class="act" id="snd" aria-label="Sound" aria-pressed="false" data-hint="Sound · M"><svg><use href="#i-sound"/></svg><span data-i18n="dock.sound-label">Sound</span></button><input data-i18n="dock.vol" id="vol" type="range" min="0" max="100" step="1" value="80" aria-label="Volume" hidden></span>
-      <button data-i18n="dock.set-open" type="button" class="act" id="set-open" aria-label="Settings" aria-expanded="false" aria-controls="settings" data-hint="Settings · V"><svg><use href="#i-gear"/></svg><span data-i18n="dock.settings-label">Settings</span></button>
-      <button data-i18n="dock.lab-open" type="button" class="act primary" id="lab-open" aria-label="Field Lab" aria-expanded="false" aria-controls="lab" data-hint="Field Lab · K"><svg><use href="#i-lab"/></svg><span data-i18n="dock.lab-label">Lab</span></button>
+      <button data-i18n="dock.set-open" type="button" class="act" id="set-open" data-act="settings" aria-label="Settings" aria-expanded="false" aria-controls="settings" data-hint="Settings · V"><svg><use href="#i-gear"/></svg><span data-i18n="dock.settings-label">Settings</span></button>
+      <button data-i18n="dock.lab-open" type="button" class="act primary" id="lab-open" data-act="lab" aria-label="Field Lab" aria-expanded="false" aria-controls="lab" data-hint="Field Lab · K"><svg><use href="#i-lab"/></svg><span data-i18n="dock.lab-label">Lab</span></button>
     </div>
     <!-- the readout, and the adapting summary's button (main.js): its eased figures in the sun's color while the page eases anything for speed -->
     <button data-i18n="dock.sys" type="button" class="sys" id="sys" aria-label="Performance readout: current adapted settings" aria-controls="settings" data-tip="eased"><span data-i18n="dock.particles"><b id="sys-n" translate="no" class="w-n">–</b> particles</span><span data-i18n="dock.fps"><b id="sys-fps" translate="no" class="w-3">–</b> fps</span><span data-i18n="dock.ms"><b id="sys-ms" translate="no" class="w-4">–</b> ms</span><span data-i18n="dock.res"><b id="sys-res" translate="no" class="w-4">–</b> res</span></button>
@@ -202,9 +202,9 @@ Double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-
   <!-- floating bars: filming, the species highlight, and the map a gauge opened; each closes on its own -->
   <div class="floats" id="floats">
     <div data-i18n="film.bar" class="focus rec" id="recbar" hidden role="group" aria-label="Filming"><i class="rec-sq" aria-hidden="true"></i><span class="lbl" aria-live="polite"><span data-i18n="film.state" id="rec-l">Recording</span></span><b id="rec-t" translate="no">0:00</b><small data-i18n="film.size" id="rec-mb" translate="no" data-hint="Film size">0 MB</small><small class="rec-left" id="rec-left" hidden></small><button data-i18n="film.stop" type="button" class="ghost" id="rec-stop" aria-label="Stop filming" data-hint="Stop · R"><i class="rec-stop-i" aria-hidden="true"></i><span data-i18n="film.stop-label" id="rec-stop-l">Stop</span></button></div>
-    <div class="focus" id="focus" hidden><span data-i18n="highlight.label" class="lbl">Highlight</span><b id="focus-label"></b><button data-i18n="highlight.clear" type="button" class="ghost" id="focus-clear" aria-label="Clear highlight" data-hint="Clear · Esc"><svg><use href="#i-close"/></svg></button></div>
+    <div class="focus" id="focus" hidden><span data-i18n="highlight.label" class="lbl">Highlight</span><b id="focus-label"></b><button data-i18n="highlight.clear" type="button" class="ghost" id="focus-clear" data-act="back" aria-label="Clear highlight" data-hint="Clear · Esc"><svg><use href="#i-close"/></svg></button></div>
     <div class="focus warm" id="warm" hidden role="status"><span data-i18n="warm.label" class="lbl">Warming up</span><b data-i18n="warm.what" data-hint="The first two minutes of a new world are run fast so the initial seeded colonies spread out and start to interact quicker">Seeding world</b><small id="warm-t"></small><button data-i18n="warm.end" type="button" class="ghost" id="warm-end" data-hint="Real time · /">Real time</button></div>
-    <div class="focus maps" id="maps" hidden><span data-i18n="maps.label" class="lbl">Map</span><b id="maps-label"></b><div id="maps-ramp"></div><button data-i18n="maps.clear" type="button" class="ghost" id="maps-clear" aria-label="Close the map" data-hint="Close · Esc"><svg><use href="#i-close"/></svg></button></div>
+    <div class="focus maps" id="maps" hidden><span data-i18n="maps.label" class="lbl">Map</span><b id="maps-label"></b><div id="maps-ramp"></div><button data-i18n="maps.clear" type="button" class="ghost" id="maps-clear" data-act="back" aria-label="Close the map" data-hint="Close · Esc"><svg><use href="#i-close"/></svg></button></div>
   </div>
 </div>
 
@@ -218,7 +218,7 @@ Double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-
       <h2 id="spec-name">–</h2>
       <div class="codes" id="spec-sub"></div>
     </div>
-    <button data-i18n="spec.close" type="button" class="ghost x" id="spec-close" aria-label="Close specimen" data-hint="Close · Esc"><svg><use href="#i-close"/></svg></button>
+    <button data-i18n="spec.close" type="button" class="ghost x" id="spec-close" data-act="back" aria-label="Close specimen" data-hint="Close · Esc"><svg><use href="#i-close"/></svg></button>
   </div>
   <div class="viewer" id="viewer">
     <canvas data-i18n="spec.specimen" id="specimen" aria-label="Live close-up of the selected particle"></canvas>
@@ -284,35 +284,13 @@ Double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-
 
 <div data-i18n="help.panel" class="help panel float" id="help" hidden role="dialog" aria-label="Controls">
   <div class="sec-h"><h2 data-i18n="help.heading">Controls</h2><button data-i18n="help.close" type="button" class="ghost" id="help-close" aria-label="Close"><svg><use href="#i-close"/></svg></button></div>
-  <dl class="keys">
-    <dt data-i18n="help.k1.keys">Click</dt><dd data-i18n="help.k1">Examine a cell or particle</dd>
-    <dt data-i18n="help.k2.keys">Drag · Wheel</dt><dd data-i18n="help.k2">Pan · zoom</dd>
-    <dt data-i18n="help.k3.keys">Space</dt><dd data-i18n="help.k3">Pause · resume</dd>
-    <dt>, . / &gt;</dt><dd data-i18n="help.k4">Slower · faster · real time · max</dd>
-    <dt>P · X</dt><dd data-i18n="help.k5">Auto camera · go to next scene</dd>
-    <dt>R</dt><dd data-i18n="help.k6">Start · stop filming</dd>
-    <dt data-i18n="help.k8.keys">Enter · Tab</dt><dd data-i18n="help.k8">Ride the specimen: follow and control it · switch to newest kin</dd>
-    <dt>W A S D · ↑ ← ↓ →</dt><dd data-i18n="help.k-steer">Steer the specimen (gathers speed when held); tapping around the specimen also steers</dd>
-    <dt data-i18n="help.k9.keys">Esc</dt><dd data-i18n="help.k9">Closes the bench and specimen panel, then clears the highlight and map</dd>
-    <dt>K</dt><dd data-i18n="help.k10">Collapse or open the Field Lab</dd>
-    <dt data-i18n="help.k-lineage-back.keys">Esc · ⌫</dt><dd data-i18n="help.k-lineage-back">In the Lab’s Lineage view: go back up a species in the lineage tree</dd>
-    <dt>V</dt><dd data-i18n="help.k11">Settings</dd>
-    <dt>M · − =</dt><dd data-i18n="help.k12">Sound · volume</dd>
-    <dt>T</dt><dd data-i18n="help.k13">Cycle cell trails rendering</dd>
-    <dt>G · E · H · C</dt><dd data-i18n="help.k14">Light map · heat map · tide map · currents</dd>
-    <dt>Y · O</dt><dd data-i18n="help.k15">Toggle: glow · microscope</dd>
-    <dt>1–8 · 0</dt><dd data-i18n="help.k16">Swap tools: 1. loupe, 2. touch, 3. lamp, 4. shade, 5. warm, 6. cold, 7. needle, 8. pipette · 0. pan</dd>
-    <dt data-i18n="help.k17.keys">B · Esc</dt><dd data-i18n="help.k17">The bench · drop tool</dd>
-    <dt data-i18n="help.k18.keys">[ ] · ⇧ Wheel</dt><dd data-i18n="help.k18">Adjust tool effect radius (with the loupe: its magnification)</dd>
-    <dt>Z · F · I · U</dt><dd data-i18n="help.k19">Reset zoom · fullscreen · hide readouts · hide everything</dd>
-    <dt>⇧R ⇧R</dt><dd data-i18n="help.k20">Discard this world and start a new one</dd>
-  </dl>
+  <div id="help-keys" class="help-keys"></div>
   <p data-i18n="help.license" class="help-src">Free software under the <a class="sp" target="_blank" rel="noopener" href="https://www.gnu.org/licenses/gpl-3.0.html">GPL-3.0</a> · <a class="sp" target="_blank" rel="noopener" href="https://github.com/thallada/tidemote">Source code</a></p>
 </div>
 
 <!-- a species card: its portrait, sigil, song and story on one canvas, to save and share -->
 <div class="card-dlg panel float" id="card" hidden tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="card-h">
-  <div class="sec-h"><h2 data-i18n="card.heading" id="card-h"><span>Species</span> Card</h2><button data-i18n="card.close" type="button" class="ghost" id="card-close" aria-label="Close the card" data-hint="Close · Esc"><svg><use href="#i-close"/></svg></button></div>
+  <div class="sec-h"><h2 data-i18n="card.heading" id="card-h"><span>Species</span> Card</h2><button data-i18n="card.close" type="button" class="ghost" id="card-close" data-act="back" aria-label="Close the card" data-hint="Close · Esc"><svg><use href="#i-close"/></svg></button></div>
   <canvas data-i18n="card.canvas" class="card-cv" id="card-cv" width="660" height="1050" role="img" aria-label="The species card"></canvas>
   <img class="card-cv" id="card-img" alt="" hidden>
   <div class="card-row" id="card-name-row">
@@ -340,6 +318,10 @@ Double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-
 <div class="tip" id="tip" hidden role="tooltip"></div>
 <div class="plate" id="plate" hidden aria-hidden="true"></div>
 <div class="flash" id="flash" role="status" aria-live="polite"></div>
+<!-- a controller: its reticle at the view's middle, and the rose a bumper holds open (docs/controller.md) -->
+<div class="aim" id="aim" hidden aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+<div class="rose" id="rose" role="menu" hidden></div>
+<div class="padbar" id="padbar" hidden aria-hidden="true"></div>
 
 <div class="intro" id="intro">
   <div class="intro-in">
