@@ -147,7 +147,7 @@ export function viewWords(data, K, { cam, W, H, dpr, time, selId, detail = true,
   v[48] = w.season; v[49] = w.ambient; v[50] = w.sky; v[51] = w.t;
   v.set(w.hand.subarray(0, 4), 52);
   v.fill(1e9, 56, 72);
-  if (crumble) v.set(crumble.slice(0, 16), 56); else v[56] = -1;
+  if (crumble) v.set(crumble, 56); else v[56] = -1;
 }
 
 class Engine {
@@ -3173,12 +3173,12 @@ class Engine {
     const stale = this._stoneStale(cam, W, H, selId, realT);
     if (stale === 2) this._stonePart = 0;
     else if (stale === 1 && !this._stonePart) this._stonePart = 1;
-    const stonePart = stale === 2 || this._stonePart ? (stale === 2 ? 0 : this._stonePart) : -1;
+    const stonePart = stale === 2 ? 0 : this._stonePart || -1;
     const lit = (this._stoneLit ??= []);
     if (lit.length && lit[0].drawn > this.simTime) lit.length = 0; // (a new world's clock)
     if (stonePart === 0 || stonePart === 1) this._stoneDrawnAt = this.simTime;
     if (stonePart === 0 || stonePart === 3) { lit.unshift({ drawn: this._stoneDrawnAt, lit: this.simTime }); lit.length = Math.min(lit.length, 8); }
-    const crumble = lit.flatMap((c) => [Math.min(1e8, this.simTime - c.drawn), Math.min(1e8, this.simTime - c.lit)]);
+    const crumble = lit.flatMap((c) => [this.simTime - c.drawn, this.simTime - c.lit]);
     this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId, lod, culled[0], listed ? -1 : splat, true, false, crumble);
     if (listed) {
       d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0]));
@@ -3343,13 +3343,13 @@ class Engine {
     }
     // (the stone cache, as decided above)
     if (stonePart >= 0) {
-      const [cw, ch] = this.stoneSize, part = stonePart;
-      if (part < 3) {
+      const [cw, ch] = this.stoneSize;
+      if (stonePart < 3) {
         this._writeView(this.b.viewC, this.viewDataC, this.stoneCam, cw, ch, dpr, time, selId, lod);
-        this._drawStone(enc, this.stoneView, this.bgStone, part);
+        this._drawStone(enc, this.stoneView, this.bgStone, stonePart);
       }
-      if (part === 0 || part === 3) this._lightStone(enc, this.stoneCacheView, this.pStoneCache, this.cacheBG);
-      this._stonePart = part === 0 || part === 3 ? 0 : part + 1;
+      if (stonePart === 0 || stonePart === 3) this._lightStone(enc, this.stoneCacheView, this.pStoneCache, this.cacheBG);
+      this._stonePart = stonePart === 0 || stonePart === 3 ? 0 : stonePart + 1;
     }
     this.lastCam = { x: cam.x, y: cam.y, ppu: cam.ppu, w: W, h: H, t: realT };
     const cur = this.accIdx;

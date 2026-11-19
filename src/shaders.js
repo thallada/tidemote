@@ -5589,6 +5589,7 @@ fn bodyArea(shape: u32, s: vec2f) -> f32 {
 // color before that fade, for the resolved ghost, which fades into its husk pixel by pixel.
 struct Sprite { col: vec3f, shape: u32, px: f32, swim: f32, kind: u32, live: vec3f, anim: Anim, ghost: Ghost };
 // a husk's color: its cell's, browned, as bright as the energy it holds
+fn siltCol() -> vec3f { return vec3f(0.30, 0.34, 0.46) * view.matterGain; }
 fn huskCol(p: Particle) -> vec3f {
   let h = unpack4x8unorm(p.col).rgb;
   return mix(h * 0.6, vec3f(0.42, 0.28, 0.16), 0.55) * (0.25 + p.energy * 0.6) * view.matterGain * 1.4;
@@ -5687,20 +5688,18 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     let t = p.age / EATEN_T;
     shape = 12u;
     size = mix(0.62, 0.32, t);
-    col = mix(huskCol(p), vec3f(0.30, 0.34, 0.46) * view.matterGain, t);
+    col = mix(huskCol(p), siltCol(), t);
   } else if (ct < CRUMBLE_T) {
     // its shards (crumbleColor) in the grain's colors, going to silt's; seen from afar, the grain shrinking into silt
-    let framboid = cause == 13u;
     let u = ct / CRUMBLE_T;
     shape = 14u;
     size = mix(crumbleR(p) / view.pointSize, 0.4, smoothstep(0.35, 1.0, u));
-    col = mix(grainLook(p.id, (p.info & CRUMB_REEF) != 0u, framboid, unpack4x8unorm(p.col).rgb).col,
-      vec3f(0.30, 0.34, 0.46) * view.matterGain, smoothstep(0.3, 1.0, u));
+    col = mix(grainColor(p.id, (p.info & CRUMB_REEF) != 0u, cause == 13u, unpack4x8unorm(p.col).rgb), siltCol(), smoothstep(0.3, 1.0, u));
   } else if (k == SILT) {
     size = 0.4;
     // seen from afar, grains smaller than a pixel are drawn a pixel wide, so silt covers more than it should and
     // stands out where currents sweep it into streaks: a little dimmer there
-    col = vec3f(0.30, 0.34, 0.46) * view.matterGain * mix(0.85, 1.0, smoothstep(0.5, 2.0, view.pointSize * size));
+    col = siltCol() * mix(0.85, 1.0, smoothstep(0.5, 2.0, view.pointSize * size));
     // in the light it sparkles; seen as a chip, its facets do (matterColor)
     col *= 1.0 + sparkle(p) * (1.0 - smoothstep(1.5, 4.0, view.pointSize * size));
   } else {
@@ -6860,19 +6859,17 @@ fn grainSeed(id: u32) -> vec2f { return vec2f(f32(pcgHash(id) & 0xffffu), f32(pc
 // mineralSurf and boulder), colored as that kind is. Bedrock is mostly mineral grains; reef stone, laid down by
 // calcifiers, mostly the skeletons of small organisms, and keeps a little of its builder's tint (tint). A framboid is
 // brassy pyrite. (vsStone; and the crumbs of a grain worn away, spriteOf)
-struct GrainLook { col: vec3f, ty: u32 };
 fn grainKind(id: u32, reef: bool, framboid: bool) -> u32 {
   if (framboid) { return 0u; }
   let h = renderHash(id ^ 0x9e3779b9u);
   return select(${mixWGSL(BEDROCK_MIX)}, ${mixWGSL(REEF_MIX)}, reef);
 }
-fn grainLook(id: u32, reef: bool, framboid: bool, tint: vec3f) -> GrainLook {
+fn grainColor(id: u32, reef: bool, framboid: bool, tint: vec3f) -> vec3f {
   var base = tint;
-  let ty = grainKind(id, reef, framboid);
   if (!framboid) {
     let h2 = renderHash(id ^ 0x85ebca6bu);
     var mc = vec3f(0.0);
-    switch ty {
+    switch grainKind(id, reef, framboid) {
 ${STONE_COL_WGSL}
       default: {}
     }
@@ -6881,8 +6878,7 @@ ${STONE_COL_WGSL}
   var col = base * view.matterGain * 1.1;
   if (!framboid) { col = max(mix(vec3f(dot(col, vec3f(0.3, 0.5, 0.2))), col, 1.5), vec3f(0.0)); }
   let sx = grainSeed(id).x;
-  col *= select(0.75 + 0.5 * sx, 0.85 + 0.3 * sx, !framboid);
-  return GrainLook(col, ty);
+  return col * select(0.75 + 0.5 * sx, 0.85 + 0.3 * sx, !framboid);
 }
 // a grain's radius in world units (vsStone draws it at least 1.5 pixels)
 fn grainRadius(id: u32, framboid: bool) -> f32 { return STONE_R * select(0.8 + 0.4 * renderHash(id + 77u), 0.5, framboid); }
@@ -6938,7 +6934,7 @@ fn crumbleColor(i: PO, p: Particle, far: f32) -> vec4f {
   let w = vec2f(dot(q, ax), dot(q, vec2f(-ax.y, ax.x)));
   let aa = 1.0 / rg;
   let L = normalize(vec3f(dot(TO_LIGHT, ax), dot(TO_LIGHT, vec2f(-ax.y, ax.x)), 0.7));
-  let silt = vec3f(0.30, 0.34, 0.46) * view.matterGain;
+  let silt = siltCol();
   // the cracks run through it at once and darken; the shards slump apart, eased out, tipping and turning as they go
   let crack = smoothstep(0.0, 0.1, u);
   let apart = 1.0 - pow(1.0 - smoothstep(0.05, 0.5, u), 3.0);
@@ -7036,9 +7032,8 @@ fn cobbleZ(seed: vec2f) -> f32 { return (0.45 + 0.55 * seed.x) * (0.62 + 0.18 * 
   let z = select(select(cobbleZ(o.seed), 0.97, framboid), 0.99, p.id == view.selId); // a selected grain sits on top
   if (z < stoneBand.x || z >= stoneBand.y) { return o; }
   let reef = (p.info & 15u) != 0u && !framboid;
-  let look = grainLook(p.id, reef, framboid, unpack4x8unorm(p.col).rgb);
-  let ty = look.ty;
-  var col = look.col;
+  let ty = grainKind(p.id, reef, framboid);
+  var col = grainColor(p.id, reef, framboid, unpack4x8unorm(p.col).rgb);
   if (!focusMatter(p)) { col = vec3f(dot(col, vec3f(0.3, 0.5, 0.2))) * view.mute; }
   o.flags = select(0u, 1u, reef) | select(0u, 2u, p.id == view.selId) | select(0u, 4u, framboid) | (ty << 3u);
   o.fuel = select(0.0, clamp(p.energy / ${f(DEFAULT_K.framboidLife)}, 0.0, 1.0), framboid);
