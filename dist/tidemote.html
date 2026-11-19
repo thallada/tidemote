@@ -39615,7 +39615,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         genus = life.orphan.get(key);
       }
       let name = `${genus} ${speciesEpithet(g.serial)}`;
-      if (taken(name)) for (let n = 2, base = name; taken(name); n++) name = `${base} ${roman(n)}`;
+      for (let n = 2, base = name; taken(name); n++) name = `${base} ${roman(n)}`;
       const sp = {
         serial: g.serial,
         slot: g.slot,

@@ -44,7 +44,7 @@ for (;;) {
   await page.waitForTimeout(3000);
 }
 const reg = await page.evaluate(() => [...globalThis.__tidemote.life().reg.values()].map((s) => ({
-  serial: s.serial, parent: s.parent, name: s.name, hash: s.hash, given: !!s.given, genus: s.genus, established: s.established, peak: s.peak, genome: s.genome })));
+  serial: s.serial, parent: s.parent, name: s.name, given: !!s.given, genus: s.genus, established: s.established, peak: s.peak, genome: s.genome })));
 fs.mkdirSync(path.dirname(path.resolve(out)), { recursive: true });
 const log = await page.evaluate(() => globalThis.__tidemote.life().chronicle.map((e) => ({ t: e.t, type: e.type, text: e.text })));
 fs.writeFileSync(out, JSON.stringify({ n, minutes, reg, log }));

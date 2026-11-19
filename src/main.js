@@ -1184,7 +1184,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   // How far a genome has drifted from its genus's founder: signatures, diet, light, swimming and adhesion. Not
   // hue: colour drifts on its own and is only a look (counted, it alone tipped a fifth of the splits). Past
   // GENUS_SPLIT a child founds a genus of its own; 0.5 with hue split a third of children off, 0.7 without about
-  // an eighth, so most of a line keeps its genus (tools/names/dump.mjs).
+  // a seventh, so most of a line keeps its genus (tools/names/dump.mjs).
   const GENUS_SPLIT = 0.7;
   function gdist(a, b) {
     let s = 0;
@@ -1193,7 +1193,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     d += 0.5 * (Math.abs(a.dGlint - b.dGlint) + Math.abs(a.dHusk - b.dHusk) + Math.abs(a.dFlesh - b.dFlesh));
     return d + 0.4 * Math.abs(a.photo - b.photo) + 0.15 * Math.abs(a.swim - b.swim) + 0.3 * Math.abs((a.adhesion || 0) - (b.adhesion || 0));
   }
-  // the genus whose founder is nearest g, if within GENUS_SPLIT (for a species whose parent was never recorded)
+  // the genus whose founder is nearest g, if within GENUS_SPLIT (a saved world keeps only living genera's founders)
   function nearestGenus(g) {
     let best = null, bd = GENUS_SPLIT;
     for (const gen of life.genera.values()) {
@@ -1229,7 +1229,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     }
     // a full name already on record (rare: the epithets number over a million) is numbered, as genera are
     let name = `${genus} ${speciesEpithet(g.serial)}`;
-    if (taken(name)) for (let n = 2, base = name; taken(name); n++) name = `${base} ${roman(n)}`;
+    for (let n = 2, base = name; taken(name); n++) name = `${base} ${roman(n)}`;
     const sp = {
       serial: g.serial, slot: g.slot, genome: g, genus, name,
       parent: g.parent, parentName: parent ? parent.name : null, born: g.born,
