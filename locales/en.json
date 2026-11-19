@@ -196,7 +196,7 @@
   "menu.row.aria": "World parameters",
   "menu.particles": "Particles",
   "menu.saved-worlds": "Saved worlds",
-  "intro.phone-note": "On a phone the world is kept small: its GPU is shared with the screen and slows as it warms. Tidemote is at its best on a desktop computer with a dedicated graphics card.",
+  "intro.gpu-note": "Tidemote is best experienced on a computer with a dedicated graphics card. Phones and laptops can still run it, but with fewer particles and at a lower frame rate, and quality may degrade as they heat up and throttle.",
   "linked.kind": "A species card",
   "linked.go": "Open Tidemote",
   "linked.png": "Save the card",

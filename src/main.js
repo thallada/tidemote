@@ -100,8 +100,11 @@ const median = (a) => { const s = [...a].sort((x, y) => x - y); return s[s.lengt
 const phone = () => innerWidth <= 720;
 // the intro's animation while the shaders compile and the GPU is measured (drawn on the CPU)
 const stopLoader = startLoader($('intro-anim'));
-// a phone's intro says its worlds are kept small and where the desktop app is (not in the desktop app itself)
-if (throttles && !globalThis.tidemoteDesktop) { $('intro-stores').innerHTML = storeLinks(); $('intro-note').hidden = false; }
+// the intro's note: where the desktop app is (not in the desktop app itself), and on a phone (or a GPU Auto measures
+// short of AUTO_60, calibrate) what a small GPU gives up
+const gpuNote = (on) => { $('intro-gpu').hidden = !on; $('intro-note').hidden = !on && !!globalThis.tidemoteDesktop; };
+if (!globalThis.tidemoteDesktop) $('intro-stores').innerHTML = storeLinks();
+gpuNote(throttles);
 
 // The screen for a world that cannot go on: why, then what can be done. With actions (buttons, each
 // { label, run(button) }) it covers the page and leaves it as it was, for a way back; without, it is a
@@ -907,6 +910,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     const grown = t + perCell * n * Math.max(0, MATURE_LIVING - K.foundLife);
     const fit = (target) => Math.min(clampN((n * target) / grown), clampN(n * 1.3));
     const n60 = fit(target60), n30 = fit(target30), next = pick(n60, n30);
+    if (n60 < AUTO_60) gpuNote(true);
     Object.assign(log, { perCell, grown, n60, n30, next });
     const final = next === n ? n : await allocDown(next);
     seedWorld(final);
@@ -4226,7 +4230,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       const hide = () => (state.phase === 'running' ? hideIntro() : setTimeout(hide, 150));
       hide();
     }
-    // (the menu and the phone's note, whose store links open and leave the world waiting)
+    // (the menu and the note under it, whose store links open and leave the world waiting)
     const note = $('intro-note');
     const inMenu = (t) => t instanceof Node && (el.contains(t) || note.contains(t));
     const MODS = new Set(['Tab', 'Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'ContextMenu']); // i18n-ignore (key names)

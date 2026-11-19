@@ -1266,7 +1266,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
    worlds), each framed with a caret like a select and opening a framed panel; opened, the reticle and the line
    under the title fold away so the panel takes their room and the whole stays centered */
 .intro.menu-open .intro-anim, .intro.menu-open .intro-in > p, .intro.menu-open .intro-note { display: none; }
-/* a phone's note, under everything and quieter than it: a line of small type and the stores as hairline chips */
+/* the note under everything (the stores, and what a small GPU gives up), and quieter than it: a line of small type and the stores as hairline chips */
 .intro-note { display: flex; flex-direction: column; align-items: center; gap: var(--s3); margin-top: var(--s2); padding-top: var(--s3); border-top: 1px solid var(--line-faint); width: min(520px, 100%); }
 .intro .intro-note p { font-size: 12px; color: var(--ink-3); line-height: 1.5; max-width: 52ch; }
 .stores { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
@@ -1893,9 +1893,9 @@ Double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-
       <div class="menu-panel" id="menu-panel" hidden></div>
       <input type="file" id="menu-file" accept=".tidemote,application/gzip" hidden>
     </div>
-    <!-- on a phone: its worlds are kept small, and the desktop app's stores (main.js, stores.js) -->
+    <!-- the desktop app's stores, and on a GPU short of a large world (a phone, or Auto's measure) what it gives up (main.js, stores.js) -->
     <div class="intro-note" id="intro-note" hidden>
-      <p data-i18n="intro.phone-note">On a phone the world is kept small: its GPU is shared with the screen and slows as it warms. Tidemote is at its best on a desktop computer with a dedicated graphics card.</p>
+      <p data-i18n="intro.gpu-note" id="intro-gpu" hidden>Tidemote is best experienced on a computer with a dedicated graphics card. Phones and laptops can still run it, but with fewer particles and at a lower frame rate, and quality may degrade as they heat up and throttle.</p>
       <div class="stores" id="intro-stores"></div>
     </div>
   </div>
@@ -38243,10 +38243,12 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
   };
   var phone = () => innerWidth <= 720;
   var stopLoader = startLoader($2("intro-anim"));
-  if (throttles && !globalThis.tidemoteDesktop) {
-    $2("intro-stores").innerHTML = storeLinks();
-    $2("intro-note").hidden = false;
-  }
+  var gpuNote = (on) => {
+    $2("intro-gpu").hidden = !on;
+    $2("intro-note").hidden = !on && !!globalThis.tidemoteDesktop;
+  };
+  if (!globalThis.tidemoteDesktop) $2("intro-stores").innerHTML = storeLinks();
+  gpuNote(throttles);
   var RELOAD = { label: tr("err.reload", "Reload the page"), run: () => location.reload() };
   function fail(title, detail, actions = []) {
     $2("nogpu-title").textContent = title;
@@ -39101,6 +39103,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const grown = t + perCell * n * Math.max(0, MATURE_LIVING - K.foundLife);
       const fit4 = (target2) => Math.min(clampN(n * target2 / grown), clampN(n * 1.3));
       const n60 = fit4(target60), n30 = fit4(target30), next = pick4(n60, n30);
+      if (n60 < AUTO_60) gpuNote(true);
       Object.assign(log, { perCell, grown, n60, n30, next });
       const final = next === n ? n : await allocDown(next);
       seedWorld(final);
