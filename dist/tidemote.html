@@ -760,11 +760,11 @@ body.set-grabbing, body.set-grabbing * { cursor: var(--grab-cursor) !important; 
 .vol-row { display: flex; align-items: center; gap: var(--s3); height: 32px; }
 .vol-row input { flex: 1; min-width: 0; height: 24px; }
 .vol-row b { width: 4ch; text-align: right; font-weight: 400; color: var(--ink-2); }
-/* HDR's calibration swatch (Settings → Display → Color, docs/hdr.md): under the Highlights slider, its words beside */
-.hdr-cal-row { grid-template-columns: 9.6em minmax(0, 1fr); }
+/* HDR's calibration guide (Settings → Display → Color, docs/hdr.md), its words beside: room for either's three lines,
+   so nothing below moves as they change; hidden but while Highlights is set (its ring is the display at its brightest) */
 .hdr-cal { width: 100%; height: 44px; border-radius: 4px; display: block; dynamic-range-limit: no-limit; }
-/* (shown only while Highlights is set: its ring is the display at its brightest) */
 .hdr-cal.idle { visibility: hidden; }
+.hdr-cal-say { margin: 0; min-height: calc(3 * 1.35em); color: var(--ink-2); font-size: 12px; line-height: 1.35; }
 .hdr-cal-say { margin: 0; color: var(--ink-2); font-size: 12px; line-height: 1.35; grid-column: 2; grid-row: 1; }
 .settings.placed .hdr-cal-say { grid-column: auto; grid-row: auto; }
 /* Settings → About: a few paragraphs of prose */
@@ -2008,6 +2008,121 @@ Double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-
       }
     }
     return den > 0 ? num / den : 0;
+  }
+
+  // src/hdr.js
+  var PEAK = { min: 1.5, max: 16, def: 2 };
+  var WIDE = [0, 0.35, 0.65, 1];
+  var WIDE_DEF = 2;
+  var peakToSlider = (p2) => Math.round(1e3 * Math.log(clampPeak(p2) / PEAK.min) / Math.log(PEAK.max / PEAK.min));
+  var sliderToPeak = (t) => +(PEAK.min * (PEAK.max / PEAK.min) ** (Math.min(1e3, Math.max(0, t)) / 1e3)).toFixed(2);
+  var clampPeak = (p2) => Math.min(PEAK.max, Math.max(PEAK.min, Number(p2) || PEAK.def));
+  function displayCaps(device, onChange) {
+    const hdrQ = matchMedia("(dynamic-range: high)"), p3Q = matchMedia("(color-gamut: p3)");
+    const ctx = document.createElement("canvas").getContext("webgpu");
+    ctx.configure({ device, format: "rgba16float", toneMapping: { mode: "extended" } });
+    const caps = { toneMapping: ctx.getConfiguration?.()?.toneMapping?.mode === "extended", hdrScreen: hdrQ.matches, p3Screen: p3Q.matches };
+    ctx.unconfigure();
+    hdrQ.addEventListener("change", (e) => {
+      caps.hdrScreen = e.matches;
+      onChange(caps);
+    });
+    p3Q.addEventListener("change", (e) => {
+      caps.p3Screen = e.matches;
+      onChange(caps);
+    });
+    return caps;
+  }
+  function displayPlan({ hdr = true, peak = PEAK.def, wide = WIDE_DEF } = {}, caps = {}, { filming = false, format = "bgra8unorm", preferred = "bgra8unorm" } = {}) {
+    const hdrOn = !!(hdr && caps.toneMapping && caps.hdrScreen);
+    const amount = WIDE[wide] ?? 0;
+    const p3 = !!(amount > 0 && (caps.p3Screen || hdrOn));
+    return {
+      hdr: hdrOn,
+      p3,
+      format: hdrOn || format === "rgba16float" ? "rgba16float" : preferred,
+      config: { colorSpace: p3 ? "display-p3" : "srgb", toneMapping: { mode: hdrOn ? "extended" : "standard" } },
+      display: { peak: hdrOn && !filming ? clampPeak(peak) : 1, wide: filming ? 0 : amount, p3 }
+    };
+  }
+  function halfToFloat(h) {
+    const e = h >> 10 & 31, m = h & 1023, s = h & 32768 ? -1 : 1;
+    if (e === 0) return s * m * 2 ** -24;
+    if (e === 31) return m ? NaN : s * Infinity;
+    return s * (1 + m / 1024) * 2 ** (e - 15);
+  }
+  function halfsToRGBA8(halves) {
+    const out = new Uint8ClampedArray(halves.length);
+    for (let i = 0; i < halves.length; i++) out[i] = Math.round(halfToFloat(halves[i]) * 255);
+    return out;
+  }
+  var SRGB_WGSL = (
+    /* wgsl */
+    ` // i18n-ignore (WGSL)
+fn srgbDecode(v: vec3f) -> vec3f {
+  let x = max(v, vec3f(0.0));
+  return select(pow((x + 0.055) / 1.055, vec3f(2.4)), x / 12.92, x <= vec3f(0.04045));
+}
+fn srgbEncode(l: vec3f) -> vec3f {
+  let x = max(l, vec3f(0.0));
+  return select(1.055 * pow(x, vec3f(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3f(0.0031308));
+}
+fn srgbToP3(l: vec3f) -> vec3f {
+  return mat3x3f(0.8224621, 0.0331941, 0.0170827, 0.1775380, 0.9668058, 0.0723974, 0.0, 0.0, 0.9105199) * l;
+}
+`
+  );
+  var CAL_WGSL = SRGB_WGSL + /* wgsl */
+  ` // i18n-ignore (WGSL)
+struct U { peak: f32, w: f32, h: f32, _p: f32 }
+@group(0) @binding(0) var<uniform> u: U;
+@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+  let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
+  return vec4f(p * 2.0 - 1.0, 0.0, 1.0);
+}
+@fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+  let d = length(pos.xy - vec2f(u.w, u.h) * 0.5);
+  let r = u.h * 0.24;
+  let ring = max(2.0, u.h * 0.1);
+  // (edges a pixel wide; the ring 64 times SDR white, touching the disc so their edge goes with the difference)
+  let inRing = clamp(r + ring - d + 0.5, 0.0, 1.0);
+  let l = mix(0.0, mix(u.peak, 64.0, clamp(d - r + 0.5, 0.0, 1.0)), inRing);
+  return vec4f(srgbEncode(vec3f(l)), 1.0);
+}
+`;
+  function createCalibration(device) {
+    const mod = device.createShaderModule({ code: CAL_WGSL, label: "hdrCalibration" });
+    const pipe2 = device.createRenderPipeline({
+      layout: "auto",
+      label: "hdrCalibration",
+      primitive: { topology: "triangle-list" },
+      vertex: { module: mod, entryPoint: "vs" },
+      fragment: { module: mod, entryPoint: "fs", targets: [{ format: "rgba16float" }] }
+    });
+    const ubuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const bg = device.createBindGroup({ layout: pipe2.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ubuf } }] });
+    const configured = /* @__PURE__ */ new WeakSet();
+    return (canvas2, peak) => {
+      const ctx = canvas2.getContext("webgpu");
+      if (!configured.has(canvas2)) {
+        ctx.configure({ device, format: "rgba16float", alphaMode: "opaque", toneMapping: { mode: "extended" } });
+        configured.add(canvas2);
+      }
+      const dpr = Math.min(globalThis.devicePixelRatio || 1, 2);
+      const w = Math.max(1, Math.round(canvas2.clientWidth * dpr)), h = Math.max(1, Math.round(canvas2.clientHeight * dpr));
+      if (canvas2.width !== w || canvas2.height !== h) {
+        canvas2.width = w;
+        canvas2.height = h;
+      }
+      device.queue.writeBuffer(ubuf, 0, new Float32Array([clampPeak(peak), w, h, 0]));
+      const enc = device.createCommandEncoder();
+      const pass = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: "clear", storeOp: "store", clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
+      pass.setPipeline(pipe2);
+      pass.setBindGroup(0, bg);
+      pass.draw(3);
+      pass.end();
+      device.queue.submit([enc.finish()]);
+    };
   }
 
   // src/shaders.js
@@ -10258,20 +10373,7 @@ fn hdrLift(l: f32, peak: f32) -> f32 {
   return max(1.0, toneLum(l, peak) / min(toneLum(l, 1.0), 1.0));
 }
 
-// sRGB's transfer curves, extended past 1 (as a float canvas in an sRGB-encoded color space takes them).
-fn srgbDecode(v: vec3f) -> vec3f {
-  let x = max(v, vec3f(0.0));
-  return select(pow((x + 0.055) / 1.055, vec3f(2.4)), x / 12.92, x <= vec3f(0.04045));
-}
-fn srgbEncode(l: vec3f) -> vec3f {
-  let x = max(l, vec3f(0.0));
-  return select(1.055 * pow(x, vec3f(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3f(0.0031308));
-}
-// Linear sRGB to linear Display P3 (the same white, D65), colorimetric: a color shows as it does on an sRGB display.
-fn srgbToP3(l: vec3f) -> vec3f {
-  return mat3x3f(0.8224621, 0.0331941, 0.0170827, 0.1775380, 0.9668058, 0.0723974, 0.0, 0.0, 0.9105199) * l;
-}
-// A wide gamut's colors (docs/hdr.md, Wide color): the view's colors are made in sRGB, and on a P3 display the most
+${SRGB_WGSL}// A wide gamut's colors (docs/hdr.md, Wide color): the view's colors are made in sRGB, and on a P3 display the most
 // saturated reach out toward its edge, as far as post.display.y asks. The colorimetric conversion keeps a color as it
 // is; the same numbers read as P3 move each sRGB primary out to P3's (sRGB's gamut stretched onto P3's, nothing out of
 // it). Between them by how saturated the color is: greys (where both agree) and pale colors as they are, a cell's
@@ -18141,7 +18243,7 @@ struct SV {
       this.pStoneLitM = rp(this.postModule, "vsFull", "fsStoneLitMicro", "triangle-list", void 0);
       this.pUp = rp(this.postModule, "vsFull", "fsUp", "triangle-list", additive);
       this.pMurk = rp(this.postModule, "vsFull", "fsMurk", "triangle-list", void 0);
-      const compDesc = (constants) => rpDesc(this.postModule, "vsComp", "fsComposite", "triangle-list", void 0, format, constants);
+      const compDesc = (constants, fmt2 = format) => rpDesc(this.postModule, "vsComp", "fsComposite", "triangle-list", void 0, fmt2, constants);
       this.pComp = defer(compDesc({}), false, (p2) => {
         this.pComp = p2;
       });
@@ -18164,6 +18266,7 @@ struct SV {
       this.compParts = [{ ICE: 1 }, { HOT: 1 }].map((c) => ({
         p: [null, null],
         bg: [null, null],
+        part: c,
         desc: [compDesc({ LEAN: 1, ...c }), compDesc({ LEAN: 1, MICRO_SUSPENSION: 0, ...c })]
       }));
       const partSet = (q, i) => (p2) => {
@@ -18185,10 +18288,12 @@ struct SV {
       this.pIce = rp(this.postModule, "vsComp", "fsIce", "triangle-list");
       this.cpCompPick = cPipe({ layout: "auto", compute: { module: this.postModule, entryPoint: "compPick" }, label: "compPick" });
       b.compArgs = d.createBuffer({ size: 80, usage: U.STORAGE | U.INDIRECT });
-      this.pLoupe = defer(rpDesc(this.postModule, "vsLoupe", "fsLoupe", "triangle-list", over, format), false, (p2) => {
+      const loupeDesc = (fmt2 = format) => rpDesc(this.postModule, "vsLoupe", "fsLoupe", "triangle-list", over, fmt2);
+      const plainDesc = (fmt2 = format) => rpDesc(this.postModule, "vsFull", "fsPlain", "triangle-list", void 0, fmt2);
+      this.pLoupe = defer(loupeDesc(), false, (p2) => {
         this.pLoupe = p2;
       });
-      this.pPlain = defer(rpDesc(this.postModule, "vsFull", "fsPlain", "triangle-list", void 0, format), false, (p2) => {
+      this.pPlain = defer(plainDesc(), false, (p2) => {
         this.pPlain = p2;
       });
       this.sampler = d.createSampler({ magFilter: "linear", minFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
@@ -18248,59 +18353,50 @@ struct SV {
       this.cpShapeDirty = cPipe({ layout: "auto", compute: { module: this.drawModule, entryPoint: "shapeDirty" }, label: "shapeDirty" });
       this.cpShapeBake = cPipe({ layout: "auto", compute: { module: this.drawModule, entryPoint: "shapeBake" }, label: "shapeBake" });
       b.holdU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
-      this.pHold = rp(this.postModule, "vsFull", "fsReproj", "triangle-list", void 0, format);
+      const holdDesc = (fmt2 = format) => rpDesc(this.postModule, "vsFull", "fsReproj", "triangle-list", void 0, fmt2);
+      this.pHold = rPipe(holdDesc());
       const glassMod = shader({ code: GLASS_WGSL, label: "glass" });
-      const glassP = (blend) => rPipe({
+      const glassFade = { color: { srcFactor: "constant", dstFactor: "one-minus-constant", operation: "add" }, alpha: { srcFactor: "zero", dstFactor: "one", operation: "add" } };
+      const glassDesc = (blend, fmt2 = format) => ({
         layout: "auto",
         label: "fsGlass",
         primitive: { topology: "triangle-list" },
         vertex: { module: glassMod, entryPoint: "vsGlass" },
-        fragment: { module: glassMod, entryPoint: "fsGlass", targets: [{ format, blend }] }
+        fragment: { module: glassMod, entryPoint: "fsGlass", targets: [{ format: fmt2, blend }] }
       });
-      const glassFade = { color: { srcFactor: "constant", dstFactor: "one-minus-constant", operation: "add" }, alpha: { srcFactor: "zero", dstFactor: "one", operation: "add" } };
-      this.pGlass = [glassP(void 0), glassP(glassFade)];
-      this._canvasJobs = (fmt2) => {
-        const cd = (c) => rpDesc(this.postModule, "vsComp", "fsComposite", "triangle-list", void 0, fmt2, c);
-        const glassD = (blend) => ({
-          layout: "auto",
-          label: "fsGlass",
-          primitive: { topology: "triangle-list" },
-          vertex: { module: glassMod, entryPoint: "vsGlass" },
-          fragment: { module: glassMod, entryPoint: "fsGlass", targets: [{ format: fmt2, blend }] }
-        });
-        return [
-          [cd({}), (p2) => {
-            this.pComp = p2;
-          }],
-          [cd({ MICRO_SUSPENSION: 0 }), (p2) => {
-            this.pCompClear = p2;
-          }],
-          [cd({ LEAN: 1 }), (p2) => {
-            this.pCompLean = p2;
-          }],
-          [cd({ LEAN: 1, MICRO_SUSPENSION: 0 }), (p2) => {
-            this.pCompClearLean = p2;
-          }],
-          ...this.compParts.flatMap((q, k) => [{}, { MICRO_SUSPENSION: 0 }].map((m, i) => [cd({ LEAN: 1, ...m, ...k ? { HOT: 1 } : { ICE: 1 } }), (p2) => {
-            q.p[i] = p2;
-          }])),
-          [rpDesc(this.postModule, "vsLoupe", "fsLoupe", "triangle-list", over, fmt2), (p2) => {
-            this.pLoupe = p2;
-          }],
-          [rpDesc(this.postModule, "vsFull", "fsPlain", "triangle-list", void 0, fmt2), (p2) => {
-            this.pPlain = p2;
-          }],
-          [rpDesc(this.postModule, "vsFull", "fsReproj", "triangle-list", void 0, fmt2), (p2) => {
-            this.pHold = p2;
-          }],
-          [glassD(void 0), (p2) => {
-            this.pGlass[0] = p2;
-          }],
-          [glassD(glassFade), (p2) => {
-            this.pGlass[1] = p2;
-          }]
-        ];
-      };
+      this.pGlass = [rPipe(glassDesc(void 0)), rPipe(glassDesc(glassFade))];
+      this._canvasJobs = (fmt2) => [
+        [compDesc({}, fmt2), (p2) => {
+          this.pComp = p2;
+        }],
+        [compDesc({ MICRO_SUSPENSION: 0 }, fmt2), (p2) => {
+          this.pCompClear = p2;
+        }],
+        [compDesc({ LEAN: 1 }, fmt2), (p2) => {
+          this.pCompLean = p2;
+        }],
+        [compDesc({ LEAN: 1, MICRO_SUSPENSION: 0 }, fmt2), (p2) => {
+          this.pCompClearLean = p2;
+        }],
+        ...this.compParts.flatMap((q) => [{}, { MICRO_SUSPENSION: 0 }].map((m, i) => [compDesc({ LEAN: 1, ...m, ...q.part }, fmt2), (p2) => {
+          q.p[i] = p2;
+        }])),
+        [loupeDesc(fmt2), (p2) => {
+          this.pLoupe = p2;
+        }],
+        [plainDesc(fmt2), (p2) => {
+          this.pPlain = p2;
+        }],
+        [holdDesc(fmt2), (p2) => {
+          this.pHold = p2;
+        }],
+        [glassDesc(void 0, fmt2), (p2) => {
+          this.pGlass[0] = p2;
+        }],
+        [glassDesc(glassFade, fmt2), (p2) => {
+          this.pGlass[1] = p2;
+        }]
+      ];
       this.glassU = [0, 1].map(() => d.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
       this.glass = [];
       this.microModule = shader({ code: MICRO_WGSL, label: "micro" });
@@ -18384,7 +18480,6 @@ ${e.message}` : String(e?.message || e));
       const jobs = this._canvasJobs(fmt2);
       const pipes = await Promise.all(jobs.map(([desc]) => this.device.createRenderPipelineAsync(desc)));
       return () => {
-        if (fmt2 === this.format) return;
         this.format = fmt2;
         jobs.forEach(([, set], i) => set(pipes[i]));
         this.compBG = this.compClearBG = this.compLeanBG = this.compClearLeanBG = null;
@@ -27910,129 +28005,6 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
   }
   var bodyPatch = (edges, start2, max) => component(edges, new Uint8Array(edges.length), start2, max);
 
-  // src/hdr.js
-  var PEAK = { min: 1.5, max: 16, def: 4 };
-  var WIDE = [0, 0.35, 0.65, 1];
-  var WIDE_DEF = 2;
-  var peakToSlider = (p2) => Math.round(1e3 * Math.log(clampPeak(p2) / PEAK.min) / Math.log(PEAK.max / PEAK.min));
-  var sliderToPeak = (t) => +(PEAK.min * (PEAK.max / PEAK.min) ** (Math.min(1e3, Math.max(0, t)) / 1e3)).toFixed(2);
-  var clampPeak = (p2) => Math.min(PEAK.max, Math.max(PEAK.min, Number(p2) || PEAK.def));
-  function displayCaps(device, onChange = null) {
-    const mq = (q) => globalThis.matchMedia?.(q) ?? null;
-    const hdrQ = mq("(dynamic-range: high)"), p3Q = mq("(color-gamut: p3)");
-    const probe = (cfg) => {
-      try {
-        const ctx = document.createElement("canvas").getContext("webgpu");
-        ctx.configure({ device, format: "rgba16float", alphaMode: "opaque", ...cfg });
-        const got = ctx.getConfiguration?.();
-        ctx.unconfigure();
-        return got || null;
-      } catch {
-        return null;
-      }
-    };
-    const caps = {
-      toneMapping: probe({ toneMapping: { mode: "extended" } })?.toneMapping?.mode === "extended",
-      p3Canvas: probe({ colorSpace: "display-p3" })?.colorSpace === "display-p3",
-      hdrScreen: !!hdrQ?.matches,
-      p3Screen: !!p3Q?.matches
-    };
-    if (onChange) {
-      hdrQ?.addEventListener?.("change", (e) => {
-        caps.hdrScreen = e.matches;
-        onChange(caps);
-      });
-      p3Q?.addEventListener?.("change", (e) => {
-        caps.p3Screen = e.matches;
-        onChange(caps);
-      });
-    }
-    return caps;
-  }
-  function displayPlan({ hdr = true, peak = PEAK.def, wide = WIDE_DEF } = {}, caps = {}, { filming = false, format = "bgra8unorm", preferred = "bgra8unorm" } = {}) {
-    const hdrOn = !!(hdr && caps.toneMapping && caps.hdrScreen);
-    const amount = WIDE[wide] ?? 0;
-    const p3 = !!(amount > 0 && caps.p3Canvas && (caps.p3Screen || hdrOn));
-    return {
-      hdr: hdrOn,
-      p3,
-      format: hdrOn || format === "rgba16float" ? "rgba16float" : preferred,
-      config: { colorSpace: p3 ? "display-p3" : "srgb", toneMapping: { mode: hdrOn ? "extended" : "standard" } },
-      display: { peak: hdrOn && !filming ? clampPeak(peak) : 1, wide: filming ? 0 : amount, p3 }
-    };
-  }
-  function halfToFloat(h) {
-    const e = h >> 10 & 31, m = h & 1023, s = h & 32768 ? -1 : 1;
-    if (e === 0) return s * m * 2 ** -24;
-    if (e === 31) return m ? NaN : s * Infinity;
-    return s * (1 + m / 1024) * 2 ** (e - 15);
-  }
-  function halfsToRGBA8(halves) {
-    const out = new Uint8ClampedArray(halves.length);
-    for (let i = 0; i < halves.length; i++) out[i] = Math.round(halfToFloat(halves[i]) * 255);
-    return out;
-  }
-  var CAL_WGSL = (
-    /* wgsl */
-    ` // i18n-ignore (WGSL)
-struct U { peak: f32, w: f32, h: f32, _p: f32 }
-@group(0) @binding(0) var<uniform> u: U;
-@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
-  let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
-  return vec4f(p * 2.0 - 1.0, 0.0, 1.0);
-}
-fn enc(l: f32) -> f32 { return 1.055 * pow(l, 1.0 / 2.4) - 0.055; }
-@fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
-  let d = length(pos.xy - vec2f(u.w, u.h) * 0.5);
-  let r = u.h * 0.24;
-  let ring = max(2.0, u.h * 0.1);
-  // (edges a pixel wide; the ring 64 times SDR white, touching the disc so their edge goes with the difference)
-  let inRing = clamp(r + ring - d + 0.5, 0.0, 1.0);
-  let l = mix(0.0, mix(u.peak, 64.0, clamp(d - r + 0.5, 0.0, 1.0)), inRing);
-  return vec4f(vec3f(enc(l)), 1.0);
-}
-`
-  );
-  function createCalibration(device) {
-    let pipe2 = null, ubuf = null, bg = null, ctx = null, canvas2 = null;
-    return {
-      attach(cv) {
-        canvas2 = cv;
-        ctx = cv.getContext("webgpu");
-        ctx.configure({ device, format: "rgba16float", alphaMode: "opaque", toneMapping: { mode: "extended" } });
-        if (!pipe2) {
-          const mod = device.createShaderModule({ code: CAL_WGSL, label: "hdrCalibration" });
-          pipe2 = device.createRenderPipeline({
-            layout: "auto",
-            label: "hdrCalibration",
-            primitive: { topology: "triangle-list" },
-            vertex: { module: mod, entryPoint: "vs" },
-            fragment: { module: mod, entryPoint: "fs", targets: [{ format: "rgba16float" }] }
-          });
-          ubuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-          bg = device.createBindGroup({ layout: pipe2.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ubuf } }] });
-        }
-      },
-      draw(peak) {
-        if (!ctx || !canvas2.isConnected) return;
-        const dpr = Math.min(globalThis.devicePixelRatio || 1, 2);
-        const w = Math.max(1, Math.round(canvas2.clientWidth * dpr)), h = Math.max(1, Math.round(canvas2.clientHeight * dpr));
-        if (canvas2.width !== w || canvas2.height !== h) {
-          canvas2.width = w;
-          canvas2.height = h;
-        }
-        device.queue.writeBuffer(ubuf, 0, new Float32Array([clampPeak(peak), w, h, 0]));
-        const enc = device.createCommandEncoder();
-        const pass = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: "clear", storeOp: "store", clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
-        pass.setPipeline(pipe2);
-        pass.setBindGroup(0, bg);
-        pass.draw(3);
-        pass.end();
-        device.queue.submit([enc.finish()]);
-      }
-    };
-  }
-
   // src/loader.js
   var C = {
     line: "rgba(130, 205, 214, 0.22)",
@@ -33115,12 +33087,11 @@ fn covRect(p: vec2f, r: vec4f) -> f32 {
   return x * y;
 }
 
+${SRGB_WGSL}
 // a note's color (sRGB) in the canvas's color space: on a P3 canvas the same color, colorimetrically (displayOut's)
 fn canvasColor(c: vec4f) -> vec4f {
   if (u.p3 < 0.5) { return c; }
-  let l = select(pow((c.rgb + 0.055) / 1.055, vec3f(2.4)), c.rgb / 12.92, c.rgb <= vec3f(0.04045));
-  let p = max(mat3x3f(0.8224621, 0.0331941, 0.0170827, 0.1775380, 0.9668058, 0.0723974, 0.0, 0.0, 0.9105199) * l, vec3f(0.0));
-  return vec4f(select(1.055 * pow(p, vec3f(1.0 / 2.4)) - 0.055, p * 12.92, p <= vec3f(0.0031308)), c.a);
+  return vec4f(srgbEncode(max(srgbToP3(srgbDecode(c.rgb)), vec3f(0.0))), c.a);
 }
 
 fn ndc(p: vec2f, z: f32) -> vec4f { return vec4f(p.x / u.size.x * 2.0 - 1.0, 1.0 - p.y / u.size.y * 2.0, z, 1.0); }
@@ -38266,9 +38237,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "8e1fe5ee3b3c009c") return;
+      if (localStorage.getItem(key) === "b4ed7a35166d46f6") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "8e1fe5ee3b3c009c");
+      if (res) localStorage.setItem(key, "b4ed7a35166d46f6");
     } catch {
     }
   }
@@ -40987,28 +40958,21 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       function color_() {
         const plan2 = displayPlan(dsp, caps, { format: eng.format, preferred });
         const hdrRow = caps.toneMapping && caps.hdrScreen;
-        const wideRow = caps.p3Canvas && (caps.p3Screen || plan2.hdr);
+        const wideRow = caps.p3Screen || plan2.hdr;
         if (!hdrRow && !wideRow) return "";
         const peakL = tr("settings.display.hdr-peak", "Highlights");
-        return group("color", tr("settings.display.color", "Color"), (hdrRow ? onoff("hdr", tr("settings.display.hdr", "HDR"), "", dsp.hdr, "hdr") : "") + (plan2.hdr ? `<div class="opt"><span class="lbl">${term("hdrpeak", peakL)}</span><div class="vol-row"><input type="range" id="set-peak" min="0" max="1000" step="1" value="${peakToSlider(dsp.peak)}" aria-label="${peakL}"><b id="set-peak-v">${peakWords(dsp.peak)}</b></div></div><div class="opt hdr-cal-row"><canvas id="hdr-cal" class="hdr-cal${calShown() ? "" : " idle"}" aria-hidden="true"></canvas><p class="hdr-cal-say" id="hdr-cal-say">${calWords()}</p></div>` : "") + (wideRow ? choice("wide", tr("settings.display.wide", "Wide color"), "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, tr("settings.display.wide-vivid", "Vivid")]], dsp.wide, "widecolor") : ""));
+        return group("color", tr("settings.display.color", "Color"), (hdrRow ? onoff("hdr", tr("settings.display.hdr", "HDR"), "", dsp.hdr, "hdr") : "") + (plan2.hdr ? `<div class="opt"><canvas id="hdr-cal" class="hdr-cal${calShown() ? "" : " idle"}" aria-hidden="true"></canvas><p class="hdr-cal-say" id="hdr-cal-say">${calWords()}</p></div><div class="opt"><span class="lbl">${term("hdrpeak", peakL)}</span><div class="vol-row"><input type="range" id="set-peak" min="0" max="1000" step="1" value="${peakToSlider(dsp.peak)}" aria-label="${peakL}"><b id="set-peak-v">${peakWords(dsp.peak)}</b></div></div>` : "") + (wideRow ? choice("wide", tr("settings.display.wide", "Wide color"), "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, tr("settings.display.wide-vivid", "Vivid")]], dsp.wide, "widecolor") : ""));
       }
       const peakWords = (p2) => tr("settings.display.hdr-peak-x", "{x}×", { x: +p2.toFixed(p2 < 10 ? 1 : 0) });
       let cal = null, calUntil = 0, calTimer = 0, calHeld = false;
       const calShown = () => calHeld || performance.now() < calUntil;
-      const calWords = () => calShown() ? tr("settings.display.hdr-calibrate", "Raise Highlights until the disc disappears into its ring.") : tr("settings.display.hdr-calibrate-idle", "Hold the Highlights slider to show its guide.");
+      const calWords = () => calShown() ? tr("settings.display.hdr-calibrate", "Raise highlights until the inner gray disk disappears into the white circle") : tr("settings.display.hdr-calibrate-idle", "Hold the highlights slider to show the guide");
       const drawCal = () => {
         const cv = $2("hdr-cal");
         if (!cv) return;
-        const on = calShown();
-        cv.classList.toggle("idle", !on);
+        cv.classList.toggle("idle", !calShown());
         setText($2("hdr-cal-say"), calWords());
-        if (!on) return;
-        cal ||= createCalibration(device);
-        if (cal.canvas !== cv) {
-          cal.attach(cv);
-          cal.canvas = cv;
-        }
-        cal.draw(dsp.peak);
+        if (calShown()) (cal ||= createCalibration(device))(cv, dsp.peak);
       };
       const wakeCal = (ms = 2500) => {
         calUntil = performance.now() + ms;
@@ -41458,9 +41422,6 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       });
       opts.addEventListener("keydown", (e) => {
         if (e.target.id === "set-peak") wakeCal();
-      });
-      opts.addEventListener("focusout", (e) => {
-        if (e.target.id === "set-peak") wakeCal(600);
       });
       opts.addEventListener("keydown", (e) => {
         if (e.target.id === "w-name" && e.key === "Enter") {

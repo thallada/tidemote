@@ -3,6 +3,7 @@
 // Each living genome has up to three cell roles with their own signatures.
 
 import { SEA, SEA_N, SEA_CASCADES, SEA_LAYERS } from './sea.js';
+import { SRGB_WGSL } from './hdr.js';
 
 export const MAXK = 1024;
 export const FIRST_LIFE = 5;
@@ -8225,20 +8226,7 @@ fn hdrLift(l: f32, peak: f32) -> f32 {
   return max(1.0, toneLum(l, peak) / min(toneLum(l, 1.0), 1.0));
 }
 
-// sRGB's transfer curves, extended past 1 (as a float canvas in an sRGB-encoded color space takes them).
-fn srgbDecode(v: vec3f) -> vec3f {
-  let x = max(v, vec3f(0.0));
-  return select(pow((x + 0.055) / 1.055, vec3f(2.4)), x / 12.92, x <= vec3f(0.04045));
-}
-fn srgbEncode(l: vec3f) -> vec3f {
-  let x = max(l, vec3f(0.0));
-  return select(1.055 * pow(x, vec3f(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3f(0.0031308));
-}
-// Linear sRGB to linear Display P3 (the same white, D65), colorimetric: a color shows as it does on an sRGB display.
-fn srgbToP3(l: vec3f) -> vec3f {
-  return mat3x3f(0.8224621, 0.0331941, 0.0170827, 0.1775380, 0.9668058, 0.0723974, 0.0, 0.0, 0.9105199) * l;
-}
-// A wide gamut's colors (docs/hdr.md, Wide color): the view's colors are made in sRGB, and on a P3 display the most
+${SRGB_WGSL}// A wide gamut's colors (docs/hdr.md, Wide color): the view's colors are made in sRGB, and on a P3 display the most
 // saturated reach out toward its edge, as far as post.display.y asks. The colorimetric conversion keeps a color as it
 // is; the same numbers read as P3 move each sRGB primary out to P3's (sRGB's gamut stretched onto P3's, nothing out of
 // it). Between them by how saturated the color is: greys (where both agree) and pale colors as they are, a cell's

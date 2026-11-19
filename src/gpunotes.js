@@ -17,6 +17,8 @@
 // which runs WebGPU's commands too: a 2M world held still at 87 pixels a unit, annotations on, kept that thread busy
 // 963 ms a second (179 with them off) and ran at 37-49 fps (runs/perf/fps20).
 
+import { SRGB_WGSL } from './hdr.js';
+
 const INST_W = 12; // words an instance: a (4), b (4), color, kind, clip, z
 const TRI_W = 4; // words a triangle's vertex: x, y, color, clip
 const TAU = Math.PI * 2;
@@ -46,12 +48,11 @@ fn covRect(p: vec2f, r: vec4f) -> f32 {
   return x * y;
 }
 
+${SRGB_WGSL}
 // a note's color (sRGB) in the canvas's color space: on a P3 canvas the same color, colorimetrically (displayOut's)
 fn canvasColor(c: vec4f) -> vec4f {
   if (u.p3 < 0.5) { return c; }
-  let l = select(pow((c.rgb + 0.055) / 1.055, vec3f(2.4)), c.rgb / 12.92, c.rgb <= vec3f(0.04045));
-  let p = max(mat3x3f(0.8224621, 0.0331941, 0.0170827, 0.1775380, 0.9668058, 0.0723974, 0.0, 0.0, 0.9105199) * l, vec3f(0.0));
-  return vec4f(select(1.055 * pow(p, vec3f(1.0 / 2.4)) - 0.055, p * 12.92, p <= vec3f(0.0031308)), c.a);
+  return vec4f(srgbEncode(max(srgbToP3(srgbDecode(c.rgb)), vec3f(0.0))), c.a);
 }
 
 fn ndc(p: vec2f, z: f32) -> vec4f { return vec4f(p.x / u.size.x * 2.0 - 1.0, 1.0 - p.y / u.size.y * 2.0, z, 1.0); }

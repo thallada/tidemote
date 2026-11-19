@@ -563,7 +563,8 @@ class Engine {
     // compile the full one first and the lean one on after the engine starts (the full one draws until it is ready);
     // the page compiles the lean one first and the full one in its second wave (the lean one draws alone until then: no
     // ice, bubbles or maps for those seconds)
-    const compDesc = (constants) => rpDesc(this.postModule, 'vsComp', 'fsComposite', 'triangle-list', undefined, format, constants);
+    // (the pipelines that draw into the canvas, by its format: _canvasJobs makes them again for another)
+    const compDesc = (constants, fmt = format) => rpDesc(this.postModule, 'vsComp', 'fsComposite', 'triangle-list', undefined, fmt, constants);
     this.pComp = defer(compDesc({}), false, (p) => { this.pComp = p; });
     this.pCompClear = defer(compDesc({ MICRO_SUSPENSION: 0 }), false, (p) => { this.pCompClear = p; });
     this.pCompLean = late ? rPipe(compDesc({ LEAN: 1 })) : null;
@@ -578,7 +579,7 @@ class Engine {
     // the lean composite with the ice back, and with warm water's bubbles (ICE, HOT in POST_WGSL), which compPick draws
     // where only that one is in view: [micro, clear] each, in the page's second wave, headless runs' after the lean one
     // (the full one draws in their place until they land)
-    this.compParts = [{ ICE: 1 }, { HOT: 1 }].map((c) => ({ p: [null, null], bg: [null, null],
+    this.compParts = [{ ICE: 1 }, { HOT: 1 }].map((c) => ({ p: [null, null], bg: [null, null], part: c,
       desc: [compDesc({ LEAN: 1, ...c }), compDesc({ LEAN: 1, MICRO_SUSPENSION: 0, ...c })] }));
     const partSet = (q, i) => (p) => { if (!this._compHot) { q.p[i] = p; q.bg[i] = null; } };
     if (late) for (const q of this.compParts) q.desc.forEach((desc, i) => this._later.push({ desc, compute: false, set: partSet(q, i) }));
@@ -595,8 +596,10 @@ class Engine {
     this.cpCompPick = cPipe({ layout: 'auto', compute: { module: this.postModule, entryPoint: 'compPick' }, label: 'compPick' });
     // (the four composites' draws, then the ice's: compPick)
     b.compArgs = d.createBuffer({ size: 80, usage: U.STORAGE | U.INDIRECT });
-    this.pLoupe = defer(rpDesc(this.postModule, 'vsLoupe', 'fsLoupe', 'triangle-list', over, format), false, (p) => { this.pLoupe = p; });
-    this.pPlain = defer(rpDesc(this.postModule, 'vsFull', 'fsPlain', 'triangle-list', undefined, format), false, (p) => { this.pPlain = p; });
+    const loupeDesc = (fmt = format) => rpDesc(this.postModule, 'vsLoupe', 'fsLoupe', 'triangle-list', over, fmt);
+    const plainDesc = (fmt = format) => rpDesc(this.postModule, 'vsFull', 'fsPlain', 'triangle-list', undefined, fmt);
+    this.pLoupe = defer(loupeDesc(), false, (p) => { this.pLoupe = p; });
+    this.pPlain = defer(plainDesc(), false, (p) => { this.pPlain = p; });
     this.sampler = d.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
 
     this.timing = null;
@@ -651,32 +654,28 @@ class Engine {
     this.cpShapeBake = cPipe({ layout: 'auto', compute: { module: this.drawModule, entryPoint: 'shapeBake' }, label: 'shapeBake' });
     // Max and coarse speeds: the last drawn world, carried with the camera onto the display frames between draws
     b.holdU = d.createBuffer({ size: 32, usage: U.UNIFORM | U.COPY_DST });
-    this.pHold = rp(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined, format);
+    const holdDesc = (fmt = format) => rpDesc(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined, fmt);
+    this.pHold = rPipe(holdDesc());
     // the panels' frosted glass (setGlass): blurred across into glassTex[1], then down into the view, faded as its panel
     const glassMod = shader({ code: GLASS_WGSL, label: 'glass' });
-    const glassP = (blend) => rPipe({ layout: 'auto', label: 'fsGlass', primitive: { topology: 'triangle-list' },
-      vertex: { module: glassMod, entryPoint: 'vsGlass' }, fragment: { module: glassMod, entryPoint: 'fsGlass', targets: [{ format, blend }] } });
     const glassFade = { color: { srcFactor: 'constant', dstFactor: 'one-minus-constant', operation: 'add' }, alpha: { srcFactor: 'zero', dstFactor: 'one', operation: 'add' } };
-    this.pGlass = [glassP(undefined), glassP(glassFade)];
+    const glassDesc = (blend, fmt = format) => ({ layout: 'auto', label: 'fsGlass', primitive: { topology: 'triangle-list' },
+      vertex: { module: glassMod, entryPoint: 'vsGlass' }, fragment: { module: glassMod, entryPoint: 'fsGlass', targets: [{ format: fmt, blend }] } });
+    this.pGlass = [rPipe(glassDesc(undefined)), rPipe(glassDesc(glassFade))];
     // every pipeline that draws into the canvas, as [descriptor, set] for a canvas of format fmt (prepareFormat: an HDR
     // display's canvas is a float one)
-    this._canvasJobs = (fmt) => {
-      const cd = (c) => rpDesc(this.postModule, 'vsComp', 'fsComposite', 'triangle-list', undefined, fmt, c);
-      const glassD = (blend) => ({ layout: 'auto', label: 'fsGlass', primitive: { topology: 'triangle-list' },
-        vertex: { module: glassMod, entryPoint: 'vsGlass' }, fragment: { module: glassMod, entryPoint: 'fsGlass', targets: [{ format: fmt, blend }] } });
-      return [
-        [cd({}), (p) => { this.pComp = p; }],
-        [cd({ MICRO_SUSPENSION: 0 }), (p) => { this.pCompClear = p; }],
-        [cd({ LEAN: 1 }), (p) => { this.pCompLean = p; }],
-        [cd({ LEAN: 1, MICRO_SUSPENSION: 0 }), (p) => { this.pCompClearLean = p; }],
-        ...this.compParts.flatMap((q, k) => [{}, { MICRO_SUSPENSION: 0 }].map((m, i) => [cd({ LEAN: 1, ...m, ...(k ? { HOT: 1 } : { ICE: 1 }) }), (p) => { q.p[i] = p; }])),
-        [rpDesc(this.postModule, 'vsLoupe', 'fsLoupe', 'triangle-list', over, fmt), (p) => { this.pLoupe = p; }],
-        [rpDesc(this.postModule, 'vsFull', 'fsPlain', 'triangle-list', undefined, fmt), (p) => { this.pPlain = p; }],
-        [rpDesc(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined, fmt), (p) => { this.pHold = p; }],
-        [glassD(undefined), (p) => { this.pGlass[0] = p; }],
-        [glassD(glassFade), (p) => { this.pGlass[1] = p; }],
-      ];
-    };
+    this._canvasJobs = (fmt) => [
+      [compDesc({}, fmt), (p) => { this.pComp = p; }],
+      [compDesc({ MICRO_SUSPENSION: 0 }, fmt), (p) => { this.pCompClear = p; }],
+      [compDesc({ LEAN: 1 }, fmt), (p) => { this.pCompLean = p; }],
+      [compDesc({ LEAN: 1, MICRO_SUSPENSION: 0 }, fmt), (p) => { this.pCompClearLean = p; }],
+      ...this.compParts.flatMap((q) => [{}, { MICRO_SUSPENSION: 0 }].map((m, i) => [compDesc({ LEAN: 1, ...m, ...q.part }, fmt), (p) => { q.p[i] = p; }])),
+      [loupeDesc(fmt), (p) => { this.pLoupe = p; }],
+      [plainDesc(fmt), (p) => { this.pPlain = p; }],
+      [holdDesc(fmt), (p) => { this.pHold = p; }],
+      [glassDesc(undefined, fmt), (p) => { this.pGlass[0] = p; }],
+      [glassDesc(glassFade, fmt), (p) => { this.pGlass[1] = p; }],
+    ];
     this.glassU = [0, 1].map(() => d.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
     this.glass = [];
 
@@ -742,7 +741,6 @@ class Engine {
     const jobs = this._canvasJobs(fmt);
     const pipes = await Promise.all(jobs.map(([desc]) => this.device.createRenderPipelineAsync(desc)));
     return () => {
-      if (fmt === this.format) return;
       this.format = fmt;
       jobs.forEach(([, set], i) => set(pipes[i]));
       // (their bind groups, and the targets in the canvas's format, made anew)

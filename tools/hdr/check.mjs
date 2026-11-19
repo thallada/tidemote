@@ -3,7 +3,7 @@
 // canvas is measured each way (the canvas drawn into a float 2D canvas in linear sRGB, as the browser hands it on):
 // SDR never past white, HDR's highlights past it up to the headroom and no further, the mid-tones alike, P3's colors
 // reaching outside sRGB; a save's preview stays SDR bytes; no WebGPU errors throughout.
-//   npm run build && tools/gpu-node.sh tools/hdr/check.mjs [--peak 4] [--out runs/hdr/NAME]
+//   npm run build && tools/gpu-node.sh tools/hdr/check.mjs [--peak 4] [--out runs/hdr/NAME] [--tour N]
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http';
 import { chromium } from 'playwright-core';
 import { vkOn as vk, retryAdapter } from '../vk.mjs';
@@ -99,7 +99,7 @@ if (OUT) {
     const box = await page.evaluate(() => { const g = document.getElementById('hdr-cal')?.closest('.block, section') || document.getElementById('hdr-cal'); g?.scrollIntoView({ block: 'center' }); const r = document.getElementById('settings').getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; });
     await page.waitForTimeout(400);
     const lay = await page.evaluate(() => { const c = document.getElementById('hdr-cal'), p = document.querySelector('.hdr-cal-say'); const r = c?.getBoundingClientRect(), q = p?.getBoundingClientRect(); return { cal: r && [r.width, r.height], say: q && [q.width, q.height], fontPx: p && parseFloat(getComputedStyle(p).fontSize), slider: !!document.getElementById('set-peak'), wide: !!document.querySelector('[data-o="wide"]') }; });
-    check(`Settings → Color at a ${name}'s size: HDR's slider, the swatch, wide color`, lay.slider && lay.wide && lay.cal?.[0] > 40 && lay.cal?.[1] >= 40 && lay.fontPx >= 11, JSON.stringify(lay));
+    check(`Settings → Color at a ${name}'s size: HDR's slider, the guide, wide color`, lay.slider && lay.wide && lay.cal?.[0] > 40 && lay.cal?.[1] >= 40 && lay.fontPx >= 11, JSON.stringify(lay));
     await page.screenshot({ path: path.join(OUT, `settings-${name}.png`), clip: box });
     if (name === 'laptop') {
       // the guide: hidden until Highlights is held, shown while it is, hidden again a moment after
@@ -110,6 +110,9 @@ if (OUT) {
       await page.mouse.down();
       await page.waitForTimeout(3000);
       const held = await idle();
+      // (the guide's words in the three lines kept for them)
+      const say = await page.evaluate(() => { const p = document.getElementById('hdr-cal-say'); return { h: p.scrollHeight, lines: Math.round(p.scrollHeight / parseFloat(getComputedStyle(p).lineHeight)) }; });
+      check('the guide\'s words fit in three lines', say.lines <= 3, JSON.stringify(say));
       await page.screenshot({ path: path.join(OUT, 'settings-guide.png'), clip: box });
       await page.mouse.up();
       await page.waitForTimeout(3200);
@@ -139,18 +142,6 @@ await T('set', { prefs: { hdr: false, wide: 0 } });
 await page.waitForTimeout(1000);
 const off = await measure();
 check('HDR off: SDR again in the float canvas', off.over < 0.0005 && Math.abs(off.median - sdr.median) <= 0.03 * Math.max(sdr.median, 1e-3) + 1e-4, JSON.stringify(off));
-// (--zooms 1,8,40: the view's statistics at each zoom, SDR then HDR, the world held: where the highlights are)
-const zooms = arg('zooms', '');
-for (const z of zooms ? zooms.split(',').map(Number) : []) {
-  const row = {};
-  for (const h of [false, true]) {
-    await T('set', { prefs: { hdr: h, wide: 0 } });
-    await page.evaluate((zz) => { const t = globalThis.__tidemote; t.state.follow = false; t.state.auto = false; t.director?.stop?.(); t.cam.zoom = t.cam.zoomTarget = Math.min(zz, t.maxZoom()); }, z);
-    await page.waitForTimeout(1500);
-    row[h ? 'hdr' : 'sdr'] = await measure();
-  }
-  console.log(`zoom ${z}`, JSON.stringify(row));
-}
 // (--tour N: N looks along the auto camera's shots, the world running, SDR and HDR in turn: the highlights where a
 // viewer looks)
 const tour = +arg('tour', 0);

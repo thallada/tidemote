@@ -704,11 +704,11 @@ body.set-grabbing, body.set-grabbing * { cursor: var(--grab-cursor) !important; 
 .vol-row { display: flex; align-items: center; gap: var(--s3); height: 32px; }
 .vol-row input { flex: 1; min-width: 0; height: 24px; }
 .vol-row b { width: 4ch; text-align: right; font-weight: 400; color: var(--ink-2); }
-/* HDR's calibration swatch (Settings → Display → Color, docs/hdr.md): under the Highlights slider, its words beside */
-.hdr-cal-row { grid-template-columns: 9.6em minmax(0, 1fr); }
+/* HDR's calibration guide (Settings → Display → Color, docs/hdr.md), its words beside: room for either's three lines,
+   so nothing below moves as they change; hidden but while Highlights is set (its ring is the display at its brightest) */
 .hdr-cal { width: 100%; height: 44px; border-radius: 4px; display: block; dynamic-range-limit: no-limit; }
-/* (shown only while Highlights is set: its ring is the display at its brightest) */
 .hdr-cal.idle { visibility: hidden; }
+.hdr-cal-say { margin: 0; min-height: calc(3 * 1.35em); color: var(--ink-2); font-size: 12px; line-height: 1.35; }
 .hdr-cal-say { margin: 0; color: var(--ink-2); font-size: 12px; line-height: 1.35; grid-column: 2; grid-row: 1; }
 .settings.placed .hdr-cal-say { grid-column: auto; grid-row: auto; }
 /* Settings → About: a few paragraphs of prose */

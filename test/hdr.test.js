@@ -4,8 +4,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { displayPlan, PEAK, WIDE, WIDE_DEF, peakToSlider, sliderToPeak, clampPeak, halfToFloat, halfsToRGBA8 } from '../src/hdr.js';
 
-const HDR_SCREEN = { toneMapping: true, p3Canvas: true, hdrScreen: true, p3Screen: true };
-const SDR_SCREEN = { toneMapping: true, p3Canvas: true, hdrScreen: false, p3Screen: false };
+const HDR_SCREEN = { toneMapping: true, hdrScreen: true, p3Screen: true };
+const SDR_SCREEN = { toneMapping: true, hdrScreen: false, p3Screen: false };
 
 test('an SDR screen keeps the 8-bit sRGB canvas the page always had', () => {
   const p = displayPlan({}, SDR_SCREEN, { preferred: 'bgra8unorm', format: 'bgra8unorm' });
@@ -35,9 +35,9 @@ test('HDR switched off shows SDR in the float canvas it already has rather than 
   assert.equal(p.display.peak, 1);
 });
 
-test('wide color only where the screen has the gamut and the canvas takes P3', () => {
+test('wide color only where the screen has the gamut', () => {
   assert.equal(displayPlan({ wide: 2 }, { ...SDR_SCREEN, p3Screen: true }).p3, true);
-  assert.equal(displayPlan({ wide: 2 }, { ...SDR_SCREEN, p3Screen: true, p3Canvas: false }).p3, false);
+  assert.equal(displayPlan({ wide: 2 }, SDR_SCREEN).p3, false);
   assert.equal(displayPlan({ wide: 0 }, HDR_SCREEN).p3, false);
   // (an HDR screen composites wider than sRGB whatever it reports)
   assert.equal(displayPlan({ wide: 2 }, { ...HDR_SCREEN, p3Screen: false }).p3, true);

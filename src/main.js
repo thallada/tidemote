@@ -2675,37 +2675,34 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
         + onoff('auto', tr('settings.display.auto-idle', 'Auto when idle'), '', state.auto, 'autoidle')
         + (film.supported ? `<div class="opt"><span class="lbl">${term('film', filmL)} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="${filmL}">${film.state === 'idle' ? `<button type="button" class="chip" data-o="film" data-v="now">${tr('settings.display.film-now', 'Start filming')}</button>` : `<button type="button" class="chip" data-o="film" data-v="stop">${tr('settings.display.film-stop', 'Stop filming')}</button>`}</div></div>` : ''));
     }
-    // Color (docs/hdr.md): HDR on an HDR display, how far its highlights go (a slider, and the swatch to set it by), and
+    // Color (docs/hdr.md): HDR on an HDR display, how far its highlights go (a slider, and the guide to set it by), and
     // wide color on a wide-gamut one; none of it on a screen that shows neither
     function color_() {
       const plan = displayPlan(dsp, caps, { format: eng.format, preferred });
       const hdrRow = caps.toneMapping && caps.hdrScreen;
-      const wideRow = caps.p3Canvas && (caps.p3Screen || plan.hdr);
+      const wideRow = caps.p3Screen || plan.hdr;
       if (!hdrRow && !wideRow) return '';
       const peakL = tr('settings.display.hdr-peak', 'Highlights');
       return group('color', tr('settings.display.color', 'Color'), (hdrRow ? onoff('hdr', tr('settings.display.hdr', 'HDR'), '', dsp.hdr, 'hdr') : '')
-        + (plan.hdr ? `<div class="opt"><span class="lbl">${term('hdrpeak', peakL)}</span><div class="vol-row"><input type="range" id="set-peak" min="0" max="1000" step="1" value="${peakToSlider(dsp.peak)}" aria-label="${peakL}"><b id="set-peak-v">${peakWords(dsp.peak)}</b></div></div>`
-          + `<div class="opt hdr-cal-row"><canvas id="hdr-cal" class="hdr-cal${calShown() ? '' : ' idle'}" aria-hidden="true"></canvas><p class="hdr-cal-say" id="hdr-cal-say">${calWords()}</p></div>` : '')
+        // (the guide above the slider, where a thumb on it does not hide it)
+        + (plan.hdr ? `<div class="opt"><canvas id="hdr-cal" class="hdr-cal${calShown() ? '' : ' idle'}" aria-hidden="true"></canvas><p class="hdr-cal-say" id="hdr-cal-say">${calWords()}</p></div>`
+          + `<div class="opt"><span class="lbl">${term('hdrpeak', peakL)}</span><div class="vol-row"><input type="range" id="set-peak" min="0" max="1000" step="1" value="${peakToSlider(dsp.peak)}" aria-label="${peakL}"><b id="set-peak-v">${peakWords(dsp.peak)}</b></div></div>` : '')
         + (wideRow ? choice('wide', tr('settings.display.wide', 'Wide color'), '', [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, tr('settings.display.wide-vivid', 'Vivid')]], dsp.wide, 'widecolor') : ''));
     }
     // i18n: Settings → Display → Color: the HDR highlights' brightest, {x} times white (as 4 or 2.5)
     const peakWords = (p) => tr('settings.display.hdr-peak-x', '{x}×', { x: +p.toFixed(p < 10 ? 1 : 0) });
-    // The calibration swatch (docs/hdr.md, Calibration), on the canvas render() made: shown only while Highlights is
+    // The calibration guide (docs/hdr.md, Calibration), on the canvas render() made: shown only while Highlights is
     // being set (held, dragged, or keyed while focused) and a moment after, as its ring is the display at its brightest
     let cal = null, calUntil = 0, calTimer = 0, calHeld = false;
     const calShown = () => calHeld || performance.now() < calUntil;
     // i18n: Settings → Display → Color, beside the Highlights slider's guide: how to use it while shown, and how to show it
-    const calWords = () => (calShown() ? tr('settings.display.hdr-calibrate', 'Raise Highlights until the disc disappears into its ring.') : tr('settings.display.hdr-calibrate-idle', 'Hold the Highlights slider to show its guide.'));
+    const calWords = () => (calShown() ? tr('settings.display.hdr-calibrate', 'Raise highlights until the inner gray disk disappears into the white circle') : tr('settings.display.hdr-calibrate-idle', 'Hold the highlights slider to show the guide'));
     const drawCal = () => {
       const cv = $('hdr-cal');
       if (!cv) return;
-      const on = calShown();
-      cv.classList.toggle('idle', !on);
+      cv.classList.toggle('idle', !calShown());
       setLive($('hdr-cal-say'), calWords());
-      if (!on) return;
-      cal ||= createCalibration(device);
-      if (cal.canvas !== cv) { cal.attach(cv); cal.canvas = cv; }
-      cal.draw(dsp.peak);
+      if (calShown()) (cal ||= createCalibration(device))(cv, dsp.peak);
     };
     const wakeCal = (ms = 2500) => {
       calUntil = performance.now() + ms;
@@ -3098,7 +3095,6 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       addEventListener('pointerup', up, true); addEventListener('pointercancel', up, true);
     });
     opts.addEventListener('keydown', (e) => { if (e.target.id === 'set-peak') wakeCal(); });
-    opts.addEventListener('focusout', (e) => { if (e.target.id === 'set-peak') wakeCal(600); });
     opts.addEventListener('keydown', (e) => { if (e.target.id === 'w-name' && e.key === 'Enter') { e.preventDefault(); worldAct('w-save'); } });
     // (another tab opens at its top)
     tabs.forEach((b) => b.addEventListener('click', () => { if (tab !== b.dataset.tab) $('set-body').scrollTop = 0; tab = b.dataset.tab; confirming = false; ask = null; render(); }));
