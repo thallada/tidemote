@@ -3233,7 +3233,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     document.body.classList.toggle('ui-off', !on);
     for (const id of UI_PARTS) $(id).inert = !on;
     if (!on) { if (cards.isOpen()) cards.close(); closeMenus(); document.activeElement?.blur?.(); }
-    if (say) flash(on ? tr('flash.ui-shown', 'Interface shown') : tr('flash.ui-hidden', 'Interface hidden · U'));
+    if (say) flash(on ? tr('flash.ui-shown', 'Interface shown') : tr('flash.ui-hidden', 'Interface hidden · U'), true);
     persist();
   }
   if (!state.ui) setInterface(false, false);
@@ -3911,7 +3911,9 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   // ------------------------------------------------------------ dock and messages
   const flashEl = $('flash');
   let flashTimer = 0;
-  function flash(msg) {
+  // While the interface is hidden only its own notice shows (always): the world alone, no other messages.
+  function flash(msg, always = false) {
+    if (!state.ui && !always) return;
     flashEl.textContent = msg;
     flashEl.classList.add('on');
     clearTimeout(flashTimer);

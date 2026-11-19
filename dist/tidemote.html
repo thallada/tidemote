@@ -41659,7 +41659,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         closeMenus();
         document.activeElement?.blur?.();
       }
-      if (say) flash(on ? tr("flash.ui-shown", "Interface shown") : tr("flash.ui-hidden", "Interface hidden · U"));
+      if (say) flash(on ? tr("flash.ui-shown", "Interface shown") : tr("flash.ui-hidden", "Interface hidden · U"), true);
       persist();
     }
     if (!state.ui) setInterface(false, false);
@@ -42449,7 +42449,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     });
     const flashEl = $2("flash");
     let flashTimer = 0;
-    function flash(msg) {
+    function flash(msg, always = false) {
+      if (!state.ui && !always) return;
       flashEl.textContent = msg;
       flashEl.classList.add("on");
       clearTimeout(flashTimer);
