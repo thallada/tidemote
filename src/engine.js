@@ -768,8 +768,10 @@ class Engine {
   async _compileLate() {
     const d = this.device, queue = this._later;
     this._later = [];
-    // when each landed (ms of the page's clock, by label; a profile's boot times)
+    // when each landed (ms of the page's clock, by label; a profile's boot times), and how many of how many have
+    // (the page's indicator: onLate after each, landed or failed)
     this.lateAt = [];
+    this.late = { done: 0, total: queue.length };
     const run = async () => {
       while (queue.length) {
         const j = queue.shift();
@@ -778,6 +780,8 @@ class Engine {
           this.lateAt.push([j.desc.label, Math.round(performance.now())]);
           this._rebindLate();
         } catch (e) { console.error('[tidemote] pipeline', j.desc.label, e?.message || e); }
+        this.late.done++;
+        this.onLate?.(this.late);
       }
     };
     await Promise.all([run(), run()]);

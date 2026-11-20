@@ -288,6 +288,23 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   const dsp = displayPrefs(prefs);
   let lab = null, specimen = null, view = null; // panels, created below
   let dockTop = innerHeight, railBottom = 0;
+  // the shaders compiling after the world starts (Engine._compileLate: the loupe, the close-up, fast speeds), a tick
+  // each as it lands; faded out once the last has
+  if (eng.late && eng.late.done < eng.late.total) {
+    const box = $('compiling'), seg = $('cmp-seg'), num = $('cmp-n');
+    const show = ({ done, total }) => {
+      if (seg.childElementCount !== total) {
+        seg.replaceChildren(...Array.from({ length: total }, () => document.createElement('i')));
+        seg.style.setProperty('--w', `${total * 4}px`);
+      }
+      for (let i = 0; i < total; i++) seg.children[i].classList.toggle('on', i < done);
+      num.textContent = `${String(done).padStart(String(total).length, '0')}/${total}`;
+      if (done >= total) { eng.onLate = null; box.classList.add('gone'); setTimeout(() => { box.hidden = true; }, 1000); }
+    };
+    box.hidden = false;
+    show(eng.late);
+    eng.onLate = show;
+  }
   // The Field Lab's right edge and the specimen panel's inset, read once a page frame (pageFrame): the lens's readout,
   // the labels, the caption, the annotations and the follow camera each ask, and every getBoundingClientRect after the
   // panels' writes in a frame forces a layout of its own (they see a panel moved since the frame's first read a frame on)

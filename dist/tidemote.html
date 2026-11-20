@@ -608,6 +608,26 @@ button.sys { position: relative; height: 34px; padding: 0; border: 0; background
 body.spec-open .caption, body.lab-open .caption { max-width: max(240px, min(520px, calc(100% - 2 * var(--gut) - var(--lab-pw) - var(--spec-pw) + 150px))); }
 .caption.on a.sp { pointer-events: auto; }
 
+/* the shaders still compiling after a world starts: a quiet readout above the scale bar, one tick a pipeline, a scan
+   sweeping the ticks while it waits; it fades once the last has landed */
+.compiling {
+  position: absolute; right: calc(24px + var(--safe-r)); bottom: calc(var(--bot) + 36px); display: flex; align-items: center; gap: 10px;
+  opacity: .8; transition: opacity .9s ease, right .3s ease; text-shadow: 0 0 6px rgba(6, 9, 10, 0.9);
+}
+.compiling.gone { opacity: 0; }
+body.spec-open .compiling { right: calc(var(--spec-pw) + 24px); }
+/* (out of the way of the Bench's drawer and the phone's held strip, which sit where it does) */
+body:has(#bench:not([hidden]), #held:not([hidden])) .compiling { opacity: 0; }
+.compiling .lbl { color: var(--ink-2); letter-spacing: .22em; }
+.compiling b { font-size: 11px; font-weight: 500; letter-spacing: .08em; color: var(--sun); min-width: 4.2em; text-align: right; }
+.cmp-seg { position: relative; display: flex; gap: 2px; height: 7px; overflow: hidden; }
+.cmp-seg i { width: 2px; background: var(--line); }
+.cmp-seg i.on { background: var(--cyan); box-shadow: 0 0 3px rgba(127, 214, 223, 0.6); }
+.cmp-seg::after { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 12px; background: linear-gradient(90deg, transparent, rgba(226, 241, 240, 0.55), transparent);
+  animation: cmp-scan 1.8s cubic-bezier(.45, 0, .55, 1) infinite; }
+@keyframes cmp-scan { from { transform: translateX(-12px); } to { transform: translateX(var(--w, 100px)); } }
+@media (prefers-reduced-motion: reduce) { .cmp-seg::after { animation: none; opacity: 0; } }
+
 /* the highlight (hot) and the map (cyan) float side by side under the rail */
 .floats {
   position: absolute; top: calc(var(--top) + 12px); left: var(--gut); right: var(--gut);
@@ -1602,6 +1622,9 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   #film, #auto-next { display: none !important; }
   .focus.rec { gap: var(--s2); }
   .recframe { left: 0 !important; right: 0 !important; }
+  /* (no scale bar on a phone; the specimen is a sheet from below) */
+  .compiling { right: calc(14px + var(--safe-r)) !important; bottom: calc(var(--bot) + 16px); }
+  body.spec-open .compiling { opacity: 0; }
   .focus.rec .lbl { letter-spacing: .16em; }
   .bench { left: 0 !important; right: 0 !important; flex-direction: column; touch-action: pan-x; padding: var(--s2) 12px var(--s3); max-height: calc(100% - var(--top) - var(--bot)); overflow-y: auto; }
   /* (its handle, as the specimen's sheet has: a swipe down or a tap folds it) */
@@ -1743,6 +1766,8 @@ svg.niche .n-dot { fill: var(--cyan); }
   </header>
 
   <div class="caption" id="caption" aria-live="polite"></div>
+  <!-- the shaders the page compiles after a world starts (the loupe, the close-up, fast speeds): how many have landed -->
+  <div class="compiling" id="compiling" role="status" hidden><span data-i18n="stage.compiling" class="lbl">Compiling shaders</span><span class="cmp-seg" id="cmp-seg" aria-hidden="true"></span><b id="cmp-n" translate="no" aria-hidden="true"></b></div>
 
   <!-- transport dock -->
   <nav data-i18n="dock.nav" class="dock" id="dock" aria-label="Controls">
@@ -18788,6 +18813,7 @@ ${e.message}` : String(e?.message || e));
       const d = this.device, queue = this._later;
       this._later = [];
       this.lateAt = [];
+      this.late = { done: 0, total: queue.length };
       const run2 = async () => {
         while (queue.length) {
           const j = queue.shift();
@@ -18798,6 +18824,8 @@ ${e.message}` : String(e?.message || e));
           } catch (e) {
             console.error("[tidemote] pipeline", j.desc.label, e?.message || e);
           }
+          this.late.done++;
+          this.onLate?.(this.late);
         }
       };
       await Promise.all([run2(), run2()]);
@@ -39303,9 +39331,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "c297dcf4e16a1cf2") return;
+      if (localStorage.getItem(key) === "7da5c4fe51cf29e1") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "c297dcf4e16a1cf2");
+      if (res) localStorage.setItem(key, "7da5c4fe51cf29e1");
     } catch {
     }
   }
@@ -39429,6 +39457,27 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const dsp = displayPrefs(prefs);
     let lab = null, specimen = null, view = null;
     let dockTop = innerHeight, railBottom = 0;
+    if (eng.late && eng.late.done < eng.late.total) {
+      const box = $2("compiling"), seg = $2("cmp-seg"), num = $2("cmp-n");
+      const show = ({ done, total }) => {
+        if (seg.childElementCount !== total) {
+          seg.replaceChildren(...Array.from({ length: total }, () => document.createElement("i")));
+          seg.style.setProperty("--w", `${total * 4}px`);
+        }
+        for (let i = 0; i < total; i++) seg.children[i].classList.toggle("on", i < done);
+        num.textContent = `${String(done).padStart(String(total).length, "0")}/${total}`;
+        if (done >= total) {
+          eng.onLate = null;
+          box.classList.add("gone");
+          setTimeout(() => {
+            box.hidden = true;
+          }, 1e3);
+        }
+      };
+      box.hidden = false;
+      show(eng.late);
+      eng.onLate = show;
+    }
     let pageFrame = 0, edgesAt = -1, labEdge = 0, specEdge = null;
     function readEdges() {
       if (edgesAt === pageFrame) return;
