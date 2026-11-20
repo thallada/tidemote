@@ -327,6 +327,21 @@ if (hasTerm) {
   await shot('term-hint');
   await pad.press(BTN.S); s = await S(); check('A again hides it', !s.tip);
 }
+// a hint opened by a finger's tap stays until the next tap; closing its panel without one (the pad's B) closes it too
+{
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+  const at = await T(() => { const t = [...document.querySelectorAll('#settings .term')].find((x) => x.getBoundingClientRect().height); const r = t.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: at[0], y: at[1], id: 1 }] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await wait(200);
+  const tapped = (await S()).tip;
+  await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: false });
+  await pad.press(BTN.E); await wait(300);
+  const gone = await S();
+  check('a hint a tap opened closes with its panel', tapped && !gone.settings && !gone.tip, JSON.stringify({ tapped, settings: gone.settings, tip: gone.tip }));
+  await pad.press(BTN.MENU); await wait(300);
+}
 await pad.press(BTN.E); await wait(200);
 
 // ------------------------------------------------------------ the Lab: View opens and closes it, and only it
@@ -385,9 +400,20 @@ await ringAudit('#bench', 'the bench');
 {
   // RB again, focus in the bench: closes it (and opens it again for what follows)
   await T(() => __tidemote.input.open().bench && document.querySelector('#bench button')?.focus());
+  // (a tool's hint open, by focus, then by the mouse over it: closing the bench closes it too, wherever it was)
+  await T(() => document.querySelector('#bench .tile')?.focus()); await frames(2);
+  const tipOpen = (await S()).tip;
   await pad.press(BTN.RB); await wait(200);
   const closed = await S();
   check('RB tapped with the bench open closes it', !closed.bench, JSON.stringify(closed));
+  check('a bench tool\'s hint opened by focus closes with the bench', tipOpen && !closed.tip, JSON.stringify({ before: tipOpen, after: closed.tip }));
+  await pad.press(BTN.RB); await wait(300);
+  const tile = await box('#bench .tile', 0);
+  await page.mouse.move(tile.x + tile.width / 2 - 30, tile.y + tile.height / 2); await page.mouse.move(tile.x + tile.width / 2, tile.y + tile.height / 2, { steps: 4 }); await frames(3);
+  const hovered = (await S()).tip;
+  await T(() => __tidemote.input.act('bench')); await wait(300);
+  const after = await S();
+  check('and one opened by the mouse over it, the pointer left where it was', hovered && !after.bench && !after.tip, JSON.stringify({ before: hovered, bench: after.bench, after: after.tip }));
   await pad.press(BTN.RB); await wait(300);
 }
 {
@@ -595,6 +621,17 @@ check('and back once the mouse moves', cursor2 !== 'none', cursor2);
   await touch('touchEnd', []); await wait(300);
   const l1 = await T(() => __tidemote.input.lens());
   check('touch: a tap sets the loupe\'s lens, a drag on it moves it', l0 && l1 && Math.hypot(l1[0] - l0[0], l1[1] - l0[1]) > 80, JSON.stringify({ l0, l1 }));
+  // the right stick (the lens's magnification) after a finger placed it: the lens stays; a finger again moves it from
+  // there, not from where it was before the pad
+  const before = await T(() => __tidemote.input.loupeAt());
+  await pad.stick(0, -1, 1); await wait(400); await pad.stick(0, 0, 1); await frames(3);
+  const afterStick = await T(() => __tidemote.input.loupeAt());
+  check('the right stick zooms the lens where the finger left it', before && afterStick && Math.hypot(afterStick[0] - before[0], afterStick[1] - before[1]) < 4, JSON.stringify({ before, afterStick }));
+  await touch('touchStart', [[afterStick[0], afterStick[1]]]);
+  for (let i = 1; i <= 6; i++) { await touch('touchMove', [[afterStick[0] - i * 10, afterStick[1] + i * 5]]); await frames(1); }
+  await touch('touchEnd', []); await wait(300);
+  const again = await T(() => __tidemote.input.loupeAt());
+  check('and a finger drags it on from there', again && Math.hypot(again[0] - (afterStick[0] - 60), again[1] - (afterStick[1] + 30)) < 15, JSON.stringify({ afterStick, again }));
   await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: false });
 }
 

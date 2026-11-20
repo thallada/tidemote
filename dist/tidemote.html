@@ -28490,11 +28490,24 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       tip.style.left = `${left}px`;
       tip.style.top = `${above ? r.top - h - 8 : r.bottom + 8}px`;
       el2.setAttribute("aria-describedby", "tip");
+      if (!watching) watching = requestAnimationFrame(watch);
     }
     function hide() {
       if (owner) owner.removeAttribute("aria-describedby");
       owner = null;
       tip.hidden = true;
+    }
+    let watching = 0;
+    function watch() {
+      watching = 0;
+      if (!owner) return;
+      if (!owner.isConnected) relocate();
+      else if (!owner.getClientRects().length || owner.closest("[hidden], [inert]") || via === "hover" && !owner.matches(":hover") || via === "focus" && document.activeElement !== owner) hide();
+      else {
+        const r = owner.getBoundingClientRect();
+        if (Math.abs(r.left - rect.left) > 1 || Math.abs(r.top - rect.top) > 1) show(owner, via);
+      }
+      if (owner && !watching) watching = requestAnimationFrame(watch);
     }
     const target2 = (e) => e.target.closest && e.target.closest("[data-tip],[data-hint]");
     document.addEventListener("pointerover", (e) => {
@@ -28530,11 +28543,14 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     }, true);
     function check() {
       if (!owner) return;
-      if (owner.isConnected) {
-        const t = textFor(owner);
-        if (t && (t.html ?? t.text) + (t.glyph || "") !== shown) show(owner, via);
+      if (!owner.isConnected) {
+        relocate();
         return;
       }
+      const t = textFor(owner);
+      if (t && (t.html ?? t.text) + (t.glyph || "") !== shown) show(owner, via);
+    }
+    function relocate() {
       const key = owner.dataset.tip ? `[data-tip="${owner.dataset.tip}"]` : `[data-hint="${CSS.escape(owner.dataset.hint || "")}"]`;
       const old = rect;
       let best = null, bd = 24;
@@ -43380,7 +43396,14 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     }
     function applyMode() {
       const b = document.body.dataset;
-      if (mode.pointer !== "pad" && b.pointer === "pad") hover.on = false;
+      if (mode.pointer === "pad" && b.pointer && b.pointer !== "pad") {
+        const L = loupeGeom();
+        if (L) Object.assign(aimPt, { x: L.sx, y: L.sy, set: true });
+        lensAt = null;
+      } else if (mode.pointer !== "pad" && b.pointer === "pad") {
+        if (mode.pointer === "touch" && hand.tool === "loupe" && aimPt.set) lensAt = toWorld(aimPt.x, aimPt.y);
+        hover.on = false;
+      }
       b.glyphs = mode.glyphs;
       b.pad = mode.family;
       b.pointer = mode.pointer;
@@ -46335,6 +46358,11 @@ Tidemote ${SAVE_VERSION} · world time ${fmtClock(eng.simTime)} · ${eng.count} 
         selAt: () => sel ? toScreen(sel.disp[0], sel.disp[1]) : null,
         // where a tap set the loupe's lens on a touch screen (screen px), if one did
         lens: () => lensAt ? toScreen(...lensAt) : null,
+        // where the loupe's lens is now (screen px), whatever placed it
+        loupeAt: () => {
+          const L = loupeGeom();
+          return L ? [L.sx, L.sy] : null;
+        },
         held: () => ({ grab: input.grab?.id || (input.grab ? input.grab.tagName : null), focus: toolFocus, dispensing: pipDispensing(), tip: !$2("tip").hidden })
       }
     };

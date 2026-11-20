@@ -3910,8 +3910,17 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   }
   function applyMode() {
     const b = document.body.dataset;
-    // (the pad no longer pointing: the loupe it parked at the reticle is let go, for the mouse or a finger to place)
-    if (mode.pointer !== 'pad' && b.pointer === 'pad') hover.on = false;
+    // One loupe, wherever what points takes it: the pad taking over puts its reticle where the loupe is (a lens a finger
+    // set, or the mouse's); a finger taking over from the pad sets the lens where the reticle was; the mouse takes it
+    // to wherever the mouse goes next
+    if (mode.pointer === 'pad' && b.pointer && b.pointer !== 'pad') {
+      const L = loupeGeom();
+      if (L) Object.assign(aimPt, { x: L.sx, y: L.sy, set: true });
+      lensAt = null;
+    } else if (mode.pointer !== 'pad' && b.pointer === 'pad') {
+      if (mode.pointer === 'touch' && hand.tool === 'loupe' && aimPt.set) lensAt = toWorld(aimPt.x, aimPt.y);
+      hover.on = false;
+    }
     b.glyphs = mode.glyphs; b.pad = mode.family; b.pointer = mode.pointer;
     if (!$('help').hidden) renderHelp();
     tips.refresh?.();
@@ -6592,6 +6601,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       selAt: () => (sel ? toScreen(sel.disp[0], sel.disp[1]) : null),
       // where a tap set the loupe's lens on a touch screen (screen px), if one did
       lens: () => (lensAt ? toScreen(...lensAt) : null),
+      // where the loupe's lens is now (screen px), whatever placed it
+      loupeAt: () => { const L = loupeGeom(); return L ? [L.sx, L.sy] : null; },
       held: () => ({ grab: input.grab?.id || (input.grab ? input.grab.tagName : null), focus: toolFocus, dispensing: pipDispensing(), tip: !$('tip').hidden }) } };
 
   calibrate().then(() => {

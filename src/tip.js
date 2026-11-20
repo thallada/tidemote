@@ -51,11 +51,27 @@ export function createTips(tip) {
     tip.style.left = `${left}px`;
     tip.style.top = `${above ? r.top - h - 8 : r.bottom + 8}px`;
     el.setAttribute('aria-describedby', 'tip');
+    if (!watching) watching = requestAnimationFrame(watch);
   }
   function hide() {
     if (owner) owner.removeAttribute('aria-describedby');
     owner = null;
     tip.hidden = true;
+  }
+  // Every frame while a hint shows: it closes once what it belongs to no longer shows (its panel closed or hidden) or
+  // no longer has what opened it (the pointer over it, focus on it), whatever events did or did not come; it follows
+  // its control if that moves; a control drawn anew hands it to its replacement (relocate)
+  let watching = 0;
+  function watch() {
+    watching = 0;
+    if (!owner) return;
+    if (!owner.isConnected) relocate();
+    else if (!owner.getClientRects().length || owner.closest('[hidden], [inert]') || (via === 'hover' && !owner.matches(':hover')) || (via === 'focus' && document.activeElement !== owner)) hide();
+    else {
+      const r = owner.getBoundingClientRect();
+      if (Math.abs(r.left - rect.left) > 1 || Math.abs(r.top - rect.top) > 1) show(owner, via);
+    }
+    if (owner && !watching) watching = requestAnimationFrame(watch);
   }
   const target = (e) => e.target.closest && e.target.closest('[data-tip],[data-hint]');
   document.addEventListener('pointerover', (e) => {
@@ -87,11 +103,11 @@ export function createTips(tip) {
   // A term whose live note changed (data-live) has its open hint rewritten.
   function check() {
     if (!owner) return;
-    if (owner.isConnected) {
-      const t = textFor(owner);
-      if (t && (t.html ?? t.text) + (t.glyph || '') !== shown) show(owner, via);
-      return;
-    }
+    if (!owner.isConnected) { relocate(); return; }
+    const t = textFor(owner);
+    if (t && (t.html ?? t.text) + (t.glyph || '') !== shown) show(owner, via);
+  }
+  function relocate() {
     const key = owner.dataset.tip ? `[data-tip="${owner.dataset.tip}"]` : `[data-hint="${CSS.escape(owner.dataset.hint || '')}"]`;
     const old = rect;
     let best = null, bd = 24;
