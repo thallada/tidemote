@@ -100,6 +100,10 @@ const handle = (ch, fn) => ipcMain.handle(ch, (e, ...a) => { fromPage(e); return
 const handleWin = (ch, fn) => ipcMain.handle(ch, (e) => { fromPage(e); const w = BrowserWindow.fromWebContents(e.sender); return w ? fn(w) : false; });
 handleWin('fullscreen:toggle', (w) => { w.setFullScreen(!w.isFullScreen()); }); // the change arrives as 'fullscreen'
 handleWin('fullscreen:get', (w) => w.isFullScreen());
+// Whether the screen is the window's whatever it asks: under gamescope (a Steam Deck's Game Mode, Steam's gamescope
+// session anywhere, or a game run nested in gamescope), which fills its output with the game's window, full screen or
+// not, so the page hides its full-screen button. Only gamescope sets these; an ordinary desktop never does.
+handle('fullscreen:forced', () => !!process.env.GAMESCOPE_WAYLAND_DISPLAY || process.env.XDG_CURRENT_DESKTOP === 'gamescope');
 handle('worlds:list', worlds.list);
 handle('worlds:put', worlds.put);
 handle('worlds:get', worlds.get);

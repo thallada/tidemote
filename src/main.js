@@ -17,7 +17,7 @@ import { record, seal } from './lineage/model.js';
 import { createWorldStore, encodeWorld, decodeWorld, SAVE_VERSION, openable, WHY_NOT } from './worlds.js';
 import { facets, describe, DIET_COL, MOB_COL, FACET_NAME } from './facets.js';
 import { retraceBody, settleMembers, nearBody, largestBody, bodyPatch } from './trace.js';
-import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS, SIM_CLOCK, G_WORDS, DEFAULT_K, P_BYTES, TUBE_N, TUBE_K, STUDIO_N, PIPETTE_DOF, CYST, NOTE_TG } from './shaders.js';
+import { PICK_WORDS, WATCH_MAX, stoneGrain, MAX_CELLS, SIM_CLOCK, G_WORDS, DEFAULT_K, P_BYTES, TUBE_N, TUBE_K, STUDIO_N, PIPETTE_DOF, CYST, NOTE_TG, NEEDLE } from './shaders.js';
 import { flowAt, tideAt, duckShade } from './flow.js';
 import { DARKFIELD, FOCUS, packLook } from './look.js';
 import { displayCaps, displayPlan, createCalibration, halfsToRGBA8, PEAK, WIDE, WIDE_DEF, peakToSlider, sliderToPeak, clampPeak } from './hdr.js';
@@ -3293,6 +3293,9 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   }
   if (deskFs) { deskFs.on(showFullscreen); deskFs.get().then(showFullscreen).catch(() => {}); }
   else document.addEventListener('fullscreenchange', () => showFullscreen(!!document.fullscreenElement));
+  // (under gamescope, a Steam Deck's Game Mode, the window fills the screen anyway: no button, nor its Settings row;
+  // an older shell without forced() keeps it)
+  deskFs?.forced?.().then((on) => { if (on) { fsBtn.hidden = true; view.render(); } }).catch(() => {});
   for (const row of document.querySelectorAll('.tabs')) wireTabRow(row);
   // the Controls dialog: every key and button, from the action table, in the controller family in use
   function renderHelp() { $('help-keys').innerHTML = controlsTable(padFamily()); }
@@ -3794,6 +3797,13 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     if (ptr.pointers.size === 2) {
       const [a, b] = [...ptr.pointers.values()];
       ptr.pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
+      // (a pinch begun with both fingers on the lens magnifies the loupe, not the view; the lens stays where it is, and
+      // the finger left after it moves nothing)
+      const L = ptr.down?.loupe ?? loupeGeom();
+      if (L && e.pointerType !== 'mouse' && [a, b].every((q) => Math.hypot(q.x - L.sx, q.y - L.sy) < L.R)) {
+        ptr.pinch.loupe = true;
+        if (ptr.down) { ptr.down.lens = null; ptr.down.lensPinch = true; }
+      }
       ptr.dragging = true;
       // a second finger puts the tool's work aside for the pinch
       if (ptr.down?.apply) { ptr.down.apply = false; hand.up(eng.simTime); }
@@ -3827,9 +3837,15 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       if (ptr.dragging) lensAt = toWorld(ptr.down.lens.x + e.clientX - ptr.down.x, ptr.down.lens.y + e.clientY - ptr.down.y);
       return;
     }
+    if (ptr.down?.lensPinch && ptr.pointers.size === 1) return;
     if (ptr.pinch && ptr.pointers.size === 2) {
       const [a, b] = [...ptr.pointers.values()];
       const d = Math.hypot(a.x - b.x, a.y - b.y), cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
+      if (ptr.pinch.loupe) {
+        state.loupeMag = clamp(state.loupeMag * d / Math.max(1, ptr.pinch.d), 1.5, 20);
+        ptr.pinch.d = d;
+        return;
+      }
       const p = ppu();
       if (!state.follow) { cam.x -= ((cx - ptr.pinch.cx) * dpr) / p; cam.y -= ((cy - ptr.pinch.cy) * dpr) / p; }
       zoomAt(d / Math.max(1, ptr.pinch.d), cx, cy);
@@ -5494,7 +5510,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     toolFocus += ((pressed ? 1 : 0) - toolFocus) * (1 - Math.exp(-dt / 0.12));
     if (!it || !R) { eng.tool.fill(0); toolFocus = 0; return; }
     // (the rod comes into focus as it dips into the water, and lifts out under the pointer)
-    eng.tool.set([...toWorld(R.sx, R.sy), ...it.dir, it.kind, hand.tool === 'touch' ? hand.dip : toolFocus, hand.tool === 'cold' ? hand.level : 0, hand.reach]);
+    eng.tool.set([...toWorld(R.sx, R.sy), ...it.dir, it.kind, hand.tool === 'touch' ? hand.dip : toolFocus, hand.tool === 'cold' ? hand.level : 0, hand.tool === 'needle' ? hand.wet : hand.reach]);
   }
   // what the tool in hand is doing, in a few words
   function handDoing() {
@@ -6442,6 +6458,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       pullTick(now);
       // (the lamp, shade, stage and probe follow the pointer over the world, a little of them, until pressed)
       if (R) hand.hover(...toWorld(R.sx, R.sy)); else hand.hover(null);
+      // (the needle let down farther the farther out the view: NEEDLE.wetPx on the screen, from NEEDLE.wet to wetMax)
+      hand.wet = clamp(NEEDLE.wetPx / cssPPU(), NEEDLE.wet, NEEDLE.wetMax);
       hand.update(dt / 1000, eng.simTime);
       hearHand(R, dt / 1000);
       showInstrument(R, dt / 1000);

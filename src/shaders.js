@@ -78,8 +78,10 @@ const GAS_FROM = 42;
 export const SHADE = 0.9;
 // The needle in the water (docs/hand.md): its shaft's half-width, the length over which it tapers to its point, how
 // much of it is in the water (it comes down steeply from above: the rest is over the water, out of focus, and
-// touches nothing), and how near its point a cell must come to be pricked (world units)
-export const NEEDLE = { w: 0.45, taper: 3, wet: 1.2, kill: 0.12 };
+// touches nothing), and how near its point a cell must come to be pricked (world units). Close up wet is in the
+// water; zoomed out, more of it is let down, so it stays wetPx css pixels long on the screen and sweeps more cells,
+// up to wetMax (hand.wet, the page's).
+export const NEEDLE = { w: 0.45, taper: 3, wet: 1.2, wetPx: 110, wetMax: 10, kill: 0.12 };
 // The pipette comes into the water aslant: how much of it is in the water (sharp), how fast it goes out of focus up
 // from there (world units of blur a world unit along it), and how out of focus an instrument is raised over the
 // water (world units), the cells in its bore as much as its glass
@@ -309,6 +311,10 @@ export const DEFAULT_K = {
   // Ice is the water's own phase (thermal block 3, each grid cell's frozen share): water below 0° freezes and ice
   // above it melts, each held at 0° until this latent heat (degrees of the water's) is given up or taken in
   iceLatent: 8,
+  // ...once nucleated: open water supercools to between these (°below 0, by patches of the world's noise) before it
+  // freezes by itself; ice beside it (this share, in any of its four neighbors) or stone in it seeds it at 0°
+  iceSupercool: [0.2, 1.0],
+  iceSeed: 0.1,
   tRef: 16,         // the temperature at which husks wear at their base rates
   specBonus: 0.25,  // extra performance at its optimum of the narrowest tolerance (2°)
   thermalFlat: 0.5, // tolerances either side of its optimum where a cell works at its best
@@ -445,7 +451,6 @@ const STAGE_HOT = ${f(STAGE.hot)};
 const STAGE_COLD = ${f(STAGE.cold)};
 const NEEDLE_W = ${f(NEEDLE.w)};
 const NEEDLE_TAPER = ${f(NEEDLE.taper)};
-const NEEDLE_WET = ${f(NEEDLE.wet)};
 const PIPE_WET = ${f(PIPETTE_DOF.wet)};
 const PIPE_DOF = ${f(PIPETTE_DOF.rate)};
 const TOOL_RAISED = ${f(PIPETTE_DOF.raised)};
@@ -2874,8 +2879,18 @@ fn heatStep(c: u32) -> vec2<bool> {
   let q = f32(atomicExchange(&ledger[heatAccAt() + c], 0u)) / HEAT_FIX + (${f(K.sunHeat)} * light + stage + night) * sim.dt;
   var t = carried + ${f(K.heatD)} * lap * sim.dt + (q - ${f(K.heatLoss)} * (carried - sim.tbg) * sim.dt) / mass;
   // the latent heat: water below 0° freezes and ice above it melts, the cell held at 0° until the heat it gives up
-  // or takes in is spent (the ice does not drift: it is the cell's, and frozen water has no current to carry it)
-  if (t < 0.0 && ice < 1.0) {
+  // or takes in is spent (the ice does not drift: it is the cell's, and frozen water has no current to carry it).
+  // Ice needs a nucleus to begin: open water supercools, down to iceSupercool° (patches of the world's own noise
+  // supercool more or less, so freezing starts in places), unless something seeds it: ice already in the cell or
+  // iceSeed of it beside it (a crystal grows into supercooled water and the water there gives up its cold at once,
+  // so the ice spreads from where it began), or stone (grains nucleate it, so reefs and bedrock ice first)
+  var seeded = ice > 0.0 || stones != 0u;
+  if (t < 0.0 && !seeded) {
+    seeded = max(max(thermal[3u * MAX_CELLS + wrapCell(x + 1, y)], thermal[3u * MAX_CELLS + wrapCell(x - 1, y)]),
+                 max(thermal[3u * MAX_CELLS + wrapCell(x, y + 1)], thermal[3u * MAX_CELLS + wrapCell(x, y - 1)])) >= ${f(K.iceSeed)}
+      || t < -mix(${f(K.iceSupercool[0])}, ${f(K.iceSupercool[1])}, rockNoise(center, 7.0, u32(sim.rock.z), 31u));
+  }
+  if (t < 0.0 && ice < 1.0 && seeded) {
     let d = min(1.0 - ice, -t * mass / ${f(K.iceLatent)});
     ice = select(ice + d, 1.0, d >= 1.0 - ice);
     t += d * ${f(K.iceLatent)} / mass;
@@ -8768,7 +8783,7 @@ const ICE_SLOPE = 0.1; // the least slope of the ice field measured by (where ic
 // at ICE_SLOPE, so where a patch is just starting the distance does not leap); rg: how much farther the edge truly
 // lies; reach: how grown the ice is, by the field 2.5 units into it (0 as a patch begins, so the dendrites grow out
 // of it from nothing rather than a whole star showing at once; 1 where the ice runs back that far behind its edge).
-struct IceSeen { sd: f32, rg: f32, reach: f32 }
+struct IceSeen { sd: f32, rg: f32, reach: f32, share: f32 }
 ${heatAnyWGSL}
 fn iceSeen(wp: vec2f) -> IceSeen {
   let f = fieldPost(${ICE_SHOWN}u, wp);
@@ -8776,6 +8791,7 @@ fn iceSeen(wp: vec2f) -> IceSeen {
   let gl = max(g, ICE_SLOPE);
   var o: IceSeen;
   o.sd = (0.5 - f.x) / gl;
+  o.share = f.x;
   o.rg = gl / max(g, 1e-4);
   let q = wp + f.yz / max(g, 1e-4) * 2.5 - 0.5;
   let i = vec2i(floor(q));
@@ -8944,22 +8960,27 @@ fn iceLook(wp: vec2f, sd: f32, ppu: f32, grow: f32, reach: f32, rg: f32) -> vec3
   return c;
 }
 // The ice's look at wp (in the world's own coordinates) from its iceSeen, seen at ppu pixels a unit: over what is
-// frozen, its front a crisp bright line, and crystals (frazil) in the near-freezing water ahead of it while it grows
+// frozen, its front a crisp bright line, and crystals (frazil) in the water short of it: in the near-freezing water
+// ahead of a front while it grows, and wherever the water is partly frozen (a share under the edge's half: the
+// crystals the simulation's freezing water holds, more and larger the more of it is ice)
 fn iceOver(wp: vec2f, ic: IceSeen, ppu: f32) -> vec3f {
   let grow = iceGrowth(waterAt(wp).x);
   var c = vec3f(0.0);
   if (ic.sd < (ICE_LEAD + ICE_OWN) * ic.reach + 0.3) { c += iceLook(wp, ic.sd, ppu, grow, ic.reach, ic.rg); }
-  if (ic.sd > 0.0 && ic.sd < 9.0 && grow > 0.0) { c += frazil(wp, ic.sd, ppu, grow); }
+  let amt = max(select(0.0, smoothstep(8.0, 1.0, ic.sd) * grow, ic.sd < 9.0), smoothstep(0.003, 0.3, ic.share));
+  if (ic.sd > 0.0 && amt > 0.0) { c += frazil(wp, amt, ppu); }
   return c;
 }
-// Crystals in the cold water ahead of the ice: here and there a nucleus has frozen on its own and grows as a small
-// six-armed star, its arms uneven, branched, larger the nearer the front has come. sd: world units ahead of it.
-fn frazilStar(wp: vec2f, cu: vec2f, N: vec2f, sp: vec2f, sd: f32, ppu: f32, grow: f32) -> vec3f {
+// Crystals in the cold water short of the ice: here and there a nucleus has frozen on its own and grows as a small
+// six-armed star, its arms uneven, branched; more of them and larger the more the water freezes (amt, 0..1).
+fn frazilStar(wp: vec2f, cu: vec2f, N: vec2f, sp: vec2f, amt: f32, ppu: f32) -> vec3f {
   let px = 1.0 / max(ppu * iceRes, 1e-3);
   let cell = wrapL(cu, N);
-  if (hash12(cell + 0.5) > 0.3) { return vec3f(0.0); }
+  let hc = hash12(cell + 0.5);
+  if (hc > 0.12 + 0.6 * amt) { return vec3f(0.0); }
   let ctr = (cu + vjit(cell + 2.0)) * sp;
-  let R = (0.25 + 0.75 * hash12(cell + 4.0)) * smoothstep(8.0, 1.0, sd) * grow;
+  // (a star grows from nothing as the water freezes past the share it nucleated at: the first few appear small)
+  let R = (0.3 + 0.7 * hash12(cell + 4.0)) * smoothstep(hc, hc + 0.4, amt);
   let d = wp - ctr;
   let r = length(d);
   if (r > R + 0.15 || R < 0.05) { return vec3f(0.0); }
@@ -8980,17 +9001,17 @@ fn frazilStar(wp: vec2f, cu: vec2f, N: vec2f, sp: vec2f, sd: f32, ppu: f32, grow
   arm = max(arm, br * 0.7);
   let hexd = r * cos(ar) / 0.866;
   let pedge = exp(-sqr((hexd - 0.14 * R) / max(0.015, 0.7 * px)));
-  return vec3f(0.035, 0.04, 0.047) * (arm + 0.5 * pedge) * smoothstep(1.0, 3.0, ppu * R);
+  return vec3f(0.06, 0.068, 0.08) * (arm + 0.5 * pedge) * smoothstep(1.0, 3.0, ppu * R);
 }
 // (a star reaches at most about 1.15 units from its point, which lies 0.35 units or more inside its cell: so only
 // the cell here and the three beside its nearest corner can reach a point)
-fn frazil(wp: vec2f, sd: f32, ppu: f32, grow: f32) -> vec3f {
+fn frazil(wp: vec2f, amt: f32, ppu: f32) -> vec3f {
   let N = tileN(3.5);
   let sp = post.world / N;
   let c0 = floor(wp / sp - 0.5);
   var o = vec3f(0.0);
   for (var j = 0; j < 2; j++) {
-    for (var i = 0; i < 2; i++) { o = max(o, frazilStar(wp, c0 + vec2f(f32(i), f32(j)), N, sp, sd, ppu, grow)); }
+    for (var i = 0; i < 2; i++) { o = max(o, frazilStar(wp, c0 + vec2f(f32(i), f32(j)), N, sp, amt, ppu)); }
   }
   return o;
 }
@@ -9977,7 +9998,7 @@ fn toolAt(wp: vec2f, ppu: f32) -> vec4f {
   var hw = 0.36;
   var wet = 1e6;
   var rate = 0.05;
-  if (kind < 1.5) { hw = needleW(t) + 0.004; wet = NEEDLE_WET; }
+  if (kind < 1.5) { hw = needleW(t) + 0.004; wet = post.toolB.w; }
   else if (kind < 2.5) { hw = mix(0.34, 1.1, smoothstep(0.0, 12.0, t)); wet = PIPE_WET; rate = PIPE_DOF; }
   else if (kind > 3.5) { hw = post.toolB.w; wet = 0.0; rate = 0.025; }
   let sd = select(abs(lat) - hw, length(d) - hw, s < 0.0);

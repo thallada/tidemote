@@ -45,7 +45,7 @@ ice showed at once over patches the simulation had not frozen.
   floor is wet, the pool parting into separate pools; holds `droughtHold` (2.5-5 min), still sinking a little; then
   **rain** refills it over `droughtRefill` (1.5-2.5 min): clouds (light × 0.45), cold (−3°), rough water (currents
   × 2.2), raindrops, cysts hatching.
-- **Storm** (`stormDur`, 4-7 min): clouds (light × 0.4), cold rain (−4°), rough water (currents × 2.6), raindrops,
+- **Storm** (`stormDur`, 4-7 min): clouds (light × 0.4), cold rain (the background drawn 0.3 of the way to the rain's 4°, never warmed: −3.6° from 16°, −7° from 28°, little in a cold era, so rain alone never freezes the pool; `STORM_COOL`, `RAIN_WATER` in `src/climate.js`; until 2026-11-20 a flat −4°, which took a cold era's water below 0), rough water (currents × 2.6), raindrops,
   the water a little higher.
 - **Duckweed** (`duckDur`, 7-12 min): a colony of Lemna drifts onto the pool, turning slowly: a mother frond (half
   its length `duckLen`, 12-20% of the world's shorter side; 1-5 mm long at the page's sizes, as real fronds are) and
@@ -57,7 +57,12 @@ ice showed at once over patches the simulation had not frozen.
   whatever the era's warmth, `FROST_WATER` in `src/climate.js`, × `frostCold`) on a pool this thin freezes it
   in-plane. **Ice is the water's own phase** (`heatMain`, thermal block 3: each grid cell's frozen share): water
   below 0° freezes and ice above it melts, the cell held at 0° until the latent heat (`iceLatent`, degrees of the
-  water's) is given up or taken in. So whatever froze it, whatever warms it thaws it: the warm stage melts a frost's
+  water's) is given up or taken in. Ice needs a nucleus to begin (2026-11-20): open water supercools, to between 0.2°
+  and 1° below 0 by patches of the world's noise (`iceSupercool`), before it freezes by itself, unless ice is already
+  in the cell, `iceSeed` of it lies in a neighbor (a crystal grows into supercooled water) or stone lies in it
+  (grains nucleate it). So any cold enough water freezes, a storm in a cold era's as a frost's, but it starts in places
+  (stone, the coldest patches) and spreads from them, rather than everywhere below 0 at once; `iceSupercool: [0, 0]`
+  freezes as before. So whatever froze it, whatever warms it thaws it: the warm stage melts a frost's
   ice as it melts the cold probe's, and the frost's night freezes the hole again once the stage lifts. The frost
   freezes the pool through its heat: its night (`weather.w`) draws the water (`frostRate`) below freezing where a
   second field (`makeIceOrder`, thermal block 2: grains spreading from the shallows and from their centers, meeting
@@ -220,7 +225,8 @@ wrap puts them and show no seam at the world's edges. Raindrop ripples bend the 
   faint growth lines and strings of air bubbles drawn out along a grain's axis (`bubLook`, as the warm stage's);
   deeper than any dendrite reaches only that is drawn. Ahead of a growing front, small stellar crystals (frazil: six uneven, branched arms around a hexagonal
   plate) grow in the supercooled water (`iceGrowth`: while a frost freezes, or where the cold probe chills the water,
-  in near-freezing water only). The cold probe's ice is the same ice, drawn the same way. The main view draws it in a
+  in near-freezing water only), and wherever the water is partly frozen short of the drawn edge (a share under half:
+  more and larger stars the more is ice), so freezing shows as crystals before it shows as a sheet. The cold probe's ice is the same ice, drawn the same way. The main view draws it in a
   pass of its own, at half resolution where a phone's frame needs it (`fsIce`: docs/look.md, after The composite's
   fields).
 - **Trapped cells** (`DRAW_WGSL`): a cell on dry ground shrivels a little and its color drains to a dull brown,

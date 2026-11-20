@@ -60,7 +60,8 @@ export function createHand(words, ids, { reach = REACH.def, drops }) {
     // (dip: how far the rod is down, 0..1, in the water while pressed and drawn lifting out after; eddies: its wake,
     // { x, y, vx, vy, t }; wake: where it was when it last left one)
     // (stroke: the rod's last move, frame to frame, and when; rung: how many ring waves its strokes have sent out)
-    tool: 'loupe', reach, held: false, rung: 0, last: null, at: null, from: null, dip: 0, eddies: [], wake: null, stroke: null,
+    // (wet: how much of the needle is in the water, world units: NEEDLE.wet, more zoomed out; the page's)
+    tool: 'loupe', reach, wet: NEEDLE.wet, held: false, rung: 0, last: null, at: null, from: null, dip: 0, eddies: [], wake: null, stroke: null,
     lamp: { x: 0, y: 0, r: reach, v: 0 }, stage: { x: 0, y: 0, r: reach, v: 0 },
     // the ridden cell and where it is steered: [x, y, strength]; the pipette's draw: [x, y, reach, speed] (the page's)
     rider: NONE, will: null, suck: null,
@@ -154,7 +155,7 @@ export function createHand(words, ids, { reach = REACH.def, drops }) {
       words.set(h.suck || [0, 0, 0, 0], 24);
       // (its point, and as much of its shaft as is in the water, running off toward its corner)
       const nd = INSTRUMENTS.needle.dir;
-      words.set(needle ? [p[0], p[1], nd[0] * NEEDLE.wet, nd[1] * NEEDLE.wet] : [0, 0, 0, 0], 28);
+      words.set(needle ? [p[0], p[1], nd[0] * h.wet, nd[1] * h.wet] : [0, 0, 0, 0], 28);
       // the wake's eddies, as strong as they still are, and their size (0: none)
       words.fill(0, 32);
       h.eddies.forEach((e, k) => { const s = Math.exp(-(t - e.t) / WAKE.life); words.set([e.x, e.y, e.vx * s, e.vy * s], 36 + k * 4); });

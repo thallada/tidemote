@@ -16,6 +16,10 @@ export const ERA_KEEP = 500, EVENT_KEEP = 64;
 export { eraName } from './eraname.js';
 // the background water's temperature at the depth of a frost's night (°C)
 const FROST_WATER = 0.5;
+// A storm's cold rain mixes into the pool: it draws the background a share (STORM_COOL, × rainCold) of the way to the
+// rain's own temperature (RAIN_WATER), never warmer. A warm era's water drops a lot (−3.6° from 16°, −7° from 28°), a
+// cold one's little, so rain alone never takes the water below RAIN_WATER (a frost's night takes it to FROST_WATER)
+const RAIN_WATER = 4, STORM_COOL = 0.3;
 
 /** An excursion's bump in degrees at time t: eased in and out over its duration. */
 export function excursionAt(x, t) {
@@ -36,7 +40,7 @@ const ramp = (t, a, b) => ease((t - a) / Math.max(b - a, 1e-6));
 
 /** An event's effect on the pool at time t: level (below the era's), rain, sky, drying, currents, temperature, duckweed. */
 export function eventAt(ev, t, levelTo) {
-  const out = { level: levelTo, rain: 0, sky: 1, evap: 0, turb: 1, dT: 0, chill: 0, night: 0, duck: null, frost: 0, freezing: 0, parch: 0, phase: null };
+  const out = { level: levelTo, rain: 0, sky: 1, evap: 0, turb: 1, dT: 0, chill: 0, cool: 0, night: 0, duck: null, frost: 0, freezing: 0, parch: 0, phase: null };
   if (!ev || t < ev.t) return out;
   const u = t - ev.t;
   // how cold, dark and rough its rain is (rainCold, rainDark, rainTurb: multiples of the defaults)
@@ -63,7 +67,7 @@ export function eventAt(ev, t, levelTo) {
     }
   } else if (ev.type === 'storm') {
     const r = Math.min(ramp(u, 0, 40), 1 - ramp(u, ev.dur - 60, ev.dur));
-    out.rain = r; out.sky = 1 - 0.6 * dark * r; out.turb = 1 + 1.6 * rough * r; out.dT = -4 * cold * Math.min(ramp(u, 0, 120), 1 - ramp(u, ev.dur, ev.dur + 240));
+    out.rain = r; out.sky = 1 - 0.6 * dark * r; out.turb = 1 + 1.6 * rough * r; out.cool = STORM_COOL * cold * Math.min(ramp(u, 0, 120), 1 - ramp(u, ev.dur, ev.dur + 240));
     out.level = Math.min(1, levelTo + 0.04 * r); out.phase = u < ev.dur ? 'storm' : u < ev.dur + 240 ? 'after' : null;
   } else if (ev.type === 'frost') {
     // night falls and the water chills; ice grows from the shallows and grain centers, holds, then thaws (the
@@ -164,7 +168,7 @@ export function createClimate(eng, rng = Math.random) {
       if (Math.abs(climate.levelMid - climate.levelTo) < 1e-4 && Math.abs(eng.level - climate.levelTo) < 1e-4) eng.level = climate.levelMid = climate.levelTo;
     }
     eng.rain = e.rain; eng.sky = e.sky; eng.evap = e.evap; eng.turb = e.turb; eng.frost = e.frost; eng.freezing = e.freezing; eng.frostNight = e.night;
-    climate.eventTemp = e.dT; climate.eventChill = e.chill;
+    climate.eventTemp = e.dT; climate.eventChill = e.chill; climate.eventCool = e.cool;
     // the seconds since a drought's rain began (raindrops wetting its mud), 0 outside one
     const rainAt = ev?.type === 'drought' ? ev.t + ev.fall + ev.hold : Infinity;
     eng.mudRain = t >= rainAt ? t - rainAt : 0;
@@ -230,7 +234,9 @@ export function createClimate(eng, rng = Math.random) {
     const ex = excursionAt(x, eng.simTime);
     // a frost's night chills the water toward freezing (FROST_WATER) whatever the era's warmth
     const base = eng.tbg != null ? eng.tbg - eng.excursion : eng.temp;
-    eng.excursion = ex + (climate.eventTemp || 0) + (climate.eventChill || 0) * (FROST_WATER - base - ex);
+    // (and a storm's rain cools it toward the rain's temperature, never warming it)
+    eng.excursion = ex + (climate.eventTemp || 0) + (climate.eventChill || 0) * (FROST_WATER - base - ex)
+      + (climate.eventCool || 0) * Math.min(0, RAIN_WATER - base - ex);
     if (x && eng.simTime >= x.t && climate.announced !== x) {
       climate.announced = x;
       climate.history.at(-1).excursion = x;
