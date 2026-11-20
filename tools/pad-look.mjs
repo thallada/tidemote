@@ -149,14 +149,12 @@ const glyphsInPlace = () => T(() => {
   }
   return { worst, faces };
 });
-const glyphBoxes = await T(() => {
+await T(() => {
   const host = document.createElement('div');
   host.id = 'gl-sheet';
   host.style.cssText = 'position:fixed;left:20px;top:70px;z-index:99;background:#0b1214;padding:10px;display:grid;grid-template-columns:repeat(13, 30px);gap:8px;';
   document.body.append(host);
-  return null;
 });
-void glyphBoxes;
 const places = ['S', 'E', 'W', 'N', 'LB', 'RB', 'LT', 'RT', 'VIEW', 'MENU', 'L', 'R', 'UP'];
 let worst = { d: 0 };
 for (const fam of ['xbox', 'ps', 'switch', 'deck']) {
@@ -392,17 +390,15 @@ const cell = await T(() => { const sps = [...__tidemote.life().reg.values()].fil
 await T((sr) => __tidemote.findMember(sr), cell); await wait(2500);
 await T(() => { if (__tidemote.ride.state.on) __tidemote.input.act('ride'); });
 await wait(300);
-const aimBefore = await T(() => __tidemote.input.aim());
 await T(() => { const t = __tidemote, sl = t.ride.sel(); t.deselect(); t.state.paused = true; if (sl) t.input.lookAt(sl.disp[0], sl.disp[1]); });
 await frames(4);
-const a0 = await T(() => __tidemote.input.aim());
 await pad.press(BTN.S);
 // the cell selected and the loupe (at the reticle) kept together, frame by frame, as the panel opens and the view
 // eases the cell toward the new middle
 const gaps = [];
 for (let i = 0; i < 40; i++) { await frames(1); gaps.push(await T(() => { const a = __tidemote.input.aim(), c = __tidemote.input.selAt(); return c ? Math.hypot(a[0] - c[0], a[1] - c[1]) : -1; })); }
 await T(() => { __tidemote.state.paused = false; });
-check('the loupe stays on the cell selected as the panel opens (within 12 px every frame)', gaps.every((g) => g >= 0 && g < 12), `${aimBefore[0].toFixed(0)},${a0[0].toFixed(0)}: ${gaps.map((g) => g.toFixed(0)).join(' ')}`);
+check('the loupe stays on the cell selected as the panel opens (within 12 px every frame)', gaps.every((g) => g >= 0 && g < 12), gaps.map((g) => g.toFixed(0)).join(' '));
 await wait(800);
 await shot('selected-loupe');
 await pad.press(BTN.N); await wait(200);

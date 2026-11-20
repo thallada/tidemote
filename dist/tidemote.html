@@ -43318,7 +43318,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const pads = createPads();
     const nav = createFocus();
     const zoomHeld = /* @__PURE__ */ new Map();
-    const input = { way: [0, 0], stickNav: null, apply: null, lastTool: "loupe", grab: null, panel: null };
+    const input = { way: [0, 0], stick: null, apply: null, lastTool: "loupe", grab: null, panel: null };
     for (const id of ["intro", "card", "help", "settings", "ladder", "bench", "held", "spec", "lab", "dock", "rail"]) $2(id).dataset.navRoot = "";
     const rose = createRose($2("rose"));
     const FAMILY_NAME = () => ({ xbox: tr("prompts.xbox", "Xbox"), ps: tr("prompts.ps", "PlayStation"), switch: tr("prompts.switch", "Switch"), deck: tr("prompts.deck", "Steam Deck") });
@@ -43447,9 +43447,6 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       toggleMap(MAPS[i]);
       flash(state.map === MAPS[i].id ? on : off);
     };
-    const enterIfPad = (root, first) => {
-      if (mode.glyphs === "pad" && root && !root.hidden) nav.enter(root, first);
-    };
     const openers = /* @__PURE__ */ new Map();
     function settle(root, open, dialog = false) {
       if (!open) {
@@ -43469,8 +43466,6 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       else a?.blur?.();
     }
     function grab(el2) {
-      if (input.grab === el2) return;
-      letGo();
       input.grab = el2;
       el2._adj = void 0;
       el2.classList.add("grabbed");
@@ -43490,6 +43485,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const to = dir === "up" ? root.id === "dock" ? open("bench") || open("rail") : ["spec", "lab", "bench", "held"].includes(root.id) ? open("rail") : null : dir === "down" ? root.id === "rail" || root.id === "bench" ? open("dock") : null : null;
       return !!to && nav.cross(to, dir);
     }
+    const navStep = (root, dir) => input.grab ? (adjust(input.grab, dir === "right" || dir === "up" ? 1 : -1), true) : navMove(root, dir);
+    const isTerm = (el2) => !!el2?.matches?.(".term, span[data-tip]");
     function act(id, how = {}) {
       if (id.startsWith("tool-")) {
         if (how.repeat) return true;
@@ -43679,7 +43676,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           if (!root || !a || !root.contains(a) || a === root) return !!root && nav.move(root, "down");
           if (input.grab) letGo();
           else if (isAdjustable(a)) grab(a);
-          else if (a.matches(".term, span[data-tip]")) tips.toggle(a);
+          else if (isTerm(a)) tips.toggle(a);
           else if (isText(a)) typeInto(a);
           else a.click();
           return true;
@@ -43688,13 +43685,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         case "nav-down":
         case "nav-left":
         case "nav-right": {
-          const dir = id.slice(4);
-          if (input.grab) {
-            adjust(input.grab, dir === "right" || dir === "up" ? 1 : -1);
-            return true;
-          }
           const root = padRoot();
-          return !!root && navMove(root, dir);
+          return !!root && navStep(root, id.slice(4));
         }
         case "tab-prev":
         case "tab-next": {
@@ -43740,7 +43732,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     function padApply() {
       if (state.phase !== "running" || input.apply) return;
       const [x, y] = aim();
-      input.apply = { btn: BTN.S, t: performance.now(), moved: false, pip: hand.tool === "pipette" };
+      input.apply = { t: performance.now(), moved: false, pip: hand.tool === "pipette" };
       if (input.apply.pip) pipettePress({ clientX: x, clientY: y, shiftKey: false });
       else hand.down(...toWorld(x, y), eng.simTime);
       takeOver();
@@ -43749,7 +43741,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const a = input.apply;
       if (!a) return;
       const [x, y] = aim();
-      if (pads.state.down[a.btn] >= 0 && inHand()) {
+      if (pads.state.down[BTN.S] >= 0 && inHand()) {
         if (input.way[0] || input.way[1]) a.moved = true;
         if (!a.pip) hand.move(...toWorld(x, y));
         return;
@@ -43796,13 +43788,16 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     function legendItems(ctx2) {
       const L = LEGEND();
       if (ctx2 === "panel") {
-        const a = document.activeElement;
         if (input.grab) return [[["LEFT", "RIGHT"], L.adjust], ["S", L.done], ["E", L.done]];
-        const tabs = padRoot()?.querySelector('[role="tablist"]') ? [[["LB", "RB"], L.tabs]] : [];
-        const what = isAdjustable(a) ? L.adjust : a?.matches?.(".term, span[data-tip]") ? L.hint : L.choose;
-        const top = padRoot()?.id === "dock" ? [["UP", L.top]] : [];
-        const close = padRoot()?.id === "bench" ? [["RB", L.close]] : [];
-        return [["S", what], ["E", L.back], ...tabs, ...top, ...close];
+        const a = document.activeElement, root = padRoot();
+        const what = isAdjustable(a) ? L.adjust : isTerm(a) ? L.hint : L.choose;
+        return [
+          ["S", what],
+          ["E", L.back],
+          ...root?.querySelector('[role="tablist"]') ? [[["LB", "RB"], L.tabs]] : [],
+          ...root?.id === "bench" ? [["RB", L.close]] : [],
+          ...root?.id === "dock" ? [["UP", L.top]] : []
+        ];
       }
       if (ctx2 === "ride") return [["L", L.steer], ["S", L.hop], ["E", L.off], [["LT", "RT"], L.zoom]];
       if (ctx2 === "tool") {
@@ -43889,32 +43884,19 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         cam.x += way[0] * v;
         cam.y += way[1] * v;
       }
-      if (panel && input.grab) {
-        const v = Math.abs(P2.left[0]) > Math.abs(P2.left[1]) ? P2.left[0] : -P2.left[1];
-        input.stickNav = null;
-        if (input.grab.type === "range") {
-          if (v) adjust(input.grab, v * 13 * s);
-        } else if (Math.abs(v) > 0.5) {
-          const d = Math.sign(v), g = input.grabNav;
-          if (!g || g.d !== d) {
-            input.grabNav = { d, next: now + REPEAT_MS[0] };
-            adjust(input.grab, d);
-          } else if (now >= g.next) {
-            g.next = now + REPEAT_MS[1];
-            adjust(input.grab, d);
-          }
-        } else input.grabNav = null;
-      } else if (panel && Math.hypot(P2.left[0], P2.left[1]) > 0.5) {
-        const dir = Math.abs(P2.left[0]) > Math.abs(P2.left[1]) ? P2.left[0] > 0 ? "right" : "left" : P2.left[1] > 0 ? "down" : "up";
-        const sn = input.stickNav;
-        if (!sn || sn.dir !== dir) {
-          input.stickNav = { dir, next: now + REPEAT_MS[0] };
-          navMove(panel, dir);
-        } else if (now >= sn.next) {
-          sn.next = now + REPEAT_MS[1];
-          navMove(panel, dir);
+      const [lx, ly] = P2.left, flat = Math.abs(lx) > Math.abs(ly), tilt = Math.hypot(lx, ly);
+      if (panel && input.grab?.type === "range") {
+        if (tilt) adjust(input.grab, (flat ? lx : -ly) * 13 * s);
+      } else if (panel && tilt > 0.5) {
+        const dir = flat ? lx > 0 ? "right" : "left" : ly > 0 ? "down" : "up", r = input.stick;
+        if (!r || r.dir !== dir) {
+          input.stick = { dir, next: now + REPEAT_MS[0] };
+          navStep(panel, dir);
+        } else if (now >= r.next) {
+          r.next = now + REPEAT_MS[1];
+          navStep(panel, dir);
         }
-      } else input.stickNav = null;
+      } else input.stick = null;
       let z = 0;
       for (const d of zoomHeld.values()) z += d;
       if (!rose.shown) z += P2.rt - P2.lt;

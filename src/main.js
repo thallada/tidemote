@@ -3886,14 +3886,14 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   const pads = createPads();
   const nav = createFocus();
   const zoomHeld = new Map(); // a zoom key held, by its code: its direction
-  // (grab: the slider or list A took hold of, which the d-pad and the stick change until A or B lets go)
-  // (panel: the side panel the pad's focus went into, kept until B or Y leaves it: padRoot)
-  const input = { way: [0, 0], stickNav: null, apply: null, lastTool: 'loupe', grab: null, panel: null };
+  // (stick: a direction held on the stick, repeating; grab: the slider or list A took hold of, which the d-pad and the
+  // stick change until A or B lets go; panel: the side panel the pad's focus went into, kept until B or Y leaves it)
+  const input = { way: [0, 0], stick: null, apply: null, lastTool: 'loupe', grab: null, panel: null };
   // the panels a controller's focus moves within (focus.js remembers each one's last control)
   for (const id of ['intro', 'card', 'help', 'settings', 'ladder', 'bench', 'held', 'spec', 'lab', 'dock', 'rail']) $(id).dataset.navRoot = '';
   const rose = createRose($('rose'));
-  // the controller family the hints draw: the viewer's choice (Settings → Display → Button prompts), else the pad's own
-  // i18n: the controller families' names (Settings → Display → Button prompts); hardware makers' names, kept as such
+  // the controller family the hints draw: the viewer's choice (Settings → Display → Controller), else the pad's own
+  // i18n: the controller families' names (Settings → Display → Controller); hardware makers' names, kept as such
   const FAMILY_NAME = () => ({ xbox: tr('prompts.xbox', 'Xbox'), ps: tr('prompts.ps', 'PlayStation'), switch: tr('prompts.switch', 'Switch'), deck: tr('prompts.deck', 'Steam Deck') });
   let onDeck = false;
   desk?.deck?.().then((v) => { onDeck = !!v; }).catch(() => {});
@@ -3928,14 +3928,11 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse' && noteInput(mode, { kind: 'move', d: Math.abs(e.movementX) + Math.abs(e.movementY) })) applyMode(); }, true);
   applyMode();
 
-  // Where the pad's reticle sits (screen px): the middle of the part of the screen the panels leave open, eased there
-  // as the camera eases a followed cell there (a panel opening moves the middle; the reticle, and the loupe at it,
-  // glide along with the cell they were on rather than jump)
+  // Where the pad's reticle sits (screen px): first the middle of the part of the screen the panels leave open; then it
+  // keeps its place, over what it was on, as panels open and close, unless one would cover it (it eases just inside
+  // what they leave open). Following a cell, the camera eases that cell to the middle, and the reticle goes with it.
   const aimPt = { x: 0, y: 0, set: false };
   const aim = () => (aimPt.set ? [aimPt.x, aimPt.y] : viewMiddle());
-  // (it keeps its place on the screen, over what it was on, as panels open and close, unless a panel would cover it:
-  // then it eases just inside what they leave open. Following a cell, the camera eases that cell to the middle, and
-  // the reticle goes along with it.)
   function easeAim(dt) {
     const [mx, my] = viewMiddle();
     if (!aimPt.set || dt <= 0) { Object.assign(aimPt, { x: mx, y: my, set: true }); return; }
@@ -3973,7 +3970,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     return null;
   }
   const padCtx = () => (rose.shown ? 'rose' : padRoot() ? 'panel' : ride.on ? 'ride' : inHand() ? 'tool' : 'world');
-  // the side panel Y goes into: the specimen's, the Lab, the bench, else the dock
+  // the side panel Y goes into: the specimen's, the Lab, the bench (none: Y goes into the dock)
   const sidePanel = () => [$('spec'), lab.isOpen() ? $('lab') : null, bench.isOpen() ? $('bench') : null].find((el) => el && !el.hidden) || null;
 
   // The walk back Esc (and the pad's B) takes, one step a press: the interface shown again, then the ladder closed,
@@ -4011,8 +4008,6 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     return true;
   }
   const flashMap = (i, on, off) => { toggleMap(MAPS[i]); flash(state.map === MAPS[i].id ? on : off); };
-  // a pad entering a panel it opened (keys and pointers leave focus where it was)
-  const enterIfPad = (root, first) => { if (mode.glyphs === 'pad' && root && !root.hidden) nav.enter(root, first); };
   // A panel just opened, entered by a pad (and a dialog, by a key too: what opened it remembered), or just closed, left
   // for what opened it (focus never stays in a closed panel)
   const openers = new Map();
@@ -4032,8 +4027,6 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
 
   // A slider or a list taken hold of by A (the d-pad and the stick change it), and let go
   function grab(el) {
-    if (input.grab === el) return;
-    letGo();
     input.grab = el; el._adj = undefined;
     el.classList.add('grabbed');
   }
@@ -4054,6 +4047,10 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       : dir === 'down' ? (root.id === 'rail' || root.id === 'bench' ? open('dock') : null) : null;
     return !!to && nav.cross(to, dir);
   }
+
+  // a direction in a panel: a slider or list taken hold of stepped (right and up: more), else focus moved
+  const navStep = (root, dir) => (input.grab ? (adjust(input.grab, dir === 'right' || dir === 'up' ? 1 : -1), true) : navMove(root, dir));
+  const isTerm = (el) => !!el?.matches?.('.term, span[data-tip]'); // (a glossary term: A shows its hint)
 
   /** Carry out an action (actions.js) by its id; how: { key, repeat } for a key. Whether it was handled. */
   function act(id, how = {}) {
@@ -4136,17 +4133,12 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
         if (!root || !a || !root.contains(a) || a === root) return !!root && nav.move(root, 'down');
         if (input.grab) letGo();
         else if (isAdjustable(a)) grab(a);
-        else if (a.matches('.term, span[data-tip]')) tips.toggle(a);
+        else if (isTerm(a)) tips.toggle(a);
         else if (isText(a)) typeInto(a);
         else a.click();
         return true;
       }
-      case 'nav-up': case 'nav-down': case 'nav-left': case 'nav-right': {
-        const dir = id.slice(4);
-        if (input.grab) { adjust(input.grab, dir === 'right' || dir === 'up' ? 1 : -1); return true; }
-        const root = padRoot();
-        return !!root && navMove(root, dir);
-      }
+      case 'nav-up': case 'nav-down': case 'nav-left': case 'nav-right': { const root = padRoot(); return !!root && navStep(root, id.slice(4)); }
       case 'tab-prev': case 'tab-next': {
         const root = padRoot();
         // (RB in the bench, which has no tabs, closes it, as RB opened it)
@@ -4184,7 +4176,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   function padApply() {
     if (state.phase !== 'running' || input.apply) return;
     const [x, y] = aim();
-    input.apply = { btn: BTN.S, t: performance.now(), moved: false, pip: hand.tool === 'pipette' };
+    input.apply = { t: performance.now(), moved: false, pip: hand.tool === 'pipette' };
     if (input.apply.pip) pipettePress({ clientX: x, clientY: y, shiftKey: false });
     else hand.down(...toWorld(x, y), eng.simTime);
     takeOver();
@@ -4193,7 +4185,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     const a = input.apply;
     if (!a) return;
     const [x, y] = aim();
-    if (pads.state.down[a.btn] >= 0 && inHand()) {
+    if (pads.state.down[BTN.S] >= 0 && inHand()) {
       if (input.way[0] || input.way[1]) a.moved = true;
       if (!a.pip) hand.move(...toWorld(x, y));
       return;
@@ -4225,14 +4217,12 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   function legendItems(ctx) {
     const L = LEGEND();
     if (ctx === 'panel') {
-      const a = document.activeElement;
       if (input.grab) return [[['LEFT', 'RIGHT'], L.adjust], ['S', L.done], ['E', L.done]];
-      const tabs = padRoot()?.querySelector('[role="tablist"]') ? [[['LB', 'RB'], L.tabs]] : [];
-      const what = isAdjustable(a) ? L.adjust : a?.matches?.('.term, span[data-tip]') ? L.hint : L.choose;
-      // (the dock: up reaches the rail's controls at the top)
-      const top = padRoot()?.id === 'dock' ? [['UP', L.top]] : [];
-      const close = padRoot()?.id === 'bench' ? [['RB', L.close]] : [];
-      return [['S', what], ['E', L.back], ...tabs, ...top, ...close];
+      const a = document.activeElement, root = padRoot();
+      const what = isAdjustable(a) ? L.adjust : isTerm(a) ? L.hint : L.choose;
+      // (tabs on the bumpers; the bench's RB closes it; the dock's up reaches the rail at the top)
+      return [['S', what], ['E', L.back], ...(root?.querySelector('[role="tablist"]') ? [[['LB', 'RB'], L.tabs]] : []),
+        ...(root?.id === 'bench' ? [['RB', L.close]] : []), ...(root?.id === 'dock' ? [['UP', L.top]] : [])];
     }
     if (ctx === 'ride') return [['L', L.steer], ['S', L.hop], ['E', L.off], [['LT', 'RT'], L.zoom]];
     if (ctx === 'tool') {
@@ -4309,25 +4299,15 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       const v = viewShort() * 0.9 * s;
       cam.x += way[0] * v; cam.y += way[1] * v;
     }
-    // the stick on a slider taken hold of changes it smoothly, its whole span in about a second and a half at full tilt
-    if (panel && input.grab) {
-      const v = Math.abs(P.left[0]) > Math.abs(P.left[1]) ? P.left[0] : -P.left[1];
-      input.stickNav = null;
-      if (input.grab.type === 'range') { if (v) adjust(input.grab, v * 13 * s); }
-      else if (Math.abs(v) > 0.5) {
-        // (a list steps an option at a time, repeating as a held d-pad does)
-        const d = Math.sign(v), g = input.grabNav;
-        if (!g || g.d !== d) { input.grabNav = { d, next: now + REPEAT_MS[0] }; adjust(input.grab, d); }
-        else if (now >= g.next) { g.next = now + REPEAT_MS[1]; adjust(input.grab, d); }
-      } else input.grabNav = null;
-    }
-    // a direction held on the stick in a panel steps focus, repeating as a held d-pad does
-    else if (panel && Math.hypot(P.left[0], P.left[1]) > 0.5) {
-      const dir = Math.abs(P.left[0]) > Math.abs(P.left[1]) ? (P.left[0] > 0 ? 'right' : 'left') : P.left[1] > 0 ? 'down' : 'up';
-      const sn = input.stickNav;
-      if (!sn || sn.dir !== dir) { input.stickNav = { dir, next: now + REPEAT_MS[0] }; navMove(panel, dir); }
-      else if (now >= sn.next) { sn.next = now + REPEAT_MS[1]; navMove(panel, dir); }
-    } else input.stickNav = null;
+    // In a panel the stick moves focus, a step for a direction held and repeating as a held d-pad does; on a slider taken
+    // hold of it sweeps it smoothly (its span in about a second and a half at full tilt), on a list it steps it
+    const [lx, ly] = P.left, flat = Math.abs(lx) > Math.abs(ly), tilt = Math.hypot(lx, ly);
+    if (panel && input.grab?.type === 'range') { if (tilt) adjust(input.grab, (flat ? lx : -ly) * 13 * s); }
+    else if (panel && tilt > 0.5) {
+      const dir = flat ? (lx > 0 ? 'right' : 'left') : ly > 0 ? 'down' : 'up', r = input.stick;
+      if (!r || r.dir !== dir) { input.stick = { dir, next: now + REPEAT_MS[0] }; navStep(panel, dir); }
+      else if (now >= r.next) { r.next = now + REPEAT_MS[1]; navStep(panel, dir); }
+    } else input.stick = null;
     // zoom: the keys held and the triggers, about the view's middle
     let z = 0;
     for (const d of zoomHeld.values()) z += d;

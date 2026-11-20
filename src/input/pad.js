@@ -11,7 +11,7 @@
 import { BTN, HOLD_MS, padBinding } from './actions.js';
 
 export const DEADZONE = 0.18;   // a stick's rest (sticks rest a little off zero)
-export const TRIGGER_ON = 0.35; // a trigger read as a press past this
+const TRIGGER_ON = 0.35; // a trigger read as a press past this
 export const REPEAT_MS = [400, 90]; // a held direction repeats after the first, then every second
 
 /** A stick's (x, y) with a scaled radial deadzone: 0 inside it, then rising from 0 to 1 along the same direction. */

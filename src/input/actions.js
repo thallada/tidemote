@@ -18,7 +18,7 @@ export const TOOL_IDS = ['none', 'loupe', 'touch', 'lamp', 'shade', 'warm', 'col
 
 // Keys held rather than pressed: each frame they move the camera (or steer a ride) and zoom, as a stick and the
 // triggers do.
-export const ZOOM_KEYS = { '=': 1, '+': 1, '-': -1, _: -1 };
+const ZOOM_KEYS = { '=': 1, '+': 1, '-': -1, _: -1 };
 
 // What each key does: [key(s), action id, needs shift?]. Letters match either case.
 const KEYMAP = [
@@ -64,7 +64,7 @@ const PAD_RIDE = { ...PAD_WORLD, [BTN.S]: { press: 'hop' }, [BTN.W]: { press: 'r
 // it, so the d-pad and the stick change it, until S or E lets go; a glossary term: shows or hides its hint), E goes
 // back a layer, the bumpers change tab; the rest are the world's.
 const PAD_PANEL = {
-  ...PAD_WORLD, [BTN.S]: { press: 'activate' }, [BTN.E]: { press: 'panel-back' }, [BTN.W]: {}, [BTN.N]: { press: 'panel-back' },
+  ...PAD_WORLD, [BTN.S]: { press: 'activate' }, [BTN.E]: { press: 'panel-back' }, [BTN.W]: {} /* (X: nothing in a panel) */, [BTN.N]: { press: 'panel-back' },
   [BTN.UP]: { press: 'nav-up', repeat: true }, [BTN.DOWN]: { press: 'nav-down', repeat: true }, [BTN.LEFT]: { press: 'nav-left', repeat: true }, [BTN.RIGHT]: { press: 'nav-right', repeat: true },
   [BTN.LB]: { press: 'tab-prev' }, [BTN.RB]: { press: 'tab-next' },
 };

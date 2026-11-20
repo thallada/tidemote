@@ -49,11 +49,9 @@ b = await S(); check(`${tag} X gets off a ride`, !b.ride && b.sel, JSON.stringif
 // (the world held still while the reticle is put on the cell, so it is still there when A is pressed)
 await T(() => { const t = __tidemote; t.state.paused = true; const s = t.ride.sel(); t.deselect(); return s && t.input.lookAt(s.disp[0], s.disp[1]); });
 await frames(4);
-const there = await T(() => { const t = __tidemote, s = t.ride.sel(); return s; });
-await T(() => { const t = __tidemote; return null; });
 await pad.press(BTN.S); await page.waitForTimeout(800);
 await T(() => { __tidemote.state.paused = false; });
-b = await S(); check(`${tag} A selects the cell under the reticle`, b.sel && b.spec, JSON.stringify({ sel: b.sel, spec: b.spec, before: !!there }));
+b = await S(); check(`${tag} A selects the cell under the reticle`, b.sel && b.spec, JSON.stringify({ sel: b.sel, spec: b.spec }));
 
 // X rides; the stick steers; A hops; B gets off
 await pad.press(BTN.W); await page.waitForTimeout(400);

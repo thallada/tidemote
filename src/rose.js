@@ -4,8 +4,8 @@
 // sectorOf is the pure part: which octant a stick points at, with a band of hysteresis at the borders so a stick held
 // near one doesn't flicker between neighbors. The rest draws the ring and keeps the choice for a moment after the
 // stick springs back, since letting go of the stick a moment before the bumper is the commonest slip.
-export const ROSE_DZ = 0.4;        // the stick past this picks (inside: nothing, and letting go cancels)
-export const ROSE_HYST = 10 * Math.PI / 180; // a border's band of hysteresis
+const ROSE_DZ = 0.4;        // the stick past this picks (inside: nothing, and letting go cancels)
+const ROSE_HYST = 10 * Math.PI / 180; // a border's band of hysteresis
 export const ROSE_GRACE = 120;     // ms a choice outlasts the stick's return to rest
 
 /**
