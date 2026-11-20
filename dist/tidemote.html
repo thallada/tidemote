@@ -11938,10 +11938,10 @@ fn seaFieldAt(pos: vec2f) -> Surface {
   let surf = surfaceAt(wp, post.ppu, viewSpan(), waterRoom(poolAt(wp)));
   shiftMap[g.y * ${SHIFT_W}u + g.x] = keepInView(surf.shift * post.ppu, px);
 }
-// The haze's ripples (schlieren): the view is bent along the slope of the water's refractive index, here a field of
-// gradient noise, so the bend never swirls (two noises, one for each axis, turned what lay under them about as if
-// stirred) and what it bends wavers in place. hazeSlope is the noise's slope, by its derivative worked out with it
-// (the cost of one value noise): the lattice turned off the axes as gradNoiseWGSL's, its fade quintic.
+// Schlieren bend the view along the slope of the water's refractive index: one field, so the bend never swirls and
+// what it bends wavers in place. hazeSlope: the slope of gradient noise (a lattice turned off the axes, as
+// gradNoiseWGSL's), from its derivative.
+fn hazeG(c: vec2f) -> vec2f { let h = hash12(c); return vec2f(h, fract(h * 37.17)) * 2.0 - 1.0; }
 fn hazeSlope(p: vec2f) -> vec2f {
   let R = mat2x2f(0.8, 0.6, -0.6, 0.8);
   let q = R * p;
@@ -11949,21 +11949,16 @@ fn hazeSlope(p: vec2f) -> vec2f {
   let f = fract(q);
   let w = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
   let dw = 30.0 * f * f * (f * (f - 2.0) + 1.0);
-  let ha = hash12(c); let hb = hash12(c + vec2f(1.0, 0.0)); let hc = hash12(c + vec2f(0.0, 1.0)); let hd = hash12(c + vec2f(1.0, 1.0));
-  let ga = vec2f(ha, fract(ha * 37.17)) * 2.0 - 1.0; let gb = vec2f(hb, fract(hb * 37.17)) * 2.0 - 1.0;
-  let gc = vec2f(hc, fract(hc * 37.17)) * 2.0 - 1.0; let gd = vec2f(hd, fract(hd * 37.17)) * 2.0 - 1.0;
+  let ga = hazeG(c); let gb = hazeG(c + vec2f(1.0, 0.0)); let gc = hazeG(c + vec2f(0.0, 1.0)); let gd = hazeG(c + vec2f(1.0, 1.0));
   let va = dot(ga, f); let vb = dot(gb, f - vec2f(1.0, 0.0)); let vc = dot(gc, f - vec2f(0.0, 1.0)); let vd = dot(gd, f - vec2f(1.0, 1.0));
   let k = va - vb - vc + vd;
   let d = ga + w.x * (gb - ga) + w.y * (gc - ga) + w.x * w.y * (ga - gb - gc + gd) + dw * vec2f(vb - va + w.y * k, vc - va + w.x * k);
-  // (back off the turned lattice)
   return d * R;
 }
-// The ripples' slope at wp, in units of a ripple's own size, and that size in pixels at ppu: two octaves of the noise
-// fixed in the world (2^k a unit), weighed so a ripple is always HAZE_SPAN pixels across or so (between half and twice
-// it, crossfading as the view zooms, never sliding), finer than a cell close up, so each cell's outline wavers rather
-// than whole cells moving; each octave two layers scrolling past each other (HAZE_RUN, ripples a second, on the viewer's
-// clock, post.time: it flickers alike at any speed of the world). xy: the slope times the ripple's size (pixels), as
-// one bends the view; the two octaves' weights sum to 1.
+// The haze's bend in pixels at ppu, at full strength over HAZE_AMP: two octaves fixed in the world (2^k a unit),
+// weighed (summing to 1) so a ripple is about HAZE_SPAN pixels across at any zoom, finer than a cell close up, and
+// crossfading rather than sliding as the view zooms; each two layers scrolling past each other on the viewer's clock
+// (HAZE_RUN, ripples a second), so it flickers alike at any speed of the world.
 const HAZE_SPAN = 24.0;
 const HAZE_RUN = vec2f(2.2, 1.7);
 fn hazeRipples(wp: vec2f, ppu: f32) -> vec2f {
@@ -11973,8 +11968,6 @@ fn hazeRipples(wp: vec2f, ppu: f32) -> vec2f {
   var d = vec2f(0.0);
   for (var i = 0; i < 2; i++) {
     let fr = exp2(k0 + f32(i));
-    // (the coarser octave's ripples are 2^t of HAZE_SPAN across, the finer half that: each weighed by how near its size
-    // is to HAZE_SPAN, in octaves)
     let wt = select(1.0 - t, t, i == 1);
     if (wt <= 0.0) { continue; }
     let q = wp * fr;
@@ -11984,13 +11977,9 @@ fn hazeRipples(wp: vec2f, ppu: f32) -> vec2f {
   }
   return d;
 }
-// Schlieren, in pixels at ppu: with the heat haze on, warm water bends the light passing through it like the air over
-// a hot road. It wavers wherever warmth changes (around colonies and framboids, at fronts: the slope of the
-// temperature, °C a cell) and over water warmer than the water about it or hot in itself (where bubbles come out,
-// rising and stirring it), a flat hot patch too. How strongly (0 to 1) is the most of: how steep the temperature's
-// slope (HAZE_SLOPE, °C a cell, from where it begins to full), how much warmer than the water HAZE_R cells about it
-// (HAZE_WARM, °C), and how hot it is in itself (HAZE_HOT, °C: a heat wave's warmest water a little); at full the
-// view moves HAZE_AMP of a ripple's size where the ripples are steepest. water: waterAt(wp).
+// The heat haze, in pixels at ppu: warm water bends the light like the air over a hot road. Its strength (0 to 1) is
+// the most of the temperature's slope (HAZE_SLOPE, °C a cell), how much warmer the water is than the water HAZE_R cells
+// about it (HAZE_WARM, °C) and how hot it is in itself (HAZE_HOT, °C). water: waterAt(wp).
 const HAZE_AMP = 0.08;
 const HAZE_R = 3.5;
 const HAZE_SLOPE = vec2f(1.0, 4.0);
@@ -12003,14 +11992,12 @@ fn shimmer(wp: vec2f, water: vec3f, ppu: f32) -> vec2f {
   var boil = vec2f(0.0);
   if (roil > 0.0) { boil = roil * flowNoise(wp, 2.5) * 5.0; }
   if (post.heatVis <= 0.5 || post.heatVis >= 1.5) { return boil; }
-  // (how much warmer than the water HAZE_R cells about it: life warms the whole pool a few degrees past the era's
-  // water, so that is no measure of a warm spot)
+  // (warmer than the water about it, not the era's: life warms the whole pool a few degrees past that)
   let wq = wp - post.world * floor(wp / post.world);
   let about = 0.25 * (waterAt(wq + vec2f(HAZE_R, HAZE_R)).x + waterAt(wq + vec2f(-HAZE_R, HAZE_R)).x
     + waterAt(wq + vec2f(HAZE_R, -HAZE_R)).x + waterAt(wq + vec2f(-HAZE_R, -HAZE_R)).x);
   let warm = max(smoothstep(HAZE_WARM.x, HAZE_WARM.y, water.x - about), smoothstep(HAZE_HOT.x, HAZE_HOT.y, water.x));
   let s = min(1.0, smoothstep(HAZE_SLOPE.x, HAZE_SLOPE.y, length(water.yz)) + warm);
-  // (and its noise, likewise, only where it shows)
   if (s < 0.02) { return boil; }
   return hazeRipples(wp, ppu) * (s * HAZE_AMP) + boil;
 }
@@ -39312,9 +39299,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "2a98807cf083d69b") return;
+      if (localStorage.getItem(key) === "31ba61c763e9ffe6") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "2a98807cf083d69b");
+      if (res) localStorage.setItem(key, "31ba61c763e9ffe6");
     } catch {
     }
   }

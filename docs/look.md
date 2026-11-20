@@ -349,9 +349,12 @@ any zoom, and nothing inside a warm patch, where the temperature is flat; `tools
 haze-off frames alike. A first rework (warmth, a size growing with the zoom) used two noises for the two axes at four
 ripples a unit, bigger than cells close up: whole cells moved and turned together, a wave through a crowd, not a haze.
 
-`tools/heatlook.mjs --out runs/heatlook/NAME` grows a world and photographs its warmest water and staged warm patches (a plume, a broad hot patch, near a boil) with the haze on and off at several zooms, and records
-clips held and running (and held over stone, `--stone`, cached and still: whatever moves there the haze moved);
-`python3 tools/heatlook.py DIR` measures each pair against a control pair (the haze off twice).
+`tools/gpu-node.sh tools/heatlook.mjs --out runs/heatlook/NAME` grows a world and photographs its warmest water and
+staged warm water (a plume, a broad hot patch, near a boil) with the haze on, off and off again (cells' drawing
+animates even with the world held) at several zooms, and records clips: held with the haze on and off, running, and
+held over stone with a hot patch staged there (stone is cached: whatever moves there, the haze moved). `python3
+tools/heatlook.py DIR` measures the pairs against their controls and how far and fast the clips move, to a fraction of
+a pixel.
 
 ## Left out
 

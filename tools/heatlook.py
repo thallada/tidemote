@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""How far the heat haze moves the view: for each NAME-off.png / NAME-on.png pair tools/heatlook.mjs wrote, the mean
-absolute difference (0-255), the share of pixels that differ by more than 8 and 24, and the haze's displacement in
-pixels, estimated by block matching (the median and 95th percentile shift of the 16 px blocks that have texture), and the control pair's mean
-difference (the haze off twice: what changes without it).
-  python3 tools/heatlook.py runs/heatlook/A [runs/heatlook/B ...]
+"""Measure what tools/heatlook.mjs recorded (docs/look.md, Heat haze).
+Pairs: for each NAME-on.png, its mean absolute difference (0-255) from NAME-off.png, and the control's (NAME-off2.png:
+the haze off twice, what changes without it). Clips: how far textured 16 px blocks move from the clip's mean frame
+(sub-pixel, by phase correlation; median and 95th percentile) and how fast (median, pixels a frame).
+  python3 tools/heatlook.py DIR [DIR ...]
+  python3 tools/heatlook.py --encode DIR   (MP4s from the clips' frames, by ffmpeg)
 """
-import sys, glob, os
+import sys, glob, os, subprocess
 import numpy as np
 from PIL import Image
 
@@ -14,32 +15,46 @@ def load(p):
     return np.asarray(Image.open(p).convert('L'), dtype=np.float32)
 
 
-def shifts(a, b, bs=16, r=6):
-    h, w = a.shape
-    out = []
-    for y in range(r, h - bs - r, bs):
-        for x in range(r, w - bs - r, bs):
-            blk = a[y:y + bs, x:x + bs]
-            if blk.std() < 6:
-                continue
-            best, bd = 1e18, (0, 0)
-            for dy in range(-r, r + 1):
-                for dx in range(-r, r + 1):
-                    e = np.abs(b[y + dy:y + dy + bs, x + dx:x + dx + bs] - blk).sum()
-                    if e < best:
-                        best, bd = e, (dx, dy)
-            out.append(np.hypot(*bd))
-    return np.array(out) if out else np.zeros(1)
+def shift(a, b):
+    """b's displacement from a (x, y), to a fraction of a pixel."""
+    r = np.fft.fft2(a - a.mean()) * np.conj(np.fft.fft2(b - b.mean()))
+    r = np.fft.fftshift(np.real(np.fft.ifft2(r / (np.abs(r) + 1e-6))))
+    n = r.shape[0]
+    i, j = np.unravel_index(np.argmax(r), r.shape)
+    def peak(c, m, p):
+        d = m - 2 * c + p
+        return 0.0 if abs(d) < 1e-9 else 0.5 * (m - p) / d
+    return np.array([j - n // 2 + peak(r[i, j], r[i, (j - 1) % n], r[i, (j + 1) % n]),
+                     i - n // 2 + peak(r[i, j], r[(i - 1) % n, j], r[(i + 1) % n, j])])
 
+
+def motion(clip, bs=16):
+    st = np.stack([load(f) for f in sorted(glob.glob(f'{clip}/f*.jpg'))[:120:2]])
+    ref, win = st.mean(0), np.outer(np.hanning(bs), np.hanning(bs))
+    h, w = ref.shape
+    o = np.array([[shift(ref[y:y + bs, x:x + bs] * win, f[y:y + bs, x:x + bs] * win) for f in st]
+                  for y in range(0, h - bs, bs) for x in range(0, w - bs, bs) if ref[y:y + bs, x:x + bs].std() >= 8])
+    if not len(o):
+        return None
+    disp = np.linalg.norm(o - o.mean(1, keepdims=True), axis=2)
+    speed = np.linalg.norm(np.diff(o, axis=1), axis=2) / 2
+    return np.median(disp), np.percentile(disp, 95), np.median(speed)
+
+
+if sys.argv[1] == '--encode':
+    for d in sorted(glob.glob(os.path.join(sys.argv[2], 'clip-*/'))):
+        d = d.rstrip('/')
+        fps = open(f'{d}/fps.txt').read().strip()
+        subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-framerate', fps, '-i', f'{d}/f%04d.jpg', '-pix_fmt', 'yuv420p',
+                        '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', f'{d}.mp4'], check=True)
+    sys.exit()
 
 for d in sys.argv[1:]:
-    print(f'== {d}')
-    print(f'{"scene":<16} {"mean|d|":>8} {">8":>7} {">24":>7} {"shift50":>8} {"shift95":>8} {"ctl|d|":>7}')
-    for off in sorted(glob.glob(os.path.join(d, '*-off.png'))):
-        name = os.path.basename(off)[:-8]
-        a, b = load(off), load(off.replace('-off.png', '-on.png'))
-        diff = np.abs(a - b)
-        s = shifts(a, b)
-        c2 = off.replace('-off.png', '-off2.png')
-        ctl = np.abs(a - load(c2)).mean() if os.path.exists(c2) else float('nan')
-        print(f'{name:<16} {diff.mean():8.2f} {(diff > 8).mean():7.3f} {(diff > 24).mean():7.3f} {np.median(s):8.2f} {np.percentile(s, 95):8.2f} {ctl:7.2f}')
+    print(f'== {d}\n{"pair":<16} {"on|d|":>7} {"ctl|d|":>7}')
+    for on in sorted(glob.glob(os.path.join(d, '*-on.png'))):
+        off = load(on.replace('-on.png', '-off.png'))
+        print(f'{os.path.basename(on)[:-7]:<16} {np.abs(load(on) - off).mean():7.2f} {np.abs(load(on.replace("-on.png", "-off2.png")) - off).mean():7.2f}')
+    print(f'{"clip":<16} {"disp50":>7} {"disp95":>7} {"px/frame":>8}')
+    for clip in sorted(glob.glob(os.path.join(d, 'clip-*/'))):
+        m = motion(clip.rstrip('/'))
+        print(f'{os.path.basename(clip.rstrip("/"))[5:]:<16} ' + ('no texture' if m is None else f'{m[0]:7.2f} {m[1]:7.2f} {m[2]:8.2f}'))
