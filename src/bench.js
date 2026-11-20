@@ -179,6 +179,13 @@ export function createBench({ hand, pick, reach, size, onToggle, pip }) {
     hstrip.innerHTML = inHand ? pip.cards(true) : '';
   }
   addEventListener('resize', render);
+  // Drawn again soon, at most eight times a second: as the pipette draws up or sets down cells, batch by batch (each
+  // drawing rebuilds its strips; every batch would cost a frame its time)
+  let soonT = 0, soonAt = 0;
+  function renderSoon() {
+    if (soonT) return;
+    soonT = setTimeout(() => requestAnimationFrame(() => { soonT = 0; soonAt = performance.now(); render(); }), Math.max(0, soonAt + 125 - performance.now()));
+  }
   render();
-  return { render, toggle, isOpen: () => !drawer.hidden };
+  return { render, renderSoon, toggle, isOpen: () => !drawer.hidden };
 }

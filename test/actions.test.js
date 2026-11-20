@@ -51,7 +51,9 @@ test('no pad button does two things in one context', () => {
 test('the world, a tool, a ride and a panel each read the face buttons their own way', () => {
   assert.equal(padBinding(BTN.S, 'world').press, 'select');
   assert.equal(padBinding(BTN.S, 'tool').press, 'apply');
-  assert.equal(padBinding(BTN.W, 'tool').press, 'apply-alt');
+  assert.equal(padBinding(BTN.W, 'tool').press, 'pipette-mode');
+  // (View is the Lab only: no hold that a slow press could turn into the Controls)
+  assert.deepEqual(padBinding(BTN.VIEW, 'world'), { press: 'lab' });
   assert.equal(padBinding(BTN.S, 'ride').press, 'hop');
   assert.equal(padBinding(BTN.S, 'panel').press, 'activate');
   assert.equal(padBinding(BTN.E, 'world').press, 'back');

@@ -2,7 +2,7 @@
 // what a controller does: the intro begun by its A, the hints and the reticle following it (and not a mouse moved),
 // the stick panning and the triggers zooming, A selecting what is under the reticle, X riding and the stick steering,
 // B walking back, the tool rose and the view rose, a tool applied, the bench, Settings and the Lab entered and left
-// with focus moving by the d-pad and tabs by the bumpers, the Controls held open by View, the d-pad's time, a Deck's
+// with focus moving by the d-pad and tabs by the bumpers, the Controls opened from Settings, the d-pad's time, a Deck's
 // glyphs, and a pad unplugged mid-pan letting go.
 //   npm run build && tools/gpu-node.sh tools/pad-check.mjs [--size 1280x800]
 //   (on Linux without a display: TIDEMOTE_VK=1 tools/capped.sh node tools/pad-check.mjs)
@@ -106,12 +106,21 @@ if (b.lab) {
   await pad.press(BTN.VIEW); await page.waitForTimeout(300);
 }
 
-// the Controls, held open by View
-await pad.hold(BTN.VIEW, 300); await pad.up(BTN.VIEW); b = await S();
-check(`${tag} View held opens the Controls`, b.help && !b.lab === !lab0 || b.help, JSON.stringify({ help: b.help }));
+// View held is still the Lab (never the Controls), however slow the press
+const labHeld = (await S()).lab;
+await pad.hold(BTN.VIEW, 600); await pad.up(BTN.VIEW); await page.waitForTimeout(300); b = await S();
+check(`${tag} View held toggles the Lab, never opens the Controls`, !b.help && b.lab !== labHeld, JSON.stringify({ help: b.help, before: labHeld, lab: b.lab }));
+await pad.press(BTN.VIEW); await page.waitForTimeout(300);
+await T(() => document.activeElement?.blur());
+// the Controls, from Settings' foot: Menu, then A on Controls
+await pad.press(BTN.MENU); await page.waitForTimeout(200);
+await T(() => document.querySelector('#settings [data-open="help"]')?.focus());
+await pad.press(BTN.S); await page.waitForTimeout(200); b = await S();
+check(`${tag} Settings' Controls opens the Controls`, b.help, JSON.stringify({ help: b.help }));
 const col = await T(() => ({ gl: document.querySelectorAll('#help-keys .gl').length, a: [...document.querySelectorAll('#help-keys .gl')].some((g) => g.getAttribute('aria-label') === 'A') }));
 check(`${tag} its controller column draws the pad's buttons`, col.gl > 15 && col.a, JSON.stringify(col));
 await pad.press(BTN.E); b = await S(); check(`${tag} B closes it`, !b.help);
+if (b.settings) { await pad.press(BTN.E); b = await S(); }
 if (b.lab !== lab0) await T(() => { __tidemote.lab.toggle(); document.activeElement?.blur(); });
 
 // the d-pad's time and the auto camera

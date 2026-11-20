@@ -46,9 +46,13 @@ export function fadeEdges(row) {
     row.classList.toggle('fade-l', max > 1 && row.scrollLeft > 1);
     row.classList.toggle('fade-r', max > 1 && row.scrollLeft < max - 1);
   };
+  // (what is in it changing is read at the next frame, once, rather than at once: reading its width just after its
+  // contents were rewritten forces the page's layout there and then, and the pipette's strip is rewritten often)
+  let soon = 0;
+  const later = () => { if (!soon) soon = requestAnimationFrame(() => { soon = 0; edge(); }); };
   row.addEventListener('scroll', edge, { passive: true });
-  new ResizeObserver(edge).observe(row);
-  new MutationObserver(edge).observe(row, { childList: true });
+  new ResizeObserver(later).observe(row);
+  new MutationObserver(later).observe(row, { childList: true });
   edge();
 }
 

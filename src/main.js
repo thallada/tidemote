@@ -50,7 +50,7 @@ import { BTN, matchKey, isMoveKey, zoomKey, ROSE_TOOLS, ROSE_VIEW } from './inpu
 import { createPads, REPEAT_MS } from './input/pad.js';
 import { createMode, noteInput } from './input/mode.js';
 import { familyOf, FAMILIES, glyph } from './input/glyphs.js';
-import { createFocus, canFocus } from './input/focus.js';
+import { createFocus, canFocus, adjust, isAdjustable } from './input/focus.js';
 import { controlsTable } from './input/controls.js';
 import { createRose } from './rose.js';
 import { storeLinks } from './stores.js';
@@ -2720,8 +2720,9 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
         + choice('notes', tr('settings.display.annotations', 'Annotations'), '', [[1, tr('settings.display.annotations-auto', 'Auto camera')], [2, tr('settings.display.annotations-always', 'Always')], [0, OFF]], state.notes, 'annotations'))
         + group('view', tr('settings.display.view', 'View'), (isCoarse ? '' : onoff('ui', tr('settings.display.interface', 'Interface'), 'U', state.ui, 'interface'))
         + onoff('closeup', tr('settings.display.closeup', 'Live close-up'), '', state.closeup, 'closeup')
-        // i18n: Settings → Display → Button prompts: whose buttons a controller's hints draw (Auto: the controller's own)
-        + choice('prompts', tr('settings.display.prompts', 'Button prompts'), '', [['auto', tr('settings.auto', 'Auto')], ...FAMILIES.map((f) => [f, FAMILY_NAME()[f]])], state.prompts, 'prompts', 5)
+        // i18n: Settings → Display → Controller: whose buttons a controller's hints draw (Auto: the controller's own)
+        // (in two columns: Auto, naming what it found, across the top, then the four families)
+        + choice('prompts', tr('settings.display.prompts', 'Controller'), '', [['auto', tr('settings.auto', 'Auto')], ...FAMILIES.map((f) => [f, FAMILY_NAME()[f]])], state.prompts, 'prompts', 2)
         + onoff('auto', tr('settings.display.auto-idle', 'Auto when idle'), '', state.auto, 'autoidle')
         + (film.supported ? `<div class="opt"><span class="lbl">${term('film', filmL)} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="${filmL}">${film.state === 'idle' ? `<button type="button" class="chip" data-o="film" data-v="now">${tr('settings.display.film-now', 'Start filming')}</button>` : `<button type="button" class="chip" data-o="film" data-v="stop">${tr('settings.display.film-stop', 'Stop filming')}</button>`}</div></div>` : ''));
     }
@@ -2952,7 +2953,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
         + (globalThis.tidemoteDesktop ? '' : group('desktop', tr('settings.about.desktop', 'Desktop'), `<div class="about"><p>${tr('settings.about.desktop-p', 'Tidemote is also a desktop app, at its best on a computer with a dedicated graphics card.')}</p><div class="stores">${storeLinks()}</div></div>`));
     }
     // the keyboard note, and this tab's reset (which asks first)
-    const keysNote = `<button type="button" class="link keys-note" data-open="help">${tr('settings.keys-note', 'Controls: every key and button')}</button>`;
+    const keysNote = `<button type="button" class="link keys-note" data-open="help">${tr('settings.keys-note', 'Controls')}</button>`;
     function foot() {
       if (tab === 'about') return `<div class="set-foot">${keysNote}</div>`;
       // i18n: where saved worlds are kept (Settings → Worlds, at the foot)
@@ -3529,7 +3530,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     pull.last = performance.now();
     if (life.lastCensus) hand.note('pipette', ...pull.tip, eng.simTime, recs.length);
     hear('cells', { n: recs.length });
-    bench.render();
+    bench.renderSoon();
   };
   // what came in, kept once nothing more is coming: each species' cells, as bodies
   function pullDone() {
@@ -3678,7 +3679,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       if (!spit.held) spit.on = false;
       spit.next = now + 200;
     }
-    bench.render();
+    bench.renderSoon(); // (each batch set down: drawn again soon, a few times a second)
   }
   // a press with the pipette in hand: Load draws up, Dispense sets down (⇧: the other)
   function pipettePress(e) {
@@ -3881,7 +3882,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   const pads = createPads();
   const nav = createFocus();
   const zoomHeld = new Map(); // a zoom key held, by its code: its direction
-  const input = { way: [0, 0], stickNav: null, apply: null, lastTool: 'loupe' };
+  // (grab: the slider or list A took hold of, which the d-pad and the stick change until A or B lets go)
+  const input = { way: [0, 0], stickNav: null, apply: null, lastTool: 'loupe', grab: null };
   // the panels a controller's focus moves within (focus.js remembers each one's last control)
   for (const id of ['intro', 'card', 'help', 'settings', 'ladder', 'bench', 'held', 'spec', 'lab', 'dock', 'rail']) $(id).dataset.navRoot = '';
   const rose = createRose($('rose'));
@@ -3913,8 +3915,28 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse' && noteInput(mode, { kind: 'move', d: Math.abs(e.movementX) + Math.abs(e.movementY) })) applyMode(); }, true);
   applyMode();
 
-  // The middle of the part of the screen the panels leave open, where the pad's reticle sits (screen px)
-  const aim = () => viewMiddle();
+  // Where the pad's reticle sits (screen px): the middle of the part of the screen the panels leave open, eased there
+  // as the camera eases a followed cell there (a panel opening moves the middle; the reticle, and the loupe at it,
+  // glide along with the cell they were on rather than jump)
+  const aimPt = { x: 0, y: 0, set: false };
+  const aim = () => (aimPt.set ? [aimPt.x, aimPt.y] : viewMiddle());
+  // (it keeps its place on the screen, over what it was on, as panels open and close, unless a panel would cover it:
+  // then it eases just inside what they leave open. Following a cell, the camera eases that cell to the middle, and
+  // the reticle goes along with it.)
+  function easeAim(dt) {
+    const [mx, my] = viewMiddle();
+    if (!aimPt.set || dt <= 0) { Object.assign(aimPt, { x: mx, y: my, set: true }); return; }
+    const k = Math.min(1, dt / 70);
+    let tx = aimPt.x, ty = aimPt.y;
+    if (state.follow && sel) { tx = mx; ty = my; } else {
+      // the open area, less a margin for the loupe's lens or the reticle
+      const ins = specInset(), left = lab && lab.isOpen() && !phone() && state.ui ? labRight() : 0;
+      const top = phone() ? 48 : 52, bot = Math.max(phone() ? 62 : 56, ins.bottom), right = innerWidth - ins.right;
+      const m = Math.min(hand.tool === 'loupe' ? loupeR() * 0.6 : 40, (right - left) / 2 - 1, (innerHeight - bot - top) / 2 - 1);
+      tx = clamp(tx, left + m, right - m); ty = clamp(ty, top + m, innerHeight - bot - m);
+    }
+    aimPt.x += (tx - aimPt.x) * k; aimPt.y += (ty - aimPt.y) * k;
+  }
   const introUp = () => !introHidden && !$('intro').classList.contains('gone');
   // The panel a pad's presses go to, if any: the intro while it waits, a dialog or float that is open, else the panel
   // that has focus. None: the world.
@@ -3984,6 +4006,20 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     if (was?.isConnected && canFocus(was)) was.focus({ preventScroll: true }); else a?.blur?.();
   }
 
+  // A slider or a list taken hold of by A (the d-pad and the stick change it), and let go
+  function grab(el) {
+    if (input.grab === el) return;
+    letGo();
+    input.grab = el; el._adj = undefined;
+    el.classList.add('grabbed');
+  }
+  function letGo() {
+    if (!input.grab) return false;
+    input.grab.classList.remove('grabbed');
+    input.grab = null;
+    return true;
+  }
+
   /** Carry out an action (actions.js) by its id; how: { key, repeat } for a key. Whether it was handled. */
   function act(id, how = {}) {
     if (id.startsWith('tool-')) {
@@ -4048,22 +4084,35 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       }
       // the controller's own
       case 'select': { const [x, y] = aim(); selectAt(x, y, undefined, undefined, false, 40); return true; }
-      case 'apply': case 'apply-alt': padApply(id === 'apply-alt'); return true;
+      case 'apply': padApply(); return true;
+      case 'pipette-mode':
+        // (X with the pipette: loading or dispensing, as the held strip's switch)
+        if (hand.tool !== 'pipette') return false;
+        pull.armed = !pull.armed; bench.render();
+        flash(pull.armed ? tr('flash.pipette-dispense', 'Pipette: dispensing') : tr('flash.pipette-load', 'Pipette: loading'));
+        return true;
       case 'swap-tool':
         if (hand.tool !== 'none') { input.lastTool = hand.tool; pickTool('none'); } else pickTool(input.lastTool || 'loupe');
         return true;
       case 'panel': { const p = sidePanel() || $('dock'); return nav.enter(p); }
-      case 'panel-back': return panelBack();
+      case 'panel-back': return letGo() || panelBack();
       case 'activate': {
         const a = document.activeElement, root = padRoot();
         if (!root || !a || !root.contains(a) || a === root) return !!root && nav.move(root, 'down');
-        if (isText(a)) typeInto(a); else a.click();
+        if (input.grab) letGo();
+        else if (isAdjustable(a)) grab(a);
+        else if (a.matches('.term, span[data-tip]')) tips.toggle(a);
+        else if (isText(a)) typeInto(a);
+        else a.click();
         return true;
       }
-      case 'activate-alt': return false;
-      case 'nav-up': case 'nav-down': case 'nav-left': case 'nav-right': { const root = padRoot(); return !!root && nav.move(root, id.slice(4)); }
+      case 'nav-up': case 'nav-down': case 'nav-left': case 'nav-right': {
+        const dir = id.slice(4);
+        if (input.grab) { adjust(input.grab, dir === 'right' || dir === 'up' ? 1 : -1); return true; }
+        const root = padRoot();
+        return !!root && nav.move(root, dir);
+      }
       case 'tab-prev': case 'tab-next': { const root = padRoot(); return !!root && nav.tab(root, id === 'tab-next' ? 1 : -1); }
-      case 'help:end': return true; // (the Controls dialog stays open once the button that held it open is let go)
       case 'rose-tools': openRose('tools'); return true;
       case 'rose-view': openRose('view'); return true;
       case 'rose-tools:end': case 'rose-view:end': {
@@ -4092,11 +4141,11 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
 
   // A tool applied with the pad's button, at the reticle: pressed, held (the stick sweeps it through the water as the
   // view pans under it) and let go (a tap without moving is the tool's tap: Touch rings the water, the needle pricks)
-  function padApply(alt) {
+  function padApply() {
     if (state.phase !== 'running' || input.apply) return;
-    const [x, y] = aim(), btn = alt ? BTN.W : BTN.S;
-    input.apply = { btn, t: performance.now(), moved: false, pip: hand.tool === 'pipette' };
-    if (input.apply.pip) pipettePress({ clientX: x, clientY: y, shiftKey: alt });
+    const [x, y] = aim();
+    input.apply = { btn: BTN.S, t: performance.now(), moved: false, pip: hand.tool === 'pipette' };
+    if (input.apply.pip) pipettePress({ clientX: x, clientY: y, shiftKey: false });
     else hand.down(...toWorld(x, y), eng.simTime);
     takeOver();
   }
@@ -4120,41 +4169,75 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   // The pad's legend over the dock (a controller in use): what its buttons do here and now, since a controller never
   // hovers to find a hint. Built when what it would say changes.
   let legendKey = '';
-  // i18n: the controller's legend: what each button does in the world, with a tool, riding and in a panel
+  // i18n: the controller's legend: what each button does in the world, with a tool, riding and in a panel; a bumper's
+  // tap, then what holding it does ("hold" before it)
   const LEGEND = () => ({
     select: tr('legend.select', 'Select'), back: tr('legend.back', 'Back'), ride: tr('legend.ride', 'Ride'), panel: tr('legend.panel', 'Panel'),
     tools: tr('legend.tools', 'Tools'), view: tr('legend.view', 'View'), settings: tr('legend.settings', 'Settings'), lab: tr('legend.lab', 'Lab'),
-    use: tr('legend.use', 'Use'), other: tr('legend.other', 'Other way'), down: tr('legend.down', 'Put down'), reach: tr('legend.reach', 'Reach'),
+    bench: tr('legend.bench', 'Bench'), last: tr('legend.last-tool', 'Last tool'), hold: tr('legend.hold', 'hold'),
+    use: tr('legend.use', 'Use'), down: tr('legend.down', 'Put down'), reach: tr('legend.reach', 'Reach'),
+    load: tr('legend.load', 'Load'), dispense: tr('legend.dispense', 'Dispense'), toLoad: tr('legend.to-load', 'Switch to load'), toDispense: tr('legend.to-dispense', 'Switch to dispense'),
     steer: tr('legend.steer', 'Steer'), hop: tr('legend.hop', 'Next of kin'), off: tr('legend.off', 'Get off'),
-    choose: tr('legend.choose', 'Choose'), tabs: tr('legend.tabs', 'Tabs'), move: tr('legend.move', 'Move'), zoom: tr('legend.zoom', 'Zoom'),
+    choose: tr('legend.choose', 'Choose'), tabs: tr('legend.tabs', 'Tabs'), zoom: tr('legend.zoom', 'Zoom'),
+    adjust: tr('legend.adjust', 'Adjust'), done: tr('legend.done', 'Done'), hint: tr('legend.hint', 'Explain'),
   });
+  // Its items: [places (a button, or several drawn together), what a press or tap does, what holding it does]
+  function legendItems(ctx) {
+    const L = LEGEND();
+    if (ctx === 'panel') {
+      const a = document.activeElement;
+      if (input.grab) return [[['LEFT', 'RIGHT'], L.adjust], ['S', L.done], ['E', L.done]];
+      const tabs = padRoot()?.querySelector('[role="tablist"]') ? [[['LB', 'RB'], L.tabs]] : [];
+      const what = isAdjustable(a) ? L.adjust : a?.matches?.('.term, span[data-tip]') ? L.hint : L.choose;
+      return [['S', what], ['E', L.back], ...tabs];
+    }
+    if (ctx === 'ride') return [['L', L.steer], ['S', L.hop], ['E', L.off], [['LT', 'RT'], L.zoom]];
+    if (ctx === 'tool') {
+      // (the pipette: what A does now, loading or dispensing, and X switching to the other)
+      const pip = hand.tool === 'pipette', d = pip && pull.armed !== shiftHeld;
+      return [['S', !pip ? L.use : d ? L.dispense : L.load], ...(pip ? [['W', d ? L.toLoad : L.toDispense]] : []), ['E', L.down], ['R', L.reach], ['LB', '', L.tools]];
+    }
+    return [['S', L.select], ['E', L.back], ...(sel && !sel.lost ? [['W', L.ride]] : []), ...(sidePanel() ? [['N', L.panel]] : []),
+      ['LB', L.last, L.tools], ['RB', L.bench, L.view], ['MENU', L.settings], ['VIEW', L.lab]];
+  }
+  function legendX(ctx) {
+    const root = ctx === 'panel' ? padRoot() : null;
+    if (!root || !root.classList.contains('float')) return viewMiddle()[0];
+    const r = root.getBoundingClientRect(), left = lab.isOpen() && !phone() && state.ui ? labRight() : 0;
+    // (to its left, or its right, whichever is wider; under it if neither holds the legend)
+    const L = r.left - left, R = innerWidth - r.right, need = $('padbar').offsetWidth + 16;
+    if (Math.max(L, R) < need) return r.left + r.width / 2;
+    return L >= R ? left + L / 2 : r.right + R / 2;
+  }
   function renderLegend(ctx) {
     const el = $('padbar');
     const show = mode.glyphs === 'pad' && state.ui && !introUp() && ctx !== 'rose';
-    const L = LEGEND();
-    const items = !show ? [] : ctx === 'panel' ? [['S', L.choose], ['E', L.back], ...(padRoot()?.querySelector('[role="tablist"]') ? [['LB', ''], ['RB', L.tabs]] : [])]
-      : ctx === 'ride' ? [['L', L.steer], ['S', L.hop], ['E', L.off], ['LT', ''], ['RT', L.zoom]]
-      : ctx === 'tool' ? [['S', L.use], ...(hand.tool === 'pipette' ? [['W', L.other]] : []), ['E', L.down], ['R', L.reach], ['LB', L.tools]]
-      : [['S', L.select], ['E', L.back], ...(sel && !sel.lost ? [['W', L.ride]] : []), ...(sidePanel() ? [['N', L.panel]] : []), ['LB', L.tools], ['RB', L.view], ['MENU', L.settings], ['VIEW', L.lab]];
-    // (under the middle of the view the panels leave open)
-    const x = `${Math.round(aim()[0])}px`;
+    const items = show ? legendItems(ctx) : [];
+    // (under the middle of the view the panels leave open; a dialog over it open, the middle of what it leaves)
+    const x = `${Math.round(legendX(ctx))}px`;
     if (el.style.left !== x) el.style.left = x;
-    const key = `${show}|${ctx}|${mode.family}|${items.map((i) => i.join(':')).join(',')}`;
+    const key = `${show}|${ctx}|${mode.family}|${JSON.stringify(items)}`;
     if (key === legendKey) return;
     legendKey = key;
     el.hidden = !items.length;
-    el.innerHTML = items.map(([b, t]) => `<span>${glyph(b, padFamily())}${t ? `<b>${esc(t)}</b>` : ''}</span>`).join('');
+    const L = LEGEND(), fam = padFamily();
+    el.innerHTML = items.map(([b, t, h]) => `<span>${[].concat(b).map((p) => glyph(p, fam)).join('')}${t ? `<b>${esc(t)}</b>` : ''}${h ? `<em>${esc(L.hold)}</em><b>${esc(h)}</b>` : ''}</span>`).join('');
   }
 
   // Each frame: the pad read and acted on, then the held keys and the sticks moving the camera (or steering a ride)
   // and zooming, the right stick scrolling a panel or changing the tool's reach, the reticle placed.
   function driveInput(dt) {
     const s = dt / 1000, now = performance.now();
+    easeAim(dt);
+    // (a slider let go of once focus leaves it: a click elsewhere, its panel closed)
+    if (input.grab && document.activeElement !== input.grab) letGo();
     const ctx = padCtx();
     for (const ev of pads.poll(now, ctx === 'rose' ? 'world' : ctx)) act(ev.id);
     const P = pads.state;
     if (P.active) {
       if (noteInput(mode, { kind: 'pad', family: padFamily() })) applyMode();
+      // (the pad pointing is the pointer moving: the auto camera's resting pointer hides the loupe only once it rests)
+      if (mode.pointer === 'pad') lastPtr.moved = now;
       poke(); sound.unlock();
     }
     const panel = ctx === 'panel' ? padRoot() : null;
@@ -4170,8 +4253,20 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       const v = viewShort() * 0.9 * s;
       cam.x += way[0] * v; cam.y += way[1] * v;
     }
+    // the stick on a slider taken hold of changes it smoothly, its whole span in about a second and a half at full tilt
+    if (panel && input.grab) {
+      const v = Math.abs(P.left[0]) > Math.abs(P.left[1]) ? P.left[0] : -P.left[1];
+      input.stickNav = null;
+      if (input.grab.type === 'range') { if (v) adjust(input.grab, v * 13 * s); }
+      else if (Math.abs(v) > 0.5) {
+        // (a list steps an option at a time, repeating as a held d-pad does)
+        const d = Math.sign(v), g = input.grabNav;
+        if (!g || g.d !== d) { input.grabNav = { d, next: now + REPEAT_MS[0] }; adjust(input.grab, d); }
+        else if (now >= g.next) { g.next = now + REPEAT_MS[1]; adjust(input.grab, d); }
+      } else input.grabNav = null;
+    }
     // a direction held on the stick in a panel steps focus, repeating as a held d-pad does
-    if (panel && Math.hypot(P.left[0], P.left[1]) > 0.5) {
+    else if (panel && Math.hypot(P.left[0], P.left[1]) > 0.5) {
       const dir = Math.abs(P.left[0]) > Math.abs(P.left[1]) ? (P.left[0] > 0 ? 'right' : 'left') : P.left[1] > 0 ? 'down' : 'up';
       const sn = input.stickNav;
       if (!sn || sn.dir !== dir) { input.stickNav = { dir, next: now + REPEAT_MS[0] }; nav.move(panel, dir); }
@@ -4269,7 +4364,11 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     // (the two take about 106 px with their gaps; a little more, so what they push along keeps some air)
     dock.classList.toggle('roomy', dock.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - used >= 130);
   }
-  new ResizeObserver(fitSteps).observe(dock);
+  // (measured again as the dock or what it holds changes size: the bench's button naming a tool, the readout's numbers;
+  // not the group that holds the two, which they resize)
+  const stepsFit = new ResizeObserver(fitSteps);
+  stepsFit.observe(dock);
+  for (const k of dock.children) if (!k.querySelector('.step')) stepsFit.observe(k);
   function renderTime() {
     const s = state.speed;
     const play = $('t-play');
@@ -5318,7 +5417,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   let toolFocus = 0;
   function showInstrument(R, dt) {
     const it = INSTRUMENTS[hand.tool];
-    const pressed = !!(ptr.down?.apply || ptr.down?.pip);
+    // (pressed by the mouse, a finger, or the pad's A: input.apply)
+    const pressed = !!(ptr.down?.apply || ptr.down?.pip || input.apply);
     toolFocus += ((pressed ? 1 : 0) - toolFocus) * (1 - Math.exp(-dt / 0.12));
     if (!it || !R) { eng.tool.fill(0); toolFocus = 0; return; }
     // (the rod comes into focus as it dips into the water, and lifts out under the pointer)
@@ -5330,8 +5430,9 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     // i18n: the tool's readout, what it is doing: the lamp, shade, warm or cold, held down or over the water, at {pct}
     // percent of its strength (more while held)
     if (t === 'lamp' || t === 'shade' || t === 'warm' || t === 'cold') return tr('hand.doing.level', '{doing, select, lamp {Brightening} shade {Darkening} warm {Warming toward a boil} cold {Chilling toward ice} other {Over the water}} · {pct}%{held, select, yes {} other { · hold for more}}', { doing: hand.held ? t : 'over', pct: Math.min(100, Math.round(hand.level * 100)), held: hand.held ? 'yes' : 'no' });
-    if (t === 'touch') return !hand.held ? tr('hand.doing.touch-over', 'Press: the rod into the water') : ptr.dragging ? tr('hand.doing.touch-drag', 'Plowing') : tr('hand.doing.touch-in', 'In the water · pushing aside');
-    if (t === 'needle') return !hand.held ? tr('hand.doing.needle-over', 'Press: the needle into the water') : ptr.dragging ? tr('hand.doing.needle-drag', 'Cutting through') : tr('hand.doing.needle-in', 'Pricking');
+    const dragging = ptr.dragging || !!input.apply?.moved;
+    if (t === 'touch') return !hand.held ? tr('hand.doing.touch-over', 'Press: the rod into the water') : dragging ? tr('hand.doing.touch-drag', 'Plowing') : tr('hand.doing.touch-in', 'In the water · pushing aside');
+    if (t === 'needle') return !hand.held ? tr('hand.doing.needle-over', 'Press: the needle into the water') : dragging ? tr('hand.doing.needle-drag', 'Cutting through') : tr('hand.doing.needle-in', 'Pricking');
     if (t === 'pipette') {
       const tip = pipette.tip, now = performance.now();
       // i18n: the pipette drawing up, {n} cells in so far
@@ -5339,13 +5440,14 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       // i18n: {name} the species being set down
       if (spit.on) return tr('hand.doing.setting-down', 'Dispensing {name}', { name: (spit.sp || tip)?.name ?? '' });
       if (pull.note && now - pull.note.t < 2000) return pull.note.text;
-      // i18n: the pipette's readout: {act} how it is used (a tap on a touch screen, else a click), {shift} the key
+      // i18n: the pipette's readout: {act} how it is used (a tap on a touch screen, a controller's press, else a click), {shift} the key
       // that turns it to its other mode (none on a touch screen or while Shift is held)
-      const d = pipDispensing(), act = isCoarse ? 'tap' : 'click', shift = isCoarse || shiftHeld ? 'none' : d ? 'load' : 'dispense';
-      if (!d) return pipette.fits(1) ? tr('hand.doing.load', '{act, select, tap {a tap} other {a click}}: a few at the tip · held: all in reach{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}', { act, shift })
+      // (a controller's: a press, and its X to switch shown in its legend instead)
+      const padIn = mode.glyphs === 'pad', d = pipDispensing(), act = padIn ? 'press' : isCoarse ? 'tap' : 'click', shift = isCoarse || shiftHeld || padIn ? 'none' : d ? 'load' : 'dispense';
+      if (!d) return pipette.fits(1) ? tr('hand.doing.load', '{act, select, tap {a tap} press {a press} other {a click}}: a few at the tip · held: all in reach{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}', { act, shift })
         : tr('hand.doing.full', 'no room for more{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}', { shift });
       // i18n: {name} the species at the pipette's tip
-      return tip ? tr('hand.doing.dispense', '{act, select, tap {a tap} other {a click}} dispenses {name}{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}', { act, name: tip.name, shift })
+      return tip ? tr('hand.doing.dispense', '{act, select, tap {a tap} press {a press} other {a click}} dispenses {name}{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}', { act, name: tip.name, shift })
         : tr('hand.doing.empty', 'nothing in it to dispense{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}', { shift });
     }
   }
@@ -6434,10 +6536,15 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     ride: { state: ride, sel: () => sel, members: () => members, viewShort },
     // keys and controllers (docs/controller.md), for tools/keys-check.mjs and tools/pad-check.mjs: the input in use,
     // the pad's state, an action by id, and which panels are open
-    input: { mode, pads, act, rose, padCtx, aim,
+    input: { mode, pads, act, rose, padCtx, aim, glyph,
       // the camera moved so that world point (wx, wy) sits under the reticle
       lookAt(wx, wy) { const [ax, ay] = aim(), p = cssPPU(); state.follow = false; cam.x = wx - (ax - innerWidth / 2) / p; cam.y = wy - (ay - innerHeight / 2) / p; },
-      open: () => ({ settings: view.isOpen(), help: !$('help').hidden, bench: bench.isOpen(), lab: lab.isOpen(), spec: !$('spec').hidden, card: cards.isOpen(), ladder: ladder.isOpen() }) } };
+      open: () => ({ settings: view.isOpen(), help: !$('help').hidden, bench: bench.isOpen(), lab: lab.isOpen(), spec: !$('spec').hidden, card: cards.isOpen(), ladder: ladder.isOpen() }),
+      // the slider or list a controller holds, the instrument's focus (0 lifted .. 1 in the water), the pipette dispensing
+      selAt: () => (sel ? toScreen(sel.disp[0], sel.disp[1]) : null),
+      // where a tap set the loupe's lens on a touch screen (screen px), if one did
+      lens: () => (lensAt ? toScreen(...lensAt) : null),
+      held: () => ({ grab: input.grab?.id || (input.grab ? input.grab.tagName : null), focus: toolFocus, dispensing: pipDispensing(), tip: !$('tip').hidden }) } };
 
   calibrate().then(() => {
     state.phase = 'running';

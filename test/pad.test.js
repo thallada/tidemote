@@ -4,7 +4,7 @@ import { radial, snapshot, createPadState, padStep, releaseAll, createPads, DEAD
 import { BTN, HOLD_MS } from '../src/input/actions.js';
 import { createMode, noteInput, MOUSE_TAKES } from '../src/input/mode.js';
 import { sectorOf, ROSE_GRACE, createRose } from '../src/rose.js';
-import { nextIndex } from '../src/input/focus.js';
+import { nextIndex, adjust, isAdjustable } from '../src/input/focus.js';
 
 // a pad as navigator.getGamepads() gives one: pressed buttons by name, axes [lx, ly, rx, ry], triggers 0..1
 function pad({ press = [], axes = [0, 0, 0, 0], lt = 0, rt = 0, id = 'Xbox 360 Controller (XInput STANDARD GAMEPAD)', mapping = 'standard' } = {}) {
@@ -153,4 +153,23 @@ test('focus moves to the nearest control that way, in line before off to the sid
   // a nearer control off to the side loses to one in line
   assert.equal(nextIndex(R(0, 0), [R(60, 40), R(100, 0)], 'right'), 1);
   assert.equal(nextIndex(from, [R(0, 0)], 'right'), -1);
+});
+
+test('a slider held by A moves a twentieth of its span a press, a stick by fractions that add up; a list by an option', () => {
+  const ev = []; const el = (o) => ({ type: 'range', min: '0', max: '100', step: '1', value: '50', dispatchEvent: (e) => ev.push(e.type), ...o });
+  const v = el();
+  assert.ok(isAdjustable(v));
+  assert.ok(adjust(v, 1)); assert.equal(+v.value, 55); assert.deepEqual(ev, ['input', 'change']);
+  adjust(v, -1); adjust(v, -1); assert.equal(+v.value, 45);
+  // (a stick's little pushes, a frame at a time, still get there; never past the end)
+  for (let i = 0; i < 10; i++) adjust(v, 0.1);
+  assert.equal(+v.value, 50);
+  for (let i = 0; i < 40; i++) adjust(v, 1);
+  assert.equal(+v.value, 100); assert.ok(!adjust(v, 1));
+  // a coarse step is kept to; no step attribute is 1; "any" is fine
+  const c = el({ max: '10', value: '5' }); adjust(c, 1); assert.equal(+c.value, 6);
+  const a = el({ min: '0', max: '1', step: 'any', value: '0.5' }); adjust(a, 1); assert.ok(Math.abs(+a.value - 0.55) < 1e-9);
+  const sel = { tagName: 'SELECT', options: [1, 2, 3], selectedIndex: 0, dispatchEvent() {} };
+  adjust(sel, 1); adjust(sel, 1); adjust(sel, 1); assert.equal(sel.selectedIndex, 2);
+  assert.ok(!isAdjustable({ tagName: 'BUTTON' }));
 });

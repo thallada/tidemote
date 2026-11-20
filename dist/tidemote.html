@@ -854,15 +854,16 @@ body.spec-open .recframe { right: var(--spec-pw); }
 .keys tr.g th { padding-top: var(--s3); font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--cyan); font-weight: 500; border-bottom: 0; }
 .keys td { white-space: nowrap; }
 .keys td:nth-child(2) { width: 30%; }
-.keys td:nth-child(3) { width: 24%; }
+.keys td:nth-child(3) { width: 24%; white-space: normal; }
 .keys kbd { color: var(--sun); display: inline-block; padding: 1px 5px; border: 1px solid var(--line); margin: 1px 4px 1px 0; letter-spacing: .06em; }
 .keys td .gl, .keys td .w { margin: 1px 4px 1px 0; }
 .keys .w { color: var(--ink-3); font-size: 12px; }
 body:not([data-glyphs="pad"]) .keys td:nth-child(3) .gl, body[data-glyphs="pad"] .keys td:nth-child(2) kbd { opacity: .6; }
 
 /* a controller's button glyphs (input/glyphs.js): face buttons round, shoulders and the rest pill-shaped */
-.gl { display: inline-grid; place-items: center; vertical-align: middle; min-width: 20px; height: 20px; padding: 0 2px; box-sizing: border-box; border-radius: 10px; border: 1px solid rgba(190, 230, 235, 0.55); background: #1d2a2c; color: var(--ink); font: 600 10.5px/1 inherit; letter-spacing: 0; text-transform: none; }
-.gl > span { display: inline-grid; place-items: center; }
+.gl { display: inline-grid; place-items: center; vertical-align: middle; min-width: 20px; height: 20px; padding: 0 2px; box-sizing: border-box; border-radius: 10px; border: 1px solid rgba(190, 230, 235, 0.55); background: #1d2a2c; color: var(--ink); font: 600 10.5px/1 var(--sans); letter-spacing: 0; text-transform: none; }
+/* (the label's box trimmed to its capitals, so the grid centers the letters themselves, not the font's line) */
+.gl > span { display: inline-grid; place-items: center; line-height: 1; text-box: trim-both cap alphabetic; }
 .gl svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.5; }
 .gl-sh, .gl-menu { padding: 0 6px; border-radius: 6px; }
 .gl-stick { border-style: dashed; }
@@ -873,8 +874,17 @@ body:not([data-glyphs="pad"]) .keys td:nth-child(3) .gl, body[data-glyphs="pad"]
 .tip-pad { margin-left: 8px; display: inline-flex; gap: 4px; vertical-align: middle; }
 .tip-pad .gl { color: var(--ink); }
 
-/* a controller in use: its focus ring bold enough to find across a room; the bench's digit keys hidden */
-body[data-glyphs="pad"] :focus:not(.card-dlg, canvas, [data-nav-root]) { outline: 2px solid var(--sun) !important; outline-offset: 2px; }
+/* a controller in use: its focus ring bold enough to find across a room, drawn inside the control's own box so no
+   scrolling panel or tab row cuts it off; the bench's digit keys hidden; the mouse's pointer hidden while the pad
+   points (input/mode.js: it shows again once the mouse moves) */
+body[data-glyphs="pad"] :focus:not(.card-dlg, canvas, [data-nav-root]), :focus-visible:not(.card-dlg, canvas, [data-nav-root]) { outline: 2px solid var(--sun) !important; outline-offset: -2px !important; }
+/* (a control a controller or the keys move to is scrolled into view with room for its ring) */
+[data-nav-root] :is(button, a, input, select, textarea, [tabindex], summary) { scroll-margin: 6px; }
+/* (words in a line of text: a tint and a thick underline in place of a ring, within the line, so neither a row of
+   tags that clips nor a list's edge cuts it, and nothing covers the letters) */
+body[data-glyphs="pad"] :is(.term, a.sp):focus, :is(.term, a.sp):focus-visible { outline: none !important; background: rgba(241, 227, 160, 0.2); color: var(--ink);
+  text-decoration: underline solid var(--sun) 2px !important; text-underline-offset: 2px; text-decoration-skip-ink: none; }
+body[data-pointer="pad"], body[data-pointer="pad"] * { cursor: none !important; }
 body[data-glyphs="pad"] .bench kbd, body[data-glyphs="pad"] #tools kbd, body[data-glyphs="pad"] #held-k, body[data-glyphs="pad"] .opt kbd { display: none; }
 /* its reticle at the view's middle: four corners and a dot */
 .aim { position: fixed; left: 0; top: 0; width: 0; height: 0; z-index: 6; pointer-events: none; }
@@ -885,10 +895,13 @@ body[data-glyphs="pad"] .bench kbd, body[data-glyphs="pad"] #tools kbd, body[dat
 .aim i:nth-child(4) { left: 7px; top: 7px; border-width: 0 1.5px 1.5px 0; }
 .aim::after { content: ''; position: absolute; left: -1.5px; top: -1.5px; width: 3px; height: 3px; border-radius: 50%; background: var(--sun); }
 /* the pad's legend over the dock: what its buttons do here and now */
-.padbar { position: fixed; left: 50%; bottom: calc(var(--bot) + 10px); transform: translateX(-50%); z-index: 7; pointer-events: none; display: flex; gap: var(--s3); align-items: center;
+.padbar { position: fixed; left: 50%; bottom: calc(var(--bot) + 30px); transform: translateX(-50%); z-index: 7; pointer-events: none; display: flex; gap: var(--s3); align-items: center;
   padding: 5px 12px; background: rgba(6, 10, 11, 0.82); border: 1px solid var(--line); font-size: 12px; letter-spacing: .06em; color: var(--ink-2); white-space: nowrap; }
 .padbar span { display: inline-flex; align-items: center; gap: 5px; }
 .padbar b { font-weight: 400; }
+.padbar em { font-style: normal; font-size: 10.5px; letter-spacing: .1em; color: var(--ink-3); margin-left: 3px; }
+/* a slider or a list a controller has taken hold of (A): its ring cyan, a glow, while the d-pad and stick change it */
+body[data-glyphs] :is(input, select).grabbed:focus { outline-color: var(--cyan) !important; box-shadow: 0 0 0 4px rgba(120, 226, 214, 0.25); }
 body.ui-off .padbar { display: none; }
 /* the rose (rose.js): a ring about the reticle, the lit octant's wedge */
 .rose { position: fixed; z-index: 40; width: 340px; height: 340px; margin: -170px 0 0 -170px; border-radius: 50%; pointer-events: none; box-sizing: border-box;
@@ -1426,6 +1439,8 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .rail-right .stat { display: none; }
   .sys { display: none; }
 }
+/* (a Steam Deck's 1280 and laptops near it: the readout keeps particles and fps, so the dock fits) */
+@media (max-width: 1440px) { .sys > span:nth-child(n+3) { display: none; } }
 /* laptops: narrower columns, a slimmer rail and dock, tighter padding; the type keeps its size */
 @media (min-width: 721px) and (max-width: 1600px), (min-width: 721px) and (max-height: 900px) {
   :root { --lab-pw: 344px; --spec-pw: 348px; --rail-h: 46px; --dock-h: 50px; --gut: 12px; }
@@ -25032,9 +25047,16 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       row.classList.toggle("fade-l", max > 1 && row.scrollLeft > 1);
       row.classList.toggle("fade-r", max > 1 && row.scrollLeft < max - 1);
     };
+    let soon = 0;
+    const later = () => {
+      if (!soon) soon = requestAnimationFrame(() => {
+        soon = 0;
+        edge();
+      });
+    };
     row.addEventListener("scroll", edge, { passive: true });
-    new ResizeObserver(edge).observe(row);
-    new MutationObserver(edge).observe(row, { childList: true });
+    new ResizeObserver(later).observe(row);
+    new MutationObserver(later).observe(row, { childList: true });
     edge();
   }
   function wireTabRow(row) {
@@ -28162,7 +28184,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     if (e.shiftKey && e.key === "R") return "reset-world";
     return BY_KEY.get(e.key) || null;
   }
-  var HOLD_MS = 180;
+  var HOLD_MS = 250;
   var PAD_WORLD = {
     [BTN.S]: { press: "select" },
     [BTN.E]: { press: "back" },
@@ -28175,16 +28197,16 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     [BTN.LB]: { tap: "swap-tool", hold: "rose-tools" },
     [BTN.RB]: { tap: "bench", hold: "rose-view" },
     [BTN.MENU]: { press: "settings" },
-    [BTN.VIEW]: { tap: "lab", hold: "help" },
+    [BTN.VIEW]: { press: "lab" },
     [BTN.R3]: { press: "zoom-reset" }
   };
-  var PAD_TOOL = { ...PAD_WORLD, [BTN.S]: { press: "apply" }, [BTN.W]: { press: "apply-alt" } };
+  var PAD_TOOL = { ...PAD_WORLD, [BTN.S]: { press: "apply" }, [BTN.W]: { press: "pipette-mode" } };
   var PAD_RIDE = { ...PAD_WORLD, [BTN.S]: { press: "hop" }, [BTN.W]: { press: "ride" } };
   var PAD_PANEL = {
     ...PAD_WORLD,
     [BTN.S]: { press: "activate" },
     [BTN.E]: { press: "panel-back" },
-    [BTN.W]: { press: "activate-alt" },
+    [BTN.W]: {},
     [BTN.N]: { press: "panel-back" },
     [BTN.UP]: { press: "nav-up", repeat: true },
     [BTN.DOWN]: { press: "nav-down", repeat: true },
@@ -28203,8 +28225,9 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
   function helpRows() {
     const click = W2(tr("key.click", "Click")), drag = W2(tr("key.drag", "Drag")), wheel = W2(tr("key.wheel", "Wheel"));
     const space = K(tr("key.space", "Space")), esc3 = K(tr("key.esc", "Esc")), enter = K(tr("key.enter", "Enter")), tab = K(tr("key.tab", "Tab"));
-    const shiftWheel = W2(tr("key.shift-wheel", "⇧ Wheel")), shiftClick = W2(tr("key.shift-click", "⇧ Click"));
+    const shiftWheel = W2(tr("key.shift-wheel", "⇧ Wheel"));
     const hold = W2(tr("pad.hold", "hold")), tap = W2(tr("pad.tap", "tap")), riding = W2(tr("pad.riding", "riding")), inSettings = W2(tr("pad.in-settings", "in Settings"));
+    const keyHeld = W2(tr("key.held", "held")), toControls = W2(tr("pad.to-controls", "then Controls"));
     return [
       { group: tr("help.group.look", "Look"), rows: [
         { text: tr("help.k1", "Examine a cell or particle"), keys: [click], pad: [P("S")] },
@@ -28223,8 +28246,9 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         { text: tr("help.panel", "Into the side panel · scroll it"), keys: [tab, wheel], pad: [P("N"), P("R")] }
       ] },
       { group: tr("help.group.hand", "The hand"), rows: [
-        { text: tr("help.k16", "Swap tools: 1. loupe, 2. touch, 3. lamp, 4. shade, 5. warm, 6. cold, 7. needle, 8. pipette · 0. pan"), keys: [K("1–8"), K("0")], pad: [P("LB"), hold, tap] },
-        { text: tr("help.tool-use", "Use the tool in hand · its other way"), keys: [click, shiftClick], pad: [P("S"), P("W")] },
+        { text: tr("help.k16", "Swap tools: 1. loupe, 2. touch, 3. lamp, 4. shade, 5. warm, 6. cold, 7. needle, 8. pipette · 0. pan"), keys: [K("1–8"), K("0")], pad: [P("LB"), W2(tr("pad.lb-tools", "held: the tool rose · tapped: the last tool"))] },
+        { text: tr("help.tool-use", "Use the tool in hand"), keys: [click], pad: [P("S")] },
+        { text: tr("help.pipette-mode", "Pipette: switch between loading and dispensing"), keys: [K("⇧"), keyHeld], pad: [P("W")] },
         { text: tr("help.k18", "Adjust tool effect radius (with the loupe: its magnification)"), keys: [K("["), K("]"), shiftWheel], pad: [P("R")] },
         { text: tr("help.k17", "The bench · drop tool"), keys: [K("B"), esc3], pad: [P("RB"), tap, P("E")] }
       ] },
@@ -28236,7 +28260,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         { text: tr("help.k10", "Collapse or open the Field Lab"), keys: [K("K")], pad: [P("VIEW")] },
         { text: tr("help.k-lineage-back", "In the Lab’s Lineage view: go back up a species in the lineage tree"), keys: [esc3, K("⌫")], pad: [P("E")] },
         { text: tr("help.k11", "Settings"), keys: [K("V")], pad: [P("MENU")] },
-        { text: tr("help.list", "This list of controls"), keys: [K("?")], pad: [P("VIEW"), hold] },
+        { text: tr("help.list", "This list of controls"), keys: [K("?")], pad: [P("MENU"), toControls] },
         { text: tr("help.k12", "Sound on or off"), keys: [K("M")], pad: [inSettings] },
         { text: tr("help.k19", "Full screen · hide readouts · hide everything"), keys: [K("F"), K("I"), K("U")], pad: [inSettings] },
         { text: tr("help.k20", "Discard this world and start a new one"), keys: [K("⇧R ⇧R")], pad: [inSettings] }
@@ -28423,7 +28447,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     }, true);
     document.addEventListener("focusin", (e) => {
       const el2 = target2(e);
-      if (el2 && el2.matches(":focus-visible")) show(el2, "focus");
+      if (el2 && el2.matches(":focus-visible") && !(document.body.dataset.glyphs === "pad" && el2.matches(".term, span[data-tip]"))) show(el2, "focus");
     });
     document.addEventListener("focusout", () => {
       if (owner && via === "focus") hide();
@@ -28457,7 +28481,15 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     const refresh = () => {
       if (owner && owner.isConnected) show(owner, via);
     };
-    return { hide, check, rich, refresh };
+    function toggle(el2) {
+      if (owner === el2 && !tip.hidden) {
+        hide();
+        return false;
+      }
+      show(el2, "focus");
+      return owner === el2;
+    }
+    return { hide, check, rich, refresh, toggle };
   }
 
   // src/trace.js
@@ -36021,7 +36053,7 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
   }
   var FOCUSABLE = 'button, a[href], input:not([type="hidden"]), select, textarea, [tabindex], [role="tab"], summary';
   function canFocus(el2) {
-    if (el2.disabled || el2.closest('[hidden], [inert], [aria-hidden="true"]')) return false;
+    if (el2.disabled || el2.closest('[hidden], [inert], [aria-hidden="true"], .sr-only')) return false;
     if (el2.getAttribute("tabindex") === "-1" && el2.getAttribute("role") !== "tab") return false;
     const r = el2.getBoundingClientRect();
     if (r.width < 1 || r.height < 1 || r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth) return false;
@@ -36029,6 +36061,30 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
     return cs.visibility !== "hidden" && cs.display !== "none" && +cs.opacity > 0;
   }
   var controlsOf = (root) => [...root.querySelectorAll(FOCUSABLE)].filter(canFocus);
+  var isAdjustable = (el2) => !!el2 && (el2.type === "range" || el2.tagName === "SELECT");
+  function adjust(el2, d) {
+    if (el2.type === "range") {
+      const min = +el2.min || 0, max = el2.max === "" ? 100 : +el2.max, span2 = max - min, st = parseFloat(el2.step);
+      const step = el2.step === "" ? 1 : st > 0 ? st : span2 / 1e3;
+      const by = Math.max(step, span2 / 20) * d;
+      const want = Math.min(max, Math.max(min, (el2._adj ?? +el2.value) + by));
+      const v = Math.min(max, Math.max(min, min + Math.round((want - min) / step) * step));
+      el2._adj = want;
+      if (v === +el2.value) return false;
+      el2.value = v;
+      el2.dispatchEvent(new Event("input", { bubbles: true }));
+      el2.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    }
+    if (el2.tagName === "SELECT") {
+      const i = Math.min(el2.options.length - 1, Math.max(0, el2.selectedIndex + Math.sign(d)));
+      if (i === el2.selectedIndex) return false;
+      el2.selectedIndex = i;
+      el2.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    }
+    return false;
+  }
   function createFocus() {
     const last = /* @__PURE__ */ new WeakMap();
     document.addEventListener("focusin", (e) => {
@@ -36053,28 +36109,9 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
         }
         return false;
       },
-      /** Move focus within root by dir; a slider steps instead (left, right), and a select changes its option (up, down). */
+      /** Move focus within root by dir (a slider or a list too: changing one takes hold of it first, adjust below). */
       move(root, dir) {
         const a = document.activeElement;
-        if (a && root.contains(a)) {
-          if (a.type === "range" && (dir === "left" || dir === "right")) {
-            const step = +a.step || 1, v = Math.min(+a.max, Math.max(+a.min, +a.value + (dir === "right" ? step : -step)));
-            if (v !== +a.value) {
-              a.value = v;
-              a.dispatchEvent(new Event("input", { bubbles: true }));
-              a.dispatchEvent(new Event("change", { bubbles: true }));
-            }
-            return true;
-          }
-          if (a.tagName === "SELECT" && (dir === "up" || dir === "down")) {
-            const i2 = Math.min(a.options.length - 1, Math.max(0, a.selectedIndex + (dir === "down" ? 1 : -1)));
-            if (i2 !== a.selectedIndex) {
-              a.selectedIndex = i2;
-              a.dispatchEvent(new Event("change", { bubbles: true }));
-            }
-            return true;
-          }
-        }
         const list = controlsOf(root);
         if (!list.length) return false;
         if (!a || !root.contains(a) || !list.includes(a)) {
@@ -37988,8 +38025,17 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
       hstrip.innerHTML = inHand ? pip.cards(true) : "";
     }
     addEventListener("resize", render);
+    let soonT = 0, soonAt = 0;
+    function renderSoon() {
+      if (soonT) return;
+      soonT = setTimeout(() => requestAnimationFrame(() => {
+        soonT = 0;
+        soonAt = performance.now();
+        render();
+      }), Math.max(0, soonAt + 125 - performance.now()));
+    }
     render();
-    return { render, toggle, isOpen: () => !drawer.hidden };
+    return { render, renderSoon, toggle, isOpen: () => !drawer.hidden };
   }
 
   // src/ladder.js
@@ -41837,7 +41883,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       function display() {
         const map = mapOn();
         const filmL = tr("settings.display.film", "Film");
-        return group("picture", tr("settings.display.picture", "Look"), autoRow("microlook", NAMES.microscope, "O", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], "microlook") + (state.look ? choice("grain", tr("settings.display.grain", "Grain"), "", [[0, OFF], [1, tr("settings.display.grain-fine", "Fine")], [2, tr("settings.display.grain-heavy", "Heavy")]], state.grain, "filmgrain") : "") + (state.look ? choice("focus", tr("settings.display.focus", "Focus blur"), "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], state.focus, "focusblur") : "") + autoOnOff("bloom", NAMES.bloom, "Y", "bloom") + choice("trails", tr("settings.display.trails", "Trails"), "T", trailNames.map((n, i) => [i, n]), trailIdx)) + color_() + group("water", tr("settings.display.water-group", "Water"), autoRow("water", NAMES.sea, "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], "watersurface") + (state.water ? choice("waves", tr("settings.display.waves", "Wave motion"), "", [[0, tr("settings.display.waves-slow", "Slow")], [1, NORMAL], [2, tr("settings.display.waves-lively", "Lively")]], state.waves, "wavemotion") : "") + (K2.heat ? autoOnOff("haze", NAMES.haze, "", "haze") : "") + autoOnOff("specks", NAMES.specks, "", "specks")) + group("cells", tr("settings.display.cells", "Cells"), autoOnOff("lod", NAMES.interiors, "", "lod")) + group("overlays", tr("settings.display.overlays", "Overlays"), choice("map", tr("settings.display.map", "Map"), K2.heat ? "G E H" : "G H", [["off", OFF], ["light", tr("settings.display.map-light", "Light")], ...K2.heat ? [["heat", tr("settings.display.map-heat", "Heat")]] : [], ["tide", tr("settings.display.map-tide", "Tide")]], state.map, "maps") + (map ? rampHtml(map) : "") + onoff("currents", tr("settings.display.currents", "Currents"), "C", state.currents) + choice("songmarks", tr("settings.display.song-marks", "Song marks"), "", [[0, OFF], [1, tr("settings.display.song-marks-picked", "Picked")], [2, tr("settings.display.song-marks-all", "All")]], state.songMarks, "songmarks") + choice("notes", tr("settings.display.annotations", "Annotations"), "", [[1, tr("settings.display.annotations-auto", "Auto camera")], [2, tr("settings.display.annotations-always", "Always")], [0, OFF]], state.notes, "annotations")) + group("view", tr("settings.display.view", "View"), (isCoarse ? "" : onoff("ui", tr("settings.display.interface", "Interface"), "U", state.ui, "interface")) + onoff("closeup", tr("settings.display.closeup", "Live close-up"), "", state.closeup, "closeup") + choice("prompts", tr("settings.display.prompts", "Button prompts"), "", [["auto", tr("settings.auto", "Auto")], ...FAMILIES.map((f2) => [f2, FAMILY_NAME()[f2]])], state.prompts, "prompts", 5) + onoff("auto", tr("settings.display.auto-idle", "Auto when idle"), "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", filmL)} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="${filmL}">${film.state === "idle" ? `<button type="button" class="chip" data-o="film" data-v="now">${tr("settings.display.film-now", "Start filming")}</button>` : `<button type="button" class="chip" data-o="film" data-v="stop">${tr("settings.display.film-stop", "Stop filming")}</button>`}</div></div>` : ""));
+        return group("picture", tr("settings.display.picture", "Look"), autoRow("microlook", NAMES.microscope, "O", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], "microlook") + (state.look ? choice("grain", tr("settings.display.grain", "Grain"), "", [[0, OFF], [1, tr("settings.display.grain-fine", "Fine")], [2, tr("settings.display.grain-heavy", "Heavy")]], state.grain, "filmgrain") : "") + (state.look ? choice("focus", tr("settings.display.focus", "Focus blur"), "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], state.focus, "focusblur") : "") + autoOnOff("bloom", NAMES.bloom, "Y", "bloom") + choice("trails", tr("settings.display.trails", "Trails"), "T", trailNames.map((n, i) => [i, n]), trailIdx)) + color_() + group("water", tr("settings.display.water-group", "Water"), autoRow("water", NAMES.sea, "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], "watersurface") + (state.water ? choice("waves", tr("settings.display.waves", "Wave motion"), "", [[0, tr("settings.display.waves-slow", "Slow")], [1, NORMAL], [2, tr("settings.display.waves-lively", "Lively")]], state.waves, "wavemotion") : "") + (K2.heat ? autoOnOff("haze", NAMES.haze, "", "haze") : "") + autoOnOff("specks", NAMES.specks, "", "specks")) + group("cells", tr("settings.display.cells", "Cells"), autoOnOff("lod", NAMES.interiors, "", "lod")) + group("overlays", tr("settings.display.overlays", "Overlays"), choice("map", tr("settings.display.map", "Map"), K2.heat ? "G E H" : "G H", [["off", OFF], ["light", tr("settings.display.map-light", "Light")], ...K2.heat ? [["heat", tr("settings.display.map-heat", "Heat")]] : [], ["tide", tr("settings.display.map-tide", "Tide")]], state.map, "maps") + (map ? rampHtml(map) : "") + onoff("currents", tr("settings.display.currents", "Currents"), "C", state.currents) + choice("songmarks", tr("settings.display.song-marks", "Song marks"), "", [[0, OFF], [1, tr("settings.display.song-marks-picked", "Picked")], [2, tr("settings.display.song-marks-all", "All")]], state.songMarks, "songmarks") + choice("notes", tr("settings.display.annotations", "Annotations"), "", [[1, tr("settings.display.annotations-auto", "Auto camera")], [2, tr("settings.display.annotations-always", "Always")], [0, OFF]], state.notes, "annotations")) + group("view", tr("settings.display.view", "View"), (isCoarse ? "" : onoff("ui", tr("settings.display.interface", "Interface"), "U", state.ui, "interface")) + onoff("closeup", tr("settings.display.closeup", "Live close-up"), "", state.closeup, "closeup") + choice("prompts", tr("settings.display.prompts", "Controller"), "", [["auto", tr("settings.auto", "Auto")], ...FAMILIES.map((f2) => [f2, FAMILY_NAME()[f2]])], state.prompts, "prompts", 2) + onoff("auto", tr("settings.display.auto-idle", "Auto when idle"), "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", filmL)} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="${filmL}">${film.state === "idle" ? `<button type="button" class="chip" data-o="film" data-v="now">${tr("settings.display.film-now", "Start filming")}</button>` : `<button type="button" class="chip" data-o="film" data-v="stop">${tr("settings.display.film-stop", "Stop filming")}</button>`}</div></div>` : ""));
       }
       function color_() {
         const plan2 = displayPlan(dsp, caps, { format: eng.format, preferred });
@@ -42011,7 +42057,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
 <p>${tr("settings.about.p2", "No hand steers any of this: every ecological rule is local. The complex interacting colonies emerge from simple rules acting on the mutating genome each cell carries. The Field Lab's <guide>Guide</guide> explains how it works.", { guide: (c) => `<button type="button" class="link" data-o="guide" data-v="0">${c.join("")}</button>` })}</p></div>`) + group("made", tr("settings.about.made-by", "Made by"), `<div class="about"><p>${tr("settings.about.credits", "Developed by <a1>Tyler Hallada</a1> with AI coding tools (<a2>Claude Code</a2> and <a4>Codex</a4>), which wrote most of the code. Graphics and sounds in this game are procedurally generated from code. No generative image, video, or sound AI model content is used in this game. The soundtrack is composed live from the simulation and the cells in view, played in a custom browser port of <a3>SuperCollider</a3>. Every line of text in the interface was reviewed and edited by hand.", { a1: link("https://www.hallada.net"), a2: link("https://claude.com/claude-code"), a3: link("https://supercollider.github.io/"), a4: link("https://openai.com/codex/") })}</p></div>`) + group("src", tr("settings.about.source", "Source"), `<div class="about"><p>${tr("settings.about.license", "Free software under the <a1>GPL-3.0</a1>: the code, design notes, and tools used in development are on <a2>GitHub</a2>. Feedback, bug reports, and ideas are welcome as issues.", { a1: link("https://www.gnu.org/licenses/gpl-3.0.html"), a2: link("https://github.com/thallada/tidemote") })}</p>
 <p>${privacy}</p></div>`) + (globalThis.tidemoteDesktop ? "" : group("desktop", tr("settings.about.desktop", "Desktop"), `<div class="about"><p>${tr("settings.about.desktop-p", "Tidemote is also a desktop app, at its best on a computer with a dedicated graphics card.")}</p><div class="stores">${storeLinks()}</div></div>`));
       }
-      const keysNote = `<button type="button" class="link keys-note" data-open="help">${tr("settings.keys-note", "Controls: every key and button")}</button>`;
+      const keysNote = `<button type="button" class="link keys-note" data-open="help">${tr("settings.keys-note", "Controls")}</button>`;
       function foot() {
         if (tab === "about") return `<div class="set-foot">${keysNote}</div>`;
         const kept = !desk ? tr("settings.worlds.kept-browser", "Kept in this browser.") : steamOn.cloud ? tr("settings.worlds.kept-cloud", "Kept on this computer and in Steam Cloud.") : tr("settings.worlds.kept-computer", "Kept on this computer.");
@@ -42356,7 +42402,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         el2.classList.remove("placed");
         el2.removeAttribute("style");
       }
-      function grab(e, d) {
+      function grab2(e, d) {
         if (e.button !== 0 || !roomy.matches) return;
         e.preventDefault();
         const p2 = el2.offsetParent, pr = p2.getBoundingClientRect(), r = el2.getBoundingClientRect();
@@ -42389,14 +42435,14 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         document.body.classList.add("set-grabbing");
       }
       el2.querySelector(".sec-h").addEventListener("pointerdown", (e) => {
-        if (!e.target.closest("button")) grab(e, "");
+        if (!e.target.closest("button")) grab2(e, "");
       });
       for (const d of ["n", "s", "e", "w", "nw", "ne", "sw", "se"]) {
         const g = document.createElement("i");
         g.className = "grip";
         g.dataset.d = d;
         g.setAttribute("aria-hidden", "true");
-        g.addEventListener("pointerdown", (e) => grab(e, d));
+        g.addEventListener("pointerdown", (e) => grab2(e, d));
         el2.append(g);
       }
       addEventListener("resize", () => {
@@ -42820,7 +42866,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       pull.last = performance.now();
       if (life.lastCensus) hand.note("pipette", ...pull.tip, eng.simTime, recs.length);
       hear("cells", { n: recs.length });
-      bench.render();
+      bench.renderSoon();
     };
     function pullDone() {
       hand.suck = null;
@@ -42963,7 +43009,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         if (!spit.held) spit.on = false;
         spit.next = now + 200;
       }
-      bench.render();
+      bench.renderSoon();
     }
     function pipettePress(e) {
       const down = pull.armed !== e.shiftKey;
@@ -43218,7 +43264,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const pads = createPads();
     const nav = createFocus();
     const zoomHeld = /* @__PURE__ */ new Map();
-    const input = { way: [0, 0], stickNav: null, apply: null, lastTool: "loupe" };
+    const input = { way: [0, 0], stickNav: null, apply: null, lastTool: "loupe", grab: null };
     for (const id of ["intro", "card", "help", "settings", "ladder", "bench", "held", "spec", "lab", "dock", "rail"]) $2(id).dataset.navRoot = "";
     const rose = createRose($2("rose"));
     const FAMILY_NAME = () => ({ xbox: tr("prompts.xbox", "Xbox"), ps: tr("prompts.ps", "PlayStation"), switch: tr("prompts.switch", "Switch"), deck: tr("prompts.deck", "Steam Deck") });
@@ -43257,7 +43303,29 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       if (e.pointerType === "mouse" && noteInput(mode, { kind: "move", d: Math.abs(e.movementX) + Math.abs(e.movementY) })) applyMode();
     }, true);
     applyMode();
-    const aim = () => viewMiddle();
+    const aimPt = { x: 0, y: 0, set: false };
+    const aim = () => aimPt.set ? [aimPt.x, aimPt.y] : viewMiddle();
+    function easeAim(dt) {
+      const [mx, my] = viewMiddle();
+      if (!aimPt.set || dt <= 0) {
+        Object.assign(aimPt, { x: mx, y: my, set: true });
+        return;
+      }
+      const k = Math.min(1, dt / 70);
+      let tx = aimPt.x, ty = aimPt.y;
+      if (state.follow && sel) {
+        tx = mx;
+        ty = my;
+      } else {
+        const ins = specInset(), left = lab && lab.isOpen() && !phone() && state.ui ? labRight() : 0;
+        const top = phone() ? 48 : 52, bot = Math.max(phone() ? 62 : 56, ins.bottom), right = innerWidth - ins.right;
+        const m = Math.min(hand.tool === "loupe" ? loupeR() * 0.6 : 40, (right - left) / 2 - 1, (innerHeight - bot - top) / 2 - 1);
+        tx = clamp6(tx, left + m, right - m);
+        ty = clamp6(ty, top + m, innerHeight - bot - m);
+      }
+      aimPt.x += (tx - aimPt.x) * k;
+      aimPt.y += (ty - aimPt.y) * k;
+    }
     const introUp = () => !introHidden && !$2("intro").classList.contains("gone");
     function padRoot() {
       if (introUp()) return $2("intro");
@@ -43332,6 +43400,19 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       if (a && a !== document.body && !root.contains(a)) return;
       if (was?.isConnected && canFocus(was)) was.focus({ preventScroll: true });
       else a?.blur?.();
+    }
+    function grab(el2) {
+      if (input.grab === el2) return;
+      letGo();
+      input.grab = el2;
+      el2._adj = void 0;
+      el2.classList.add("grabbed");
+    }
+    function letGo() {
+      if (!input.grab) return false;
+      input.grab.classList.remove("grabbed");
+      input.grab = null;
+      return true;
     }
     function act(id, how = {}) {
       if (id.startsWith("tool-")) {
@@ -43497,8 +43578,13 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           return true;
         }
         case "apply":
-        case "apply-alt":
-          padApply(id === "apply-alt");
+          padApply();
+          return true;
+        case "pipette-mode":
+          if (hand.tool !== "pipette") return false;
+          pull.armed = !pull.armed;
+          bench.render();
+          flash(pull.armed ? tr("flash.pipette-dispense", "Pipette: dispensing") : tr("flash.pipette-load", "Pipette: loading"));
           return true;
         case "swap-tool":
           if (hand.tool !== "none") {
@@ -43511,31 +43597,34 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           return nav.enter(p2);
         }
         case "panel-back":
-          return panelBack();
+          return letGo() || panelBack();
         case "activate": {
           const a = document.activeElement, root = padRoot();
           if (!root || !a || !root.contains(a) || a === root) return !!root && nav.move(root, "down");
-          if (isText(a)) typeInto(a);
+          if (input.grab) letGo();
+          else if (isAdjustable(a)) grab(a);
+          else if (a.matches(".term, span[data-tip]")) tips.toggle(a);
+          else if (isText(a)) typeInto(a);
           else a.click();
           return true;
         }
-        case "activate-alt":
-          return false;
         case "nav-up":
         case "nav-down":
         case "nav-left":
         case "nav-right": {
+          const dir = id.slice(4);
+          if (input.grab) {
+            adjust(input.grab, dir === "right" || dir === "up" ? 1 : -1);
+            return true;
+          }
           const root = padRoot();
-          return !!root && nav.move(root, id.slice(4));
+          return !!root && nav.move(root, dir);
         }
         case "tab-prev":
         case "tab-next": {
           const root = padRoot();
           return !!root && nav.tab(root, id === "tab-next" ? 1 : -1);
         }
-        case "help:end":
-          return true;
-        // (the Controls dialog stays open once the button that held it open is let go)
         case "rose-tools":
           openRose("tools");
           return true;
@@ -43571,11 +43660,11 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       look: tr("rose.look", "Microscope"),
       film: tr("rose.film", "Film")
     };
-    function padApply(alt2) {
+    function padApply() {
       if (state.phase !== "running" || input.apply) return;
-      const [x, y] = aim(), btn = alt2 ? BTN.W : BTN.S;
-      input.apply = { btn, t: performance.now(), moved: false, pip: hand.tool === "pipette" };
-      if (input.apply.pip) pipettePress({ clientX: x, clientY: y, shiftKey: alt2 });
+      const [x, y] = aim();
+      input.apply = { btn: BTN.S, t: performance.now(), moved: false, pip: hand.tool === "pipette" };
+      if (input.apply.pip) pipettePress({ clientX: x, clientY: y, shiftKey: false });
       else hand.down(...toWorld(x, y), eng.simTime);
       takeOver();
     }
@@ -43605,38 +43694,82 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       view: tr("legend.view", "View"),
       settings: tr("legend.settings", "Settings"),
       lab: tr("legend.lab", "Lab"),
+      bench: tr("legend.bench", "Bench"),
+      last: tr("legend.last-tool", "Last tool"),
+      hold: tr("legend.hold", "hold"),
       use: tr("legend.use", "Use"),
-      other: tr("legend.other", "Other way"),
       down: tr("legend.down", "Put down"),
       reach: tr("legend.reach", "Reach"),
+      load: tr("legend.load", "Load"),
+      dispense: tr("legend.dispense", "Dispense"),
+      toLoad: tr("legend.to-load", "Switch to load"),
+      toDispense: tr("legend.to-dispense", "Switch to dispense"),
       steer: tr("legend.steer", "Steer"),
       hop: tr("legend.hop", "Next of kin"),
       off: tr("legend.off", "Get off"),
       choose: tr("legend.choose", "Choose"),
       tabs: tr("legend.tabs", "Tabs"),
-      move: tr("legend.move", "Move"),
-      zoom: tr("legend.zoom", "Zoom")
+      zoom: tr("legend.zoom", "Zoom"),
+      adjust: tr("legend.adjust", "Adjust"),
+      done: tr("legend.done", "Done"),
+      hint: tr("legend.hint", "Explain")
     });
+    function legendItems(ctx2) {
+      const L = LEGEND();
+      if (ctx2 === "panel") {
+        const a = document.activeElement;
+        if (input.grab) return [[["LEFT", "RIGHT"], L.adjust], ["S", L.done], ["E", L.done]];
+        const tabs = padRoot()?.querySelector('[role="tablist"]') ? [[["LB", "RB"], L.tabs]] : [];
+        const what = isAdjustable(a) ? L.adjust : a?.matches?.(".term, span[data-tip]") ? L.hint : L.choose;
+        return [["S", what], ["E", L.back], ...tabs];
+      }
+      if (ctx2 === "ride") return [["L", L.steer], ["S", L.hop], ["E", L.off], [["LT", "RT"], L.zoom]];
+      if (ctx2 === "tool") {
+        const pip = hand.tool === "pipette", d = pip && pull.armed !== shiftHeld;
+        return [["S", !pip ? L.use : d ? L.dispense : L.load], ...pip ? [["W", d ? L.toLoad : L.toDispense]] : [], ["E", L.down], ["R", L.reach], ["LB", "", L.tools]];
+      }
+      return [
+        ["S", L.select],
+        ["E", L.back],
+        ...sel && !sel.lost ? [["W", L.ride]] : [],
+        ...sidePanel() ? [["N", L.panel]] : [],
+        ["LB", L.last, L.tools],
+        ["RB", L.bench, L.view],
+        ["MENU", L.settings],
+        ["VIEW", L.lab]
+      ];
+    }
+    function legendX(ctx2) {
+      const root = ctx2 === "panel" ? padRoot() : null;
+      if (!root || !root.classList.contains("float")) return viewMiddle()[0];
+      const r = root.getBoundingClientRect(), left = lab.isOpen() && !phone() && state.ui ? labRight() : 0;
+      const L = r.left - left, R2 = innerWidth - r.right, need = $2("padbar").offsetWidth + 16;
+      if (Math.max(L, R2) < need) return r.left + r.width / 2;
+      return L >= R2 ? left + L / 2 : r.right + R2 / 2;
+    }
     function renderLegend(ctx2) {
       const el2 = $2("padbar");
       const show = mode.glyphs === "pad" && state.ui && !introUp() && ctx2 !== "rose";
-      const L = LEGEND();
-      const items = !show ? [] : ctx2 === "panel" ? [["S", L.choose], ["E", L.back], ...padRoot()?.querySelector('[role="tablist"]') ? [["LB", ""], ["RB", L.tabs]] : []] : ctx2 === "ride" ? [["L", L.steer], ["S", L.hop], ["E", L.off], ["LT", ""], ["RT", L.zoom]] : ctx2 === "tool" ? [["S", L.use], ...hand.tool === "pipette" ? [["W", L.other]] : [], ["E", L.down], ["R", L.reach], ["LB", L.tools]] : [["S", L.select], ["E", L.back], ...sel && !sel.lost ? [["W", L.ride]] : [], ...sidePanel() ? [["N", L.panel]] : [], ["LB", L.tools], ["RB", L.view], ["MENU", L.settings], ["VIEW", L.lab]];
-      const x = `${Math.round(aim()[0])}px`;
+      const items = show ? legendItems(ctx2) : [];
+      const x = `${Math.round(legendX(ctx2))}px`;
       if (el2.style.left !== x) el2.style.left = x;
-      const key = `${show}|${ctx2}|${mode.family}|${items.map((i) => i.join(":")).join(",")}`;
+      const key = `${show}|${ctx2}|${mode.family}|${JSON.stringify(items)}`;
       if (key === legendKey) return;
       legendKey = key;
       el2.hidden = !items.length;
-      el2.innerHTML = items.map(([b, t]) => `<span>${glyph(b, padFamily())}${t ? `<b>${esc2(t)}</b>` : ""}</span>`).join("");
+      const L = LEGEND(), fam = padFamily();
+      el2.innerHTML = items.map(([b, t, h]) => `<span>${[].concat(b).map((p2) => glyph(p2, fam)).join("")}${t ? `<b>${esc2(t)}</b>` : ""}${h ? `<em>${esc2(L.hold)}</em><b>${esc2(h)}</b>` : ""}</span>`).join("");
     }
     function driveInput(dt) {
       const s = dt / 1e3, now = performance.now();
+      easeAim(dt);
+      if (input.grab && document.activeElement !== input.grab) letGo();
       const ctx2 = padCtx();
       for (const ev of pads.poll(now, ctx2 === "rose" ? "world" : ctx2)) act(ev.id);
       const P2 = pads.state;
       if (P2.active) {
         if (noteInput(mode, { kind: "pad", family: padFamily() })) applyMode();
+        if (mode.pointer === "pad") lastPtr.moved = now;
         poke();
         sound.unlock();
       }
@@ -43656,7 +43789,22 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         cam.x += way[0] * v;
         cam.y += way[1] * v;
       }
-      if (panel && Math.hypot(P2.left[0], P2.left[1]) > 0.5) {
+      if (panel && input.grab) {
+        const v = Math.abs(P2.left[0]) > Math.abs(P2.left[1]) ? P2.left[0] : -P2.left[1];
+        input.stickNav = null;
+        if (input.grab.type === "range") {
+          if (v) adjust(input.grab, v * 13 * s);
+        } else if (Math.abs(v) > 0.5) {
+          const d = Math.sign(v), g = input.grabNav;
+          if (!g || g.d !== d) {
+            input.grabNav = { d, next: now + REPEAT_MS[0] };
+            adjust(input.grab, d);
+          } else if (now >= g.next) {
+            g.next = now + REPEAT_MS[1];
+            adjust(input.grab, d);
+          }
+        } else input.grabNav = null;
+      } else if (panel && Math.hypot(P2.left[0], P2.left[1]) > 0.5) {
         const dir = Math.abs(P2.left[0]) > Math.abs(P2.left[1]) ? P2.left[0] > 0 ? "right" : "left" : P2.left[1] > 0 ? "down" : "up";
         const sn = input.stickNav;
         if (!sn || sn.dir !== dir) {
@@ -43778,7 +43926,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const used = kids.reduce((m, e) => m + e.getBoundingClientRect().width, 0) + (kids.length - 1) * (parseFloat(cs.columnGap) || 0);
       dock.classList.toggle("roomy", dock.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - used >= 130);
     }
-    new ResizeObserver(fitSteps).observe(dock);
+    const stepsFit = new ResizeObserver(fitSteps);
+    stepsFit.observe(dock);
+    for (const k of dock.children) if (!k.querySelector(".step")) stepsFit.observe(k);
     function renderTime() {
       const s = state.speed;
       const play = $2("t-play");
@@ -44786,7 +44936,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     let toolFocus = 0;
     function showInstrument(R2, dt) {
       const it = INSTRUMENTS[hand.tool];
-      const pressed3 = !!(ptr.down?.apply || ptr.down?.pip);
+      const pressed3 = !!(ptr.down?.apply || ptr.down?.pip || input.apply);
       toolFocus += ((pressed3 ? 1 : 0) - toolFocus) * (1 - Math.exp(-dt / 0.12));
       if (!it || !R2) {
         eng.tool.fill(0);
@@ -44798,16 +44948,17 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     function handDoing() {
       const t = hand.tool;
       if (t === "lamp" || t === "shade" || t === "warm" || t === "cold") return tr("hand.doing.level", "{doing, select, lamp {Brightening} shade {Darkening} warm {Warming toward a boil} cold {Chilling toward ice} other {Over the water}} · {pct}%{held, select, yes {} other { · hold for more}}", { doing: hand.held ? t : "over", pct: Math.min(100, Math.round(hand.level * 100)), held: hand.held ? "yes" : "no" });
-      if (t === "touch") return !hand.held ? tr("hand.doing.touch-over", "Press: the rod into the water") : ptr.dragging ? tr("hand.doing.touch-drag", "Plowing") : tr("hand.doing.touch-in", "In the water · pushing aside");
-      if (t === "needle") return !hand.held ? tr("hand.doing.needle-over", "Press: the needle into the water") : ptr.dragging ? tr("hand.doing.needle-drag", "Cutting through") : tr("hand.doing.needle-in", "Pricking");
+      const dragging = ptr.dragging || !!input.apply?.moved;
+      if (t === "touch") return !hand.held ? tr("hand.doing.touch-over", "Press: the rod into the water") : dragging ? tr("hand.doing.touch-drag", "Plowing") : tr("hand.doing.touch-in", "In the water · pushing aside");
+      if (t === "needle") return !hand.held ? tr("hand.doing.needle-over", "Press: the needle into the water") : dragging ? tr("hand.doing.needle-drag", "Cutting through") : tr("hand.doing.needle-in", "Pricking");
       if (t === "pipette") {
         const tip = pipette.tip, now = performance.now();
         if (pull.on || hand.suck) return tr("hand.doing.drawing-up", "Drawing up · {n, number} in", { n: pull.got.length });
         if (spit.on) return tr("hand.doing.setting-down", "Dispensing {name}", { name: (spit.sp || tip)?.name ?? "" });
         if (pull.note && now - pull.note.t < 2e3) return pull.note.text;
-        const d = pipDispensing(), act2 = isCoarse ? "tap" : "click", shift = isCoarse || shiftHeld ? "none" : d ? "load" : "dispense";
-        if (!d) return pipette.fits(1) ? tr("hand.doing.load", "{act, select, tap {a tap} other {a click}}: a few at the tip · held: all in reach{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}", { act: act2, shift }) : tr("hand.doing.full", "no room for more{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}", { shift });
-        return tip ? tr("hand.doing.dispense", "{act, select, tap {a tap} other {a click}} dispenses {name}{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}", { act: act2, name: tip.name, shift }) : tr("hand.doing.empty", "nothing in it to dispense{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}", { shift });
+        const padIn = mode.glyphs === "pad", d = pipDispensing(), act2 = padIn ? "press" : isCoarse ? "tap" : "click", shift = isCoarse || shiftHeld || padIn ? "none" : d ? "load" : "dispense";
+        if (!d) return pipette.fits(1) ? tr("hand.doing.load", "{act, select, tap {a tap} press {a press} other {a click}}: a few at the tip · held: all in reach{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}", { act: act2, shift }) : tr("hand.doing.full", "no room for more{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}", { shift });
+        return tip ? tr("hand.doing.dispense", "{act, select, tap {a tap} press {a press} other {a click}} dispenses {name}{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}", { act: act2, name: tip.name, shift }) : tr("hand.doing.empty", "nothing in it to dispense{shift, select, dispense { · ⇧ dispense} load { · ⇧ load} other {}}", { shift });
       }
     }
     const MARK_MS = 650;
@@ -46037,6 +46188,7 @@ Tidemote ${SAVE_VERSION} · world time ${fmtClock(eng.simTime)} · ${eng.count} 
         rose,
         padCtx,
         aim,
+        glyph,
         // the camera moved so that world point (wx, wy) sits under the reticle
         lookAt(wx, wy) {
           const [ax, ay] = aim(), p2 = cssPPU();
@@ -46044,7 +46196,12 @@ Tidemote ${SAVE_VERSION} · world time ${fmtClock(eng.simTime)} · ${eng.count} 
           cam.x = wx - (ax - innerWidth / 2) / p2;
           cam.y = wy - (ay - innerHeight / 2) / p2;
         },
-        open: () => ({ settings: view.isOpen(), help: !$2("help").hidden, bench: bench.isOpen(), lab: lab.isOpen(), spec: !$2("spec").hidden, card: cards.isOpen(), ladder: ladder.isOpen() })
+        open: () => ({ settings: view.isOpen(), help: !$2("help").hidden, bench: bench.isOpen(), lab: lab.isOpen(), spec: !$2("spec").hidden, card: cards.isOpen(), ladder: ladder.isOpen() }),
+        // the slider or list a controller holds, the instrument's focus (0 lifted .. 1 in the water), the pipette dispensing
+        selAt: () => sel ? toScreen(sel.disp[0], sel.disp[1]) : null,
+        // where a tap set the loupe's lens on a touch screen (screen px), if one did
+        lens: () => lensAt ? toScreen(...lensAt) : null,
+        held: () => ({ grab: input.grab?.id || (input.grab ? input.grab.tagName : null), focus: toolFocus, dispensing: pipDispensing(), tip: !$2("tip").hidden })
       }
     };
     calibrate().then(() => {

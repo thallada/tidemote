@@ -48,20 +48,23 @@ export function matchKey(e) {
 // The contexts a pad press is read in, most particular first: a rose open (rose.js reads the stick itself), a panel
 // holding focus (focus.js moves it), riding, a tool in hand, the world.
 // For each context, what each button does when pressed (press), tapped (released before HOLD_MS) or held past it.
-// A button bound to a tap or hold in a context acts on release or at the hold, never on press.
-export const HOLD_MS = 180;
+// A button bound to a tap or hold in a context acts on release or at the hold, never on press. (Only the bumpers
+// have both: a quarter second tells a tap from a hold without a hurried tap passing for a hold.)
+export const HOLD_MS = 250;
 const PAD_WORLD = {
   [BTN.S]: { press: 'select' }, [BTN.E]: { press: 'back' }, [BTN.W]: { press: 'ride' }, [BTN.N]: { press: 'panel' },
   [BTN.UP]: { press: 'auto-next' }, [BTN.DOWN]: { press: 'pause' }, [BTN.LEFT]: { press: 'slower' }, [BTN.RIGHT]: { press: 'faster' },
   [BTN.LB]: { tap: 'swap-tool', hold: 'rose-tools' }, [BTN.RB]: { tap: 'bench', hold: 'rose-view' },
-  [BTN.MENU]: { press: 'settings' }, [BTN.VIEW]: { tap: 'lab', hold: 'help' }, [BTN.R3]: { press: 'zoom-reset' },
+  [BTN.MENU]: { press: 'settings' }, [BTN.VIEW]: { press: 'lab' }, [BTN.R3]: { press: 'zoom-reset' },
 };
-const PAD_TOOL = { ...PAD_WORLD, [BTN.S]: { press: 'apply' }, [BTN.W]: { press: 'apply-alt' } };
+// (X with the pipette: switch between loading and dispensing; the other tools have one way)
+const PAD_TOOL = { ...PAD_WORLD, [BTN.S]: { press: 'apply' }, [BTN.W]: { press: 'pipette-mode' } };
 const PAD_RIDE = { ...PAD_WORLD, [BTN.S]: { press: 'hop' }, [BTN.W]: { press: 'ride' } };
-// In a panel the d-pad and the stick move focus (focus.js), S presses what has it, E goes back a layer, the
-// bumpers change tab; the rest are the world's.
+// In a panel the d-pad and the stick move focus (focus.js), S presses what has it (a slider or a list: takes hold of
+// it, so the d-pad and the stick change it, until S or E lets go; a glossary term: shows or hides its hint), E goes
+// back a layer, the bumpers change tab; the rest are the world's.
 const PAD_PANEL = {
-  ...PAD_WORLD, [BTN.S]: { press: 'activate' }, [BTN.E]: { press: 'panel-back' }, [BTN.W]: { press: 'activate-alt' }, [BTN.N]: { press: 'panel-back' },
+  ...PAD_WORLD, [BTN.S]: { press: 'activate' }, [BTN.E]: { press: 'panel-back' }, [BTN.W]: {}, [BTN.N]: { press: 'panel-back' },
   [BTN.UP]: { press: 'nav-up', repeat: true }, [BTN.DOWN]: { press: 'nav-down', repeat: true }, [BTN.LEFT]: { press: 'nav-left', repeat: true }, [BTN.RIGHT]: { press: 'nav-right', repeat: true },
   [BTN.LB]: { press: 'tab-prev' }, [BTN.RB]: { press: 'tab-next' },
 };
@@ -85,9 +88,12 @@ export function helpRows() {
   // i18n: names of keys and mouse gestures in the Controls dialog
   const click = W(tr('key.click', 'Click')), drag = W(tr('key.drag', 'Drag')), wheel = W(tr('key.wheel', 'Wheel'));
   const space = K(tr('key.space', 'Space')), esc = K(tr('key.esc', 'Esc')), enter = K(tr('key.enter', 'Enter')), tab = K(tr('key.tab', 'Tab'));
-  const shiftWheel = W(tr('key.shift-wheel', '⇧ Wheel')), shiftClick = W(tr('key.shift-click', '⇧ Click'));
+  const shiftWheel = W(tr('key.shift-wheel', '⇧ Wheel'));
   // i18n: how a controller button is used in the Controls dialog: held down, tapped, while riding, or a place in Settings
   const hold = W(tr('pad.hold', 'hold')), tap = W(tr('pad.tap', 'tap')), riding = W(tr('pad.riding', 'riding')), inSettings = W(tr('pad.in-settings', 'in Settings'));
+  // i18n: in the Controls dialog: a key held down (Shift, for the pipette's other way while held); the Controls found
+  // in Settings, at its foot
+  const keyHeld = W(tr('key.held', 'held')), toControls = W(tr('pad.to-controls', 'then Controls'));
   return [
     { group: tr('help.group.look', 'Look'), rows: [
       { text: tr('help.k1', 'Examine a cell or particle'), keys: [click], pad: [P('S')] },
@@ -106,8 +112,9 @@ export function helpRows() {
       { text: tr('help.panel', 'Into the side panel · scroll it'), keys: [tab, wheel], pad: [P('N'), P('R')] },
     ] },
     { group: tr('help.group.hand', 'The hand'), rows: [
-      { text: tr('help.k16', 'Swap tools: 1. loupe, 2. touch, 3. lamp, 4. shade, 5. warm, 6. cold, 7. needle, 8. pipette · 0. pan'), keys: [K('1–8'), K('0')], pad: [P('LB'), hold, tap] },
-      { text: tr('help.tool-use', 'Use the tool in hand · its other way'), keys: [click, shiftClick], pad: [P('S'), P('W')] },
+      { text: tr('help.k16', 'Swap tools: 1. loupe, 2. touch, 3. lamp, 4. shade, 5. warm, 6. cold, 7. needle, 8. pipette · 0. pan'), keys: [K('1–8'), K('0')], pad: [P('LB'), W(tr('pad.lb-tools', 'held: the tool rose · tapped: the last tool'))] },
+      { text: tr('help.tool-use', 'Use the tool in hand'), keys: [click], pad: [P('S')] },
+      { text: tr('help.pipette-mode', 'Pipette: switch between loading and dispensing'), keys: [K('⇧'), keyHeld], pad: [P('W')] },
       { text: tr('help.k18', 'Adjust tool effect radius (with the loupe: its magnification)'), keys: [K('['), K(']'), shiftWheel], pad: [P('R')] },
       { text: tr('help.k17', 'The bench · drop tool'), keys: [K('B'), esc], pad: [P('RB'), tap, P('E')] },
     ] },
@@ -119,7 +126,7 @@ export function helpRows() {
       { text: tr('help.k10', 'Collapse or open the Field Lab'), keys: [K('K')], pad: [P('VIEW')] },
       { text: tr('help.k-lineage-back', 'In the Lab’s Lineage view: go back up a species in the lineage tree'), keys: [esc, K('⌫')], pad: [P('E')] },
       { text: tr('help.k11', 'Settings'), keys: [K('V')], pad: [P('MENU')] },
-      { text: tr('help.list', 'This list of controls'), keys: [K('?')], pad: [P('VIEW'), hold] },
+      { text: tr('help.list', 'This list of controls'), keys: [K('?')], pad: [P('MENU'), toControls] },
       { text: tr('help.k12', 'Sound on or off'), keys: [K('M')], pad: [inSettings] },
       { text: tr('help.k19', 'Full screen · hide readouts · hide everything'), keys: [K('F'), K('I'), K('U')], pad: [inSettings] },
       { text: tr('help.k20', 'Discard this world and start a new one'), keys: [K('⇧R ⇧R')], pad: [inSettings] },

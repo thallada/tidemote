@@ -17,14 +17,15 @@ function fakePad() {
 }
 
 /**
- * Open the page: { size: { width, height }, intro: keep the intro's menu up (a visitor's browser) }. Resolves to
+ * Open the page: { size: { width, height }, intro: keep the intro's menu up (a visitor's browser), file, max (particles),
+ * scale (device pixels per CSS px, for screenshots) }. Resolves to
  * { page, browser, check, done, T(fn), pad: { plug, press, hold, down, up, stick, trig, idle } } once the world runs.
  */
-export async function openPage({ size = { width: 1366, height: 768 }, intro = false, file = 'dist/tidemote.html', max = 65536 } = {}) {
+export async function openPage({ size = { width: 1366, height: 768 }, intro = false, file = 'dist/tidemote.html', max = 65536, scale = 1 } = {}) {
   const server = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); fs.createReadStream(path.resolve(file)).pipe(res); });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const browser = await chromium.launch(launchOptions({ args: ['--enable-unsafe-webgpu'] }));
-  const ctx = await browser.newContext({ viewport: size });
+  const ctx = await browser.newContext({ viewport: size, deviceScaleFactor: scale });
   if (vk) await ctx.addInitScript(retryAdapter);
   await ctx.addInitScript(fakePad);
   await ctx.addInitScript(({ intro, max }) => {

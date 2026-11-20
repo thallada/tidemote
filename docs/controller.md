@@ -20,6 +20,15 @@ Built (src/input/, src/rose.js; tools/keys-check.mjs, tools/pad-check.mjs, test/
 - The desktop app: whether it runs on a Deck (the Deck's glyphs for Steam's virtual pad), and Steam's floating
   keyboard when A is pressed on a text field.
 
+Second round (from a first try on a desktop with a controller): glyph labels centered (an invalid `font` shorthand,
+and the label trimmed to its capitals), the mouse pointer hidden while the pad points, focus rings drawn inside
+controls (none cut by a scrolling panel or a tab row), Settings → Display → Controller in two columns and the foot's
+Controls on one line, the reticle keeping its place as panels open, View only the Lab, A showing a term's hint,
+sliders taken hold of by A and stepped by a twentieth, the pipette's X switching loading and dispensing (and the
+legend saying which), the instruments in focus while A holds them, the legend naming taps and holds, the dock's
+readout fitting at 1280, and the pipette's strip redrawn at most eight times a second (its hitches). `pad-look.mjs`
+checks all of it by eye and by pixel.
+
 Still to do: the Steamworks Steam Input setting (decision 3), the Deck walkthrough and its run, measuring the Steam
 overlay's cost before deciding on it, haptics, keys in the guide's prose by argument, and the first-time player test.
 
@@ -114,19 +123,21 @@ the glyphs say what to press.
 | Right stick | Scroll the open side panel (specimen, Lab); with a tool in hand, ↕ changes its reach | wheel on a panel; `[` `]` |
 | South (A) | Select what is under the reticle; with a tool in hand, apply it (held: keep applying) | click |
 | East (B) | Back: the Escape walk-back, step for step | Esc |
-| West (X) | Ride the selected cell / get off; with a tool in hand, its other way | Enter; ⇧ |
+| West (X) | Ride the selected cell / get off; with the pipette in hand, switch between loading and dispensing | Enter; ⇧ held |
 | North (Y) | Move focus into the open side panel (East brings it back) | Tab |
 | D-pad ← / → | Slower / faster | `,` `.` |
 | D-pad ↓ | Pause / resume | Space |
 | D-pad ↑ | Auto camera; pressed again while it runs, the next scene | P, X |
-| LB, held | The tool rose; tapped: the last tool / put down | 1–8, 0 |
+| LB, held | The tool rose; tapped: the last tool / put down (a hold is a quarter second) | 1–8, 0 |
 | RB, held | The view rose; tapped: the Bench drawer | G E H C T Y O R M U, B |
 | L3 | Follow the selected cell | Follow |
 | R3 | Reset the zoom | Z |
 | Menu (≡) | Settings | V |
-| View (⧉) | Field Lab; held: the Controls dialog | K, ? |
+| View (⧉) | Field Lab, open or closed (only that: a hold that opened the Controls turned slow presses into the wrong dialog; the Controls are at Settings' foot) | K |
 
-A reticle sits at the screen's centre whenever the pad is the active input. Selecting picks the nearest living cell
+A reticle sits at the middle of the open view when the pad is first used, and then keeps its place on the screen as
+panels open and close (clamped inside what they leave open; following a cell, it eases to the middle with the
+camera), so the loupe at it stays on what it was over when a selection opens the specimen panel. Selecting picks the nearest living cell
 within about 40 px of it (the `selectAt` pick, with a wider radius), so the stick never has to land on a 3 px cell.
 A tool applies at the reticle, so holding South while panning sweeps it through the water (`hand.move` per frame as
 the camera moves). The reticle is drawn as part of the instrument (the composite's `instrument`) so films keep it out,
@@ -145,13 +156,13 @@ like the cursor.
 
 | Input | Action |
 |---|---|
-| D-pad / left stick | Move focus spatially (repeat after 400 ms, then every 90 ms) |
-| South (A) | Activate: press, toggle, open |
-| East (B) | Back: one layer (card, then Settings, then the panel), then to the world |
+| D-pad / left stick | Move focus spatially (repeat after 400 ms, then every 90 ms), past sliders and lists too |
+| South (A) | Activate: press, toggle, open. On a slider or a list: take hold of it (ring turns cyan); the d-pad then steps it a twentieth of its span, the stick sweeps it (the whole span in 1.5 s), and A or B lets go. On a glossary term: show its hint; again, hide it |
+| East (B) | Back: let go of a slider, then one layer (card, then Settings, then the panel), then to the world |
 | LB / RB | Previous / next tab (Settings, Lab, specimen sections) |
 | Right stick | Scroll |
-| D-pad ← / → on a slider | Step it; LT/RT step it ten times as far |
-| West (X) | The item's second act where it has one (a mini-card: pick up to reorder; a species row: locate) |
+
+The legend over the dock says which of these applies to what has focus (Choose, Adjust, Explain, Done).
 
 The opening menu is a panel: any button reveals the pad (the spec's gesture gate), focus lands on Begin, the d-pad
 walks the count chips and saved worlds, and South begins.
@@ -306,6 +317,20 @@ Keyboard first, since there are none:
   - a lone Shift doesn't flip
 - **`test/rose.test.js`.** Sectors, hysteresis at the borders, the grace window, centre cancel.
 - **`test/focus.test.js`.** Spatial scoring on synthetic rects, the remembered child, the layer stack.
+- **`tools/pad-look.mjs`.** What the eye sees, at 1280×800 in device pixels ×2 (screenshots into `runs/ui/pad-look`
+  to look at, and checks):
+  - every control of every panel (each Settings and Lab tab, the bench, the specimen, the dock, the Controls)
+    focused in turn: its ring never cut by an ancestor that clips (words in a line take a tint and a thick
+    underline instead of a ring);
+  - no label running into its control, no chip wrapping or overflowing, Settings' foot on one line;
+  - each family's glyphs photographed and each label's ink measured centered in its outline (pngjs);
+  - sliders taken hold of and stepped, a term's hint by A, View never opening the Controls however slow the press,
+    the loupe staying on a cell as the panel opens, each instrument in focus while A holds it, the pipette's X and
+    its legend, the mouse pointer hidden while the pad points;
+  - touch (a Deck's screen): a pinch zooms, a tap sets the loupe's lens and a drag moves it.
+  It was written after a first round of controller work passed every functional check and still showed clipped
+  rings, a broken Settings row, off-center glyphs and a jumping loupe: run it after any change to panels, styles,
+  hints or the legend.
 - **`tools/pad-check.mjs`.** It drives the built page with a fake pad. An init script replaces
   `navigator.getGamepads` with a scripted object and fires `gamepadconnected`. It runs at laptop size and at
   1280×800:
@@ -315,7 +340,7 @@ Keyboard first, since there are none:
   4. East walks back the same thirteen steps as Escape.
   5. LB rose picks the lamp; RB rose turns on the light map; the centre cancels.
   6. Menu opens Settings; the d-pad moves focus; South toggles an option; LB/RB change tabs; East closes.
-  7. View opens the Lab; held, it opens the Controls dialog with both columns.
+  7. View opens the Lab, and held still only the Lab; Settings' Controls opens the Controls dialog with both columns.
   8. The hints show pad glyphs, then keys after a key press, and a mouse move doesn't change them.
   9. Unplugging mid-pan stops the pan.
 - **Unchanged and run after each phase:** `ui-check`, `ride-check`, `menu-check`, `lineage/nav-check`,

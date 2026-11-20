@@ -34,7 +34,8 @@ const FOCUSABLE = 'button, a[href], input:not([type="hidden"]), select, textarea
 
 /** Whether el can take focus and shows: not disabled, not inside something hidden or inert, with a box on the screen. */
 export function canFocus(el) {
-  if (el.disabled || el.closest('[hidden], [inert], [aria-hidden="true"]')) return false;
+  // (nor what is there only for screen readers: .sr-only, a canvas's list of what it draws)
+  if (el.disabled || el.closest('[hidden], [inert], [aria-hidden="true"], .sr-only')) return false;
   if (el.getAttribute('tabindex') === '-1' && el.getAttribute('role') !== 'tab') return false;
   const r = el.getBoundingClientRect();
   if (r.width < 1 || r.height < 1 || r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth) return false;
@@ -44,6 +45,36 @@ export function canFocus(el) {
 
 /** The controls of root that can take focus now. */
 export const controlsOf = (root) => [...root.querySelectorAll(FOCUSABLE)].filter(canFocus);
+
+/** Whether el is changed by a direction rather than pressed: a slider, a list. */
+export const isAdjustable = (el) => !!el && (el.type === 'range' || el.tagName === 'SELECT');
+
+/**
+ * Change a slider or a list by d steps (−1, +1; fractions too, for a stick held): a slider by a twentieth of its
+ * span a step (its own step if coarser), a list by an option. Whether it changed.
+ */
+export function adjust(el, d) {
+  if (el.type === 'range') {
+    const min = +el.min || 0, max = el.max === '' ? 100 : +el.max, span = max - min, st = parseFloat(el.step);
+    const step = el.step === '' ? 1 : st > 0 ? st : span / 1000; // (no step: 1; "any": fine)
+    const by = Math.max(step, span / 20) * d;
+    // (a fraction of a step kept between calls, so a stick held gently still gets there)
+    const want = Math.min(max, Math.max(min, (el._adj ?? +el.value) + by));
+    const v = Math.min(max, Math.max(min, min + Math.round((want - min) / step) * step));
+    el._adj = want;
+    if (v === +el.value) return false;
+    el.value = v;
+    el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  }
+  if (el.tagName === 'SELECT') {
+    const i = Math.min(el.options.length - 1, Math.max(0, el.selectedIndex + Math.sign(d)));
+    if (i === el.selectedIndex) return false;
+    el.selectedIndex = i; el.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  }
+  return false;
+}
 
 export function createFocus() {
   const last = new WeakMap(); // root -> its last focused control
@@ -60,21 +91,9 @@ export function createFocus() {
       if (el && canFocus(el)) { show(el); return true; }
       return false;
     },
-    /** Move focus within root by dir; a slider steps instead (left, right), and a select changes its option (up, down). */
+    /** Move focus within root by dir (a slider or a list too: changing one takes hold of it first, adjust below). */
     move(root, dir) {
       const a = document.activeElement;
-      if (a && root.contains(a)) {
-        if (a.type === 'range' && (dir === 'left' || dir === 'right')) {
-          const step = +a.step || 1, v = Math.min(+a.max, Math.max(+a.min, +a.value + (dir === 'right' ? step : -step)));
-          if (v !== +a.value) { a.value = v; a.dispatchEvent(new Event('input', { bubbles: true })); a.dispatchEvent(new Event('change', { bubbles: true })); }
-          return true;
-        }
-        if (a.tagName === 'SELECT' && (dir === 'up' || dir === 'down')) {
-          const i = Math.min(a.options.length - 1, Math.max(0, a.selectedIndex + (dir === 'down' ? 1 : -1)));
-          if (i !== a.selectedIndex) { a.selectedIndex = i; a.dispatchEvent(new Event('change', { bubbles: true })); }
-          return true;
-        }
-      }
       const list = controlsOf(root);
       if (!list.length) return false;
       if (!a || !root.contains(a) || !list.includes(a)) { show(list[0]); return true; }

@@ -77,7 +77,8 @@ export function createTips(tip) {
   }, true);
   document.addEventListener('focusin', (e) => {
     const el = target(e);
-    if (el && el.matches(':focus-visible')) show(el, 'focus');
+    // (a controller's focus passing over a glossary term leaves its hint closed until A asks for it: toggle)
+    if (el && el.matches(':focus-visible') && !(document.body.dataset.glyphs === 'pad' && el.matches('.term, span[data-tip]'))) show(el, 'focus');
   });
   document.addEventListener('focusout', () => { if (owner && via === 'focus') hide(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && owner) hide(); }, true);
@@ -103,5 +104,11 @@ export function createTips(tip) {
   }
   // the input in use changed (keys or a controller): an open hint drawn again with its names
   const refresh = () => { if (owner && owner.isConnected) show(owner, via); };
-  return { hide, check, rich, refresh };
+  /** A term's hint shown, or hidden if it is showing (a controller's A on it); it closes when focus leaves it too. Whether it shows. */
+  function toggle(el) {
+    if (owner === el && !tip.hidden) { hide(); return false; }
+    show(el, 'focus');
+    return owner === el;
+  }
+  return { hide, check, rich, refresh, toggle };
 }
