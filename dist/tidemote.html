@@ -11218,7 +11218,7 @@ fn iceOver(wp: vec2f, ic: IceSeen, ppu: f32) -> vec3f {
   let grow = iceGrowth(waterAt(wp).x);
   var c = vec3f(0.0);
   if (ic.sd < (ICE_LEAD + ICE_OWN) * ic.reach + 0.3) { c += iceLook(wp, ic.sd, ppu, grow, ic.reach, ic.rg); }
-  let amt = max(select(0.0, smoothstep(8.0, 1.0, ic.sd) * grow, ic.sd < 9.0), smoothstep(0.003, 0.3, ic.share));
+  let amt = max(smoothstep(8.0, 1.0, ic.sd) * grow, smoothstep(0.003, 0.3, ic.share));
   if (ic.sd > 0.0 && amt > 0.0) { c += frazil(wp, amt, ppu); }
   return c;
 }
@@ -39357,9 +39357,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "a601fdda1cf77ce2") return;
+      if (localStorage.getItem(key) === "590aac5eb37dee58") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "a601fdda1cf77ce2");
+      if (res) localStorage.setItem(key, "590aac5eb37dee58");
     } catch {
     }
   }

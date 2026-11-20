@@ -8967,7 +8967,7 @@ fn iceOver(wp: vec2f, ic: IceSeen, ppu: f32) -> vec3f {
   let grow = iceGrowth(waterAt(wp).x);
   var c = vec3f(0.0);
   if (ic.sd < (ICE_LEAD + ICE_OWN) * ic.reach + 0.3) { c += iceLook(wp, ic.sd, ppu, grow, ic.reach, ic.rg); }
-  let amt = max(select(0.0, smoothstep(8.0, 1.0, ic.sd) * grow, ic.sd < 9.0), smoothstep(0.003, 0.3, ic.share));
+  let amt = max(smoothstep(8.0, 1.0, ic.sd) * grow, smoothstep(0.003, 0.3, ic.share));
   if (ic.sd > 0.0 && amt > 0.0) { c += frazil(wp, amt, ppu); }
   return c;
 }

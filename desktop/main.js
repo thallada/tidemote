@@ -65,14 +65,14 @@ const serve = (req) => {
 
 // The window opens full screen unless the player last left it windowed (userData/window.json, written as it
 // changes). `--windowed` opens a window whatever was kept, for the scripts that drive the app (smoke, launch-check).
-const WIN_STATE = () => join(app.getPath('userData'), 'window.json');
+const WINDOWED = process.argv.includes('--windowed');
+const winState = () => join(app.getPath('userData'), 'window.json');
 const keptFull = () => {
-  if (process.argv.includes('--windowed')) return false;
-  try { return JSON.parse(readFileSync(WIN_STATE(), 'utf8')).full !== false; } catch { return true; }
+  if (WINDOWED) return false;
+  try { return JSON.parse(readFileSync(winState(), 'utf8')).full !== false; } catch { return true; }
 };
 const keepFull = (full) => {
-  if (process.argv.includes('--windowed')) return;
-  try { mkdirSync(app.getPath('userData'), { recursive: true }); writeFileSync(WIN_STATE(), JSON.stringify({ full })); } catch { /* kept next time */ }
+  if (!WINDOWED) try { writeFileSync(winState(), JSON.stringify({ full })); } catch { /* unkept: opens as before */ }
 };
 
 const open = () => {
