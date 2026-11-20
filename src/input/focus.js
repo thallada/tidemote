@@ -8,8 +8,8 @@
 /**
  * Of candidate rects, the index of the one to go to from rect `from` in direction dir ('up', 'down', 'left',
  * 'right'), or −1. A candidate must lie that way (its middle past `from`'s middle along dir); among those the nearest
- * wins, distance along dir plus twice the offset across it (none where they overlap across it), so a control in
- * line beats a nearer one off to the side.
+ * wins, distance along dir plus twice the offset across it (none where they overlap across it by more than 3 px), so
+ * a control in line beats a nearer one off to the side; ties go to the one whose middle is nearest in line.
  */
 export function nextIndex(from, rects, dir) {
   const h = dir === 'left' || dir === 'right', s = dir === 'right' || dir === 'down' ? 1 : -1;
@@ -22,10 +22,15 @@ export function nextIndex(from, rects, dir) {
     if (along <= 1) return;
     // the gap between the edges along dir (0 where they overlap), and across it
     const gap = Math.max(0, h ? (s > 0 ? r.left - from.right : from.left - r.right) : (s > 0 ? r.top - from.bottom : from.top - r.bottom));
+    // (in line: overlapping across by more than a sliver; chips in a grid share their borders, a pixel's overlap, and
+    // a chip beside the one below must not pass for in line with it)
     const lo = h ? Math.max(r.top, from.top) : Math.max(r.left, from.left), hi = h ? Math.min(r.bottom, from.bottom) : Math.min(r.right, from.right);
-    const across = hi > lo ? 0 : h ? Math.abs(cy - fy) : Math.abs(cx - fx);
-    const score = gap + along * 0.1 + 2 * across;
-    if (score < bs) { bs = score; best = i; }
+    const off = h ? Math.abs(cy - fy) : Math.abs(cx - fx);
+    const across = hi - lo > 3 ? 0 : off;
+    // (and of those as near, the one whose middle is nearest in line)
+    const score = gap + along * 0.1 + 2 * across + 0.05 * off;
+    // (a later control must be nearer by more than a pixel: near ties go to the first, in reading order)
+    if (score < bs - 1) { bs = score; best = i; }
   });
   return best;
 }

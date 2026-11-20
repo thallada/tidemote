@@ -270,6 +270,37 @@ else {
   }
   check('A on an option keeps focus on that option (Display and Audio, every option of their rows)', !lost.length, lost.slice(0, 6).join(' | '));
 }
+// chips in a grid (Display's rows of two lines: Microscope, Surface, Controller): the d-pad down and right go to the
+// chip in line below and beside, never its neighbour
+{
+  await T(() => [...document.querySelectorAll('#settings [role="tab"]')].find((x) => /display/i.test(x.textContent))?.click());
+  await frames(2);
+  const plan = await T(() => {
+    const out = [];
+    for (const g of document.querySelectorAll('#settings .segs.many')) {
+      const chips = [...g.querySelectorAll('.chip')].filter((c) => !c.disabled);
+      const r = chips.map((c) => c.getBoundingClientRect());
+      const key = (c) => `${c.dataset.o}=${c.dataset.v}`;
+      chips.forEach((c, i) => {
+        const cx = r[i].left + r[i].width / 2, cy = r[i].top + r[i].height / 2;
+        // the chip below whose span holds this one's middle; the chip beside in the same line
+        const below = chips.find((d, j) => r[j].top > r[i].top + 4 && r[j].top < r[i].bottom + 4 && cx > r[j].left && cx < r[j].right);
+        const beside = chips.find((d, j) => r[j].left > r[i].left + 4 && r[j].left < r[i].right + 4 && cy > r[j].top && cy < r[j].bottom);
+        if (below) out.push([key(c), 'DOWN', key(below)]);
+        if (beside) out.push([key(c), 'RIGHT', key(beside)]);
+      });
+    }
+    return out;
+  });
+  const wrong = [];
+  for (const [from, dir, want] of plan) {
+    await T((k) => { const [o, v] = k.split('='); document.querySelector(`#settings [data-o="${o}"][data-v="${v}"]`)?.focus(); }, from);
+    await pad.press(BTN[dir]);
+    const at = await T(() => { const a = document.activeElement; return a?.dataset?.o ? `${a.dataset.o}=${a.dataset.v}` : a?.tagName; });
+    if (at !== want) wrong.push(`${from} ${dir} → ${at} (not ${want})`);
+  }
+  check(`the d-pad in a grid of chips goes to the one in line (${plan.length} moves)`, plan.length > 10 && !wrong.length, wrong.slice(0, 5).join(' | '));
+}
 // a glossary term: A shows its hint, A again hides it
 const hasTerm = await T(() => { const t = [...document.querySelectorAll('#settings .term')].find((x) => x.getBoundingClientRect().height); t?.focus(); return t ? t.dataset.tip || t.dataset.hint || '?' : null; });
 console.log(`     (the term: ${hasTerm})`);

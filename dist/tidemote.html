@@ -36073,9 +36073,10 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
       if (along <= 1) return;
       const gap = Math.max(0, h ? s > 0 ? r.left - from.right : from.left - r.right : s > 0 ? r.top - from.bottom : from.top - r.bottom);
       const lo = h ? Math.max(r.top, from.top) : Math.max(r.left, from.left), hi = h ? Math.min(r.bottom, from.bottom) : Math.min(r.right, from.right);
-      const across = hi > lo ? 0 : h ? Math.abs(cy - fy) : Math.abs(cx - fx);
-      const score = gap + along * 0.1 + 2 * across;
-      if (score < bs) {
+      const off = h ? Math.abs(cy - fy) : Math.abs(cx - fx);
+      const across = hi - lo > 3 ? 0 : off;
+      const score = gap + along * 0.1 + 2 * across + 0.05 * off;
+      if (score < bs - 1) {
         bs = score;
         best = i;
       }

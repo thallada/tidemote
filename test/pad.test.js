@@ -173,3 +173,18 @@ test('a slider held by A moves a twentieth of its span a press, a stick by fract
   adjust(sel, 1); adjust(sel, 1); adjust(sel, 1); assert.equal(sel.selectedIndex, 2);
   assert.ok(!isAdjustable({ tagName: 'BUTTON' }));
 });
+
+test('in a grid of chips sharing their borders, down and right go to the chip in line, not its neighbour', () => {
+  // Settings → Display → Controller: Auto across the top, then Xbox | PlayStation, Switch | Steam Deck; each chip
+  // drawn 1 px over the one before it (left and above), as the CSS does to share borders
+  const R = (left, top, w, h) => ({ left, top, width: w, height: h, right: left + w, bottom: top + h });
+  const auto = R(0, 0, 200, 25), xbox = R(0, 24, 100, 25), ps = R(99, 24, 101, 25), sw = R(0, 48, 100, 25), deck = R(99, 48, 101, 25);
+  const all = [auto, xbox, ps, sw, deck];
+  assert.equal(nextIndex(ps, all, 'down'), 4);
+  assert.equal(nextIndex(sw, all, 'right'), 4);
+  assert.equal(nextIndex(xbox, all, 'right'), 2);
+  assert.equal(nextIndex(xbox, all, 'down'), 3);
+  assert.equal(nextIndex(deck, all, 'up'), 2);
+  assert.equal(nextIndex(deck, all, 'left'), 3);
+  assert.equal(nextIndex(auto, all, 'down'), 1); // (from Auto, across both: the first below it, as one reads)
+});
