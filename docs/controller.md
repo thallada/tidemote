@@ -38,7 +38,7 @@ dock (the dock's legend says Top bar). In a browser a gamepad press may not coun
 screen needs; the desktop app's is the window's and always works. `pad-look.mjs`
 checks all of it by eye and by pixel.
 
-Still to do: the Steamworks Steam Input setting (decision 3), the Deck walkthrough and its run, measuring the Steam
+Still to do: the Steamworks Steam Input setting (decision 3) and Touch API Pass-through (Touch on the Deck), the Deck walkthrough and its run, measuring the Steam
 overlay's cost before deciding on it, haptics, keys in the guide's prose by argument, and the first-time player test.
 
 The plan rests on three pieces of work: an inventory of every input the page handles today (below, *What there is*),
@@ -280,6 +280,29 @@ which is the same rule as never re-rendering a control under the pointer.
 - Ship the native Linux build to the Deck rather than Windows under Proton, so the pad's id keeps its vendor.
 - The Steamworks setting: Steam Input template "Gamepad", "Any Future Devices", and a recommended configuration for
   every controller type, so nobody is asked to choose. The alternative is a decision below.
+
+## Touch on the Deck
+
+Found on a Deck in Game Mode (2026-11-20, debugged live over SSH and Chrome's remote debugging): by default gamescope
+does not pass the touchscreen through. A tap reaches an X11 game as an emulated mouse click (or, depending on what
+else is set, as a pen whose release never comes), single-touch only: buttons answer, but nothing that drags, pinches
+or presses the world does. Steam passes real touch through only when the game asks for it:
+
+- **The release setting:** Steamworks → the app → Steam Deck Touchscreen → **Touch API Pass-through**
+  ([Steamworks Steam Deck FAQ](https://partner.steamgames.com/doc/steamhardware/steamdeck/faq)). Without it Steam
+  emulates a single touch with a mouse pointer.
+- **Before there is an app id (a non-Steam game):** the controller layout's Default action set → gear → Add
+  Always-On Command → System → **Touchscreen Native Support**. (`gamescopectl touch_click_mode 4` does it by hand
+  for a running game.)
+- Touch then reaches Xwayland as an XInput2 direct-touch device (`xwayland-touch`), which Chromium does not take for
+  a touchscreen (`navigator.maxTouchPoints` stays 0). The desktop app turns on `--touch-events=enabled` under
+  gamescope (`desktop/main.js`), and the page gets proper touch pointers, every finger its own: taps, drags, pinches,
+  the loupe placed and dragged, as on a phone.
+- Running the app as a native Wayland client (`--ozone-platform=wayland` on `gamescope-0`) gets real touch too, but
+  Steam's gamescope session shows only X11 windows (it is not started with `--expose-wayland`): the game runs
+  unseen behind the spinner.
+- Rebuilding touch from the emulated mouse and pen was tried and dropped: single-touch only, and a lost release left
+  a pointer pressed forever.
 
 ## Pitfalls and how each is met
 

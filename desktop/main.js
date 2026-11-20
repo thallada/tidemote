@@ -46,6 +46,10 @@ app.commandLine.appendSwitch('enable-unsafe-webgpu');
 if (process.platform === 'linux') {
   app.commandLine.appendSwitch('enable-features', 'Vulkan'); // i18n-ignore (a Chromium feature)
   app.commandLine.appendSwitch('ignore-gpu-blocklist');
+  // (a Steam Deck in Game Mode: gamescope passes the touchscreen through as touch when the game asks Steam for it,
+  // Steamworks → Steam Deck Touchscreen → Touch API Pass-through, docs/controller.md; Chromium on its X11 does not take
+  // that virtual device for a touchscreen, so touch events are turned on here)
+  if (process.env.XDG_CURRENT_DESKTOP === 'gamescope') app.commandLine.appendSwitch('touch-events', 'enabled');
 }
 
 protocol.registerSchemesAsPrivileged([

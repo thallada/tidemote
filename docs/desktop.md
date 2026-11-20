@@ -236,6 +236,8 @@ still open on our side. Valve's own pages are the authority for their rules and 
    - Steam's library and client art (capsules, the library's hero and logo, the client's icon, for
      which `desktop/icon/icon.ico` can serve; Steamworks → Store Assets and Library Assets). The
      window and executable icon is done (Status).
+   - Steam Deck Touchscreen: **Touch API Pass-through**, or the Deck's touchscreen reaches the game as one emulated
+     mouse pointer (docs/controller.md, Touch on the Deck).
    - Linux, for the Steam Deck: a native Linux package (Vulkan switches already set, see Switches),
      run on a real Deck (AMD, RADV): controls without a mouse (trackpads, touch, the on-screen
      keyboard for naming), text legible at 1280×800, the frame rate the page picks there. Steam Deck

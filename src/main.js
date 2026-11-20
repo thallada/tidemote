@@ -3910,6 +3910,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   }
   function applyMode() {
     const b = document.body.dataset;
+    // (the pad no longer pointing: the loupe it parked at the reticle is let go, for the mouse or a finger to place)
+    if (mode.pointer !== 'pad' && b.pointer === 'pad') hover.on = false;
     b.glyphs = mode.glyphs; b.pad = mode.family; b.pointer = mode.pointer;
     if (!$('help').hidden) renderHelp();
     tips.refresh?.();

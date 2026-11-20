@@ -43380,6 +43380,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     }
     function applyMode() {
       const b = document.body.dataset;
+      if (mode.pointer !== "pad" && b.pointer === "pad") hover.on = false;
       b.glyphs = mode.glyphs;
       b.pad = mode.family;
       b.pointer = mode.pointer;
