@@ -389,6 +389,33 @@ export function createLab(api) {
       if (hit.locate && e.pointerType === 'mouse') api.openSpecies(hit.target.serial);
       else if (hit.explore) explore(hit.u);
     });
+    // Keys and a controller (main.js gives a canvas marked data-arrows its arrows and Enter): ↑ ↓ name its rows in turn,
+    // as the mouse names what it points at, and Enter (A) explores the row named; past the first or last row, focus
+    // moves on out of it. Leaving it lets the row go.
+    treeCv.tabIndex = 0;
+    treeCv.dataset.arrows = '';
+    // i18n: the lineage tree, for screen readers and keys
+    treeCv.setAttribute('aria-label', tr('lab.lin.tree.aria', 'Lineage tree: up and down name its rows, Enter explores one'));
+    let lane = -1;
+    const name = (i) => {
+      const pts = treeCv._ch?.lanes?.() || [];
+      if (i < 0 || i >= pts.length) return false;
+      lane = i;
+      const r = treeCv.getBoundingClientRect(), [x, y] = pts[i];
+      // (the row brought into view in the Lab's scroll, then named as a mouse there would)
+      const sc = p.scroll, top = r.top + y - sc.getBoundingClientRect().top;
+      if (top < 24 || top > sc.clientHeight - 24) sc.scrollTop += top - sc.clientHeight / 2;
+      const q = treeCv.getBoundingClientRect();
+      treeCv.dispatchEvent(new PointerEvent('pointermove', { pointerType: 'mouse', clientX: q.left + x, clientY: q.top + y, bubbles: true }));
+      return true;
+    };
+    treeCv.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { if (name(lane + (e.key === 'ArrowDown' ? 1 : -1))) e.preventDefault(); }
+      else if ((e.key === 'Enter' || e.key === ' ') && treeCv._hot) { e.preventDefault(); if (treeCv._hot.explore) { explore(treeCv._hot.u); lane = -1; } }
+    });
+    // (focus names its first row: the row's brackets and plate show where focus is, the canvas being too tall for a ring)
+    treeCv.addEventListener('focus', () => { lane = -1; name(0); });
+    treeCv.addEventListener('blur', () => { lane = -1; treeCv.dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' })); });
     // the pointer says what a click would do
     treeCv.addEventListener('pointermove', (e) => { const hit = e.pointerType === 'mouse' && at(treeCv, e); treeCv.style.cursor = hit && (hit.explore || hit.locate) ? 'pointer' : 'default'; });
     const explore = (u) => go({ root: u.strand.first.serial, span: st.linSpan });

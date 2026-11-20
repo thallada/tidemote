@@ -237,11 +237,16 @@ body:not(.live) .hud { opacity: 0; }
    phones, where the rail has no room */
 .ev-chip { cursor: default; border-left-color: var(--cyan); }
 .ev-chip .ev-ico { width: 18px; height: 18px; color: var(--cyan); flex: none; }
-.ev-chip b { white-space: nowrap; min-width: 0; }
+.ev-chip { flex-shrink: 0; }
+/* (short of room the era's name gives way first: an event happening matters more than its whole name) */
+.era-box { flex-shrink: 4; }
+/* (whatever does not fit is cut short, never run into the counts beside it) */
+.ev-chip b { white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ev-chip.hot { border-left-color: var(--hot); } .ev-chip.hot .ev-ico, .ev-chip.hot b { color: var(--hot); }
 .ev-chip.cold { border-left-color: var(--cold); } .ev-chip.cold .ev-ico, .ev-chip.cold b { color: var(--cold); }
 /* narrower desktops: the name alone, then the icon alone (its hint says the rest) */
-@media (max-width: 1180px) { .ev-chip .lbl, .ev-chip .ev-x { display: none; } }
+/* (a Steam Deck's 1280 and laptops near it: the chip's label and its second part go; its hint says them) */
+@media (max-width: 1440px) { .ev-chip .lbl, .ev-chip .ev-x { display: none; } }
 @media (max-width: 980px) { .ev-chip b { display: none; } }
 #tide-wave { width: 60px; height: 16px; overflow: visible; }
 #tide-wave .wave { fill: none; stroke: var(--line-2); stroke-width: 1; }
@@ -1213,6 +1218,7 @@ button.crumb:hover, button.crumb:focus-visible { color: var(--ink); outline: non
 .lin-chain li.more::before { content: none; }
 .lin-muller canvas { display: block; width: 100%; height: 170px; touch-action: pan-y; cursor: crosshair; }
 .lin-brush { position: absolute; pointer-events: none; background: rgba(127, 214, 223, 0.14); border: 1px solid var(--line-2); border-width: 0 1px; }
+canvas.lin-tree:focus { outline: none !important; } /* (its named row's brackets show focus: lab.js) */
 canvas.lin-tree { display: block; width: calc(100% + 8px); margin: 0 -4px; cursor: pointer; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 

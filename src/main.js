@@ -3914,7 +3914,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     if (!$('help').hidden) renderHelp();
     tips.refresh?.();
   }
-  addEventListener('keydown', (e) => { if (noteInput(mode, { kind: 'key', key: e.key })) applyMode(); }, true);
+  // (a real key: not one the pad hands to a control, keyTo)
+  addEventListener('keydown', (e) => { if (e.isTrusted && noteInput(mode, { kind: 'key', key: e.key })) applyMode(); }, true);
   addEventListener('pointerdown', (e) => {
     if (noteInput(mode, { kind: 'pointer', type: e.pointerType })) applyMode();
     if (input.panel && !input.panel.contains(e.target)) input.panel = null;
@@ -3996,6 +3997,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   // a dialog or float the pad has focus in, closed by B (a side panel: focus back to the world)
   function panelBack() {
     const root = padRoot();
+    // (in the Lab's Lineage view, B goes back the way it came first, as Esc does)
+    if (root === $('lab') && lab.back()) return true;
     input.panel = null;
     if (!root) return false;
     if (root === $('intro')) { menu.back(); return true; }
@@ -4048,8 +4051,14 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     return !!to && nav.cross(to, dir);
   }
 
-  // a direction in a panel: a slider or list taken hold of stepped (right and up: more), else focus moved
-  const navStep = (root, dir) => (input.grab ? (adjust(input.grab, dir === 'right' || dir === 'up' ? 1 : -1), true) : navMove(root, dir));
+  // A key given to the focused control, if it takes its own (data-arrows: the lineage tree's rows): whether it did
+  const keyTo = (el, key) => el?.dataset?.arrows != null && !el.dispatchEvent(new KeyboardEvent('keydown', { key, cancelable: true }));
+  // a direction in a panel: a slider or list taken hold of stepped (right and up: more), a control with arrows of its
+  // own given the arrow, else focus moved
+  const navStep = (root, dir) => {
+    if (input.grab) { adjust(input.grab, dir === 'right' || dir === 'up' ? 1 : -1); return true; }
+    return keyTo(document.activeElement, `Arrow${dir[0].toUpperCase()}${dir.slice(1)}`) || navMove(root, dir); // i18n-ignore (key names)
+  };
   const isTerm = (el) => !!el?.matches?.('.term, span[data-tip]'); // (a glossary term: A shows its hint)
 
   /** Carry out an action (actions.js) by its id; how: { key, repeat } for a key. Whether it was handled. */
@@ -4134,6 +4143,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
         if (input.grab) letGo();
         else if (isAdjustable(a)) grab(a);
         else if (isTerm(a)) tips.toggle(a);
+        else if (a.dataset.arrows != null) keyTo(a, 'Enter'); // i18n-ignore (key names)
         else if (isText(a)) typeInto(a);
         else a.click();
         return true;
@@ -4327,14 +4337,14 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     // the pad points from the view's middle: the loupe and the tools' reticles go there, and a mark shows it
     const padPoints = mode.pointer === 'pad' && running;
     if (padPoints) { const [x, y] = aim(); hover.x = x; hover.y = y; hover.on = true; }
-    const showAim = padPoints && state.ui && !panel && !rose.shown && !inHand() && !ride.on && hand.tool !== 'loupe';
+    const showAim = padPoints && state.ui && !panel && !rose.shown && !inHand() && !ride.on && hand.tool !== 'loupe' && !director.active;
     const aimEl = $('aim');
     aimEl.hidden = !showAim;
     if (showAim) { const [x, y] = aim(); aimEl.style.transform = `translate(${x}px, ${y}px)`; } // i18n-ignore (key names, selectors and styles)
   }
 
   addEventListener('keydown', (e) => {
-    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
     const t = e.target;
     const tag = t && t.tagName;
     if (tag === 'INPUT' && t.type !== 'range' || tag === 'SELECT' || tag === 'TEXTAREA') { if (e.key === 'Escape') t.blur(); return; }

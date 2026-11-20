@@ -1311,6 +1311,7 @@
   "lab.lin.descent.aside": "click species to highlight",
   "lab.lin.list.aria": "Lineages",
   "lab.lin.empty": "Lineages appear here once species become established.",
+  "lab.lin.tree.aria": "Lineage tree: up and down name its rows, Enter explores one",
   "lab.lin.crumbs.all": "All lineages",
   "lab.lin.crumbs.more.aria": "Show the whole path",
   "lab.lin.read.lineages": "Lineages",

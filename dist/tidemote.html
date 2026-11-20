@@ -293,11 +293,16 @@ body:not(.live) .hud { opacity: 0; }
    phones, where the rail has no room */
 .ev-chip { cursor: default; border-left-color: var(--cyan); }
 .ev-chip .ev-ico { width: 18px; height: 18px; color: var(--cyan); flex: none; }
-.ev-chip b { white-space: nowrap; min-width: 0; }
+.ev-chip { flex-shrink: 0; }
+/* (short of room the era's name gives way first: an event happening matters more than its whole name) */
+.era-box { flex-shrink: 4; }
+/* (whatever does not fit is cut short, never run into the counts beside it) */
+.ev-chip b { white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ev-chip.hot { border-left-color: var(--hot); } .ev-chip.hot .ev-ico, .ev-chip.hot b { color: var(--hot); }
 .ev-chip.cold { border-left-color: var(--cold); } .ev-chip.cold .ev-ico, .ev-chip.cold b { color: var(--cold); }
 /* narrower desktops: the name alone, then the icon alone (its hint says the rest) */
-@media (max-width: 1180px) { .ev-chip .lbl, .ev-chip .ev-x { display: none; } }
+/* (a Steam Deck's 1280 and laptops near it: the chip's label and its second part go; its hint says them) */
+@media (max-width: 1440px) { .ev-chip .lbl, .ev-chip .ev-x { display: none; } }
 @media (max-width: 980px) { .ev-chip b { display: none; } }
 #tide-wave { width: 60px; height: 16px; overflow: visible; }
 #tide-wave .wave { fill: none; stroke: var(--line-2); stroke-width: 1; }
@@ -1269,6 +1274,7 @@ button.crumb:hover, button.crumb:focus-visible { color: var(--ink); outline: non
 .lin-chain li.more::before { content: none; }
 .lin-muller canvas { display: block; width: 100%; height: 170px; touch-action: pan-y; cursor: crosshair; }
 .lin-brush { position: absolute; pointer-events: none; background: rgba(127, 214, 223, 0.14); border: 1px solid var(--line-2); border-width: 0 1px; }
+canvas.lin-tree:focus { outline: none !important; } /* (its named row's brackets show focus: lab.js) */
 canvas.lin-tree { display: block; width: calc(100% + 8px); margin: 0 -4px; cursor: pointer; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
@@ -24996,6 +25002,8 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         drawTree(cv, c, lay, eras, { ...opts, hot: hot2, locating: !!cv._hot?.locate });
         opts.onHot?.(hot2);
       },
+      // each row's name, top to bottom, as a point in the canvas (px) that names it: for keys and a controller
+      lanes: () => [...items].sort((p2, q) => p2.lane - q.lane).map((it) => [it.label[0] + 8, it.label[1] + it.label[3] / 2]),
       at(px, py) {
         const lane = Math.floor((py - 4) / rh);
         const it = items.find((q) => q.lane === lane && px >= Math.min(X(q.born), q.label[0]) - 4 && px <= Math.max(X(q.end), q.label[0] + q.label[2]) + 4);
@@ -26312,6 +26320,40 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         if (!hit) return;
         if (hit.locate && e.pointerType === "mouse") api.openSpecies(hit.target.serial);
         else if (hit.explore) explore(hit.u);
+      });
+      treeCv.tabIndex = 0;
+      treeCv.dataset.arrows = "";
+      treeCv.setAttribute("aria-label", tr("lab.lin.tree.aria", "Lineage tree: up and down name its rows, Enter explores one"));
+      let lane = -1;
+      const name = (i) => {
+        const pts = treeCv._ch?.lanes?.() || [];
+        if (i < 0 || i >= pts.length) return false;
+        lane = i;
+        const r = treeCv.getBoundingClientRect(), [x, y] = pts[i];
+        const sc = p2.scroll, top = r.top + y - sc.getBoundingClientRect().top;
+        if (top < 24 || top > sc.clientHeight - 24) sc.scrollTop += top - sc.clientHeight / 2;
+        const q = treeCv.getBoundingClientRect();
+        treeCv.dispatchEvent(new PointerEvent("pointermove", { pointerType: "mouse", clientX: q.left + x, clientY: q.top + y, bubbles: true }));
+        return true;
+      };
+      treeCv.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          if (name(lane + (e.key === "ArrowDown" ? 1 : -1))) e.preventDefault();
+        } else if ((e.key === "Enter" || e.key === " ") && treeCv._hot) {
+          e.preventDefault();
+          if (treeCv._hot.explore) {
+            explore(treeCv._hot.u);
+            lane = -1;
+          }
+        }
+      });
+      treeCv.addEventListener("focus", () => {
+        lane = -1;
+        name(0);
+      });
+      treeCv.addEventListener("blur", () => {
+        lane = -1;
+        treeCv.dispatchEvent(new PointerEvent("pointerleave", { pointerType: "mouse" }));
       });
       treeCv.addEventListener("pointermove", (e) => {
         const hit = e.pointerType === "mouse" && at(treeCv, e);
@@ -43345,7 +43387,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       tips.refresh?.();
     }
     addEventListener("keydown", (e) => {
-      if (noteInput(mode, { kind: "key", key: e.key })) applyMode();
+      if (e.isTrusted && noteInput(mode, { kind: "key", key: e.key })) applyMode();
     }, true);
     addEventListener("pointerdown", (e) => {
       if (noteInput(mode, { kind: "pointer", type: e.pointerType })) applyMode();
@@ -43429,6 +43471,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     }
     function panelBack() {
       const root = padRoot();
+      if (root === $2("lab") && lab.back()) return true;
       input.panel = null;
       if (!root) return false;
       if (root === $2("intro")) {
@@ -43485,7 +43528,14 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const to = dir === "up" ? root.id === "dock" ? open("bench") || open("rail") : ["spec", "lab", "bench", "held"].includes(root.id) ? open("rail") : null : dir === "down" ? root.id === "rail" || root.id === "bench" ? open("dock") : null : null;
       return !!to && nav.cross(to, dir);
     }
-    const navStep = (root, dir) => input.grab ? (adjust(input.grab, dir === "right" || dir === "up" ? 1 : -1), true) : navMove(root, dir);
+    const keyTo = (el2, key) => el2?.dataset?.arrows != null && !el2.dispatchEvent(new KeyboardEvent("keydown", { key, cancelable: true }));
+    const navStep = (root, dir) => {
+      if (input.grab) {
+        adjust(input.grab, dir === "right" || dir === "up" ? 1 : -1);
+        return true;
+      }
+      return keyTo(document.activeElement, `Arrow${dir[0].toUpperCase()}${dir.slice(1)}`) || navMove(root, dir);
+    };
     const isTerm = (el2) => !!el2?.matches?.(".term, span[data-tip]");
     function act(id, how = {}) {
       if (id.startsWith("tool-")) {
@@ -43677,6 +43727,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           if (input.grab) letGo();
           else if (isAdjustable(a)) grab(a);
           else if (isTerm(a)) tips.toggle(a);
+          else if (a.dataset.arrows != null) keyTo(a, "Enter");
           else if (isText(a)) typeInto(a);
           else a.click();
           return true;
@@ -43926,7 +43977,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         hover.y = y;
         hover.on = true;
       }
-      const showAim = padPoints && state.ui && !panel && !rose.shown && !inHand() && !ride.on && hand.tool !== "loupe";
+      const showAim = padPoints && state.ui && !panel && !rose.shown && !inHand() && !ride.on && hand.tool !== "loupe" && !director.active;
       const aimEl = $2("aim");
       aimEl.hidden = !showAim;
       if (showAim) {
@@ -43935,7 +43986,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       }
     }
     addEventListener("keydown", (e) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
       const t = e.target;
       const tag = t && t.tagName;
       if (tag === "INPUT" && t.type !== "range" || tag === "SELECT" || tag === "TEXTAREA") {

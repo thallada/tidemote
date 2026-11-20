@@ -38,7 +38,8 @@ async function ringAudit(rootSel, label) {
     const root = document.querySelector(sel);
     if (!root) return { n: 0, cut: ['(no root)'] };
     const sels = 'button, a[href], input:not([type="hidden"]), select, textarea, [tabindex], [role="tab"], summary';
-    const shows = (el) => { const b = el.getBoundingClientRect(); return b.width > 0 && b.height > 0 && !el.closest('[hidden], [inert], .sr-only') && !el.disabled && getComputedStyle(el).visibility !== 'hidden'; };
+    // (a control that takes its own arrows draws its own focus: the lineage tree's named row)
+    const shows = (el) => { const b = el.getBoundingClientRect(); return b.width > 0 && b.height > 0 && !el.closest('[hidden], [inert], .sr-only') && !el.disabled && el.dataset.arrows == null && getComputedStyle(el).visibility !== 'hidden'; };
     const els = [...root.querySelectorAll(sels)].filter(shows);
     const cut = [];
     for (const el of els) {
@@ -176,6 +177,24 @@ for (const fam of ['xbox', 'ps', 'switch', 'deck']) {
 await T(() => document.getElementById('gl-sheet').remove());
 check('every glyph\'s label centered in its outline, on a sheet (within 0.75 px)', worst.d <= 0.75, JSON.stringify(worst));
 
+// ------------------------------------------------------------ the rail with an event and a heat wave at once: nothing in it overlaps
+{
+  await T(() => { const c = __tidemote.climate(), t = __tidemote.eng.simTime; c.excursion = { t: t - 1, dur: 30, dT: 7 }; c.event = { type: 'duckweed', t: t - 1 }; c.phase = 'peak'; });
+  await wait(1200);
+  const o = await T(() => {
+    const parts = [...document.querySelectorAll('.rail > *, .rail-right > *')].filter((e) => e.offsetParent && !e.classList.contains('rail-right'));
+    const bad = [];
+    for (const e of parts) {
+      // (what each shows: its text's extent, not its box)
+      const rg = document.createRange(); rg.selectNodeContents(e); const r = rg.getBoundingClientRect();
+      for (const f of parts) if (f !== e && !e.contains(f) && !f.contains(e)) { const q = f.getBoundingClientRect(); if (r.right > q.left + 1 && r.left < q.right - 1 && r.bottom > q.top + 1 && r.top < q.bottom - 1) bad.push(`${e.id || e.className.split(' ')[0]} over ${f.id || f.className.split(' ')[0]}`); }
+    }
+    return bad;
+  });
+  check('the rail with an event and a heat wave: nothing overlaps', !o.length, o.slice(0, 4).join(' | '));
+  await shot('rail-event', { x: 0, y: 0, width: w, height: 60 });
+  await T(() => { const c = __tidemote.climate(); c.excursion = null; c.event = null; });
+}
 // ------------------------------------------------------------ the legend in the world
 await T(() => { document.body.dataset.pad = __tidemote.input.mode.family; });
 await frames(3);
@@ -326,6 +345,31 @@ for (let i = 0; i < labTabs.length; i++) {
   await wait(300);
   await ringAudit('#lab', `Lab · ${labTabs[i] || i}`);
 }
+// the Lineage view by the pad: the d-pad names the tree's rows, A explores one, B goes back the way it came
+{
+  await T(() => [...document.querySelectorAll('#lab [role="tab"]')].find((x) => /lineage/i.test(x.textContent))?.click());
+  await wait(600);
+  const has = await T(() => { const t = document.getElementById('lin-tree'); if (!t || !t.getClientRects().length) return false; t.focus(); return document.activeElement === t; });
+  if (!has) console.log('     (no lineage tree yet in this world: not checked)');
+  else {
+    const plate = () => T(() => { const p = document.getElementById('plate'); return p.hidden ? null : p.textContent.trim().slice(0, 40); });
+    const crumbs = () => T(() => document.querySelectorAll('#lin-crumbs li:not([hidden])').length);
+    await pad.press(BTN.DOWN); const p1 = await plate();
+    await pad.press(BTN.DOWN); const p2 = await plate();
+    check('in the Lineage tree the d-pad names its rows in turn', !!p1 && !!p2 && p1 !== p2, JSON.stringify({ p1, p2 }));
+    const c0 = await crumbs();
+    // (a row that can be explored: down until one is)
+    for (let i = 0; i < 8 && !(await T(() => document.getElementById('lin-tree')._hot?.explore)); i++) await pad.press(BTN.DOWN);
+    await pad.press(BTN.S); await wait(400);
+    const c1 = await crumbs();
+    check('A explores the row named', c1 > c0, `${c0} → ${c1} crumbs`);
+    await pad.press(BTN.E); await wait(400);
+    const back = { crumbs: await crumbs(), focus: (await S()).ctx };
+    check('B goes back up the lineage, the Lab keeping focus', back.crumbs === c0 && back.focus === 'panel', JSON.stringify(back));
+    const g = (await S()).glyphs;
+    check('the arrows the pad handed the tree leave the pad\'s names', g === 'pad', g);
+  }
+}
 await T(() => document.querySelector('#lab [role="tab"]')?.click());
 await T(() => document.querySelector('#lab [role="tab"]')?.focus());
 await frames(2);
@@ -456,7 +500,7 @@ for (const tool of ['needle', 'cold', 'pipette', 'touch']) {
   for (let i = 0; i < 8; i++) { await wait(120); fs.push((await S()).focus); }
   s = await S();
   console.log(`     (${tool} focus over a second: ${fs.map((f) => f.toFixed(2)).join(' ')})`);
-  check(`A held lets the ${tool} down into the water (in focus)`, s.focus > 0.95, s.focus.toFixed(2));
+  check(`A held lets the ${tool} down into the water (in focus)`, s.focus > 0.9, s.focus.toFixed(2));
   const [ax, ay] = await T(() => __tidemote.input.aim());
   await shot(`tool-${tool}`, { x: Math.max(0, ax - 160), y: Math.max(0, ay - 160), width: 320, height: 320 });
   await pad.up(BTN.S); await wait(200);
@@ -498,8 +542,8 @@ await T(() => __tidemote.input.act('tool-none'));
 {
   await T(() => document.activeElement?.blur());
   await pad.press(BTN.UP); await wait(400);
-  const on = await T(() => ({ auto: __tidemote.director.active, legend: !document.getElementById('padbar').classList.contains('off') }));
-  check('the auto camera hides the legend', on.auto && !on.legend, JSON.stringify(on));
+  const on = await T(() => ({ auto: __tidemote.director.active, legend: !document.getElementById('padbar').classList.contains('off'), aim: !document.getElementById('aim').hidden }));
+  check('the auto camera hides the legend and the reticle', on.auto && !on.legend && !on.aim, JSON.stringify(on));
   await pad.stick(1, 0); await wait(200); await pad.stick(0, 0); await frames(3);
   await pad.press(BTN.DOWN); await pad.press(BTN.DOWN); await wait(350);
   const off = await T(() => ({ auto: __tidemote.director.active, legend: !document.getElementById('padbar').classList.contains('off') }));

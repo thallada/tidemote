@@ -320,6 +320,8 @@ export function drawTree(cv, c, lay, eras, opts = {}) {
   }
   cv._ch = {
     redraw: () => { const hot = cv._hot ? cv._hot.key : null; drawTree(cv, c, lay, eras, { ...opts, hot, locating: !!cv._hot?.locate }); opts.onHot?.(hot); },
+    // each row's name, top to bottom, as a point in the canvas (px) that names it: for keys and a controller
+    lanes: () => [...items].sort((p, q) => p.lane - q.lane).map((it) => [it.label[0] + 8, it.label[1] + it.label[3] / 2]),
     at(px, py) {
       const lane = Math.floor((py - 4) / rh);
       const it = items.find((q) => q.lane === lane && px >= Math.min(X(q.born), q.label[0]) - 4 && px <= Math.max(X(q.end), q.label[0] + q.label[2]) + 4);
