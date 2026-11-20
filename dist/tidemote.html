@@ -11938,18 +11938,81 @@ fn seaFieldAt(pos: vec2f) -> Surface {
   let surf = surfaceAt(wp, post.ppu, viewSpan(), waterRoom(poolAt(wp)));
   shiftMap[g.y * ${SHIFT_W}u + g.x] = keepInView(surf.shift * post.ppu, px);
 }
-// Schlieren, in pixels: with the heat haze on, warm water bends the light passing through it like the
-// air over a hot road, faintly, wherever warmth changes (around colonies and framboids, at fronts), the
-// ripples carried by the current. water: waterAt(wp).
-fn shimmer(wp: vec2f, water: vec3f) -> vec2f {
+// The haze's ripples (schlieren): the view is bent along the slope of the water's refractive index, here a field of
+// gradient noise, so the bend never swirls (two noises, one for each axis, turned what lay under them about as if
+// stirred) and what it bends wavers in place. hazeSlope is the noise's slope, by its derivative worked out with it
+// (the cost of one value noise): the lattice turned off the axes as gradNoiseWGSL's, its fade quintic.
+fn hazeSlope(p: vec2f) -> vec2f {
+  let R = mat2x2f(0.8, 0.6, -0.6, 0.8);
+  let q = R * p;
+  let c = floor(q);
+  let f = fract(q);
+  let w = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  let dw = 30.0 * f * f * (f * (f - 2.0) + 1.0);
+  let ha = hash12(c); let hb = hash12(c + vec2f(1.0, 0.0)); let hc = hash12(c + vec2f(0.0, 1.0)); let hd = hash12(c + vec2f(1.0, 1.0));
+  let ga = vec2f(ha, fract(ha * 37.17)) * 2.0 - 1.0; let gb = vec2f(hb, fract(hb * 37.17)) * 2.0 - 1.0;
+  let gc = vec2f(hc, fract(hc * 37.17)) * 2.0 - 1.0; let gd = vec2f(hd, fract(hd * 37.17)) * 2.0 - 1.0;
+  let va = dot(ga, f); let vb = dot(gb, f - vec2f(1.0, 0.0)); let vc = dot(gc, f - vec2f(0.0, 1.0)); let vd = dot(gd, f - vec2f(1.0, 1.0));
+  let k = va - vb - vc + vd;
+  let d = ga + w.x * (gb - ga) + w.y * (gc - ga) + w.x * w.y * (ga - gb - gc + gd) + dw * vec2f(vb - va + w.y * k, vc - va + w.x * k);
+  // (back off the turned lattice)
+  return d * R;
+}
+// The ripples' slope at wp, in units of a ripple's own size, and that size in pixels at ppu: two octaves of the noise
+// fixed in the world (2^k a unit), weighed so a ripple is always HAZE_SPAN pixels across or so (between half and twice
+// it, crossfading as the view zooms, never sliding), finer than a cell close up, so each cell's outline wavers rather
+// than whole cells moving; each octave two layers scrolling past each other (HAZE_RUN, ripples a second, on the viewer's
+// clock, post.time: it flickers alike at any speed of the world). xy: the slope times the ripple's size (pixels), as
+// one bends the view; the two octaves' weights sum to 1.
+const HAZE_SPAN = 24.0;
+const HAZE_RUN = vec2f(2.2, 1.7);
+fn hazeRipples(wp: vec2f, ppu: f32) -> vec2f {
+  let o = log2(max(ppu, 1e-3) / HAZE_SPAN);
+  let k0 = floor(o);
+  let t = o - k0;
+  var d = vec2f(0.0);
+  for (var i = 0; i < 2; i++) {
+    let fr = exp2(k0 + f32(i));
+    // (the coarser octave's ripples are 2^t of HAZE_SPAN across, the finer half that: each weighed by how near its size
+    // is to HAZE_SPAN, in octaves)
+    let wt = select(1.0 - t, t, i == 1);
+    if (wt <= 0.0) { continue; }
+    let q = wp * fr;
+    let a = hazeSlope(q + vec2f(0.8, 0.6) * (post.time * HAZE_RUN.x));
+    let b = hazeSlope(q * 1.37 + vec2f(-0.5, 0.866) * (post.time * HAZE_RUN.y) + 17.3);
+    d += (a + b * 0.8) * (wt * ppu / fr);
+  }
+  return d;
+}
+// Schlieren, in pixels at ppu: with the heat haze on, warm water bends the light passing through it like the air over
+// a hot road. It wavers wherever warmth changes (around colonies and framboids, at fronts: the slope of the
+// temperature, °C a cell) and over water warmer than the water about it or hot in itself (where bubbles come out,
+// rising and stirring it), a flat hot patch too. How strongly (0 to 1) is the most of: how steep the temperature's
+// slope (HAZE_SLOPE, °C a cell, from where it begins to full), how much warmer than the water HAZE_R cells about it
+// (HAZE_WARM, °C), and how hot it is in itself (HAZE_HOT, °C: a heat wave's warmest water a little); at full the
+// view moves HAZE_AMP of a ripple's size where the ripples are steepest. water: waterAt(wp).
+const HAZE_AMP = 0.08;
+const HAZE_R = 3.5;
+const HAZE_SLOPE = vec2f(1.0, 4.0);
+const HAZE_WARM = vec2f(1.5, 8.0);
+const HAZE_HOT = vec2f(30.0, 55.0);
+fn shimmer(wp: vec2f, water: vec3f, ppu: f32) -> vec2f {
   // (water near boiling roils, whatever the heat map shows; its noise only where it does: everywhere else it cost an
   // M1 most of a millisecond of the composite to multiply by 0)
   let roil = boilAt(water.x);
   var boil = vec2f(0.0);
   if (roil > 0.0) { boil = roil * flowNoise(wp, 2.5) * 5.0; }
   if (post.heatVis <= 0.5 || post.heatVis >= 1.5) { return boil; }
-  let shift = water.yz * flowNoise(wp, 7.0) * 2.0;
-  return shift * min(1.0, 3.0 / max(length(shift), 1e-4)) + boil;
+  // (how much warmer than the water HAZE_R cells about it: life warms the whole pool a few degrees past the era's
+  // water, so that is no measure of a warm spot)
+  let wq = wp - post.world * floor(wp / post.world);
+  let about = 0.25 * (waterAt(wq + vec2f(HAZE_R, HAZE_R)).x + waterAt(wq + vec2f(-HAZE_R, HAZE_R)).x
+    + waterAt(wq + vec2f(HAZE_R, -HAZE_R)).x + waterAt(wq + vec2f(-HAZE_R, -HAZE_R)).x);
+  let warm = max(smoothstep(HAZE_WARM.x, HAZE_WARM.y, water.x - about), smoothstep(HAZE_HOT.x, HAZE_HOT.y, water.x));
+  let s = min(1.0, smoothstep(HAZE_SLOPE.x, HAZE_SLOPE.y, length(water.yz)) + warm);
+  // (and its noise, likewise, only where it shows)
+  if (s < 0.02) { return boil; }
+  return hazeRipples(wp, ppu) * (s * HAZE_AMP) + boil;
 }
 // What of the light reaches wp past the sky (clouds) and any duckweed's shade, as lifeMain has it (lightAt).
 fn lightPassed(wp: vec2f) -> f32 {
@@ -12372,7 +12435,7 @@ struct FieldOut { @location(0) a: vec4f, @location(1) b: vec4f, @location(2) c: 
   var roil = vec2f(0.0);
   if (post.heatVis >= 0.0) {
     water = waterAt(wp - post.world * floor(wp / post.world));
-    roil = shimmer(wp, water);
+    roil = shimmer(wp, water, post.ppu);
   }
   let l = lightPost(wp, tideAt(wp, post.world, post.simTime, post.tide, post.tidePh));
   var o: FieldOut;
@@ -12525,7 +12588,7 @@ fn loupeScene(r: vec2f) -> vec3f {
   var bub = Bubbles(vec2f(0.0), 1.0, vec3f(0.0));
   if (post.heatVis >= 0.0) {
     water = waterAt(wp - post.world * floor(wp / post.world));
-    let roil = shimmer(wp, water) / loupe.ppu;
+    let roil = shimmer(wp, water, loupe.ppu) / loupe.ppu;
     r += roil * toR;
     bub = bubblesAt(wp + surf.shift + roil, loupe.ppu, water);
     bend += bub.bend;
@@ -38735,7 +38798,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     contacts: { levels: [4, 2], passes: /contactGather/, share: (from, to) => gather(to) / gather(from), loss: [0.1], cadence: true },
     // The composite's finish, as two knobs (Engine.fx.haze, Engine.fx.microscope), once one ladder (all of it; without
     // the haze; without the microscope either): the heat haze, the shimmer over warm water (1 - SSIM 0.001-0.006 against
-    // full quality: barely seen, 10-15% of the composite; boiling water still roils without it), and the microscope, the
+    // full quality when measured, before it grew close up (docs/look.md, Heat haze); 10-15% of the composite; boiling water still roils without it), and the microscope, the
     // optics and the look (0.10-0.13, as much as half the render scale; the composite about halved, 0.61 → 0.27 ms on an
     // RTX 4070 Ti at 2544 × 1289). Their losses are the old ladder's steps', so the haze still goes long before the
     // microscope and the microscope comes back first. Their cost is the composite's in each state of the two (k.other:
@@ -39249,9 +39312,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "585e078b61ce95cc") return;
+      if (localStorage.getItem(key) === "2a98807cf083d69b") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "585e078b61ce95cc");
+      if (res) localStorage.setItem(key, "2a98807cf083d69b");
     } catch {
     }
   }

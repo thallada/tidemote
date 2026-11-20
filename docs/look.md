@@ -326,6 +326,33 @@ covers as much at every zoom and nothing aliases (finer octaves once shimmered a
 two generations are kept as densities and turned into flocs in the composite (`murkLayers`), so their edges are drawn
 at the full resolution rather than stretched from a quarter of it.
 
+## Heat haze
+
+With Display → Heat haze on, warm water bends the view as hot air over a road does (`shimmer` in POST_WGSL, worked
+out in `fsField`; the loupe inline). How strongly it wavers (0 to 1) is the most of three measures of the heat field:
+how steep the temperature's slope (`HAZE_SLOPE`, °C a cell), how much warmer the water is than the water `HAZE_R` cells
+about it (`HAZE_WARM`), and how hot it is in itself (`HAZE_HOT`, so a heat wave's warmest water wavers a little). The
+water a few cells about, not the era's background, is the measure of a warm spot, since life warms the whole pool a
+few degrees past the era's water.
+
+The view is bent along the slope of one field (`hazeSlope`: gradient noise and its derivative, worked out together for
+the cost of one value noise), as schlieren bend it along the slope of the water's refractive index: such a bend never
+swirls, so what it bends wavers in place. Its ripples (`hazeRipples`) are two octaves fixed in the world, weighed so a
+ripple is about `HAZE_SPAN` pixels across at any zoom (half to twice it, crossfading as the view zooms, never
+sliding), finer than a cell close up, and each octave is two layers scrolling past each other on the viewer's clock
+(`HAZE_RUN`), so it flickers alike at any speed of the world. At full strength the view moves up to `HAZE_AMP` of a
+ripple's size: over a staged +30° patch at 120 pixels a unit the median 16 px block moves 0.8 px (2.6 at the 95th
+percentile), 0.25 px a frame. Boiling water's roil (`boilAt`) shows with the haze off too.
+
+Until 2026-11-20 it was the slope alone, times the noise, in screen pixels: under half a pixel nearly everywhere, at
+any zoom, and nothing inside a warm patch, where the temperature is flat; `tools/heatlook.mjs` showed haze-on and
+haze-off frames alike. A first rework (warmth, a size growing with the zoom) used two noises for the two axes at four
+ripples a unit, bigger than cells close up: whole cells moved and turned together, a wave through a crowd, not a haze.
+
+`tools/heatlook.mjs --out runs/heatlook/NAME` grows a world and photographs its warmest water and staged warm patches (a plume, a broad hot patch, near a boil) with the haze on and off at several zooms, and records
+clips held and running (and held over stone, `--stone`, cached and still: whatever moves there the haze moved);
+`python3 tools/heatlook.py DIR` measures each pair against a control pair (the haze off twice).
+
 ## Left out
 
 - Other presets: a cool, desaturated "instrument" look after the interface (it cost a quarter of the species' color

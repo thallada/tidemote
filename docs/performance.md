@@ -193,7 +193,7 @@ Chrome reports its adapter's vendor (`img-tec`) but neither architecture nor des
   Auto lets the tuner turn the sea less often but never off, `tuneFloor`), and Adaptation off leaves every knob at its
   best. What it holds back right now (`heldBack`, pure and
   tested) is listed under Adaptation, and each Display row on Auto underlines the value it holds now (Off while eased). Tools still pin knobs (`T.setTune`, `T.setEffects`, a bench plan's `tune` and
-  `effects`), never saved. The heat haze (barely seen: 1 - SSIM 0.001-0.006) and the microscope (the optics, their murk
+  `effects`), never saved. The heat haze (barely seen when measured: 1 - SSIM 0.001-0.006; stronger close up since 2026-11-20, docs/look.md, Heat haze) and the microscope (the optics, their murk
   and the look: 0.10-0.13, the composite about halved) were once one Finish ladder; as two knobs they keep its steps'
   losses (0.05 and 1.2), so the haze still goes long before the microscope and the microscope comes back first, and
   their cost is the composite's per pixel in each of the four states of the two (`COMP_GUESS` until learned). Cell

@@ -57,7 +57,7 @@ export const KNOBS = {
   contacts: { levels: [4, 2], passes: /contactGather/, share: (from, to) => gather(to) / gather(from), loss: [0.1], cadence: true },
   // The composite's finish, as two knobs (Engine.fx.haze, Engine.fx.microscope), once one ladder (all of it; without
   // the haze; without the microscope either): the heat haze, the shimmer over warm water (1 - SSIM 0.001-0.006 against
-  // full quality: barely seen, 10-15% of the composite; boiling water still roils without it), and the microscope, the
+  // full quality when measured, before it grew close up (docs/look.md, Heat haze); 10-15% of the composite; boiling water still roils without it), and the microscope, the
   // optics and the look (0.10-0.13, as much as half the render scale; the composite about halved, 0.61 → 0.27 ms on an
   // RTX 4070 Ti at 2544 × 1289). Their losses are the old ladder's steps', so the haze still goes long before the
   // microscope and the microscope comes back first. Their cost is the composite's in each state of the two (k.other:
