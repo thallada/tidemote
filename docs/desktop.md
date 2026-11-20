@@ -16,6 +16,13 @@ process) and is otherwise the same page as on the web:
 - `achieve(id)`, `workshop.share(id, { title, description })`, `workshop.browse()`, `workshop.open(item)`.
 - `film`: a film written as it is made into `Videos/Tidemote` (`open(name)` → `{ id, free }`, `write`,
   `patch`, `close` → its path, `abort`), as `NAME.part` until it is closed (docs/film.md).
+- `fullscreen`: `toggle()`, `get()`, `on(fn)` and `forced()` (true under gamescope, where the page hides its
+  full-screen button).
+
+The window opens full screen, and windowed (1600×900) only when the player last left it windowed
+(F11, F or the top bar's button); `main.js` keeps that in `userData/window.json`. `--windowed` opens a
+window whatever was kept and keeps nothing, for the scripts that drive the app (`smoke.mjs`,
+`launch-check.mjs`).
 
 ## Saves and Steam Cloud
 

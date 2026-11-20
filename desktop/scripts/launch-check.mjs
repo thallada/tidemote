@@ -25,7 +25,7 @@ const summary = arg('summary');
 if (!exe) throw new Error('--exe PATH to a packaged Tidemote executable');
 
 await mkdir(out, { recursive: true });
-const base = ['--enable-unsafe-swiftshader', ...(process.platform === 'linux' ? ['--ozone-platform=headless', '--no-sandbox'] : [])];
+const base = ['--windowed', '--enable-unsafe-swiftshader', ...(process.platform === 'linux' ? ['--ozone-platform=headless', '--no-sandbox'] : [])];
 const gha = !!process.env.GITHUB_ACTIONS;
 const esc = (t) => String(t).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
 

@@ -19,7 +19,7 @@ const appId = arg('steam');
 if (!exe) throw new Error('--exe PATH to a packaged Tidemote executable');
 
 await mkdir(out, { recursive: true });
-const app = await _electron.launch({ executablePath: exe, args: [], env: { ...process.env, ...(appId ? { TIDEMOTE_STEAM_APPID: appId } : {}) } });
+const app = await _electron.launch({ executablePath: exe, args: ['--windowed'], env: { ...process.env, ...(appId ? { TIDEMOTE_STEAM_APPID: appId } : {}) } });
 try {
   const page = await app.firstWindow();
   const errors = [];

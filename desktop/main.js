@@ -63,15 +63,29 @@ const serve = (req) => {
   return net.fetch(pathToFileURL(file).toString());
 };
 
+// The window opens full screen unless the player last left it windowed (userData/window.json, written as it
+// changes). `--windowed` opens a window whatever was kept, for the scripts that drive the app (smoke, launch-check).
+const WIN_STATE = () => join(app.getPath('userData'), 'window.json');
+const keptFull = () => {
+  if (process.argv.includes('--windowed')) return false;
+  try { return JSON.parse(readFileSync(WIN_STATE(), 'utf8')).full !== false; } catch { return true; }
+};
+const keepFull = (full) => {
+  if (process.argv.includes('--windowed')) return;
+  try { mkdirSync(app.getPath('userData'), { recursive: true }); writeFileSync(WIN_STATE(), JSON.stringify({ full })); } catch { /* kept next time */ }
+};
+
 const open = () => {
+  const full = keptFull();
   const win = new BrowserWindow({
-    width: 1600, height: 900, minWidth: 640, minHeight: 400,
+    width: 1600, height: 900, minWidth: 640, minHeight: 400, fullscreen: full,
     show: false, backgroundColor: '#06090a', title: 'Tidemote', // i18n-ignore (the product's name; the page's title follows)
     // the taskbar's and title bar's on Windows and Linux (macOS's dock takes the bundle's .icns)
     icon: join(HERE, 'icon', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
     webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, preload: join(HERE, 'preload.cjs') },
   });
-  win.once('ready-to-show', () => win.show());
+  // Some Linux window managers drop a full screen asked for before the window is shown; ask again once it is.
+  win.once('ready-to-show', () => { win.show(); if (full && !win.isFullScreen()) win.setFullScreen(true); });
   // Links leave for the system browser; the window itself never navigates away from the page.
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) shell.openExternal(url);
@@ -87,7 +101,7 @@ const open = () => {
   win.webContents.on('before-input-event', (e, input) => {
     if (input.type === 'keyDown' && input.key === 'F11') { win.setFullScreen(!win.isFullScreen()); e.preventDefault(); }
   });
-  for (const [ev, on] of [['enter-full-screen', true], ['leave-full-screen', false]]) win.on(ev, () => win.webContents.send('fullscreen', on));
+  for (const [ev, on] of [['enter-full-screen', true], ['leave-full-screen', false]]) win.on(ev, () => { win.webContents.send('fullscreen', on); keepFull(on); });
   // Arguments after `--` pass DEFAULT_K overrides as the page's #k= hash: `electron . -- --k '{...}'`.
   const k = process.argv.indexOf('--k');
   win.loadURL(`${ORIGIN}/${k > 0 ? `#k=${encodeURIComponent(process.argv[k + 1])}` : ''}`);
