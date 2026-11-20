@@ -2719,6 +2719,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
         // i18n: Settings → Display → Annotations: live notes over the view shown with the auto camera only, always, or never
         + choice('notes', tr('settings.display.annotations', 'Annotations'), '', [[1, tr('settings.display.annotations-auto', 'Auto camera')], [2, tr('settings.display.annotations-always', 'Always')], [0, OFF]], state.notes, 'annotations'))
         + group('view', tr('settings.display.view', 'View'), (isCoarse ? '' : onoff('ui', tr('settings.display.interface', 'Interface'), 'U', state.ui, 'interface'))
+        // (full screen here too, for a controller, which cannot reach F: where the rail's button shows, as it does)
+        + ($('fs').hidden ? '' : onoff('fullscreen', tr('settings.display.fullscreen', 'Full screen'), 'F', $('fs').getAttribute('aria-pressed') === 'true', 'fullscreen'))
         + onoff('closeup', tr('settings.display.closeup', 'Live close-up'), '', state.closeup, 'closeup')
         // i18n: Settings → Display → Controller: whose buttons a controller's hints draw (Auto: the controller's own)
         // (in two columns: Auto, naming what it found, across the top, then the four families)
@@ -3113,6 +3115,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       else if (id === 'film') { toggle(false); filmAct(); return; }
       else if (id.startsWith('ev-')) { state.events[id.slice(3)] = !!+v; applyEvents(); }
       else if (id === 'ui') { setInterface(!!+v); return; }
+      else if (id === 'fullscreen') { if (!!+v !== ($('fs').getAttribute('aria-pressed') === 'true')) toggleFullscreen(); return; }
       else if (id === 'auto') { state.auto = !!+v; renderAuto(director.active); }
       else if (id === 'scale') { P.scale = v === 'auto' ? 'auto' : +v; if (P.scale !== 'auto') renderScale = P.scale; else renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit(); }
       else if (id === 'floor') { P.floor = +v; renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit(); }
@@ -3271,6 +3274,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     fsBtn.setAttribute('aria-label', on ? tr('rail.fs.aria-exit', 'Exit full screen') : tr('rail.fs.aria', 'Full screen'));
     fsBtn.dataset.hint = on ? tr('rail.fs.hint-exit', 'Exit full screen · F') : tr('rail.fs.hint', 'Full screen · F');
     fsBtn.innerHTML = `<svg><use href="#i-${on ? 'unfull' : 'full'}"/></svg>`; // i18n-ignore (icon ids)
+    view.render(); // (Settings → Display → Full screen follows it)
   }
   if (deskFs) { deskFs.on(showFullscreen); deskFs.get().then(showFullscreen).catch(() => {}); }
   else document.addEventListener('fullscreenchange', () => showFullscreen(!!document.fullscreenElement));
@@ -4040,6 +4044,17 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     return true;
   }
 
+  // Focus moved by a direction within a panel, and past its edge into the panel that lies that way: up from the dock
+  // to the bench's drawer (open) or the rail at the top, up from a side panel to the rail, down from the rail to the
+  // dock and from the bench to the dock (the screen's bars reached from wherever focus is)
+  function navMove(root, dir) {
+    if (nav.move(root, dir)) return true;
+    const open = (id) => { const el = $(id); return el && !el.hidden && el.getClientRects().length ? el : null; };
+    const to = dir === 'up' ? (root.id === 'dock' ? open('bench') || open('rail') : ['spec', 'lab', 'bench', 'held'].includes(root.id) ? open('rail') : null)
+      : dir === 'down' ? (root.id === 'rail' || root.id === 'bench' ? open('dock') : null) : null;
+    return !!to && nav.cross(to, dir);
+  }
+
   /** Carry out an action (actions.js) by its id; how: { key, repeat } for a key. Whether it was handled. */
   function act(id, how = {}) {
     if (id.startsWith('tool-')) {
@@ -4130,7 +4145,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
         const dir = id.slice(4);
         if (input.grab) { adjust(input.grab, dir === 'right' || dir === 'up' ? 1 : -1); return true; }
         const root = padRoot();
-        return !!root && nav.move(root, dir);
+        return !!root && navMove(root, dir);
       }
       case 'tab-prev': case 'tab-next': { const root = padRoot(); return !!root && nav.tab(root, id === 'tab-next' ? 1 : -1); }
       case 'rose-tools': openRose('tools'); return true;
@@ -4199,7 +4214,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     load: tr('legend.load', 'Load'), dispense: tr('legend.dispense', 'Dispense'), toLoad: tr('legend.to-load', 'Switch to load'), toDispense: tr('legend.to-dispense', 'Switch to dispense'),
     steer: tr('legend.steer', 'Steer'), hop: tr('legend.hop', 'Next of kin'), off: tr('legend.off', 'Get off'),
     choose: tr('legend.choose', 'Choose'), tabs: tr('legend.tabs', 'Tabs'), zoom: tr('legend.zoom', 'Zoom'),
-    adjust: tr('legend.adjust', 'Adjust'), done: tr('legend.done', 'Done'), hint: tr('legend.hint', 'Explain'),
+    adjust: tr('legend.adjust', 'Adjust'), top: tr('legend.top-bar', 'Top bar'), done: tr('legend.done', 'Done'), hint: tr('legend.hint', 'Explain'),
   });
   // Its items: [places (a button, or several drawn together), what a press or tap does, what holding it does]
   function legendItems(ctx) {
@@ -4209,7 +4224,9 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       if (input.grab) return [[['LEFT', 'RIGHT'], L.adjust], ['S', L.done], ['E', L.done]];
       const tabs = padRoot()?.querySelector('[role="tablist"]') ? [[['LB', 'RB'], L.tabs]] : [];
       const what = isAdjustable(a) ? L.adjust : a?.matches?.('.term, span[data-tip]') ? L.hint : L.choose;
-      return [['S', what], ['E', L.back], ...tabs];
+      // (the dock: up reaches the rail's controls at the top)
+      const top = padRoot()?.id === 'dock' ? [['UP', L.top]] : [];
+      return [['S', what], ['E', L.back], ...tabs, ...top];
     }
     if (ctx === 'ride') return [['L', L.steer], ['S', L.hop], ['E', L.off], [['LT', 'RT'], L.zoom]];
     if (ctx === 'tool') {
@@ -4231,11 +4248,17 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   }
   function renderLegend(ctx) {
     const el = $('padbar');
-    const show = mode.glyphs === 'pad' && state.ui && !introUp() && ctx !== 'rose';
+    // (not while the auto camera films: the world alone, as the interface keeps out of its way; any input that stops
+    // the camera brings it back)
+    const show = mode.glyphs === 'pad' && state.ui && !introUp() && ctx !== 'rose' && !director.active;
     const items = show ? legendItems(ctx) : [];
     // (under the middle of the view the panels leave open; a dialog over it open, the middle of what it leaves)
     const x = `${Math.round(legendX(ctx))}px`;
     if (el.style.left !== x) el.style.left = x;
+    // (over the bench while its drawer is open, rather than over the drawer)
+    const b = bench.isOpen() ? $('bench').getBoundingClientRect() : null;
+    const bottom = b && b.height ? `${Math.round(innerHeight - b.top + 10)}px` : '';
+    if (el.style.bottom !== bottom) el.style.bottom = bottom;
     const key = `${show}|${ctx}|${mode.family}|${JSON.stringify(items)}`;
     if (key === legendKey) return;
     legendKey = key;
@@ -4289,8 +4312,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     else if (panel && Math.hypot(P.left[0], P.left[1]) > 0.5) {
       const dir = Math.abs(P.left[0]) > Math.abs(P.left[1]) ? (P.left[0] > 0 ? 'right' : 'left') : P.left[1] > 0 ? 'down' : 'up';
       const sn = input.stickNav;
-      if (!sn || sn.dir !== dir) { input.stickNav = { dir, next: now + REPEAT_MS[0] }; nav.move(panel, dir); }
-      else if (now >= sn.next) { sn.next = now + REPEAT_MS[1]; nav.move(panel, dir); }
+      if (!sn || sn.dir !== dir) { input.stickNav = { dir, next: now + REPEAT_MS[0] }; navMove(panel, dir); }
+      else if (now >= sn.next) { sn.next = now + REPEAT_MS[1]; navMove(panel, dir); }
     } else input.stickNav = null;
     // zoom: the keys held and the triggers, about the view's middle
     let z = 0;
@@ -4332,7 +4355,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     const root = t !== document.body && t !== canvas && t.closest?.('[data-nav-root]');
     if (root && /^Arrow/.test(k) && t.getAttribute?.('role') !== 'tab') {
       e.preventDefault();
-      nav.move(root, k.slice(5).toLowerCase());
+      navMove(root, k.slice(5).toLowerCase());
       return;
     }
     // held: the movement keys (WASD, the arrows) pan the view, or steer a ride; − and = zoom

@@ -112,6 +112,15 @@ export function createFocus() {
       if (i >= 0) show(list[i]);
       return i >= 0;
     },
+    /** Focus across into another panel `to`, onto its control nearest that way from the focused one. Whether it did. */
+    cross(to, dir) {
+      const list = to ? controlsOf(to) : [];
+      if (!list.length) return false;
+      const a = document.activeElement;
+      const i = a && a !== document.body ? nextIndex(a.getBoundingClientRect(), list.map((el) => el.getBoundingClientRect()), dir) : -1;
+      show(list[i >= 0 ? i : 0]);
+      return true;
+    },
     /** The previous or next tab (d: −1, +1) of the tab row nearest focus in root (or root's first). */
     tab(root, d) {
       const a = document.activeElement;

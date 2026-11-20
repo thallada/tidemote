@@ -878,6 +878,8 @@ body:not([data-glyphs="pad"]) .keys td:nth-child(3) .gl, body[data-glyphs="pad"]
    scrolling panel or tab row cuts it off; the bench's digit keys hidden; the mouse's pointer hidden while the pad
    points (input/mode.js: it shows again once the mouse moves) */
 body[data-glyphs="pad"] :focus:not(.card-dlg, canvas, [data-nav-root]), :focus-visible:not(.card-dlg, canvas, [data-nav-root]) { outline: 2px solid var(--sun) !important; outline-offset: -2px !important; }
+/* (a button drawn as a link, its box tight about its words: the ring just outside it, clear of the letters) */
+body[data-glyphs="pad"] button.link:focus, button.link:focus-visible { outline-offset: 3px !important; }
 /* (a control a controller or the keys move to is scrolled into view with room for its ring) */
 [data-nav-root] :is(button, a, input, select, textarea, [tabindex], summary) { scroll-margin: 6px; }
 /* (words in a line of text: a tint and a thick underline in place of a ring, within the line, so neither a row of
@@ -23343,6 +23345,7 @@ ${e.message}` : String(e?.message || e));
     bloom: tr("gloss.bloom", "A soft glow around bright cells. The microscope’s warm halation and the lamp’s veiling flare. Requires several extra full-screen passes. Auto draws it, and Adaptation may turn it off while frames run late."),
     lod: tr("gloss.lod", "Zoomed in, cells resolve into membranes, organelles and fused bodies; bonds resolve into soft bending strands. Off, every cell stays the glowing point it is from afar, at any zoom. This is far cheaper, so the simulation can run more particles. This setting does not affect the species card portraits. Auto draws zoom detail until Adaptation decides to leave them out while frames run late."),
     specks: tr("gloss.specks", "The fine suspension that drifts between cells when zoomed far in. Off saves a compute pass and a full-screen pass. Auto draws it, and Adaptation may turn it off while frames run late."),
+    fullscreen: tr("gloss.fullscreen", "The world over the whole screen, no browser or window frame. F does the same, and Esc leaves it in a browser."),
     prompts: tr("gloss.prompts", "Which buttons the hints and the Controls show while a controller is in use. Auto draws the controller's own; choose one if yours is drawn as another."),
     closeup: tr("gloss.closeup", "The live close-up in the specimen panel: a second, small view of the world drawn every frame."),
     particles: tr("gloss.particles", "Particles include every stone grain, husk, and cell. Their number is fixed for a world’s whole duration and can't be changed without resetting the world. Auto measures the GPU and picks the most it can run smoothly. Changing the setting requires starting a new world."),
@@ -36155,6 +36158,15 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
         if (i >= 0) show(list[i]);
         return i >= 0;
       },
+      /** Focus across into another panel `to`, onto its control nearest that way from the focused one. Whether it did. */
+      cross(to, dir) {
+        const list = to ? controlsOf(to) : [];
+        if (!list.length) return false;
+        const a = document.activeElement;
+        const i = a && a !== document.body ? nextIndex(a.getBoundingClientRect(), list.map((el2) => el2.getBoundingClientRect()), dir) : -1;
+        show(list[i >= 0 ? i : 0]);
+        return true;
+      },
       /** The previous or next tab (d: −1, +1) of the tab row nearest focus in root (or root's first). */
       tab(root, d) {
         const a = document.activeElement;
@@ -41917,7 +41929,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       function display() {
         const map = mapOn();
         const filmL = tr("settings.display.film", "Film");
-        return group("picture", tr("settings.display.picture", "Look"), autoRow("microlook", NAMES.microscope, "O", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], "microlook") + (state.look ? choice("grain", tr("settings.display.grain", "Grain"), "", [[0, OFF], [1, tr("settings.display.grain-fine", "Fine")], [2, tr("settings.display.grain-heavy", "Heavy")]], state.grain, "filmgrain") : "") + (state.look ? choice("focus", tr("settings.display.focus", "Focus blur"), "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], state.focus, "focusblur") : "") + autoOnOff("bloom", NAMES.bloom, "Y", "bloom") + choice("trails", tr("settings.display.trails", "Trails"), "T", trailNames.map((n, i) => [i, n]), trailIdx)) + color_() + group("water", tr("settings.display.water-group", "Water"), autoRow("water", NAMES.sea, "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], "watersurface") + (state.water ? choice("waves", tr("settings.display.waves", "Wave motion"), "", [[0, tr("settings.display.waves-slow", "Slow")], [1, NORMAL], [2, tr("settings.display.waves-lively", "Lively")]], state.waves, "wavemotion") : "") + (K2.heat ? autoOnOff("haze", NAMES.haze, "", "haze") : "") + autoOnOff("specks", NAMES.specks, "", "specks")) + group("cells", tr("settings.display.cells", "Cells"), autoOnOff("lod", NAMES.interiors, "", "lod")) + group("overlays", tr("settings.display.overlays", "Overlays"), choice("map", tr("settings.display.map", "Map"), K2.heat ? "G E H" : "G H", [["off", OFF], ["light", tr("settings.display.map-light", "Light")], ...K2.heat ? [["heat", tr("settings.display.map-heat", "Heat")]] : [], ["tide", tr("settings.display.map-tide", "Tide")]], state.map, "maps") + (map ? rampHtml(map) : "") + onoff("currents", tr("settings.display.currents", "Currents"), "C", state.currents) + choice("songmarks", tr("settings.display.song-marks", "Song marks"), "", [[0, OFF], [1, tr("settings.display.song-marks-picked", "Picked")], [2, tr("settings.display.song-marks-all", "All")]], state.songMarks, "songmarks") + choice("notes", tr("settings.display.annotations", "Annotations"), "", [[1, tr("settings.display.annotations-auto", "Auto camera")], [2, tr("settings.display.annotations-always", "Always")], [0, OFF]], state.notes, "annotations")) + group("view", tr("settings.display.view", "View"), (isCoarse ? "" : onoff("ui", tr("settings.display.interface", "Interface"), "U", state.ui, "interface")) + onoff("closeup", tr("settings.display.closeup", "Live close-up"), "", state.closeup, "closeup") + choice("prompts", tr("settings.display.prompts", "Controller"), "", [["auto", tr("settings.auto", "Auto")], ...FAMILIES.map((f2) => [f2, FAMILY_NAME()[f2]])], state.prompts, "prompts", 2) + onoff("auto", tr("settings.display.auto-idle", "Auto when idle"), "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", filmL)} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="${filmL}">${film.state === "idle" ? `<button type="button" class="chip" data-o="film" data-v="now">${tr("settings.display.film-now", "Start filming")}</button>` : `<button type="button" class="chip" data-o="film" data-v="stop">${tr("settings.display.film-stop", "Stop filming")}</button>`}</div></div>` : ""));
+        return group("picture", tr("settings.display.picture", "Look"), autoRow("microlook", NAMES.microscope, "O", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], "microlook") + (state.look ? choice("grain", tr("settings.display.grain", "Grain"), "", [[0, OFF], [1, tr("settings.display.grain-fine", "Fine")], [2, tr("settings.display.grain-heavy", "Heavy")]], state.grain, "filmgrain") : "") + (state.look ? choice("focus", tr("settings.display.focus", "Focus blur"), "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], state.focus, "focusblur") : "") + autoOnOff("bloom", NAMES.bloom, "Y", "bloom") + choice("trails", tr("settings.display.trails", "Trails"), "T", trailNames.map((n, i) => [i, n]), trailIdx)) + color_() + group("water", tr("settings.display.water-group", "Water"), autoRow("water", NAMES.sea, "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], "watersurface") + (state.water ? choice("waves", tr("settings.display.waves", "Wave motion"), "", [[0, tr("settings.display.waves-slow", "Slow")], [1, NORMAL], [2, tr("settings.display.waves-lively", "Lively")]], state.waves, "wavemotion") : "") + (K2.heat ? autoOnOff("haze", NAMES.haze, "", "haze") : "") + autoOnOff("specks", NAMES.specks, "", "specks")) + group("cells", tr("settings.display.cells", "Cells"), autoOnOff("lod", NAMES.interiors, "", "lod")) + group("overlays", tr("settings.display.overlays", "Overlays"), choice("map", tr("settings.display.map", "Map"), K2.heat ? "G E H" : "G H", [["off", OFF], ["light", tr("settings.display.map-light", "Light")], ...K2.heat ? [["heat", tr("settings.display.map-heat", "Heat")]] : [], ["tide", tr("settings.display.map-tide", "Tide")]], state.map, "maps") + (map ? rampHtml(map) : "") + onoff("currents", tr("settings.display.currents", "Currents"), "C", state.currents) + choice("songmarks", tr("settings.display.song-marks", "Song marks"), "", [[0, OFF], [1, tr("settings.display.song-marks-picked", "Picked")], [2, tr("settings.display.song-marks-all", "All")]], state.songMarks, "songmarks") + choice("notes", tr("settings.display.annotations", "Annotations"), "", [[1, tr("settings.display.annotations-auto", "Auto camera")], [2, tr("settings.display.annotations-always", "Always")], [0, OFF]], state.notes, "annotations")) + group("view", tr("settings.display.view", "View"), (isCoarse ? "" : onoff("ui", tr("settings.display.interface", "Interface"), "U", state.ui, "interface")) + ($2("fs").hidden ? "" : onoff("fullscreen", tr("settings.display.fullscreen", "Full screen"), "F", $2("fs").getAttribute("aria-pressed") === "true", "fullscreen")) + onoff("closeup", tr("settings.display.closeup", "Live close-up"), "", state.closeup, "closeup") + choice("prompts", tr("settings.display.prompts", "Controller"), "", [["auto", tr("settings.auto", "Auto")], ...FAMILIES.map((f2) => [f2, FAMILY_NAME()[f2]])], state.prompts, "prompts", 2) + onoff("auto", tr("settings.display.auto-idle", "Auto when idle"), "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", filmL)} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="${filmL}">${film.state === "idle" ? `<button type="button" class="chip" data-o="film" data-v="now">${tr("settings.display.film-now", "Start filming")}</button>` : `<button type="button" class="chip" data-o="film" data-v="stop">${tr("settings.display.film-stop", "Stop filming")}</button>`}</div></div>` : ""));
       }
       function color_() {
         const plan2 = displayPlan(dsp, caps, { format: eng.format, preferred });
@@ -42296,6 +42308,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         } else if (id === "ui") {
           setInterface(!!+v);
           return;
+        } else if (id === "fullscreen") {
+          if (!!+v !== ($2("fs").getAttribute("aria-pressed") === "true")) toggleFullscreen();
+          return;
         } else if (id === "auto") {
           state.auto = !!+v;
           renderAuto(director.active);
@@ -42606,6 +42621,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       fsBtn.setAttribute("aria-label", on ? tr("rail.fs.aria-exit", "Exit full screen") : tr("rail.fs.aria", "Full screen"));
       fsBtn.dataset.hint = on ? tr("rail.fs.hint-exit", "Exit full screen · F") : tr("rail.fs.hint", "Full screen · F");
       fsBtn.innerHTML = `<svg><use href="#i-${on ? "unfull" : "full"}"/></svg>`;
+      view.render();
     }
     if (deskFs) {
       deskFs.on(showFullscreen);
@@ -43461,6 +43477,15 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       input.grab = null;
       return true;
     }
+    function navMove(root, dir) {
+      if (nav.move(root, dir)) return true;
+      const open = (id) => {
+        const el2 = $2(id);
+        return el2 && !el2.hidden && el2.getClientRects().length ? el2 : null;
+      };
+      const to = dir === "up" ? root.id === "dock" ? open("bench") || open("rail") : ["spec", "lab", "bench", "held"].includes(root.id) ? open("rail") : null : dir === "down" ? root.id === "rail" || root.id === "bench" ? open("dock") : null : null;
+      return !!to && nav.cross(to, dir);
+    }
     function act(id, how = {}) {
       if (id.startsWith("tool-")) {
         if (how.repeat) return true;
@@ -43665,7 +43690,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
             return true;
           }
           const root = padRoot();
-          return !!root && nav.move(root, dir);
+          return !!root && navMove(root, dir);
         }
         case "tab-prev":
         case "tab-next": {
@@ -43758,6 +43783,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       tabs: tr("legend.tabs", "Tabs"),
       zoom: tr("legend.zoom", "Zoom"),
       adjust: tr("legend.adjust", "Adjust"),
+      top: tr("legend.top-bar", "Top bar"),
       done: tr("legend.done", "Done"),
       hint: tr("legend.hint", "Explain")
     });
@@ -43768,7 +43794,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         if (input.grab) return [[["LEFT", "RIGHT"], L.adjust], ["S", L.done], ["E", L.done]];
         const tabs = padRoot()?.querySelector('[role="tablist"]') ? [[["LB", "RB"], L.tabs]] : [];
         const what = isAdjustable(a) ? L.adjust : a?.matches?.(".term, span[data-tip]") ? L.hint : L.choose;
-        return [["S", what], ["E", L.back], ...tabs];
+        const top = padRoot()?.id === "dock" ? [["UP", L.top]] : [];
+        return [["S", what], ["E", L.back], ...tabs, ...top];
       }
       if (ctx2 === "ride") return [["L", L.steer], ["S", L.hop], ["E", L.off], [["LT", "RT"], L.zoom]];
       if (ctx2 === "tool") {
@@ -43796,16 +43823,19 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     }
     function renderLegend(ctx2) {
       const el2 = $2("padbar");
-      const show = mode.glyphs === "pad" && state.ui && !introUp() && ctx2 !== "rose";
+      const show = mode.glyphs === "pad" && state.ui && !introUp() && ctx2 !== "rose" && !director.active;
       const items = show ? legendItems(ctx2) : [];
       const x = `${Math.round(legendX(ctx2))}px`;
       if (el2.style.left !== x) el2.style.left = x;
+      const b = bench.isOpen() ? $2("bench").getBoundingClientRect() : null;
+      const bottom = b && b.height ? `${Math.round(innerHeight - b.top + 10)}px` : "";
+      if (el2.style.bottom !== bottom) el2.style.bottom = bottom;
       const key = `${show}|${ctx2}|${mode.family}|${JSON.stringify(items)}`;
       if (key === legendKey) return;
       legendKey = key;
       el2.hidden = !items.length;
       const L = LEGEND(), fam = padFamily();
-      el2.innerHTML = items.map(([b, t, h]) => `<span>${[].concat(b).map((p2) => glyph(p2, fam)).join("")}${t ? `<b>${esc2(t)}</b>` : ""}${h ? `<em>${esc2(L.hold)}</em><b>${esc2(h)}</b>` : ""}</span>`).join("");
+      el2.innerHTML = items.map(([b2, t, h]) => `<span>${[].concat(b2).map((p2) => glyph(p2, fam)).join("")}${t ? `<b>${esc2(t)}</b>` : ""}${h ? `<em>${esc2(L.hold)}</em><b>${esc2(h)}</b>` : ""}</span>`).join("");
     }
     function driveInput(dt) {
       const s = dt / 1e3, now = performance.now();
@@ -43856,10 +43886,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         const sn = input.stickNav;
         if (!sn || sn.dir !== dir) {
           input.stickNav = { dir, next: now + REPEAT_MS[0] };
-          nav.move(panel, dir);
+          navMove(panel, dir);
         } else if (now >= sn.next) {
           sn.next = now + REPEAT_MS[1];
-          nav.move(panel, dir);
+          navMove(panel, dir);
         }
       } else input.stickNav = null;
       let z = 0;
@@ -43920,7 +43950,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const root = t !== document.body && t !== canvas && t.closest?.("[data-nav-root]");
       if (root && /^Arrow/.test(k) && t.getAttribute?.("role") !== "tab") {
         e.preventDefault();
-        nav.move(root, k.slice(5).toLowerCase());
+        navMove(root, k.slice(5).toLowerCase());
         return;
       }
       if (isRideKey(e.code)) {

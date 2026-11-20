@@ -31,7 +31,11 @@ Third round: the legend's glyphs centered too (a `.padbar span` rule made every 
 pushed left; pad-look now measures glyphs where they are shown, not only on a sheet), focus kept on the same
 control when a panel is drawn anew (`setHTML`), the +n tags chip handing focus to the first tag it shows, a side
 panel the pad entered holding its presses until B, Y, its closing or a click elsewhere (RB/LB spammed never reach
-the world), and the d-pad reaching controls below a panel's fold. `pad-look.mjs`
+the world), and the d-pad reaching controls below a panel's fold. Then: the legend over the bench's drawer while it is open and hidden while the auto
+camera films, Settings → Display → Full screen (a controller cannot reach F), and the d-pad crossing panels at their
+edges: up from the dock to the bench (open) or the rail, up from a side panel to the rail, down from the rail to the
+dock (the dock's legend says Top bar). In a browser a gamepad press may not count as the user's gesture that full
+screen needs; the desktop app's is the window's and always works. `pad-look.mjs`
 checks all of it by eye and by pixel.
 
 Still to do: the Steamworks Steam Input setting (decision 3), the Deck walkthrough and its run, measuring the Steam

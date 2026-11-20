@@ -822,6 +822,8 @@ body:not([data-glyphs="pad"]) .keys td:nth-child(3) .gl, body[data-glyphs="pad"]
    scrolling panel or tab row cuts it off; the bench's digit keys hidden; the mouse's pointer hidden while the pad
    points (input/mode.js: it shows again once the mouse moves) */
 body[data-glyphs="pad"] :focus:not(.card-dlg, canvas, [data-nav-root]), :focus-visible:not(.card-dlg, canvas, [data-nav-root]) { outline: 2px solid var(--sun) !important; outline-offset: -2px !important; }
+/* (a button drawn as a link, its box tight about its words: the ring just outside it, clear of the letters) */
+body[data-glyphs="pad"] button.link:focus, button.link:focus-visible { outline-offset: 3px !important; }
 /* (a control a controller or the keys move to is scrolled into view with room for its ring) */
 [data-nav-root] :is(button, a, input, select, textarea, [tabindex], summary) { scroll-margin: 6px; }
 /* (words in a line of text: a tint and a thick underline in place of a ring, within the line, so neither a row of

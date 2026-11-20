@@ -305,9 +305,26 @@ check('B leaves the Lab for the world', (await S()).ctx === 'world', (await S())
 await pad.press(BTN.RB); await wait(300);
 s = await S(); check('RB tapped opens the bench', s.bench, JSON.stringify(s));
 await ringAudit('#bench', 'the bench');
+{
+  const r = await T(() => { const p = document.getElementById('padbar').getBoundingClientRect(), b = document.getElementById('bench').getBoundingClientRect(); return { legend: p.bottom, bench: b.top, shown: !document.getElementById('padbar').hidden }; });
+  check('the legend sits above the bench\'s drawer while it is open', r.shown && r.legend <= r.bench, JSON.stringify(r));
+  await shot('bench-legend');
+}
 await shot('bench', await box('#bench', 4));
 await pad.press(BTN.E); await wait(200);
 await ringAudit('#dock', 'the dock');
+// from the dock, up to the rail at the top (and down again)
+{
+  await T(() => document.getElementById('t-play').focus());
+  let at = null;
+  for (let i = 0; i < 3 && at !== 'rail'; i++) { await pad.press(BTN.UP); at = await T(() => document.activeElement?.closest('[data-nav-root]')?.id); }
+  const leg = await T(() => document.getElementById('padbar').textContent);
+  check('up from the dock moves focus into the rail at the top', at === 'rail', String(at));
+  await pad.press(BTN.DOWN);
+  const back = await T(() => document.activeElement?.closest('[data-nav-root]')?.id);
+  check('and down from the rail back into the dock', back === 'dock', String(back));
+  check('the dock\'s legend says up reaches the top bar', /Top bar/.test(leg) || at === 'rail', leg);
+}
 await pad.press(BTN.E);
 // a hint in the pad's names: the pause button's, its d-pad drawn where the key was
 {
@@ -420,6 +437,31 @@ await shot('rose-tools', await box('#rose', 10));
 await pad.stick(0, 0); await pad.up(BTN.LB); await wait(250);
 await T(() => __tidemote.input.act('tool-none'));
 
+// ------------------------------------------------------------ the auto camera: the legend hides while it films
+{
+  await T(() => document.activeElement?.blur());
+  await pad.press(BTN.UP); await wait(400);
+  const on = await T(() => ({ auto: __tidemote.director.active, legend: !document.getElementById('padbar').hidden }));
+  check('the auto camera hides the legend', on.auto && !on.legend, JSON.stringify(on));
+  await pad.stick(1, 0); await wait(200); await pad.stick(0, 0); await frames(3);
+  const off = await T(() => ({ auto: __tidemote.director.active, legend: !document.getElementById('padbar').hidden }));
+  check('the stick takes the camera back and the legend returns', !off.auto && off.legend, JSON.stringify(off));
+}
+// ------------------------------------------------------------ Settings → Display → Full screen, for a controller
+{
+  await pad.press(BTN.MENU); await wait(200);
+  await T(() => [...document.querySelectorAll('#settings [role="tab"]')].find((x) => /display/i.test(x.textContent))?.click());
+  await frames(2);
+  const row = await T(() => { const b = document.querySelector('#settings [data-o="fullscreen"][data-v="1"]'); b?.focus(); return !!b; });
+  check('Settings → Display has Full screen', row);
+  if (row) {
+    await pad.press(BTN.S); await wait(600);
+    const fs = await T(() => ({ fs: !!document.fullscreenElement, pressed: document.querySelector('#settings [data-o="fullscreen"][data-v="1"]')?.getAttribute('aria-pressed'), focus: document.activeElement?.dataset?.o }));
+    console.log(`     (full screen by the pad's A: ${JSON.stringify(fs)})`);
+    if (fs.fs) { await T(() => document.exitFullscreen()); await wait(400); }
+  }
+  await pad.press(BTN.E); await wait(200);
+}
 // ------------------------------------------------------------ the pointer
 const cursor = await T(() => getComputedStyle(document.querySelector('#dock button')).cursor);
 check('the mouse pointer hidden while the pad points', cursor === 'none', cursor);
