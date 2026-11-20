@@ -9751,8 +9751,11 @@ fn hazeRipples(wp: vec2f, ppu: f32) -> vec2f {
 }
 // The heat haze, in pixels at ppu: warm water bends the light like the air over a hot road. Its strength (0 to 1) is
 // the most of the temperature's slope (HAZE_SLOPE, °C a cell), how much warmer the water is than the water HAZE_R cells
-// about it (HAZE_WARM, °C) and how hot it is in itself (HAZE_HOT, °C). water: waterAt(wp).
+// about it (HAZE_WARM, °C) and how hot it is in itself (HAZE_HOT, °C). water: waterAt(wp). Viewed from farther than
+// HAZE_NEAR pixels a unit the bend is fixed in the world rather than on the screen (the haze and the roil shrink with
+// the view), or from afar, cells a pixel or two across, a few pixels' bend would throw whole crowds of them about.
 const HAZE_AMP = 0.08;
+const HAZE_NEAR = 120.0;
 const HAZE_R = 3.5;
 const HAZE_SLOPE = vec2f(1.0, 4.0);
 const HAZE_WARM = vec2f(1.5, 8.0);
@@ -9760,7 +9763,7 @@ const HAZE_HOT = vec2f(30.0, 55.0);
 fn shimmer(wp: vec2f, water: vec3f, ppu: f32) -> vec2f {
   // (water near boiling roils, whatever the heat map shows; its noise only where it does: everywhere else it cost an
   // M1 most of a millisecond of the composite to multiply by 0)
-  let roil = boilAt(water.x);
+  let roil = boilAt(water.x) * min(1.0, ppu / HAZE_NEAR);
   var boil = vec2f(0.0);
   if (roil > 0.0) { boil = roil * flowNoise(wp, 2.5) * 5.0; }
   if (post.heatVis <= 0.5 || post.heatVis >= 1.5) { return boil; }
@@ -9769,7 +9772,7 @@ fn shimmer(wp: vec2f, water: vec3f, ppu: f32) -> vec2f {
   let about = 0.25 * (waterAt(wq + vec2f(HAZE_R, HAZE_R)).x + waterAt(wq + vec2f(-HAZE_R, HAZE_R)).x
     + waterAt(wq + vec2f(HAZE_R, -HAZE_R)).x + waterAt(wq + vec2f(-HAZE_R, -HAZE_R)).x);
   let warm = max(smoothstep(HAZE_WARM.x, HAZE_WARM.y, water.x - about), smoothstep(HAZE_HOT.x, HAZE_HOT.y, water.x));
-  let s = min(1.0, smoothstep(HAZE_SLOPE.x, HAZE_SLOPE.y, length(water.yz)) + warm);
+  let s = min(1.0, smoothstep(HAZE_SLOPE.x, HAZE_SLOPE.y, length(water.yz)) + warm) * min(1.0, ppu / HAZE_NEAR);
   if (s < 0.02) { return boil; }
   return hazeRipples(wp, ppu) * (s * HAZE_AMP) + boil;
 }

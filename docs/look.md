@@ -342,7 +342,9 @@ ripple is about `HAZE_SPAN` pixels across at any zoom (half to twice it, crossfa
 sliding), finer than a cell close up, and each octave is two layers scrolling past each other on the viewer's clock
 (`HAZE_RUN`), so it flickers alike at any speed of the world. At full strength the view moves up to `HAZE_AMP` of a
 ripple's size: over a staged +30° patch at 120 pixels a unit the median 16 px block moves 0.8 px (2.6 at the 95th
-percentile), 0.25 px a frame. Boiling water's roil (`boilAt`) shows with the haze off too.
+percentile), 0.25 px a frame. Viewed from farther than `HAZE_NEAR` pixels a unit the bend (and the roil's) is fixed
+in the world rather than on the screen, shrinking with the view: from afar, cells a pixel or two across, a bend of a few
+pixels threw whole crowds of them about. Boiling water's roil (`boilAt`) shows with the haze off too.
 
 Until 2026-11-20 it was the slope alone, times the noise, in screen pixels: under half a pixel nearly everywhere, at
 any zoom, and nothing inside a warm patch, where the temperature is flat; `tools/heatlook.mjs` showed haze-on and
