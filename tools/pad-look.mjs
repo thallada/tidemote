@@ -118,6 +118,37 @@ async function layoutAudit(rootSel, label) {
 }
 
 // ------------------------------------------------------------ the glyphs: each label's ink centered in its outline
+// Of glyph rects ({x, y, w, h}, CSS px) photographed in file (clip: where it was taken), how far each label's ink
+// (bright pixels 3 CSS px clear of the outline) sits from the outline's center: { dx, dy, d } in CSS px, or null
+function inkOffsets(file, clip, rects) {
+  const png = PNG.sync.read(fs.readFileSync(file));
+  return rects.map((r) => {
+    let x0 = Infinity, y0 = Infinity, x1 = -1, y1 = -1;
+    const ox = (r.x - clip.x) * SCALE, oy = (r.y - clip.y) * SCALE, m = 3 * SCALE;
+    for (let y = Math.ceil(oy + m); y < oy + r.h * SCALE - m; y++) for (let x = Math.ceil(ox + m); x < ox + r.w * SCALE - m; x++) {
+      const k = (y * png.width + x) * 4, l = 0.3 * png.data[k] + 0.59 * png.data[k + 1] + 0.11 * png.data[k + 2];
+      if (l > 140) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    }
+    if (x1 < 0) return null;
+    const dx = ((x0 + x1 + 1) / 2 - (ox + (r.w * SCALE) / 2)) / SCALE, dy = ((y0 + y1 + 1) / 2 - (oy + (r.h * SCALE) / 2)) / SCALE;
+    return { dx: +dx.toFixed(2), dy: +dy.toFixed(2), d: Math.max(Math.abs(dx), Math.abs(dy)) };
+  });
+}
+// Every glyph showing on the page now, where it is shown (the legend, a hint, the Controls), measured in its own
+// layout: its label's box centered in its outline (the page's styles for where it sits must not move it). Returns
+// the worst { where, d } and the face buttons' rects for inkOffsets.
+const glyphsInPlace = () => T(() => {
+  let worst = { d: 0 }; const faces = [];
+  for (const g of document.querySelectorAll('.gl:not(.gl-dpad)')) {
+    const b = g.getBoundingClientRect(), l = g.firstElementChild?.getBoundingClientRect();
+    if (!b.width || !l) continue;
+    const d = Math.max(Math.abs(l.left + l.width / 2 - (b.left + b.width / 2)), Math.abs(l.top + l.height / 2 - (b.top + b.height / 2)));
+    const where = g.closest('[id]')?.id;
+    if (d > worst.d) worst = { d: +d.toFixed(2), where, label: g.getAttribute('aria-label'), display: getComputedStyle(g).display };
+    if (g.classList.contains('gl-face') && !g.querySelector('svg')) faces.push({ x: b.left, y: b.top, w: b.width, h: b.height });
+  }
+  return { worst, faces };
+});
 const glyphBoxes = await T(() => {
   const host = document.createElement('div');
   host.id = 'gl-sheet';
@@ -139,29 +170,26 @@ for (const fam of ['xbox', 'ps', 'switch', 'deck']) {
   const sheet = await box('#gl-sheet', 0);
   const file = path.join(out, `glyphs-${fam}.png`);
   await page.screenshot({ path: file, clip: sheet });
-  const png = PNG.sync.read(fs.readFileSync(file));
-  rects.forEach((r, i) => {
-    if (places[i] === 'UP') return; // (the d-pad: a drawing, not a label)
-    // the label's ink: bright pixels well inside the outline (3 CSS px clear of its edge)
-    let x0 = Infinity, y0 = Infinity, x1 = -1, y1 = -1;
-    const ox = (r.x - sheet.x) * SCALE, oy = (r.y - sheet.y) * SCALE, m = 3 * SCALE;
-    for (let y = Math.ceil(oy + m); y < oy + r.h * SCALE - m; y++) for (let x = Math.ceil(ox + m); x < ox + r.w * SCALE - m; x++) {
-      const k = (y * png.width + x) * 4, l = 0.3 * png.data[k] + 0.59 * png.data[k + 1] + 0.11 * png.data[k + 2];
-      if (l > 140) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
-    }
-    if (x1 < 0) return;
-    const dx = ((x0 + x1 + 1) / 2 - (ox + (r.w * SCALE) / 2)) / SCALE, dy = ((y0 + y1 + 1) / 2 - (oy + (r.h * SCALE) / 2)) / SCALE;
-    const d = Math.max(Math.abs(dx), Math.abs(dy));
-    if (d > worst.d) worst = { d, fam, place: places[i], dx: dx.toFixed(2), dy: dy.toFixed(2) };
+  inkOffsets(file, sheet, rects).forEach((o, i) => {
+    if (!o || places[i] === 'UP') return; // (the d-pad: a drawing, not a label)
+    if (o.d > worst.d) worst = { ...o, fam, place: places[i] };
   });
 }
 await T(() => document.getElementById('gl-sheet').remove());
-check('every glyph\'s label centered in its outline (within 0.75 px)', worst.d <= 0.75, JSON.stringify(worst));
+check('every glyph\'s label centered in its outline, on a sheet (within 0.75 px)', worst.d <= 0.75, JSON.stringify(worst));
 
 // ------------------------------------------------------------ the legend in the world
 await T(() => { document.body.dataset.pad = __tidemote.input.mode.family; });
 await frames(3);
-await shot('legend-world', await box('#padbar'));
+const legendBox = await box('#padbar');
+await shot('legend-world', legendBox);
+{
+  const { worst: w, faces } = await glyphsInPlace();
+  check('in the legend, every glyph\'s label box centered in its outline (within 0.5 px)', w.d <= 0.5, JSON.stringify(w));
+  const offs = inkOffsets(path.join(out, 'legend-world.png'), legendBox, faces).filter(Boolean);
+  const bad = offs.reduce((a, o) => (o.d > a.d ? o : a), { d: 0 });
+  check('in the legend, the face buttons\' letters centered by their pixels (within 0.75 px)', faces.length >= 3 && bad.d <= 0.75, JSON.stringify({ n: faces.length, worst: bad }));
+}
 const legendFits = await T(() => { const r = document.getElementById('padbar').getBoundingClientRect(), d = document.getElementById('dock').getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.bottom <= d.top + 1; });
 check('the legend fits the screen, above the dock', legendFits);
 await shot('world');
@@ -216,6 +244,28 @@ else {
   check('let go, the d-pad moves focus off it', s.active !== 'set-vol', s.active);
   await T((v) => { const e = document.getElementById('set-vol'); e.value = v; e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true })); }, volAt);
 }
+// choosing an option keeps focus on it, though the panel is drawn again (and rows come and go): every option of the
+// first rows of Display and Audio pressed by A in turn, then each row's first choice back
+{
+  const lost = [];
+  for (const tabRe of ['display', 'audio']) {
+    await T((re) => { [...document.querySelectorAll('#settings [role="tab"]')].find((x) => new RegExp(re, 'i').test(x.textContent))?.click(); }, tabRe);
+    await frames(2);
+    const rows = await T(() => [...new Set([...document.querySelectorAll('#settings .opt [data-o][data-v]')].map((b) => b.dataset.o))].filter((o) => !/^(w-|n$|prompts)/.test(o)).slice(0, 7));
+    for (const o of rows) {
+      const vals = await T((o) => [...document.querySelectorAll(`#settings [data-o="${o}"]`)].map((b) => ({ v: b.dataset.v, on: b.getAttribute('aria-pressed') === 'true' })), o);
+      const was = vals.find((x) => x.on)?.v;
+      for (const { v } of [...vals, ...(was != null ? [{ v: was }] : [])]) {
+        const ok = await T(([o, v]) => { const b = document.querySelector(`#settings [data-o="${o}"][data-v="${v}"]`); if (!b || b.disabled) return null; b.focus(); return true; }, [o, v]);
+        if (!ok) continue;
+        await pad.press(BTN.S); await frames(2);
+        const at = await T(() => { const a = document.activeElement; return a?.dataset?.o ? `${a.dataset.o}=${a.dataset.v}` : a?.id || a?.className || a?.tagName; });
+        if (at !== `${o}=${v}`) lost.push(`${o}=${v} → ${at}`);
+      }
+    }
+  }
+  check('A on an option keeps focus on that option (Display and Audio, every option of their rows)', !lost.length, lost.slice(0, 6).join(' | '));
+}
 // a glossary term: A shows its hint, A again hides it
 const hasTerm = await T(() => { const t = [...document.querySelectorAll('#settings .term')].find((x) => x.getBoundingClientRect().height); t?.focus(); return t ? t.dataset.tip || t.dataset.hint || '?' : null; });
 console.log(`     (the term: ${hasTerm})`);
@@ -247,7 +297,9 @@ await T(() => document.querySelector('#lab [role="tab"]')?.click());
 await T(() => document.querySelector('#lab [role="tab"]')?.focus());
 await frames(2);
 await shot('lab', await box('#lab', 4));
-await T(() => { document.activeElement?.blur(); });
+// (left as a viewer leaves it: B; a panel the pad went into keeps its presses until then)
+await pad.press(BTN.E);
+check('B leaves the Lab for the world', (await S()).ctx === 'world', (await S()).ctx);
 
 // ------------------------------------------------------------ the bench, the dock, the Controls
 await pad.press(BTN.RB); await wait(300);
@@ -256,8 +308,19 @@ await ringAudit('#bench', 'the bench');
 await shot('bench', await box('#bench', 4));
 await pad.press(BTN.E); await wait(200);
 await ringAudit('#dock', 'the dock');
+await pad.press(BTN.E);
+// a hint in the pad's names: the pause button's, its d-pad drawn where the key was
+{
+  await T(() => document.getElementById('t-play').focus());
+  await frames(2);
+  const tip = await T(() => !document.getElementById('tip').hidden && document.getElementById('tip').innerHTML);
+  check('a control focused by the pad shows its hint with the pad\'s button', !!tip && /gl-dpad/.test(tip), String(tip).slice(0, 120));
+  await shot('hint', await box('#tip'));
+  await pad.press(BTN.E);
+}
 await T(() => __tidemote.input.act('help')); await wait(300);
 await ringAudit('#help', 'the Controls');
+{ const { worst: w } = await glyphsInPlace(); check('in the Controls, every glyph\'s label centered in its outline (within 0.5 px)', w.d <= 0.5, JSON.stringify(w)); }
 await T(() => document.querySelector('#help')?.scrollTo?.(0, 0));
 await shot('controls', await box('#help', 4));
 await T(() => __tidemote.input.act('back')); await wait(200);
@@ -283,6 +346,47 @@ await wait(800);
 await shot('selected-loupe');
 await pad.press(BTN.N); await wait(200);
 await ringAudit('#spec', 'the specimen panel');
+// (the audit leaves focus nowhere: the pad's presses still go to the panel it entered, not the world)
+{
+  const where = () => T(() => ({ ctx: __tidemote.input.padCtx(), focus: document.activeElement?.closest('[data-nav-root]')?.id || null, bench: __tidemote.input.open().bench, rose: __tidemote.input.rose.shown,
+    tab: document.querySelector('#spec [role="tab"][aria-selected="true"]')?.textContent.trim() }));
+  let w = await where();
+  check('focus lost in the specimen panel, the pad still holds to it', w.ctx === 'panel', JSON.stringify(w));
+  // RB and LB pressed fast, again and again, with focus dropped between some: tabs change, nothing reaches the world
+  const tabsSeen = new Set();
+  for (let i = 0; i < 16; i++) {
+    if (i % 5 === 2) await T(() => document.activeElement?.blur());
+    await page.evaluate(([b]) => new Promise((r) => { const x = window.__pad.buttons[b]; x.pressed = true; x.value = 1; requestAnimationFrame(() => { x.pressed = false; x.value = 0; requestAnimationFrame(r); }); }), [i < 10 ? BTN.RB : BTN.LB]);
+    w = await where(); tabsSeen.add(w.tab);
+    if (w.bench || w.rose || w.ctx !== 'panel') break;
+  }
+  check('RB and LB spammed in the panel change its tabs and never reach the world', w.ctx === 'panel' && !w.bench && !w.rose && tabsSeen.size > 1, JSON.stringify({ ...w, tabs: [...tabsSeen] }));
+  // the first tab again, then the d-pad down to the bottom: past the fold, as Tab goes
+  await T(() => { const t = document.querySelector('#spec [role="tab"]'); t?.click(); t?.focus(); });
+  await frames(3);
+  const start = await T(() => { const b = document.getElementById('spec-body'); b.scrollTop = 0; return { sh: b.scrollHeight, ch: b.clientHeight }; });
+  let deepest = 0;
+  for (let i = 0; i < 80; i++) {
+    await pad.press(BTN.DOWN);
+    const y = await T(() => document.getElementById('spec-body').scrollTop);
+    if (y > deepest) deepest = y;
+    if (y >= start.sh - start.ch - 2) break;
+  }
+  check('the d-pad walks the panel past its fold, scrolling as it goes', start.sh <= start.ch || deepest > start.ch / 2, JSON.stringify({ ...start, deepest }));
+  // the +n chip (tags that did not fit): A on it shows them all, focus on the first it showed
+  await T(() => document.getElementById('spec-body').scrollTo(0, 0));
+  // (the row narrowed, so its tags do not fit whatever the species: drawn again with a +n chip)
+  await T(() => { const t = document.getElementById('spec-tags'); t.style.maxWidth = '150px'; t.dataset.k = ''; });
+  await wait(800);
+  const more = await T(() => { const m = document.querySelector('#spec-tags .more'); if (!m) return null; const n = document.querySelectorAll('#spec-tags .term').length; m.focus(); return n; });
+  if (more == null) console.log('     (this species\' tags all fit: no +n chip to check)');
+  else {
+    await pad.press(BTN.S); await frames(2);
+    const f = await T(() => { const a = document.activeElement, all = [...document.querySelectorAll('#spec-tags .term')]; return { i: all.indexOf(a), n: all.length }; });
+    check('A on the +n chip shows every tag, focus on the first it showed', f.i === more && f.n > more, JSON.stringify({ before: more, ...f }));
+  }
+  await T(() => { const t = document.getElementById('spec-tags'); t.style.maxWidth = ''; });
+}
 await pad.press(BTN.E); await pad.press(BTN.E); await wait(200);
 
 // ------------------------------------------------------------ the instruments in the water, held by A

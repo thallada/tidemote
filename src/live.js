@@ -18,15 +18,40 @@ export function setText(el, text) {
 
 const parse = (html) => { const t = document.createElement('template'); t.innerHTML = html; return t.content; };
 
-/** Sets an element's markup, changing only the nodes that differ from the markup last written. */
+/**
+ * Sets an element's markup, changing only the nodes that differ from the markup last written. Focus within it stays
+ * on the same control: one replaced (its row's markup changed) hands focus to the control that took its place.
+ */
 export function setHTML(el, html) {
   const w = wrote.get(el);
   if (w && w.html === html) return false;
+  const had = document.activeElement, inside = had && had !== el && el.contains(had);
+  const key = inside ? keyOf(had) : null, rect = inside ? had.getBoundingClientRect() : null;
   const frag = parse(html);
   if (w && w.frag) morph(el, w.frag, frag);
   else el.replaceChildren(frag.cloneNode(true));
   wrote.set(el, { html, frag });
+  if (inside && !had.isConnected) refocus(el, key, rect);
   return true;
+}
+
+// What names a control across a rewrite: its id, else its tag with the attributes that say which control it is
+const KEYS = ['data-o', 'data-v', 'data-tab', 'data-open', 'data-act', 'data-tip', 'data-serial', 'data-key', 'data-disc', 'aria-label', 'name']; // i18n-ignore (attribute names)
+function keyOf(n) {
+  if (n.id) return { id: n.id };
+  return { tag: n.tagName, attrs: KEYS.filter((k) => n.hasAttribute(k)).map((k) => [k, n.getAttribute(k)]), text: n.textContent.trim() };
+}
+// The control in el now named by key (of several, the nearest to where the old one was), focused without scrolling
+function refocus(el, key, rect) {
+  let found = key.id ? [document.getElementById(key.id)].filter((n) => n && el.contains(n)) : [];
+  if (!key.id) {
+    const sel = key.tag.toLowerCase() + key.attrs.map(([k, v]) => `[${k}="${CSS.escape(v)}"]`).join('');
+    found = [...el.querySelectorAll(sel)];
+    if (!key.attrs.length) found = found.filter((n) => n.textContent.trim() === key.text);
+  }
+  const d = (n) => { const r = n.getBoundingClientRect(); return Math.hypot(r.left - rect.left, r.top - rect.top); };
+  const best = found.sort((a, b) => d(a) - d(b))[0];
+  best?.focus({ preventScroll: true });
 }
 
 // live mirrors a, the markup last written (a translator wraps a text node in one <font>, so positions

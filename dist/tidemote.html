@@ -897,7 +897,7 @@ body[data-glyphs="pad"] .bench kbd, body[data-glyphs="pad"] #tools kbd, body[dat
 /* the pad's legend over the dock: what its buttons do here and now */
 .padbar { position: fixed; left: 50%; bottom: calc(var(--bot) + 30px); transform: translateX(-50%); z-index: 7; pointer-events: none; display: flex; gap: var(--s3); align-items: center;
   padding: 5px 12px; background: rgba(6, 10, 11, 0.82); border: 1px solid var(--line); font-size: 12px; letter-spacing: .06em; color: var(--ink-2); white-space: nowrap; }
-.padbar span { display: inline-flex; align-items: center; gap: 5px; }
+.padbar > span { display: inline-flex; align-items: center; gap: 5px; }
 .padbar b { font-weight: 400; }
 .padbar em { font-style: normal; font-size: 10.5px; letter-spacing: .1em; color: var(--ink-3); margin-left: 3px; }
 /* a slider or a list a controller has taken hold of (A): its ring cyan, a glow, while the d-pad and stick change it */
@@ -25097,11 +25097,33 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
   function setHTML(el2, html2) {
     const w = wrote.get(el2);
     if (w && w.html === html2) return false;
+    const had = document.activeElement, inside = had && had !== el2 && el2.contains(had);
+    const key = inside ? keyOf(had) : null, rect = inside ? had.getBoundingClientRect() : null;
     const frag = parse2(html2);
     if (w && w.frag) morph(el2, w.frag, frag);
     else el2.replaceChildren(frag.cloneNode(true));
     wrote.set(el2, { html: html2, frag });
+    if (inside && !had.isConnected) refocus(el2, key, rect);
     return true;
+  }
+  var KEYS = ["data-o", "data-v", "data-tab", "data-open", "data-act", "data-tip", "data-serial", "data-key", "data-disc", "aria-label", "name"];
+  function keyOf(n) {
+    if (n.id) return { id: n.id };
+    return { tag: n.tagName, attrs: KEYS.filter((k) => n.hasAttribute(k)).map((k) => [k, n.getAttribute(k)]), text: n.textContent.trim() };
+  }
+  function refocus(el2, key, rect) {
+    let found = key.id ? [document.getElementById(key.id)].filter((n) => n && el2.contains(n)) : [];
+    if (!key.id) {
+      const sel = key.tag.toLowerCase() + key.attrs.map(([k, v]) => `[${k}="${CSS.escape(v)}"]`).join("");
+      found = [...el2.querySelectorAll(sel)];
+      if (!key.attrs.length) found = found.filter((n) => n.textContent.trim() === key.text);
+    }
+    const d = (n) => {
+      const r = n.getBoundingClientRect();
+      return Math.hypot(r.left - rect.left, r.top - rect.top);
+    };
+    const best = found.sort((a, b) => d(a) - d(b))[0];
+    best?.focus({ preventScroll: true });
   }
   function morph(live, a, b) {
     const L = [...live.childNodes], A = a.childNodes, B = b.childNodes;
@@ -27463,9 +27485,12 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       if (!e.target.closest(".more")) return;
       if (e.type === "keydown" && e.key !== "Enter" && e.key !== " ") return;
       e.preventDefault();
+      const byHand = e.type === "keydown" || e.detail === 0, shown = tagsEl.querySelectorAll(".term").length;
       tagsEl.classList.add("all");
       tagsEl.innerHTML = allTags;
-      document.activeElement?.blur?.();
+      const next = byHand && tagsEl.querySelectorAll(".term")[shown];
+      if (next) next.focus({ preventScroll: true });
+      else document.activeElement?.blur?.();
     }
     tagsEl.addEventListener("click", expandTags);
     tagsEl.addEventListener("keydown", expandTags);
@@ -36056,10 +36081,18 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
     if (el2.disabled || el2.closest('[hidden], [inert], [aria-hidden="true"], .sr-only')) return false;
     if (el2.getAttribute("tabindex") === "-1" && el2.getAttribute("role") !== "tab") return false;
     const r = el2.getBoundingClientRect();
-    if (r.width < 1 || r.height < 1 || r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth) return false;
+    if (r.width < 1 || r.height < 1) return false;
+    if ((r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth) && !inScroller(el2)) return false;
     const cs = getComputedStyle(el2);
     return cs.visibility !== "hidden" && cs.display !== "none" && +cs.opacity > 0;
   }
+  var inScroller = (el2) => {
+    for (let n = el2.parentElement; n && n !== document.body; n = n.parentElement) {
+      const cs = getComputedStyle(n);
+      if (/(auto|scroll)/.test(cs.overflowY) && n.scrollHeight > n.clientHeight + 1 || /(auto|scroll)/.test(cs.overflowX) && n.scrollWidth > n.clientWidth + 1) return true;
+    }
+    return false;
+  };
   var controlsOf = (root) => [...root.querySelectorAll(FOCUSABLE)].filter(canFocus);
   var isAdjustable = (el2) => !!el2 && (el2.type === "range" || el2.tagName === "SELECT");
   function adjust(el2, d) {
@@ -36132,7 +36165,8 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
         const t = tabs[(i + d + tabs.length) % tabs.length];
         if (!t) return false;
         t.click();
-        if (row.contains(a)) t.focus({ preventScroll: true });
+        const now = document.activeElement;
+        if (row.contains(a) || !now || now === document.body || !root.contains(now)) t.focus({ preventScroll: true });
         return true;
       },
       /** Scroll the scroller nearest focus in root (else root's own, or its first) by dy px. */
@@ -37642,7 +37676,7 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
     { id: "pipette", name: tr("tool.pipette.name", "Pipette"), hint: tr("tool.pipette.hint", "Load: a click draws up a few cells, held: all in reach · Dispense (or ⇧ click) ejects cells at the tip, held: continuously dispenses faster"), touch: tr("tool.pipette.touch", "Load: a touch draws up a few cells, held: all in reach · Dispense: a touch ejects cells at the tip") }
   ];
   var toolOf = (id) => TOOLS.find((t) => t.id === id) || TOOLS[0];
-  var keyOf = (id) => String(TOOLS.findIndex((t) => t.id === id));
+  var keyOf2 = (id) => String(TOOLS.findIndex((t) => t.id === id));
   var works = (id) => id !== "none" && id !== "loupe";
   var INSTRUMENTS = { needle: { kind: 1, dir: [0.86, 0.51] }, pipette: { kind: 2, dir: [0.86, -0.51] }, cold: { kind: 3, dir: [-0.86, 0.51] }, touch: { kind: 4, dir: [0.3, -0.954] } };
   var REACH = { min: 0.6, max: 8, def: 2 };
@@ -37996,7 +38030,7 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
       btn.setAttribute("aria-label", t.id !== "none" ? tr("bench.open.aria-held", "Bench · {tool} selected", { tool: t.name }) : tr("bench.open.aria", "Bench"));
       btn.classList.toggle("in-hand", up);
       held.hidden = !(up && drawer.hidden && innerWidth <= 980);
-      $("held-k").textContent = keyOf(t.id);
+      $("held-k").textContent = keyOf2(t.id);
       $("held-n").textContent = t.name;
       $("held-r").textContent = sz.text;
       held.querySelector(".held-reach").hidden = t.id === "needle" || t.id === "pipette";
@@ -43264,7 +43298,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const pads = createPads();
     const nav = createFocus();
     const zoomHeld = /* @__PURE__ */ new Map();
-    const input = { way: [0, 0], stickNav: null, apply: null, lastTool: "loupe", grab: null };
+    const input = { way: [0, 0], stickNav: null, apply: null, lastTool: "loupe", grab: null, panel: null };
     for (const id of ["intro", "card", "help", "settings", "ladder", "bench", "held", "spec", "lab", "dock", "rail"]) $2(id).dataset.navRoot = "";
     const rose = createRose($2("rose"));
     const FAMILY_NAME = () => ({ xbox: tr("prompts.xbox", "Xbox"), ps: tr("prompts.ps", "PlayStation"), switch: tr("prompts.switch", "Switch"), deck: tr("prompts.deck", "Steam Deck") });
@@ -43295,7 +43329,12 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     }, true);
     addEventListener("pointerdown", (e) => {
       if (noteInput(mode, { kind: "pointer", type: e.pointerType })) applyMode();
+      if (input.panel && !input.panel.contains(e.target)) input.panel = null;
     }, true);
+    document.addEventListener("focusin", (e) => {
+      const r = mode.glyphs === "pad" && e.target.closest?.("[data-nav-root]");
+      if (r) input.panel = r;
+    });
     addEventListener("wheel", () => {
       if (noteInput(mode, { kind: "wheel" })) applyMode();
     }, { capture: true, passive: true });
@@ -43333,8 +43372,15 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       if (!$2("help").hidden) return $2("help");
       if (view.isOpen()) return $2("settings");
       if (ladder.isOpen()) return $2("ladder");
-      const a = document.activeElement;
-      return a && a !== document.body && a !== canvas ? a.closest("[data-nav-root]") : null;
+      const a = document.activeElement, at = a && a !== document.body && a !== canvas ? a.closest("[data-nav-root]") : null;
+      if (at) return at;
+      const p2 = input.panel;
+      if (p2 && p2.isConnected && !p2.hidden && p2.getClientRects().length && mode.glyphs === "pad") {
+        if (!p2.contains(document.activeElement)) nav.enter(p2);
+        return p2;
+      }
+      input.panel = null;
+      return null;
     }
     const padCtx = () => rose.shown ? "rose" : padRoot() ? "panel" : ride.on ? "ride" : inHand() ? "tool" : "world";
     const sidePanel = () => [$2("spec"), lab.isOpen() ? $2("lab") : null, bench.isOpen() ? $2("bench") : null].find((el2) => el2 && !el2.hidden) || null;
@@ -43363,6 +43409,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     }
     function panelBack() {
       const root = padRoot();
+      input.panel = null;
       if (!root) return false;
       if (root === $2("intro")) {
         menu.back();

@@ -38,10 +38,21 @@ export function canFocus(el) {
   if (el.disabled || el.closest('[hidden], [inert], [aria-hidden="true"], .sr-only')) return false;
   if (el.getAttribute('tabindex') === '-1' && el.getAttribute('role') !== 'tab') return false;
   const r = el.getBoundingClientRect();
-  if (r.width < 1 || r.height < 1 || r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth) return false;
+  if (r.width < 1 || r.height < 1) return false;
+  // (off the screen only within something that scrolls, which brings it into view: a panel's controls below its fold
+  // are reached as Tab reaches them)
+  if ((r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth) && !inScroller(el)) return false;
   const cs = getComputedStyle(el);
   return cs.visibility !== 'hidden' && cs.display !== 'none' && +cs.opacity > 0;
 }
+
+const inScroller = (el) => {
+  for (let n = el.parentElement; n && n !== document.body; n = n.parentElement) {
+    const cs = getComputedStyle(n);
+    if ((/(auto|scroll)/.test(cs.overflowY) && n.scrollHeight > n.clientHeight + 1) || (/(auto|scroll)/.test(cs.overflowX) && n.scrollWidth > n.clientWidth + 1)) return true;
+  }
+  return false;
+};
 
 /** The controls of root that can take focus now. */
 export const controlsOf = (root) => [...root.querySelectorAll(FOCUSABLE)].filter(canFocus);
@@ -111,7 +122,9 @@ export function createFocus() {
       const t = tabs[(i + d + tabs.length) % tabs.length];
       if (!t) return false;
       t.click();
-      if (row.contains(a)) t.focus({ preventScroll: true });
+      // (focus on the tab row, or lost as the tab's contents were drawn anew: onto the new tab)
+      const now = document.activeElement;
+      if (row.contains(a) || !now || now === document.body || !root.contains(now)) t.focus({ preventScroll: true });
       return true;
     },
     /** Scroll the scroller nearest focus in root (else root's own, or its first) by dy px. */

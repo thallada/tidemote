@@ -26,7 +26,12 @@ controls (none cut by a scrolling panel or a tab row), Settings → Display → 
 Controls on one line, the reticle keeping its place as panels open, View only the Lab, A showing a term's hint,
 sliders taken hold of by A and stepped by a twentieth, the pipette's X switching loading and dispensing (and the
 legend saying which), the instruments in focus while A holds them, the legend naming taps and holds, the dock's
-readout fitting at 1280, and the pipette's strip redrawn at most eight times a second (its hitches). `pad-look.mjs`
+readout fitting at 1280, and the pipette's strip redrawn at most eight times a second (its hitches).
+Third round: the legend's glyphs centered too (a `.padbar span` rule made every span in it a flex box, the labels
+pushed left; pad-look now measures glyphs where they are shown, not only on a sheet), focus kept on the same
+control when a panel is drawn anew (`setHTML`), the +n tags chip handing focus to the first tag it shows, a side
+panel the pad entered holding its presses until B, Y, its closing or a click elsewhere (RB/LB spammed never reach
+the world), and the d-pad reaching controls below a panel's fold. `pad-look.mjs`
 checks all of it by eye and by pixel.
 
 Still to do: the Steamworks Steam Input setting (decision 3), the Deck walkthrough and its run, measuring the Steam

@@ -841,7 +841,7 @@ body[data-glyphs="pad"] .bench kbd, body[data-glyphs="pad"] #tools kbd, body[dat
 /* the pad's legend over the dock: what its buttons do here and now */
 .padbar { position: fixed; left: 50%; bottom: calc(var(--bot) + 30px); transform: translateX(-50%); z-index: 7; pointer-events: none; display: flex; gap: var(--s3); align-items: center;
   padding: 5px 12px; background: rgba(6, 10, 11, 0.82); border: 1px solid var(--line); font-size: 12px; letter-spacing: .06em; color: var(--ink-2); white-space: nowrap; }
-.padbar span { display: inline-flex; align-items: center; gap: 5px; }
+.padbar > span { display: inline-flex; align-items: center; gap: 5px; }
 .padbar b { font-weight: 400; }
 .padbar em { font-style: normal; font-size: 10.5px; letter-spacing: .1em; color: var(--ink-3); margin-left: 3px; }
 /* a slider or a list a controller has taken hold of (A): its ring cyan, a glow, while the d-pad and stick change it */

@@ -181,9 +181,13 @@ export function createSpecimen(api) {
     if (!e.target.closest('.more')) return;
     if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
     e.preventDefault();
+    // (opened by a key or a controller's A, not a mouse: focus goes on to the first tag it showed; a click hands
+    // focus back so shortcuts keep working)
+    const byHand = e.type === 'keydown' || e.detail === 0, shown = tagsEl.querySelectorAll('.term').length;
     tagsEl.classList.add('all');
     tagsEl.innerHTML = allTags;
-    document.activeElement?.blur?.(); // hand focus back so shortcuts keep working
+    const next = byHand && tagsEl.querySelectorAll('.term')[shown];
+    if (next) next.focus({ preventScroll: true }); else document.activeElement?.blur?.();
   }
   tagsEl.addEventListener('click', expandTags);
   tagsEl.addEventListener('keydown', expandTags);

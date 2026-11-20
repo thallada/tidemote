@@ -3883,7 +3883,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   const nav = createFocus();
   const zoomHeld = new Map(); // a zoom key held, by its code: its direction
   // (grab: the slider or list A took hold of, which the d-pad and the stick change until A or B lets go)
-  const input = { way: [0, 0], stickNav: null, apply: null, lastTool: 'loupe', grab: null };
+  // (panel: the side panel the pad's focus went into, kept until B or Y leaves it: padRoot)
+  const input = { way: [0, 0], stickNav: null, apply: null, lastTool: 'loupe', grab: null, panel: null };
   // the panels a controller's focus moves within (focus.js remembers each one's last control)
   for (const id of ['intro', 'card', 'help', 'settings', 'ladder', 'bench', 'held', 'spec', 'lab', 'dock', 'rail']) $(id).dataset.navRoot = '';
   const rose = createRose($('rose'));
@@ -3910,7 +3911,15 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     tips.refresh?.();
   }
   addEventListener('keydown', (e) => { if (noteInput(mode, { kind: 'key', key: e.key })) applyMode(); }, true);
-  addEventListener('pointerdown', (e) => { if (noteInput(mode, { kind: 'pointer', type: e.pointerType })) applyMode(); }, true);
+  addEventListener('pointerdown', (e) => {
+    if (noteInput(mode, { kind: 'pointer', type: e.pointerType })) applyMode();
+    if (input.panel && !input.panel.contains(e.target)) input.panel = null;
+  }, true);
+  // (the side panel a controller's focus is in: padRoot keeps it)
+  document.addEventListener('focusin', (e) => {
+    const r = mode.glyphs === 'pad' && e.target.closest?.('[data-nav-root]');
+    if (r) input.panel = r;
+  });
   addEventListener('wheel', () => { if (noteInput(mode, { kind: 'wheel' })) applyMode(); }, { capture: true, passive: true });
   addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse' && noteInput(mode, { kind: 'move', d: Math.abs(e.movementX) + Math.abs(e.movementY) })) applyMode(); }, true);
   applyMode();
@@ -3946,8 +3955,18 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     if (!$('help').hidden) return $('help');
     if (view.isOpen()) return $('settings');
     if (ladder.isOpen()) return $('ladder');
-    const a = document.activeElement;
-    return a && a !== document.body && a !== canvas ? a.closest('[data-nav-root]') : null;
+    const a = document.activeElement, at = a && a !== document.body && a !== canvas ? a.closest('[data-nav-root]') : null;
+    if (at) return at;
+    // A side panel the pad went into keeps the pad's presses until B or Y leaves it, it closes, or the mouse or a
+    // finger goes elsewhere: focus lost in it (its contents drawn anew under a tab change) is put back, never handed
+    // to the world mid-press
+    const p = input.panel;
+    if (p && p.isConnected && !p.hidden && p.getClientRects().length && mode.glyphs === 'pad') {
+      if (!p.contains(document.activeElement)) nav.enter(p);
+      return p;
+    }
+    input.panel = null;
+    return null;
   }
   const padCtx = () => (rose.shown ? 'rose' : padRoot() ? 'panel' : ride.on ? 'ride' : inHand() ? 'tool' : 'world');
   // the side panel Y goes into: the specimen's, the Lab, the bench, else the dock
@@ -3976,6 +3995,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   // a dialog or float the pad has focus in, closed by B (a side panel: focus back to the world)
   function panelBack() {
     const root = padRoot();
+    input.panel = null;
     if (!root) return false;
     if (root === $('intro')) { menu.back(); return true; }
     if (root === $('card')) cards.close();
