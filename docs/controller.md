@@ -171,7 +171,10 @@ like the cursor.
 | LB / RB | Previous / next tab (Settings, Lab, specimen sections) |
 | Right stick | Scroll |
 
-The legend over the dock says which of these applies to what has focus (Choose, Adjust, Explain, Done).
+The legend over the dock says which of these applies to what has focus (Choose, Adjust, Explain, Done). It shows for
+four seconds and fades (0.22 s in, 0.3 s out): after any bound button, when what the buttons do changes (a tool, a
+panel, a ride), and when the pad is first taken up; panning and zooming with the sticks and triggers leave it faded,
+and the auto camera hides it. RB in the bench (which has no tabs) closes it, as RB opened it.
 
 The opening menu is a panel: any button reveals the pad (the spec's gesture gate), focus lands on Begin, the d-pad
 walks the count chips and saved worlds, and South begins.

@@ -849,6 +849,9 @@ body[data-glyphs="pad"] .bench kbd, body[data-glyphs="pad"] #tools kbd, body[dat
 /* a slider or a list a controller has taken hold of (A): its ring cyan, a glow, while the d-pad and stick change it */
 body[data-glyphs] :is(input, select).grabbed:focus { outline-color: var(--cyan) !important; box-shadow: 0 0 0 4px rgba(120, 226, 214, 0.25); }
 body.ui-off .padbar { display: none; }
+/* (it fades in and out, quickly: shown a few seconds after a button, main.js renderLegend) */
+.padbar { transition: opacity .22s ease, visibility 0s; }
+.padbar.off { opacity: 0; visibility: hidden; transition: opacity .3s ease, visibility 0s linear .3s; }
 /* the rose (rose.js): a ring about the reticle, the lit octant's wedge */
 .rose { position: fixed; z-index: 40; width: 340px; height: 340px; margin: -170px 0 0 -170px; border-radius: 50%; pointer-events: none; box-sizing: border-box;
   border: 1px solid rgba(150, 222, 230, 0.35); background: radial-gradient(closest-side, transparent 34%, rgba(6, 9, 10, 0.86) 35%, rgba(6, 9, 10, 0.86) 99%, transparent); }

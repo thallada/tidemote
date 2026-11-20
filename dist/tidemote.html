@@ -905,6 +905,9 @@ body[data-glyphs="pad"] .bench kbd, body[data-glyphs="pad"] #tools kbd, body[dat
 /* a slider or a list a controller has taken hold of (A): its ring cyan, a glow, while the d-pad and stick change it */
 body[data-glyphs] :is(input, select).grabbed:focus { outline-color: var(--cyan) !important; box-shadow: 0 0 0 4px rgba(120, 226, 214, 0.25); }
 body.ui-off .padbar { display: none; }
+/* (it fades in and out, quickly: shown a few seconds after a button, main.js renderLegend) */
+.padbar { transition: opacity .22s ease, visibility 0s; }
+.padbar.off { opacity: 0; visibility: hidden; transition: opacity .3s ease, visibility 0s linear .3s; }
 /* the rose (rose.js): a ring about the reticle, the lit octant's wedge */
 .rose { position: fixed; z-index: 40; width: 340px; height: 340px; margin: -170px 0 0 -170px; border-radius: 50%; pointer-events: none; box-sizing: border-box;
   border: 1px solid rgba(150, 222, 230, 0.35); background: radial-gradient(closest-side, transparent 34%, rgba(6, 9, 10, 0.86) 35%, rgba(6, 9, 10, 0.86) 99%, transparent); }
@@ -1927,7 +1930,7 @@ Double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-
 <!-- a controller: its reticle at the view's middle, and the rose a bumper holds open (docs/controller.md) -->
 <div class="aim" id="aim" hidden aria-hidden="true"><i></i><i></i><i></i><i></i></div>
 <div class="rose" id="rose" role="menu" hidden></div>
-<div class="padbar" id="padbar" hidden aria-hidden="true"></div>
+<div class="padbar off" id="padbar" aria-hidden="true"></div>
 
 <div class="intro" id="intro">
   <div class="intro-in">
@@ -43695,6 +43698,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         case "tab-prev":
         case "tab-next": {
           const root = padRoot();
+          if (root?.id === "bench" && id === "tab-next") return panelBack();
           return !!root && nav.tab(root, id === "tab-next" ? 1 : -1);
         }
         case "rose-tools":
@@ -43784,6 +43788,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       zoom: tr("legend.zoom", "Zoom"),
       adjust: tr("legend.adjust", "Adjust"),
       top: tr("legend.top-bar", "Top bar"),
+      close: tr("legend.close", "Close"),
       done: tr("legend.done", "Done"),
       hint: tr("legend.hint", "Explain")
     });
@@ -43795,7 +43800,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         const tabs = padRoot()?.querySelector('[role="tablist"]') ? [[["LB", "RB"], L.tabs]] : [];
         const what = isAdjustable(a) ? L.adjust : a?.matches?.(".term, span[data-tip]") ? L.hint : L.choose;
         const top = padRoot()?.id === "dock" ? [["UP", L.top]] : [];
-        return [["S", what], ["E", L.back], ...tabs, ...top];
+        const close = padRoot()?.id === "bench" ? [["RB", L.close]] : [];
+        return [["S", what], ["E", L.back], ...tabs, ...top, ...close];
       }
       if (ctx2 === "ride") return [["L", L.steer], ["S", L.hop], ["E", L.off], [["LT", "RT"], L.zoom]];
       if (ctx2 === "tool") {
@@ -43821,19 +43827,29 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       if (Math.max(L, R2) < need) return r.left + r.width / 2;
       return L >= R2 ? left + L / 2 : r.right + R2 / 2;
     }
+    const LEGEND_MS = 4e3;
+    let legendUntil = 0, legendCtx = "";
+    const showLegend = () => {
+      legendUntil = performance.now() + LEGEND_MS;
+    };
     function renderLegend(ctx2) {
       const el2 = $2("padbar");
-      const show = mode.glyphs === "pad" && state.ui && !introUp() && ctx2 !== "rose" && !director.active;
-      const items = show ? legendItems(ctx2) : [];
+      if (ctx2 !== legendCtx) {
+        legendCtx = ctx2;
+        showLegend();
+      }
+      const show = mode.glyphs === "pad" && state.ui && !introUp() && ctx2 !== "rose" && !director.active && performance.now() < legendUntil;
+      const items = show ? legendItems(ctx2) : null;
+      el2.classList.toggle("off", !show || !items.length);
+      if (!show) return;
       const x = `${Math.round(legendX(ctx2))}px`;
       if (el2.style.left !== x) el2.style.left = x;
       const b = bench.isOpen() ? $2("bench").getBoundingClientRect() : null;
       const bottom = b && b.height ? `${Math.round(innerHeight - b.top + 10)}px` : "";
       if (el2.style.bottom !== bottom) el2.style.bottom = bottom;
-      const key = `${show}|${ctx2}|${mode.family}|${JSON.stringify(items)}`;
+      const key = `${ctx2}|${mode.family}|${JSON.stringify(items)}`;
       if (key === legendKey) return;
       legendKey = key;
-      el2.hidden = !items.length;
       const L = LEGEND(), fam = padFamily();
       el2.innerHTML = items.map(([b2, t, h]) => `<span>${[].concat(b2).map((p2) => glyph(p2, fam)).join("")}${t ? `<b>${esc2(t)}</b>` : ""}${h ? `<em>${esc2(L.hold)}</em><b>${esc2(h)}</b>` : ""}</span>`).join("");
     }
@@ -43842,10 +43858,16 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       easeAim(dt);
       if (input.grab && document.activeElement !== input.grab) letGo();
       const ctx2 = padCtx();
-      for (const ev of pads.poll(now, ctx2 === "rose" ? "world" : ctx2)) act(ev.id);
+      for (const ev of pads.poll(now, ctx2 === "rose" ? "world" : ctx2)) {
+        act(ev.id);
+        showLegend();
+      }
       const P2 = pads.state;
       if (P2.active) {
-        if (noteInput(mode, { kind: "pad", family: padFamily() })) applyMode();
+        if (noteInput(mode, { kind: "pad", family: padFamily() })) {
+          applyMode();
+          showLegend();
+        }
         if (mode.pointer === "pad") lastPtr.moved = now;
         poke();
         sound.unlock();

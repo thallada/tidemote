@@ -181,6 +181,10 @@ check('every glyph\'s label centered in its outline, on a sheet (within 0.75 px)
 // ------------------------------------------------------------ the legend in the world
 await T(() => { document.body.dataset.pad = __tidemote.input.mode.family; });
 await frames(3);
+// (the legend shows a few seconds after a button: two presses of pause to bring it up)
+const wake = async () => { await pad.press(BTN.DOWN); await pad.press(BTN.DOWN); await wait(350); };
+const legendOn = () => T(() => !document.getElementById('padbar').classList.contains('off'));
+await wake();
 const legendBox = await box('#padbar');
 await shot('legend-world', legendBox);
 {
@@ -306,6 +310,14 @@ await pad.press(BTN.RB); await wait(300);
 s = await S(); check('RB tapped opens the bench', s.bench, JSON.stringify(s));
 await ringAudit('#bench', 'the bench');
 {
+  // RB again, focus in the bench: closes it (and opens it again for what follows)
+  await T(() => __tidemote.input.open().bench && document.querySelector('#bench button')?.focus());
+  await pad.press(BTN.RB); await wait(200);
+  const closed = await S();
+  check('RB tapped with the bench open closes it', !closed.bench, JSON.stringify(closed));
+  await pad.press(BTN.RB); await wait(300);
+}
+{
   const r = await T(() => { const p = document.getElementById('padbar').getBoundingClientRect(), b = document.getElementById('bench').getBoundingClientRect(); return { legend: p.bottom, bench: b.top, shown: !document.getElementById('padbar').hidden }; });
   check('the legend sits above the bench\'s drawer while it is open', r.shown && r.legend <= r.bench, JSON.stringify(r));
   await shot('bench-legend');
@@ -316,14 +328,15 @@ await ringAudit('#dock', 'the dock');
 // from the dock, up to the rail at the top (and down again)
 {
   await T(() => document.getElementById('t-play').focus());
+  await wait(350);
+  const leg = await T(() => document.getElementById('padbar').textContent);
   let at = null;
   for (let i = 0; i < 3 && at !== 'rail'; i++) { await pad.press(BTN.UP); at = await T(() => document.activeElement?.closest('[data-nav-root]')?.id); }
-  const leg = await T(() => document.getElementById('padbar').textContent);
   check('up from the dock moves focus into the rail at the top', at === 'rail', String(at));
   await pad.press(BTN.DOWN);
   const back = await T(() => document.activeElement?.closest('[data-nav-root]')?.id);
   check('and down from the rail back into the dock', back === 'dock', String(back));
-  check('the dock\'s legend says up reaches the top bar', /Top bar/.test(leg) || at === 'rail', leg);
+  check('the dock\'s legend says up reaches the top bar', /Top bar/.test(leg), leg);
 }
 await pad.press(BTN.E);
 // a hint in the pad's names: the pause button's, its d-pad drawn where the key was
@@ -409,6 +422,7 @@ await pad.press(BTN.E); await pad.press(BTN.E); await wait(200);
 // ------------------------------------------------------------ the instruments in the water, held by A
 for (const tool of ['needle', 'cold', 'pipette', 'touch']) {
   await T((t) => __tidemote.input.act(`tool-${t}`), tool); await frames(3);
+  await wake();
   await shot(`legend-${tool}`, await box('#padbar'));
   await pad.down(BTN.S);
   const fs = [];
@@ -423,6 +437,7 @@ for (const tool of ['needle', 'cold', 'pipette', 'touch']) {
 // the pipette: X switches what A does, and the legend says so
 await T(() => __tidemote.input.act('tool-pipette')); await frames(3);
 const leg = () => T(() => document.getElementById('padbar').textContent);
+await wake();
 const l0 = await leg(), d0 = (await S()).dispensing;
 await pad.press(BTN.W); await frames(3);
 const l1 = await leg(), d1 = (await S()).dispensing;
@@ -437,15 +452,31 @@ await shot('rose-tools', await box('#rose', 10));
 await pad.stick(0, 0); await pad.up(BTN.LB); await wait(250);
 await T(() => __tidemote.input.act('tool-none'));
 
+// ------------------------------------------------------------ the legend fades: a few seconds after a button, not back for the sticks
+{
+  await T(() => document.activeElement?.blur());
+  await wake();
+  check('a button pressed shows the legend', await legendOn());
+  const fade = await T(() => getComputedStyle(document.getElementById('padbar')).transitionDuration);
+  await wait(4600);
+  check('a few seconds on, it has faded', !(await legendOn()));
+  await pad.stick(0.8, 0); await wait(600); await pad.stick(0, 0);
+  await pad.trig(BTN.RT, 1); await wait(400); await pad.trig(BTN.RT, 0); await frames(3);
+  check('panning and zooming leave it faded', !(await legendOn()));
+  await pad.press(BTN.R3); await wait(350);
+  check('another button brings it back', await legendOn());
+  check('it fades in and out, not at once', /0\.[1-4]/.test(fade), fade);
+}
 // ------------------------------------------------------------ the auto camera: the legend hides while it films
 {
   await T(() => document.activeElement?.blur());
   await pad.press(BTN.UP); await wait(400);
-  const on = await T(() => ({ auto: __tidemote.director.active, legend: !document.getElementById('padbar').hidden }));
+  const on = await T(() => ({ auto: __tidemote.director.active, legend: !document.getElementById('padbar').classList.contains('off') }));
   check('the auto camera hides the legend', on.auto && !on.legend, JSON.stringify(on));
   await pad.stick(1, 0); await wait(200); await pad.stick(0, 0); await frames(3);
-  const off = await T(() => ({ auto: __tidemote.director.active, legend: !document.getElementById('padbar').hidden }));
-  check('the stick takes the camera back and the legend returns', !off.auto && off.legend, JSON.stringify(off));
+  await pad.press(BTN.DOWN); await pad.press(BTN.DOWN); await wait(350);
+  const off = await T(() => ({ auto: __tidemote.director.active, legend: !document.getElementById('padbar').classList.contains('off') }));
+  check('the stick takes the camera back, and a button the legend', !off.auto && off.legend, JSON.stringify(off));
 }
 // ------------------------------------------------------------ Settings → Display → Full screen, for a controller
 {

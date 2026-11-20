@@ -4147,7 +4147,12 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
         const root = padRoot();
         return !!root && navMove(root, dir);
       }
-      case 'tab-prev': case 'tab-next': { const root = padRoot(); return !!root && nav.tab(root, id === 'tab-next' ? 1 : -1); }
+      case 'tab-prev': case 'tab-next': {
+        const root = padRoot();
+        // (RB in the bench, which has no tabs, closes it, as RB opened it)
+        if (root?.id === 'bench' && id === 'tab-next') return panelBack();
+        return !!root && nav.tab(root, id === 'tab-next' ? 1 : -1);
+      }
       case 'rose-tools': openRose('tools'); return true;
       case 'rose-view': openRose('view'); return true;
       case 'rose-tools:end': case 'rose-view:end': {
@@ -4214,7 +4219,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     load: tr('legend.load', 'Load'), dispense: tr('legend.dispense', 'Dispense'), toLoad: tr('legend.to-load', 'Switch to load'), toDispense: tr('legend.to-dispense', 'Switch to dispense'),
     steer: tr('legend.steer', 'Steer'), hop: tr('legend.hop', 'Next of kin'), off: tr('legend.off', 'Get off'),
     choose: tr('legend.choose', 'Choose'), tabs: tr('legend.tabs', 'Tabs'), zoom: tr('legend.zoom', 'Zoom'),
-    adjust: tr('legend.adjust', 'Adjust'), top: tr('legend.top-bar', 'Top bar'), done: tr('legend.done', 'Done'), hint: tr('legend.hint', 'Explain'),
+    adjust: tr('legend.adjust', 'Adjust'), top: tr('legend.top-bar', 'Top bar'), close: tr('legend.close', 'Close'), done: tr('legend.done', 'Done'), hint: tr('legend.hint', 'Explain'),
   });
   // Its items: [places (a button, or several drawn together), what a press or tap does, what holding it does]
   function legendItems(ctx) {
@@ -4226,7 +4231,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       const what = isAdjustable(a) ? L.adjust : a?.matches?.('.term, span[data-tip]') ? L.hint : L.choose;
       // (the dock: up reaches the rail's controls at the top)
       const top = padRoot()?.id === 'dock' ? [['UP', L.top]] : [];
-      return [['S', what], ['E', L.back], ...tabs, ...top];
+      const close = padRoot()?.id === 'bench' ? [['RB', L.close]] : [];
+      return [['S', what], ['E', L.back], ...tabs, ...top, ...close];
     }
     if (ctx === 'ride') return [['L', L.steer], ['S', L.hop], ['E', L.off], [['LT', 'RT'], L.zoom]];
     if (ctx === 'tool') {
@@ -4246,12 +4252,20 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     if (Math.max(L, R) < need) return r.left + r.width / 2;
     return L >= R ? left + L / 2 : r.right + R / 2;
   }
+  // The legend shows for a few seconds and fades: after a button bound to something is pressed (not the sticks or the
+  // triggers: panning and zooming leave the world clear), when what the buttons do changes (a tool taken up, a panel
+  // entered, a ride begun or ended), and when the pad is first taken up. Never while the auto camera films.
+  const LEGEND_MS = 4000;
+  let legendUntil = 0, legendCtx = '';
+  const showLegend = () => { legendUntil = performance.now() + LEGEND_MS; };
   function renderLegend(ctx) {
     const el = $('padbar');
-    // (not while the auto camera films: the world alone, as the interface keeps out of its way; any input that stops
-    // the camera brings it back)
-    const show = mode.glyphs === 'pad' && state.ui && !introUp() && ctx !== 'rose' && !director.active;
-    const items = show ? legendItems(ctx) : [];
+    if (ctx !== legendCtx) { legendCtx = ctx; showLegend(); }
+    const show = mode.glyphs === 'pad' && state.ui && !introUp() && ctx !== 'rose' && !director.active && performance.now() < legendUntil;
+    // (fading out, it keeps what it said)
+    const items = show ? legendItems(ctx) : null;
+    el.classList.toggle('off', !show || !items.length);
+    if (!show) return;
     // (under the middle of the view the panels leave open; a dialog over it open, the middle of what it leaves)
     const x = `${Math.round(legendX(ctx))}px`;
     if (el.style.left !== x) el.style.left = x;
@@ -4259,10 +4273,9 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     const b = bench.isOpen() ? $('bench').getBoundingClientRect() : null;
     const bottom = b && b.height ? `${Math.round(innerHeight - b.top + 10)}px` : '';
     if (el.style.bottom !== bottom) el.style.bottom = bottom;
-    const key = `${show}|${ctx}|${mode.family}|${JSON.stringify(items)}`;
+    const key = `${ctx}|${mode.family}|${JSON.stringify(items)}`;
     if (key === legendKey) return;
     legendKey = key;
-    el.hidden = !items.length;
     const L = LEGEND(), fam = padFamily();
     el.innerHTML = items.map(([b, t, h]) => `<span>${[].concat(b).map((p) => glyph(p, fam)).join('')}${t ? `<b>${esc(t)}</b>` : ''}${h ? `<em>${esc(L.hold)}</em><b>${esc(h)}</b>` : ''}</span>`).join('');
   }
@@ -4275,10 +4288,10 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     // (a slider let go of once focus leaves it: a click elsewhere, its panel closed)
     if (input.grab && document.activeElement !== input.grab) letGo();
     const ctx = padCtx();
-    for (const ev of pads.poll(now, ctx === 'rose' ? 'world' : ctx)) act(ev.id);
+    for (const ev of pads.poll(now, ctx === 'rose' ? 'world' : ctx)) { act(ev.id); showLegend(); }
     const P = pads.state;
     if (P.active) {
-      if (noteInput(mode, { kind: 'pad', family: padFamily() })) applyMode();
+      if (noteInput(mode, { kind: 'pad', family: padFamily() })) { applyMode(); showLegend(); }
       // (the pad pointing is the pointer moving: the auto camera's resting pointer hides the loupe only once it rests)
       if (mode.pointer === 'pad') lastPtr.moved = now;
       poke(); sound.unlock();
