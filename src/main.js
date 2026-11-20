@@ -291,12 +291,10 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   // the shaders compiling after the world starts (Engine._compileLate: the loupe, the close-up, fast speeds), a tick
   // each as it lands; faded out once the last has
   if (eng.late && eng.late.done < eng.late.total) {
-    const box = $('compiling'), seg = $('cmp-seg'), num = $('cmp-n');
-    const show = ({ done, total }) => {
-      if (seg.childElementCount !== total) {
-        seg.replaceChildren(...Array.from({ length: total }, () => document.createElement('i')));
-        seg.style.setProperty('--w', `${total * 4}px`);
-      }
+    const box = $('compiling'), seg = $('cmp-seg'), num = $('cmp-n'), total = eng.late.total;
+    seg.replaceChildren(...Array.from({ length: total }, () => document.createElement('i')));
+    seg.style.setProperty('--w', `${total * 4}px`);
+    const show = ({ done }) => {
       for (let i = 0; i < total; i++) seg.children[i].classList.toggle('on', i < done);
       num.textContent = `${String(done).padStart(String(total).length, '0')}/${total}`;
       if (done >= total) { eng.onLate = null; box.classList.add('gone'); setTimeout(() => { box.hidden = true; }, 1000); }
@@ -3271,7 +3269,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       // the tuner's knobs: each one's level, Auto or fixed, and what it has learned of its cost on this device
       tune: Object.fromEntries(Object.entries(tune).map(([id, k]) => [id, { level: k.level, auto: tuneAuto(id), cost: k.cost == null ? null : +k.cost.toFixed(3),
         ...(k.rel ? { rel: k.rel.map((r) => (r == null ? null : +r.toFixed(3))) } : {}), ...(k.ratio ? { ratio: +k.ratio.toFixed(3) } : {}) }])),
-      cssPPU: +cssPPU().toFixed(1), speed: state.speed, boot: bootTimes, late: eng.lateAt, fps: +perf.fps.toFixed(1), aim: Math.round(1000 / frameTarget()), why: perf.why, adapt: perf.log, audio: sound.load,
+      cssPPU: +cssPPU().toFixed(1), speed: state.speed, boot: bootTimes, fps: +perf.fps.toFixed(1), aim: Math.round(1000 / frameTarget()), why: perf.why, adapt: perf.log, audio: sound.load,
       world, frameMs: per(gpu), passes: Object.fromEntries(Object.entries(passes).sort((x, y) => y[1] - x[1]).map(([k, x]) => [k, per(x)])), step });
     try { await navigator.clipboard.writeText(json); flash(tr('flash.profile-copied', 'Profile copied')); } catch { prompt(tr('settings.perf.profile-prompt', 'The profile, to copy:'), json); }
   }

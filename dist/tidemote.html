@@ -625,7 +625,7 @@ body:has(#bench:not([hidden]), #held:not([hidden])) .compiling { opacity: 0; }
 .cmp-seg i.on { background: var(--cyan); box-shadow: 0 0 3px rgba(127, 214, 223, 0.6); }
 .cmp-seg::after { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 12px; background: linear-gradient(90deg, transparent, rgba(226, 241, 240, 0.55), transparent);
   animation: cmp-scan 1.8s cubic-bezier(.45, 0, .55, 1) infinite; }
-@keyframes cmp-scan { from { transform: translateX(-12px); } to { transform: translateX(var(--w, 100px)); } }
+@keyframes cmp-scan { from { transform: translateX(-12px); } to { transform: translateX(var(--w)); } }
 @media (prefers-reduced-motion: reduce) { .cmp-seg::after { animation: none; opacity: 0; } }
 
 /* the highlight (hot) and the map (cyan) float side by side under the rail */
@@ -18812,14 +18812,12 @@ ${e.message}` : String(e?.message || e));
     async _compileLate() {
       const d = this.device, queue = this._later;
       this._later = [];
-      this.lateAt = [];
       this.late = { done: 0, total: queue.length };
       const run2 = async () => {
         while (queue.length) {
           const j = queue.shift();
           try {
             j.set(await (j.compute ? d.createComputePipelineAsync(j.desc) : d.createRenderPipelineAsync(j.desc)));
-            this.lateAt.push([j.desc.label, Math.round(performance.now())]);
             this._rebindLate();
           } catch (e) {
             console.error("[tidemote] pipeline", j.desc.label, e?.message || e);
@@ -39331,9 +39329,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "7da5c4fe51cf29e1") return;
+      if (localStorage.getItem(key) === "58623c1c56ed5756") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "7da5c4fe51cf29e1");
+      if (res) localStorage.setItem(key, "58623c1c56ed5756");
     } catch {
     }
   }
@@ -39458,12 +39456,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     let lab = null, specimen = null, view = null;
     let dockTop = innerHeight, railBottom = 0;
     if (eng.late && eng.late.done < eng.late.total) {
-      const box = $2("compiling"), seg = $2("cmp-seg"), num = $2("cmp-n");
-      const show = ({ done, total }) => {
-        if (seg.childElementCount !== total) {
-          seg.replaceChildren(...Array.from({ length: total }, () => document.createElement("i")));
-          seg.style.setProperty("--w", `${total * 4}px`);
-        }
+      const box = $2("compiling"), seg = $2("cmp-seg"), num = $2("cmp-n"), total = eng.late.total;
+      seg.replaceChildren(...Array.from({ length: total }, () => document.createElement("i")));
+      seg.style.setProperty("--w", `${total * 4}px`);
+      const show = ({ done }) => {
         for (let i = 0; i < total; i++) seg.children[i].classList.toggle("on", i < done);
         num.textContent = `${String(done).padStart(String(total).length, "0")}/${total}`;
         if (done >= total) {
@@ -42753,7 +42749,6 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         cssPPU: +cssPPU().toFixed(1),
         speed: state.speed,
         boot: bootTimes,
-        late: eng.lateAt,
         fps: +perf.fps.toFixed(1),
         aim: Math.round(1e3 / frameTarget()),
         why: perf.why,

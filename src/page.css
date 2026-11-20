@@ -569,7 +569,7 @@ body:has(#bench:not([hidden]), #held:not([hidden])) .compiling { opacity: 0; }
 .cmp-seg i.on { background: var(--cyan); box-shadow: 0 0 3px rgba(127, 214, 223, 0.6); }
 .cmp-seg::after { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 12px; background: linear-gradient(90deg, transparent, rgba(226, 241, 240, 0.55), transparent);
   animation: cmp-scan 1.8s cubic-bezier(.45, 0, .55, 1) infinite; }
-@keyframes cmp-scan { from { transform: translateX(-12px); } to { transform: translateX(var(--w, 100px)); } }
+@keyframes cmp-scan { from { transform: translateX(-12px); } to { transform: translateX(var(--w)); } }
 @media (prefers-reduced-motion: reduce) { .cmp-seg::after { animation: none; opacity: 0; } }
 
 /* the highlight (hot) and the map (cyan) float side by side under the rail */

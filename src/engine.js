@@ -768,16 +768,13 @@ class Engine {
   async _compileLate() {
     const d = this.device, queue = this._later;
     this._later = [];
-    // when each landed (ms of the page's clock, by label; a profile's boot times), and how many of how many have
-    // (the page's indicator: onLate after each, landed or failed)
-    this.lateAt = [];
+    // how many have landed (or failed) of how many, for the page's indicator: onLate after each
     this.late = { done: 0, total: queue.length };
     const run = async () => {
       while (queue.length) {
         const j = queue.shift();
         try {
           j.set(await (j.compute ? d.createComputePipelineAsync(j.desc) : d.createRenderPipelineAsync(j.desc)));
-          this.lateAt.push([j.desc.label, Math.round(performance.now())]);
           this._rebindLate();
         } catch (e) { console.error('[tidemote] pipeline', j.desc.label, e?.message || e); }
         this.late.done++;
