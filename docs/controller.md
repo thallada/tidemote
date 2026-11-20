@@ -456,26 +456,34 @@ Each phase ends with its checks passing.
 ## Appendix: the Deck walkthrough
 
 Run it on a Deck in Game Mode, with the desktop build installed through Steam (or added as a non-Steam game while
-there is no app id), Steam Input on its default template. Use the controls only: no trackpads, no touchscreen. Note
-each step that fails, and where you reached for something else.
+there is no app id), Steam Input on "Gamepad with Mouse Trackpad". Use the controls only at first: no trackpads, no
+touchscreen (step 15 tries those). Note each step that fails, and where you reached for something else.
 
-1. Launch. The intro waits on Begin; A begins. The hints and the legend over the dock show Deck buttons (A, B, L1, R1,
-   ⧉, ≡), never keys.
-2. The left stick pans; L2 and R2 zoom; R3 resets the zoom. D-pad ↑ starts the auto camera, ↑ again moves on, the
-   stick takes the camera back.
-3. Put the reticle on a cell and press A: the specimen panel opens. The right stick scrolls it. Y goes into it, the
-   d-pad walks its buttons, B comes back out.
+1. Launch. The intro waits on Begin; A begins. The legend over the dock shows Deck buttons (A, B, L1, R1, ⧉, ≡),
+   never keys, and fades a few seconds after the last button; a button brings it back, the sticks and triggers do not.
+2. The left stick pans; L2 and R2 zoom; R3 resets the zoom. D-pad ↑ starts the auto camera (the legend hides), ↑ again
+   moves on, the stick takes the camera back.
+3. Put the reticle on a cell and press A: the specimen panel opens, and the loupe stays on the cell. The right stick
+   scrolls the panel. Y goes into it; the d-pad walks its fields, past the fold; R1 and L1 change its tabs, pressed
+   fast too, never reaching the world; A on +n shows every tag; A on an underlined term shows its hint; B comes out.
 4. X rides; the stick steers; A hops to kin; B gets off.
 5. D-pad ↓ pauses and resumes, ← and → change the speed.
 6. Hold L1: the tool rose. Point at the lamp, let go: the lamp is in hand. A held lights; the stick sweeps it. The right
-   stick changes its reach. L1 tapped puts it down, tapped again takes it back. Try the pipette: A loads, X dispenses.
+   stick changes its reach. L1 tapped puts it down, tapped again takes it back. The needle and the cold probe come
+   into focus in the water while A is held. The pipette: A loads, X switches to dispensing (the legend says which).
 7. Hold R1: the view rose. Turn on the light map, then the currents; B clears the map.
-8. R1 tapped: the bench, focus in it. B closes it.
-9. ≡: Settings. R1 and L1 change tabs, the d-pad walks the rows, A chooses, a slider steps with ← →. Worlds: save the
-   world; A on its name field opens Steam's keyboard. B closes Settings.
+8. R1 tapped: the bench, focus in it, the legend above its drawer. R1 again closes it.
+9. ≡: Settings. R1 and L1 change tabs, the d-pad walks the rows (and the option grids: Controller's Steam Deck is
+   reached from above and from the left), A chooses and focus stays on what was chosen. A slider: the d-pad passes
+   it until A takes hold (cyan), then the d-pad steps it and the stick sweeps it; A or B lets go. Display → Full
+   screen. Worlds: save the world; A on its name field opens Steam's keyboard. B closes Settings.
 10. ⧉: the Field Lab, focus in it. Tabs by the bumpers, a species opened, its card: A on Card, then its name field
-    (Steam's keyboard), then B closes the card and the Lab gives focus back.
-11. Hold ⧉: the Controls, the Deck's buttons beside the keys. B closes them.
-12. Settings → Display → Button prompts: Xbox, then back to Auto. Settings → Worlds: open the saved world.
-13. Suspend the Deck mid-pan and wake it: nothing is still held.
-14. Read every text on the screen at arm's length: nothing too small (ui-audit checks 11 px at 1280×800).
+    (Steam's keyboard), then B closes the card and the Lab gives focus back. ⧉ held long: still only the Lab.
+11. From the dock (Y with no side panel open), d-pad ↑: the rail at the top; A on a gauge explains it; ↓ comes back.
+12. Settings' foot → Controls: the Deck's buttons beside the keys. B closes them.
+13. Settings → Display → Controller: Xbox, then back to Auto. Settings → Worlds: open the saved world.
+14. Suspend the Deck mid-pan and wake it: nothing is still held.
+15. Touch and trackpads: a pinch zooms, a tap with the loupe sets its lens and a drag moves it; the right trackpad
+    moves the mouse (the pointer shows; the legend keeps the Deck's buttons) and the pad hides it again.
+16. Read every text on the screen at arm's length: nothing too small (ui-audit checks 11 px at 1280×800). Note the
+    frame rate the page settles on (Settings → Perf).
