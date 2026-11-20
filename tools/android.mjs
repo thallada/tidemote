@@ -116,11 +116,19 @@ export async function androidChrome({ serial = process.env.ANDROID_SERIAL } = {}
   if (serial) process.env.ANDROID_SERIAL = serial;
   adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP');
   adb('shell', 'am', 'start', '-n', 'com.android.chrome/com.google.android.apps.chrome.Main');
-  // (a port of adb's choosing: 9222 is often some other browser's)
-  const port = +adb('forward', 'tcp:0', 'localabstract:chrome_devtools_remote');
-  const http = `http://127.0.0.1:${port}`;
+  // (a port of adb's choosing: 9222 is often some other browser's). Chrome listens on chrome_devtools_remote, or on
+  // chrome_devtools_remote_PID when that name is still held (a Chrome stopped mid-run can leave it held, answering
+  // nothing)
+  let port, http;
   for (let i = 0; ; i++) {
-    try { await (await fetch(`${http}/json/version`, { signal: AbortSignal.timeout(5000) })).json(); break; } catch (e) { if (i > 10) throw e; await new Promise((r) => setTimeout(r, 1000)); }
+    try {
+      const pid = adb('shell', 'pidof', 'com.android.chrome').split(/\s+/)[0];
+      const own = pid && adb('shell', 'cat', '/proc/net/unix').includes(`@chrome_devtools_remote_${pid}`);
+      if (port) adb('forward', '--remove', `tcp:${port}`);
+      port = +adb('forward', 'tcp:0', `localabstract:chrome_devtools_remote${own ? `_${pid}` : ''}`);
+      http = `http://127.0.0.1:${port}`;
+      await (await fetch(`${http}/json/version`, { signal: AbortSignal.timeout(5000) })).json(); break;
+    } catch (e) { if (i > 10) throw e; await new Promise((r) => setTimeout(r, 1000)); }
   }
   // tabs are opened through the browser's own target (Android refuses /json/new)
   const { webSocketDebuggerUrl } = await (await fetch(`${http}/json/version`)).json();

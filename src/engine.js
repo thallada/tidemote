@@ -373,10 +373,12 @@ class Engine {
     // time (_compileLate), each landing in place (set) with its bind groups (_rebindLate); until one lands what uses
     // it waits or makes do. Started together they took a Pixel 11 Pro 21 s to compile, its loupe's last; a Pixel 3's
     // GPU process grew by 400 MB compiling them. Headless runs compile everything first.
+    // (first: ahead of the rest, in the order deferred: what the loupe needs, the first late thing a visitor reaches for)
     this._later = [];
-    const defer = (desc, compute, set) => {
+    let firsts = 0;
+    const defer = (desc, compute, set, first = false) => {
       if (!late) return compute ? cPipe(desc) : rPipe(desc);
-      this._later.push({ desc, compute, set });
+      this._later.splice(first ? firsts++ : this._later.length, 0, { desc, compute, set });
       return null;
     };
     const dp4a = !!globalThis.navigator?.gpu?.wgslLanguageFeatures?.has('packed_4x8_integer_dot_product');
@@ -481,21 +483,25 @@ class Engine {
     // and lifeMain's lean forms (LEAN_PIPES)
     for (const n of LEAN_PIPES) this.cpDefs[n] = this.cpDefs[n.replace(/Coarse|Lean/g, '')];
     this.cp = {};
-    const lateLean = [];
+    const lateLean = [], lateFull = [];
     for (const name of Object.keys(this.cpDefs)) {
       const coarse = /Coarse/.test(name), lean = name.endsWith('Lean');
       const constants = { ...(coarse ? { COARSE: 1 } : name === 'bodyTick' ? { SUBSTEP: 1 } : {}), ...(lean ? LEAN_IDLE : {}) };
       const desc = { layout: 'auto', compute: { module: this.simModule, entryPoint: name.replace(/Coarse|Lean/g, ''), ...(Object.keys(constants).length ? { constants } : {}) }, label: name };
       if (late && (lean || LATE.has(name))) {
-        // compiles on after the engine is returned, first in the second wave (not beside the first: lifeMain's compile,
-        // which a first frame waits on, shared the GPU process with these), the lean kernels after LATE's (the full ones
-        // run in their place until they land): in place (with its bind group, once particles are allocated) when ready
+        // compiles on after the engine is returned, early in the second wave, after the loupe's (not beside the first:
+        // lifeMain's compile, which a first frame waits on, shared the GPU process with these), the lean kernels after
+        // LATE's (the full ones run in their place until they land): in place (with its bind group, once particles are
+        // allocated) when ready
         const c = (this.cp[name] = { pipe: null, bg: null });
         const job = { desc, compute: true, set: (p) => { c.pipe = p; if (this._cpRes) this._cpBind(name); } };
-        if (lean) lateLean.push(job); else this._later.unshift(job);
+        (lean ? lateLean : lateFull).push(job);
       } else this.cp[name] = { pipe: cPipe(desc), bg: null };
     }
-    this._later.splice([...LATE].filter((n) => this.cpDefs[n]).length, 0, ...lateLean);
+    // (in LATE's order: the coarse steps a fast speed waits on before the watched cell's mind)
+    const order = [...LATE];
+    lateFull.sort((a, b) => order.indexOf(a.desc.label) - order.indexOf(b.desc.label));
+    this._later.push(...lateFull, ...lateLean);
     this.cpPick = { pipe: cp(this.pickModule, 'pickMain'), bg: null };
     this.cpTrackNear = cp(this.pickModule, 'trackNear');
     this.cpTrackArgs = cp(this.pickModule, 'trackArgs');
@@ -602,7 +608,7 @@ class Engine {
     b.compArgs = d.createBuffer({ size: 80, usage: U.STORAGE | U.INDIRECT });
     const loupeDesc = (fmt = format) => rpDesc(this.postModule, 'vsLoupe', 'fsLoupe', 'triangle-list', over, fmt);
     const plainDesc = (fmt = format) => rpDesc(this.postModule, 'vsFull', 'fsPlain', 'triangle-list', undefined, fmt);
-    this.pLoupe = defer(loupeDesc(), false, (p) => { this.pLoupe = p; });
+    this.pLoupe = defer(loupeDesc(), false, (p) => { this.pLoupe = p; }, true);
     this.pPlain = defer(plainDesc(), false, (p) => { this.pPlain = p; });
     this.sampler = d.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' });
 
@@ -638,7 +644,7 @@ class Engine {
     const rpLive = (...a) => rPipe(rpLiveDesc(...a));
     this.main = {
       // (cells resolved past interiorLOD: until it lands, pointLean draws them without their insides)
-      point: defer(rpLiveDesc(this.drawModule, 'vsPoint', 'fsPointLive', 'triangle-strip', trail, true), false, (p) => { this.main.point = p; }),
+      point: defer(rpLiveDesc(this.drawModule, 'vsPoint', 'fsPointLive', 'triangle-strip', trail, true), false, (p) => { this.main.point = p; }, true),
       splat: rpLive(this.drawModule, 'vsFade', 'fsSplat', 'triangle-list', trail, true),
       small: rpLive(this.drawModule, 'vsPointSmall', 'fsPointSmall', 'triangle-strip', trail, true),
       // the cells listMain finds with insides and no neck to draw (tissue; NECKS in DRAW_WGSL)
@@ -648,7 +654,7 @@ class Engine {
       // the cells listMain finds too small for insides or necks, not budding or sparkling (INTERIOR, NECKS)
       pointPlain: rpLive(this.drawModule, 'vsPoint', 'fsPointLive', 'triangle-strip', trail, true, { INTERIOR: 0, NECKS: 0 }),
       line: rpLive(this.drawModule, 'vsLine', 'fsLine', 'line-list', trail, false),
-      bridge: defer(rpLiveDesc(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', trail, false), false, (p) => { this.main.bridge = p; }),
+      bridge: defer(rpLiveDesc(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', trail, false), false, (p) => { this.main.bridge = p; }, true),
       reproj: rpLive(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined, false),
       tube: defer(rpLiveDesc(this.drawModule, 'vsTube', 'fsTubeLive', 'triangle-strip', trail, true, { SHAPE_ATLAS: 0 }), false, (p) => { this.main.tube = p; }),
     };
@@ -762,11 +768,14 @@ class Engine {
   async _compileLate() {
     const d = this.device, queue = this._later;
     this._later = [];
+    // when each landed (ms of the page's clock, by label; a profile's boot times)
+    this.lateAt = [];
     const run = async () => {
       while (queue.length) {
         const j = queue.shift();
         try {
           j.set(await (j.compute ? d.createComputePipelineAsync(j.desc) : d.createRenderPipelineAsync(j.desc)));
+          this.lateAt.push([j.desc.label, Math.round(performance.now())]);
           this._rebindLate();
         } catch (e) { console.error('[tidemote] pipeline', j.desc.label, e?.message || e); }
       }

@@ -18363,9 +18363,10 @@ struct SV {
       const cPipe = (desc) => track(d.createComputePipelineAsync(desc), desc.label);
       const rPipe = (desc) => track(d.createRenderPipelineAsync(desc), desc.label);
       this._later = [];
-      const defer = (desc, compute, set) => {
+      let firsts = 0;
+      const defer = (desc, compute, set, first = false) => {
         if (!late) return compute ? cPipe(desc) : rPipe(desc);
-        this._later.push({ desc, compute, set });
+        this._later.splice(first ? firsts++ : this._later.length, 0, { desc, compute, set });
         return null;
       };
       const dp4a = !!globalThis.navigator?.gpu?.wgslLanguageFeatures?.has("packed_4x8_integer_dot_product");
@@ -18452,7 +18453,7 @@ struct SV {
       this.cpDefs.mindMainCoarse = this.cpDefs.mindMain;
       for (const n of LEAN_PIPES) this.cpDefs[n] = this.cpDefs[n.replace(/Coarse|Lean/g, "")];
       this.cp = {};
-      const lateLean = [];
+      const lateLean = [], lateFull = [];
       for (const name of Object.keys(this.cpDefs)) {
         const coarse2 = /Coarse/.test(name), lean = name.endsWith("Lean");
         const constants = { ...coarse2 ? { COARSE: 1 } : name === "bodyTick" ? { SUBSTEP: 1 } : {}, ...lean ? LEAN_IDLE : {} };
@@ -18463,11 +18464,12 @@ struct SV {
             c.pipe = p2;
             if (this._cpRes) this._cpBind(name);
           } };
-          if (lean) lateLean.push(job);
-          else this._later.unshift(job);
+          (lean ? lateLean : lateFull).push(job);
         } else this.cp[name] = { pipe: cPipe(desc), bg: null };
       }
-      this._later.splice([...LATE].filter((n) => this.cpDefs[n]).length, 0, ...lateLean);
+      const order = [...LATE];
+      lateFull.sort((a, b2) => order.indexOf(a.desc.label) - order.indexOf(b2.desc.label));
+      this._later.push(...lateFull, ...lateLean);
       this.cpPick = { pipe: cp(this.pickModule, "pickMain"), bg: null };
       this.cpTrackNear = cp(this.pickModule, "trackNear");
       this.cpTrackArgs = cp(this.pickModule, "trackArgs");
@@ -18582,7 +18584,7 @@ struct SV {
       const plainDesc = (fmt2 = format) => rpDesc(this.postModule, "vsFull", "fsPlain", "triangle-list", void 0, fmt2);
       this.pLoupe = defer(loupeDesc(), false, (p2) => {
         this.pLoupe = p2;
-      });
+      }, true);
       this.pPlain = defer(plainDesc(), false, (p2) => {
         this.pPlain = p2;
       });
@@ -18617,7 +18619,7 @@ struct SV {
         // (cells resolved past interiorLOD: until it lands, pointLean draws them without their insides)
         point: defer(rpLiveDesc(this.drawModule, "vsPoint", "fsPointLive", "triangle-strip", trail, true), false, (p2) => {
           this.main.point = p2;
-        }),
+        }, true),
         splat: rpLive(this.drawModule, "vsFade", "fsSplat", "triangle-list", trail, true),
         small: rpLive(this.drawModule, "vsPointSmall", "fsPointSmall", "triangle-strip", trail, true),
         // the cells listMain finds with insides and no neck to draw (tissue; NECKS in DRAW_WGSL)
@@ -18631,7 +18633,7 @@ struct SV {
         line: rpLive(this.drawModule, "vsLine", "fsLine", "line-list", trail, false),
         bridge: defer(rpLiveDesc(this.drawModule, "vsBridge", "fsBridge", "triangle-strip", trail, false), false, (p2) => {
           this.main.bridge = p2;
-        }),
+        }, true),
         reproj: rpLive(this.postModule, "vsFull", "fsReproj", "triangle-list", void 0, false),
         tube: defer(rpLiveDesc(this.drawModule, "vsTube", "fsTubeLive", "triangle-strip", trail, true, { SHAPE_ATLAS: 0 }), false, (p2) => {
           this.main.tube = p2;
@@ -18785,11 +18787,13 @@ ${e.message}` : String(e?.message || e));
     async _compileLate() {
       const d = this.device, queue = this._later;
       this._later = [];
+      this.lateAt = [];
       const run2 = async () => {
         while (queue.length) {
           const j = queue.shift();
           try {
             j.set(await (j.compute ? d.createComputePipelineAsync(j.desc) : d.createRenderPipelineAsync(j.desc)));
+            this.lateAt.push([j.desc.label, Math.round(performance.now())]);
             this._rebindLate();
           } catch (e) {
             console.error("[tidemote] pipeline", j.desc.label, e?.message || e);
@@ -39299,9 +39303,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "31ba61c763e9ffe6") return;
+      if (localStorage.getItem(key) === "c297dcf4e16a1cf2") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "31ba61c763e9ffe6");
+      if (res) localStorage.setItem(key, "c297dcf4e16a1cf2");
     } catch {
     }
   }
@@ -42700,6 +42704,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         cssPPU: +cssPPU().toFixed(1),
         speed: state.speed,
         boot: bootTimes,
+        late: eng.lateAt,
         fps: +perf.fps.toFixed(1),
         aim: Math.round(1e3 / frameTarget()),
         why: perf.why,
