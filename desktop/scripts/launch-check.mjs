@@ -1,6 +1,7 @@
 // The release workflow's check of a packaged build on the OS it was built for (docs/release.md): the app
-// starts, serves the page from its own origin, the page reaches the shell, and steamworks.js's native
-// addon loads (Steam itself is not running on a build machine, so Steam stays off), and with --need-gpu
+// starts, serves the page from its own origin, the page reaches the shell, and the Steam helper process starts and
+// loads steamworks.js's native addon (Steam itself is not running on a build machine, so Steam stays off; steam.js,
+// steam-helper/), and with --need-gpu
 // that WebGPU starts and the world steps. CI machines without a GPU get Chromium's software adapter
 // (SwiftShader, allowed by --enable-unsafe-swiftshader; Windows' runner is offered none at all, by any
 // switch tried: SwiftShader, its Vulkan, ANGLE's WARP) and a small world (4096 particles, as a count
@@ -65,6 +66,10 @@ async function attempt(extra) {
       };
     }));
     r.version = await app.evaluate(({ app: a }) => a.getVersion());
+    // the Steam API must load only in the helper's process, never in the app's (Linux can tell: /proc/self/maps)
+    r.steamInMain = await app.evaluate(() => {
+      try { return /steam_api|steamworksjs/.test(process.getBuiltinModule('node:fs').readFileSync('/proc/self/maps', 'utf8')); } catch { return null; }
+    });
     r.errors = errors;
     // best effort: a software adapter can leave the window without a frame to capture
     await page.screenshot({ path: join(out, 'window.png'), timeout: 10000 }).catch(() => {});
@@ -83,14 +88,15 @@ const problems = [];
 if (report.exception) problems.push(`the app did not start: ${report.exception}`);
 if (report.origin !== 'app://tidemote') problems.push(`page origin ${report.origin}`);
 if (!report.bridge) problems.push('the page has no tidemoteDesktop bridge');
-if (!report.steam?.loaded && !report.steam?.on) problems.push(`steamworks.js did not load: ${report.steam?.why}`);
+if (!report.steam?.loaded && !report.steam?.on) problems.push(`the Steam helper did not load steamworks.js: ${report.steam?.why}`);
+if (report.steamInMain) problems.push('the Steam API loaded in the app\'s own process, not only in the helper');
 if (needGpu && !report.stepped) problems.push(`no world stepped: ${report.failed ?? 'started but never stepped'}`);
 if (report.running && report.errors?.length) problems.push(`page errors: ${report.errors.join(' | ')}`);
 report.problems = problems;
 await writeFile(join(out, 'report.json'), JSON.stringify(report, null, 2));
 if (summary) {
   const gpu = report.stepped ? `WebGPU on ${report.gpu || 'an unnamed adapter'}, ${report.particles} particles stepped` : `no world (${report.failed ?? 'never stepped'})`;
-  await appendFile(summary, `- ${process.platform}: ${problems.length ? `❌ ${problems.join('; ')}` : '✅'} v${report.version}; ${gpu}; steamworks.js ${report.steam?.loaded ? 'loaded' : 'missing'}\n`);
+  await appendFile(summary, `- ${process.platform}: ${problems.length ? `❌ ${problems.join('; ')}` : '✅'} v${report.version}; ${gpu}; Steam helper ${report.steam?.loaded || report.steam?.on ? 'loaded steamworks.js' : 'failed'}\n`);
 }
 console.log(JSON.stringify(report, null, 2));
 if (problems.length && gha) for (const p of problems) console.log(`::error title=launch check (${process.platform})::${esc(p)}`);

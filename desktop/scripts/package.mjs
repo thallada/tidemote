@@ -31,12 +31,15 @@ const paths = await packager({
   // its icon from the window (main.js). scripts/icon.mjs renders them from icon/icon.svg.
   icon: fileURLToPath(new URL('../icon/icon', import.meta.url)),
   overwrite: true,
-  // steamworks.js's native addon and the Steam API library load from real files, not the archive
-  asar: { unpack: '**/node_modules/steamworks.js/dist/**' },
+  // The Steam helper (steam-helper/, MIT, its own process: steam.js) and steamworks.js with its native addon and the
+  // Steam API library stay real files in resources/app.asar.unpacked, beside the GPL app's archive rather than in it:
+  // the helper runs from there as plain Node and needs nothing from app.asar.
+  asar: { unpack: '{**/steam-helper/**,**/node_modules/steamworks.js/**}' },
   ignore: [/^\/out($|\/)/, /^\/scripts($|\/)/, /^\/\.gitignore$/, otherSteam],
   appCopyright: 'Copyright Tyler Hallada. GPL-3.0-or-later.',
   // a universal Mac app merges an x64 and an arm64 build; steamworks.js's addons for both arches and its
-  // already-universal dylib are the same files in each, which the merge must keep rather than lipo
+  // already-universal dylib are the same files in each, which the merge must keep rather than lipo (the helper's
+  // own files are plain JavaScript, the same in both)
   osxUniversal: { x64ArchFiles: '**/node_modules/steamworks.js/dist/osx/**' },
   win32metadata: { CompanyName: 'Tyler Hallada', ProductName: 'Tidemote', FileDescription: 'Tidemote' },
 });

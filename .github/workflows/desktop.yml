@@ -119,9 +119,9 @@ jobs:
           codesign --force --deep --sign - "$OUT/Tidemote.app"
           codesign --verify --deep --strict --verbose=2 "$OUT/Tidemote.app"
           lipo -archs "$OUT/${{ matrix.exe }}"
-      # the app starts, its Steam addon loads, and WebGPU compiles the world and steps it (Linux: the
-      # software adapter; macOS: the runner's GPU; Windows' runner offers no adapter at all, so there
-      # it is reported, not required); a line in the run's summary
+      # the app starts, its Steam helper process loads the Steam addon (never the app itself), and WebGPU
+      # compiles the world and steps it (Linux: the software adapter; macOS: the runner's GPU; Windows'
+      # runner offers no adapter at all, so there it is reported, not required); a line in the run's summary
       - name: Launch check
         run: node desktop/scripts/launch-check.mjs --exe "$OUT/${{ matrix.exe }}" --out "launch-${{ matrix.folder }}" ${{ matrix.gpu }} --summary "$GITHUB_STEP_SUMMARY"
       # one top folder per archive; the Mac's zipped by ditto, which keeps the framework's symlinks

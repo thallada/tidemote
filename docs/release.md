@@ -39,8 +39,9 @@ releases: its channels are public downloads, so whatever is pushed is what playe
 
 - **Launch check** (every OS, every run): `desktop/scripts/launch-check.mjs` starts the packaged app with
   Playwright and fails unless the page is served from `app://tidemote`, the `tidemoteDesktop` bridge is
-  there, and steamworks.js's native addon loaded (`status().loaded`; Steam itself is not running on a
-  runner, so Steam stays off with the reason), and WebGPU compiled the world and stepped it (`--need-gpu`; each outcome is also an annotation on the
+  there, the Steam helper process started and loaded steamworks.js's native addon (`status().loaded`; Steam
+  itself is not running on a runner, so Steam stays off with the reason) while the app's own process never
+  loaded it (Linux), and WebGPU compiled the world and stepped it (`--need-gpu`; each outcome is also an annotation on the
   run's page).
   On Linux, whose runner has no GPU, the app gets Chromium's software adapter (SwiftShader, allowed by
   `--enable-unsafe-swiftshader`) and a 4096-particle world (a count chosen in Settings), so every
@@ -116,8 +117,30 @@ build and version.
 
 ## License
 
-Tidemote is GPL-3.0-or-later, and the builds link steamworks.js and Valve's proprietary `steam_api`
-library. GPL binaries must come with their source: the public repository and its tags provide it. The GPL's
-system-library exception does not cover the Steamworks SDK; as the copyright holder you can grant an
-additional permission (GPL section 7) to link it, which matters once others contribute code. Not legal
-advice.
+Tidemote is GPL-3.0-or-later, and not all of it is the owner's to relicense. The soundtrack's synthesis
+(`src/audio/ugens.js`, parts of `src/audio/voices.js`) is translated from SuperCollider, GPL code by other
+copyright holders. Valve says that copyleft code must not be combined with the proprietary Steamworks SDK
+([Distributing Open Source Applications on Steam](https://partner.steamgames.com/doc/sdk/uploading/distributing_opensource)).
+A GPL section 7 additional permission from the owner would cover only the owner's own code, not
+SuperCollider's. So the SDK is kept out of the GPL program altogether, as in icculus's
+[steamshim](https://github.com/icculus/steamshim):
+
+- `desktop/steam-helper/` is a separate program, MIT licensed (its own `LICENSE`, copyright Tyler Hallada),
+  holding no GPL code and requiring only Node's built-ins and steamworks.js (MIT). It alone loads
+  steamworks.js's addon and Valve's `steam_api` library.
+- The GPL app starts it as its own OS process and talks to it only in plain JSON messages over a pipe,
+  through a narrow, generic protocol (achievements, status, the Workshop's file calls, the Deck, its
+  keyboard; `desktop/steam-helper/README.md`). No code or data structures are shared, and nothing GPL is
+  loaded into the helper's process. `test/steamhelper.test.js` checks the helper's imports, and the
+  launch check checks (on Linux) that `steam_api` never loads in the app's process.
+- The two ship side by side in one depot, an aggregate. The helper and steamworks.js sit unpacked in
+  `resources/app.asar.unpacked/`, outside the GPL app's archive.
+
+Caveats. The helper runs on the app's own executable (Electron's binary as plain Node, which is MIT and
+BSD-licensed Electron, Node and Chromium, not GPL). That binary is the same file that runs the GPL app in
+another process, but no GPL code runs in the helper's. The GPL FAQ on mere aggregation treats programs that
+talk through pipes or sockets as separate unless they exchange intimate, complex internal data
+structures, which is why the protocol stays narrow and generic. That is the reading this arrangement
+relies on, and it is the arrangement steamshim was written for, but no court
+or Valve has ruled on it here. GPL binaries must still come with their source: the public repository and
+its tags provide it, the helper's included. Not legal advice.

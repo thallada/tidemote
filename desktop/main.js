@@ -1,8 +1,8 @@
 // Tidemote's desktop shell: the built page (dist/tidemote.html, staged as page/index.html) in its own
 // window. The page is served from app://tidemote/ rather than file://, so it has an origin of its own
 // for localStorage (settings), kept in Electron's userData directory. Saved worlds are files there
-// (worlds.js), which Steam Cloud syncs; Steam (steam.js) adds achievements and the Workshop. The page
-// reaches both through preload.cjs.
+// (worlds.js), which Steam Cloud syncs; Steam adds achievements and the Workshop, through a helper process of its own
+// (steam.js starts steam-helper/, which alone loads the Steamworks SDK). The page reaches both through preload.cjs.
 //
 // The shell's few words stay in English (each marked i18n-ignore): this main process is packaged from desktop/ alone
 // (scripts/package.mjs), without ../src/i18n.js or intl-messageformat, and the page shows its own words.
@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statfsSync, wr
 import { open as openFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { startSteam, status, achieve, onDeck, keyboard } from './steam.js';
+import { APP_ID, startSteam, stopSteam, status, achieve, onDeck, keyboard } from './steam.js';
 import { worlds, workshop } from './worlds.js';
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
@@ -159,9 +159,14 @@ handle('film:close', async (id) => {
 });
 handle('film:abort', async (id) => { const f = films.get(id); if (!f) return; films.delete(id); await f.fh.close(); rmSync(`${f.path}.part`, { force: true }); });
 
-if (startSteam() === 'restart') app.exit(0);
+// Steam starts in its helper while Electron gets ready; the page's first calls wait for it (steam.js). Only a build
+// that may have to relaunch through Steam (an app id of its own, not a TIDEMOTE_STEAM_APPID trial) waits for the
+// answer before opening its window.
+const steamStarted = startSteam();
+app.on('will-quit', stopSteam);
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  if (APP_ID && !process.env.TIDEMOTE_STEAM_APPID && await steamStarted === 'restart') { app.exit(0); return; }
   protocol.handle('app', serve);
   if (process.platform !== 'darwin') Menu.setApplicationMenu(null);
   open();

@@ -8,7 +8,7 @@ they are. `scripts/stage.mjs` runs `build.mjs` and copies `dist/tidemote.html` t
 localStorage settings persist in Electron's userData directory).
 
 The page finds the shell as `window.tidemoteDesktop` (`preload.cjs`; every call goes to the main
-process) and is otherwise the same page as on the web:
+process, which passes Steam's on to the Steam helper, below) and is otherwise the same page as on the web:
 
 - `worlds`: the saved-world store (list/put/get/remove, as `createWorldStore` in `src/worlds.js`),
   as files (`desktop/worlds.js`), with the Workshop's subscribed worlds listed among them.
@@ -103,7 +103,7 @@ it. Worlds subscribed to list under "From the Workshop" once Steam has downloade
 follows a download), to load or unsubscribe. Steamworks → Workshop → General must enable
 ISteamUGC file transfer. Workshop pages open in the Steam client (`steam://url/...`), not the
 overlay: steamworks.js's Electron overlay forces in-process GPU and turns off direct composition,
-not measured yet.
+and it would need the SDK in the app's own process, which the helper rules out (below).
 
 ## Achievements
 
@@ -114,6 +114,54 @@ return after a collapse and a guild's return by `moment`); the rest from the vie
 a world shared, fifty stories read, counted in localStorage). Since stories are told under a
 budget, an achievement comes with the story the viewer reads, not with every candidate.
 `test/achievements.test.js` and the chronicler tests check the mapping.
+
+## Steam in a helper process
+
+The Steamworks SDK never loads in the app. `desktop/steam-helper/helper.cjs` is a small program of its own
+(MIT, with its own `LICENSE`; docs/release.md, License) and the only code that loads steamworks.js and
+Valve's `steam_api`. `desktop/steam.js` starts it as a separate process with `child_process.fork`: the
+app's own executable run as plain Node (`ELECTRON_RUN_AS_NODE=1`). The two exchange plain JSON messages
+over Node's IPC pipe: `init`, `status`, `achieve`, `deck`, `keyboard`, the Workshop's `ugc.*` calls and
+`quit`, with item ids as decimal strings. `desktop/steam-helper/README.md` documents the protocol and why
+the helper is a forked process rather than a `utilityProcess`. The packager unpacks the helper and
+steamworks.js into `resources/app.asar.unpacked/`, so the helper runs from real files.
+
+- **Starting.** The helper starts while Electron gets ready. Every Steam call from the page waits until
+  `init` has answered, so the first `steam()` gets the real status. A build with an app id of its own
+  waits for that answer before opening its window, in case Steam relaunches it
+  (`SteamAPI_RestartAppIfNecessary`, run in the helper: on `restart` the app quits).
+- **Without Steam.** If the helper cannot start, its `init` times out (20 s), or Steam is not running,
+  Steam is off with the reason (`status()` → `{ on: false, loaded, why }`) and the helper is stopped. The
+  app runs exactly as before. `loaded` says whether the helper loaded steamworks.js's addon (the launch
+  check needs it).
+- **Failures later.** If the helper crashes, every pending call fails and Steam turns off for the rest of
+  the session (the page's calls answer `false`, the Workshop's list shows only the own saves). There is no
+  restart. Each call has a time-out: 10 s, longer for Workshop uploads (30 min) and the keyboard (an hour).
+- **Quitting.** On `will-quit` the app sends `quit` and closes the pipe. The helper also exits on its own
+  whenever the pipe closes, so a crashed app does not leave Steam counting it as running.
+- `test/steamhelper.test.js` drives the client against fake helpers (Steam off, no start, a crash on `init`
+  and later, a hang, a relaunch), runs the real helper under Node, and checks that the helper imports
+  nothing but steamworks.js and Node built-ins. `scripts/launch-check.mjs` checks on Linux that the app's
+  own process never maps `steam_api`.
+
+What a separate process changes, and what is still unchecked because it needs Tidemote's own app id and a
+Steam client:
+
+- **Who calls `SteamAPI_Init`.** The helper does, as a child of the process Steam launched. That process
+  passes down its environment, which includes `SteamAppId` and `SteamGameId`. This is the usual launcher
+  pattern: Steam starts one program, and a child of it initializes the API. steamshim inverts it (its
+  helper is the parent Steam launches and the game is its child), but either way the process that holds
+  the SDK is not the GPL program. Not yet verified: that Steam shows Tidemote as running and counts its
+  playtime for the whole session, that achievements unlock under its app id, and that the floating
+  keyboard shows on the Deck. It all worked in-process as Spacewar (Status below). Playtime should follow
+  the launched process (the app) rather than the helper, but that is unconfirmed.
+- **`RestartAppIfNecessary`.** It now runs in the helper. It reads the same inherited environment, and
+  Steam relaunches the app's configured executable, not the helper. Unverified until `APP_ID` is set.
+- **The overlay.** Unchanged. It was never in use: Chromium renders in its GPU process, not the process
+  that called `SteamAPI_Init`, and the in-process-GPU workaround was never turned on. Steam injects its
+  overlay into processes it launches whatever the helper does. Whether it draws over Chromium's GPU
+  process is as unmeasured as before.
+- **Steam Cloud.** Unaffected: Auto-Cloud syncs the saves folder with no SDK calls.
 
 ## Steam app id
 
@@ -195,10 +243,14 @@ Playwright's own launch attaches DevTools early and changes the cache's keys).
   about 370 MB (the executable alone 236 MB); Steam compresses depots.
 - Linux and macOS: not yet built or run. Linux needs a test on a real Steam Deck (AMD, RADV), as a
   native build rather than the Windows one under Proton. macOS needs signing and notarization.
-- Steam (steamworks.js 0.4.0), checked as Spacewar on Windows: status (Cloud on), a save as files
-  with its preview, read back and deleted, the achievement call refused for an id Spacewar lacks.
-  Not yet run: a Workshop upload or download, an achievement Steam accepts (both need Tidemote's
-  own app id and its Steamworks setup above).
+- Steam (steamworks.js 0.4.0), checked as Spacewar on Windows when the SDK still loaded in the main
+  process: status (Cloud on), a save as files with its preview, read back and deleted, the achievement
+  call refused for an id Spacewar lacks. Not yet run: a Workshop upload or download, an achievement Steam
+  accepts (both need Tidemote's own app id and its Steamworks setup above).
+- The Steam helper (2026-11-20): a Linux package's launch check passes. The helper starts as its own
+  process from `app.asar.unpacked`, loads the addon and reports Steam not running, and the app's process
+  never maps `steam_api`. Not yet run with Steam: `smoke.mjs --steam 480` on Windows, and Steam
+  in a helper process above.
 - Timed against Chrome (2026-10-26, `tools/perf/bench.mjs --electron EXE`, the baseline plan, three
   alternating rounds each on an RTX 4070 Ti at the same canvas size): the same within noise, frame
   rates, GPU time, the step and every pass, in both the 1M and 4M worlds. The desktop app neither gains

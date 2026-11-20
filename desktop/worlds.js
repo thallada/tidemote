@@ -8,7 +8,7 @@ import { app, shell } from 'electron';
 import { mkdir, readdir, readFile, rename, rm, writeFile, copyFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { steam } from './steam.js';
+import { steam } from './steam.js'; // Steam through its helper process (steam.js; item ids as decimal strings)
 
 // (The words here stay in English, each marked i18n-ignore: the main process is packaged without ../src/i18n.js, see
 // main.js. The page may show a downloading item's own words in place of its name, from `downloading`.)
@@ -52,27 +52,31 @@ async function setMeta(id, patch) {
 // A Workshop item's folder holds world.tidemote and world.json (its meta when shared).
 const ITEM_FILE = 'world.tidemote', ITEM_META = 'world.json';
 async function subscribed() {
-  const s = steam();
-  if (!s) return [];
+  if (!(await steam.ready())) return [];
   const out = [];
-  for (const item of s.workshop.getSubscribedItems()) {
-    const id = `ws${item}`, info = s.workshop.installInfo(item);
-    if (!info || !existsSync(join(info.folder, ITEM_META))) {
-      s.workshop.download(item, true);
-      const d = s.workshop.downloadInfo(item);
-      out.push({ id, from: 'workshop', workshop: String(item), downloading: d && d.total ? Number(d.current) / Number(d.total) : 0, name: 'Downloading from the Workshop', savedAt: 0, cols: [] }); // i18n-ignore (main process)
-      continue;
+  try {
+    for (const item of await steam.ugc('subscribed')) {
+      const id = `ws${item}`, info = await steam.ugc('installInfo', { item });
+      if (!info || !existsSync(join(info.folder, ITEM_META))) {
+        await steam.ugc('download', { item, high: true });
+        const d = await steam.ugc('downloadInfo', { item });
+        out.push({ id, from: 'workshop', workshop: item, downloading: d && d.total ? d.current / d.total : 0, name: 'Downloading from the Workshop', savedAt: 0, cols: [] }); // i18n-ignore (main process)
+        continue;
+      }
+      try {
+        const meta = await readMeta(join(info.folder, ITEM_META));
+        out.push({ ...meta, id, from: 'workshop', workshop: item, savedAt: info.timestamp * 1000 });
+      } catch { /* an item that is not a world */ }
     }
-    try {
-      const meta = await readMeta(join(info.folder, ITEM_META));
-      out.push({ ...meta, id, from: 'workshop', workshop: String(item), savedAt: info.timestamp * 1000 });
-    } catch { /* an item that is not a world */ }
+  } catch (e) {
+    // the helper gone or a call timed out: the own saves still list, with what was found so far
+    console.warn('[tidemote] Workshop list:', e.message);
   }
   return out;
 }
-const itemFolder = (id) => {
-  const s = steam(), m = WS.exec(id);
-  const info = s && m && s.workshop.installInfo(BigInt(m[1]));
+const itemFolder = async (id) => {
+  const m = WS.exec(id);
+  const info = m && (await steam.ready()) ? await steam.ugc('installInfo', { item: m[1] }) : null;
   if (!info) throw new Error('This world has not finished downloading.');
   return info.folder;
 };
@@ -83,17 +87,16 @@ const itemFolder = (id) => {
  * Workshop's legal agreement first, and the item stays hidden until they do).
  */
 async function share(id, { title, description } = {}) {
-  const s = steam();
-  if (!s) throw new Error('Steam is not running.');
+  if (!(await steam.ready())) throw new Error('Steam is not running.');
   check(id);
   const meta = await readMeta(join(dir(), `${id}.json`));
-  let item = meta.workshop ? BigInt(meta.workshop) : null, agreement = false;
+  let item = meta.workshop ? String(meta.workshop) : null, agreement = false;
   const first = !item;
   if (first) {
-    const made = await s.workshop.createItem();
-    item = made.itemId;
+    const made = await steam.ugc('create');
+    item = made.item;
     agreement = made.needsToAcceptAgreement;
-    await setMeta(id, { workshop: String(item) });
+    await setMeta(id, { workshop: item });
   }
   // what the item holds: the world and its meta (without the sharer's own bookkeeping)
   const stage = join(app.getPath('temp'), 'tidemote-workshop', id);
@@ -103,7 +106,8 @@ async function share(id, { title, description } = {}) {
   const { workshop, preview, ...shared } = meta;
   await writeFile(join(stage, ITEM_META), JSON.stringify(shared));
   const previewPath = join(dir(), `${id}.jpg`);
-  const r = await s.workshop.updateItem(item, {
+  const r = await steam.ugc('update', {
+    item,
     title: String(title || meta.name).slice(0, 128),
     description: String(description || '').slice(0, 8000),
     contentPath: stage,
@@ -113,7 +117,7 @@ async function share(id, { title, description } = {}) {
   });
   await rm(stage, { recursive: true, force: true });
   agreement ||= r.needsToAcceptAgreement;
-  return { id: String(item), url: `https://steamcommunity.com/sharedfiles/filedetails/?id=${item}`, agreement };
+  return { id: item, url: `https://steamcommunity.com/sharedfiles/filedetails/?id=${item}`, agreement };
 }
 
 // ------------------------------------------------------------ the page's store
@@ -123,12 +127,12 @@ export const worlds = {
   },
   put,
   async get(id) {
-    if (WS.test(id)) return readFile(join(itemFolder(id), ITEM_FILE));
+    if (WS.test(id)) return readFile(join(await itemFolder(id), ITEM_FILE));
     return readFile(join(dir(), `${check(id)}.tidemote`));
   },
   async remove(id) {
     const m = WS.exec(id);
-    if (m) { await steam()?.workshop.unsubscribe(BigInt(m[1])); return; }
+    if (m) { if (await steam.ready()) await steam.ugc('unsubscribe', { item: m[1] }); return; }
     check(id);
     // the meta first: a save with its meta gone no longer lists, whatever else is left
     for (const ext of ['json', 'tidemote', 'jpg']) await rm(join(dir(), `${id}.${ext}`), { force: true });
@@ -137,6 +141,6 @@ export const worlds = {
 export const workshop = {
   share,
   // the Workshop's pages open in Steam itself (the overlay is unreliable in Electron)
-  browse: () => { const s = steam(); if (s) shell.openExternal(`steam://url/SteamWorkshopPage/${s.appId}`); },
+  browse: async () => { if (await steam.ready()) shell.openExternal(`steam://url/SteamWorkshopPage/${steam.appId()}`); },
   open: (item) => { if (/^\d{1,20}$/.test(String(item))) shell.openExternal(`steam://url/CommunityFilePage/${item}`); },
 };
