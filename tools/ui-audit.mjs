@@ -217,6 +217,10 @@ for (const s of SIZES) {
     await page.waitForTimeout(400);
     await snap('menu-worlds');
     await page.evaluate(() => globalThis.__tidemote.input.act('menu'));
+    // the Controls, from the menu (a phone's too)
+    await page.evaluate(() => { globalThis.__tidemote.input.act('menu'); document.querySelector('#gmenu [data-g="controls"]').click(); });
+    await snap('controls');
+    await page.evaluate(() => document.getElementById('help-close').click());
     await open('[aria-controls="settings"]');
   }
   // the bench (docs/hand.md): its drawer with the pipette in hand and a colony in it, the speed ladder, the cabinet

@@ -989,7 +989,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   // achievements and the Workshop (docs/desktop.md); in a browser, desk is null.
   const desk = globalThis.tidemoteDesktop || null;
   let steamOn = { on: false };
-  desk?.steam().then((x) => { steamOn = x; if (view?.isOpen()) view.render(); }).catch(() => {});
+  desk?.steam().then((x) => { steamOn = x; gameMenu?.render(); }).catch(() => {});
   // achievements earned (each asked of Steam once a session), and the stories read in all
   const unlocked = new Set();
   function unlock(ids) {
@@ -3109,7 +3109,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     const { choice, onoff, group } = view;
     // the page showing, the count chosen for a new world (its own until begun), Quit asking whether to save first, and
     // quitting under way
-    let page = 'root', pickN = null, quitAsk = false, quitting = '';
+    let page = 'root', pickN = null, quitAsk = false, quitting = '', opener = null;
     // the pool's events: on or off, each kind on or off, and one started now
     function climate_() {
       const E = state.events;
@@ -3294,7 +3294,6 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     }
 
     // the first page: one row a place to go, its key beside it (none on a touch screen, nor while a controller is in use)
-    const QUIT_ROW = () => (desk?.quit ? `<hr>${quitRow()}` : '');
     function quitRow() {
       // i18n: the menu's Quit, in the desktop app: the row, its question when this world has run since it was last saved,
       // its answers, and what it says while it saves the world as the last session and quits
@@ -3319,7 +3318,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
         + item('settings', tr('gamemenu.settings', 'Settings'), 'V')
         + item('controls', tr('gamemenu.controls', 'Controls'), '?')
         + item('about', tr('gamemenu.about', 'About Tidemote'))
-        + QUIT_ROW() + '</nav>';
+        + (desk ? `<hr>${quitRow()}` : '') + '</nav>';
     }
     // i18n: the menu's pages, their headings
     const TITLE = () => ({ worlds: tr('gamemenu.worlds-title', 'Save and load'), new: tr('gamemenu.new-title', 'New world'), events: tr('gamemenu.events-title', 'Pool events'), about: tr('gamemenu.about-title', 'About Tidemote') });
@@ -3374,8 +3373,6 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       }
       show(p, at);
     }
-    let opener = null;
-    const until = (f, ms) => new Promise((res) => { const t0 = performance.now(), tick = () => (f() || performance.now() - t0 > ms ? res() : setTimeout(tick, 100)); tick(); });
     function close() {
       if (el.hidden) return;
       el.hidden = true;
@@ -3403,10 +3400,11 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     // window closes. From the menu, a save that fails stays (said, and Quit offered again); from the window being
     // closed, nothing holds the closing up
     async function quit(save, strict = true) {
-      if (quitting || !desk?.quit) return;
+      if (quitting || !desk) return;
       quitting = save ? 'save' : 'now'; quitAsk = false; render();
       try {
-        if (film.state !== 'idle') { if (film.state === 'recording') film.stop(); await until(() => film.state === 'idle', 20000); }
+        if (film.state === 'recording') film.stop();
+        for (let t = 0; film.state !== 'idle' && t < 200; t++) await sleep(100);
         // i18n: the last session's name, as a save: the era's name ({era}) and the world's age ({age}, a duration)
         if (save) await saveWorld(tr('worlds.last-name', 'Last session · {era} · {age}', { era: eraName(climate.name), age: fmtDur(eng.simTime) }), { last: true });
       } catch (e) {
@@ -3416,7 +3414,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       desk.quit();
     }
     // the window closed (its ✕, Alt+F4): the world kept as the last session if it has run since it was last saved
-    desk?.onClosing?.(() => quit(unsaved(), false));
+    desk?.onClosing(() => quit(unsaved(), false));
 
     head.addEventListener('click', (e) => { const b = e.target.closest('[data-g]'); if (b) go(b.dataset.g); });
     body.addEventListener('click', (e) => {
@@ -4235,8 +4233,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     else if (ladder.isOpen()) ladder.toggle(false);
     else if (inHand()) pickTool('none');
     else if (ride.on) toggleRide(false);
-    else if (!$('help').hidden) { const m = $('help').dataset.from; toggleHelp(false); restoreFocus($('help')); if (m) gameMenu.open('root', 'controls'); }
-    else if (view.isOpen()) { const m = $('settings').dataset.from; view.toggle(false); restoreFocus($('settings')); if (m) gameMenu.open('root', 'settings'); }
+    else if (!$('help').hidden) closeBack($('help'));
+    else if (view.isOpen()) closeBack($('settings'));
     else if (bench.isOpen()) { bench.toggle(false); restoreFocus($('bench')); }
     else if (sel || spView != null) deselect();
     else if (focus.key) clearFocus();
@@ -4256,16 +4254,19 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     if (!root) return false;
     if (root === $('intro')) { menu.back(); return true; }
     if (root === $('gmenu')) { gameMenu.back(); return true; }
-    // (Settings and the Controls opened from the menu go back to it)
-    const from = root.dataset.from;
+    if (root === $('help') || root === $('settings')) { closeBack(root); return true; }
     if (root === $('card')) cards.close();
-    else if (root === $('help')) toggleHelp(false);
-    else if (root === $('settings')) view.toggle(false);
     else if (root === $('ladder')) ladder.toggle(false);
     else if (root === $('bench')) bench.toggle(false);
     restoreFocus(root);
-    if (from && (root === $('help') || root === $('settings'))) { gameMenu.open('root', root === $('help') ? 'controls' : 'settings'); settle($('gmenu'), true, true); }
     return true;
+  }
+  // Settings or the Controls closed by Esc or B: opened from the menu, back to it on the row that opened them
+  function closeBack(root) {
+    const help = root === $('help'), fromMenu = root.dataset.from;
+    if (help) toggleHelp(false); else view.toggle(false);
+    restoreFocus(root);
+    if (fromMenu) gameMenu.open('root', help ? 'controls' : 'settings');
   }
   const flashMap = (i, on, off) => { toggleMap(MAPS[i]); flash(state.map === MAPS[i].id ? on : off); };
   // A panel just opened, entered by a pad (and a dialog, by a key too: what opened it remembered), or just closed, left
@@ -4332,7 +4333,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     switch (id) {
       // (Esc with nothing left to close opens the menu: a press, not a key held, and never the pad's B)
       case 'back': return back() || (how.key === 'Escape' && !how.repeat && state.phase === 'running' && !introUp() ? act('menu') : false); // i18n-ignore (key names)
-      case 'menu': if (gameMenu.isOpen()) gameMenu.close(); else { gameMenu.open(); settle($('gmenu'), true, true); } return true;
+      case 'menu': if (gameMenu.isOpen()) gameMenu.close(); else gameMenu.open(); return true;
       case 'lineage-back': return lab.back();
       case 'pause': togglePause(); return true;
       case 'slower': stepSpeed(-1); return true;

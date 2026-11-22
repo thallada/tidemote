@@ -1651,14 +1651,17 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .gmenu, .gmenu:not([data-page="root"]) { left: 0; right: 0; top: auto; bottom: var(--bot); transform: none; width: auto; max-height: calc(100% - var(--top) - var(--bot)); }
   #gm-open { display: flex; }
   #set-open { display: none; }
-  /* (no Controls on a phone, which has no keys: the dialog is hidden here too) */
-  .gm-item[data-g="controls"] { display: none; }
   .settings .tabs button { padding: 0 6px; letter-spacing: .06em; }
   .readout b { font-size: 15px; }
   /* (four across, as on a laptop: the settings below them in the first screen) */
   .readout span { letter-spacing: .1em; }
   .flash { top: 22%; font-size: 13px; }
-  .help { display: none; }
+  /* the Controls: a sheet above the dock, each row its action over its keys and its controller buttons */
+  .help { left: 0; right: 0; top: auto; bottom: var(--bot); transform: none; width: auto; max-height: calc(100% - var(--top) - var(--bot)); }
+  .keys thead { display: none; }
+  .keys tr { display: grid; grid-template-columns: 1fr 1fr; column-gap: var(--s3); }
+  .keys tbody th[scope="row"], .keys tr.g th { grid-column: 1 / -1; border-bottom: 0; padding-bottom: 0; }
+  .keys td, .keys td:nth-child(2), .keys td:nth-child(3) { width: auto; white-space: normal; }
   #film, #auto-next { display: none !important; }
   .focus.rec { gap: var(--s2); }
   .recframe { left: 0 !important; right: 0 !important; }
@@ -1794,7 +1797,7 @@ svg.niche .n-dot { fill: var(--cyan); }
 <div class="hud" id="hud">
   <!-- status rail: when and under what sky -->
   <header class="rail" id="rail">
-    <button data-i18n="rail.brand" type="button" class="brand" id="brand" data-act="menu" aria-label="Menu" aria-haspopup="dialog" aria-controls="gmenu" aria-expanded="false" data-hint="Menu · Esc"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 9.5c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".45"/></svg><span translate="no">Tidemote</span></button>
+    <button data-i18n="rail.brand" type="button" class="brand" id="brand" data-act="menu" aria-label="Menu" aria-haspopup="dialog" aria-controls="gmenu" aria-expanded="false" data-hint="Menu · Esc"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-mark"/></svg><span translate="no">Tidemote</span></button>
     <div data-i18n="rail.clock" class="clock" role="timer" aria-label="Simulated time"><span data-i18n="rail.epoch" class="lbl">Time</span><b id="epoch" translate="no">0:00</b></div>
     <div class="era-box" id="era-box"><span data-i18n="rail.era-n" class="lbl" id="era-n">Era 01</span><b data-i18n="rail.era" id="era">The First Tides</b><span class="era-tide" id="era-tide" aria-hidden="true"><svg viewBox="0 0 60 6" preserveAspectRatio="none"><path/></svg><i></i></span></div>
     <div class="gauge term" data-tip="light" tabindex="0" id="g-light"><span data-i18n="rail.light" class="lbl">Light</span><span class="seg" id="light-seg" aria-hidden="true"></span><b id="light-v" translate="no">–</b></div>
@@ -40302,7 +40305,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     let steamOn = { on: false };
     desk?.steam().then((x) => {
       steamOn = x;
-      if (view?.isOpen()) view.render();
+      gameMenu?.render();
     }).catch(() => {
     });
     const unlocked = /* @__PURE__ */ new Set();
@@ -42622,7 +42625,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const el2 = $2("gmenu"), head = $2("gm-head"), body = $2("gm-body");
       const openers2 = [$2("brand"), $2("gm-open")];
       const { choice, onoff, group } = view;
-      let page = "root", pickN = null, quitAsk = false, quitting = "";
+      let page = "root", pickN = null, quitAsk = false, quitting = "", opener = null;
       function climate_() {
         const E = state.events;
         const kinds = E.on ? EVENT_TYPES.map((x) => onoff(`ev-${x}`, EVENT_NAME[x], "", E[x], `ev${x}`)).join("") : "";
@@ -42784,7 +42787,6 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         close();
         await newWorld(n);
       }
-      const QUIT_ROW = () => desk?.quit ? `<hr>${quitRow()}` : "";
       function quitRow() {
         if (quitting) return `<button type="button" class="gm-item" data-g="quit" disabled><span>${quitting === "save" ? tr("gamemenu.quitting-save", "Saving and quitting") : tr("gamemenu.quitting", "Quitting")}</span></button>`;
         if (!quitAsk) return item("quit", tr("gamemenu.quit", "Quit Tidemote"));
@@ -42793,7 +42795,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const item = (g, text2, key = "", dis = false) => `<button type="button" class="gm-item" data-g="${g}"${dis ? " disabled" : ""}><span>${text2}</span>${key ? `<kbd>${key}</kbd>` : ""}</button>`;
       function root_() {
         const running = state.phase === "running";
-        return `<nav class="gm-list" aria-label="${tr("gamemenu.list", "Menu")}">` + item("world", tr("gamemenu.back", "Back to the world"), tr("key.esc", "Esc")) + item("save", tr("gamemenu.save", "Save this world"), "", !running) + item("load", tr("gamemenu.load", "Load a world")) + item("new", tr("gamemenu.new", "New world"), "", !running) + item("events", tr("gamemenu.events", "Pool events")) + "<hr>" + item("settings", tr("gamemenu.settings", "Settings"), "V") + item("controls", tr("gamemenu.controls", "Controls"), "?") + item("about", tr("gamemenu.about", "About Tidemote")) + QUIT_ROW() + "</nav>";
+        return `<nav class="gm-list" aria-label="${tr("gamemenu.list", "Menu")}">` + item("world", tr("gamemenu.back", "Back to the world"), tr("key.esc", "Esc")) + item("save", tr("gamemenu.save", "Save this world"), "", !running) + item("load", tr("gamemenu.load", "Load a world")) + item("new", tr("gamemenu.new", "New world"), "", !running) + item("events", tr("gamemenu.events", "Pool events")) + "<hr>" + item("settings", tr("gamemenu.settings", "Settings"), "V") + item("controls", tr("gamemenu.controls", "Controls"), "?") + item("about", tr("gamemenu.about", "About Tidemote")) + (desk ? `<hr>${quitRow()}` : "") + "</nav>";
       }
       const TITLE = () => ({ worlds: tr("gamemenu.worlds-title", "Save and load"), new: tr("gamemenu.new-title", "New world"), events: tr("gamemenu.events-title", "Pool events"), about: tr("gamemenu.about-title", "About Tidemote") });
       function header() {
@@ -42853,11 +42855,6 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         }
         show(p2, at);
       }
-      let opener = null;
-      const until = (f2, ms) => new Promise((res) => {
-        const t0 = performance.now(), tick = () => f2() || performance.now() - t0 > ms ? res() : setTimeout(tick, 100);
-        tick();
-      });
       function close() {
         if (el2.hidden) return;
         el2.hidden = true;
@@ -42901,15 +42898,13 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         }
       }
       async function quit(save2, strict = true) {
-        if (quitting || !desk?.quit) return;
+        if (quitting || !desk) return;
         quitting = save2 ? "save" : "now";
         quitAsk = false;
         render();
         try {
-          if (film.state !== "idle") {
-            if (film.state === "recording") film.stop();
-            await until(() => film.state === "idle", 2e4);
-          }
+          if (film.state === "recording") film.stop();
+          for (let t = 0; film.state !== "idle" && t < 200; t++) await sleep(100);
           if (save2) await saveWorld(tr("worlds.last-name", "Last session · {era} · {age}", { era: eraName(climate.name), age: fmtDur(eng.simTime) }), { last: true });
         } catch (e) {
           console.error("[tidemote] quitting:", e);
@@ -42922,7 +42917,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         }
         desk.quit();
       }
-      desk?.onClosing?.(() => quit(unsaved(), false));
+      desk?.onClosing(() => quit(unsaved(), false));
       head.addEventListener("click", (e) => {
         const b = e.target.closest("[data-g]");
         if (b) go(b.dataset.g);
@@ -43902,17 +43897,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       else if (ladder.isOpen()) ladder.toggle(false);
       else if (inHand()) pickTool("none");
       else if (ride.on) toggleRide(false);
-      else if (!$2("help").hidden) {
-        const m = $2("help").dataset.from;
-        toggleHelp(false);
-        restoreFocus($2("help"));
-        if (m) gameMenu.open("root", "controls");
-      } else if (view.isOpen()) {
-        const m = $2("settings").dataset.from;
-        view.toggle(false);
-        restoreFocus($2("settings"));
-        if (m) gameMenu.open("root", "settings");
-      } else if (bench.isOpen()) {
+      else if (!$2("help").hidden) closeBack($2("help"));
+      else if (view.isOpen()) closeBack($2("settings"));
+      else if (bench.isOpen()) {
         bench.toggle(false);
         restoreFocus($2("bench"));
       } else if (sel || spView != null) deselect();
@@ -43937,18 +43924,22 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         gameMenu.back();
         return true;
       }
-      const from = root.dataset.from;
+      if (root === $2("help") || root === $2("settings")) {
+        closeBack(root);
+        return true;
+      }
       if (root === $2("card")) cards.close();
-      else if (root === $2("help")) toggleHelp(false);
-      else if (root === $2("settings")) view.toggle(false);
       else if (root === $2("ladder")) ladder.toggle(false);
       else if (root === $2("bench")) bench.toggle(false);
       restoreFocus(root);
-      if (from && (root === $2("help") || root === $2("settings"))) {
-        gameMenu.open("root", root === $2("help") ? "controls" : "settings");
-        settle($2("gmenu"), true, true);
-      }
       return true;
+    }
+    function closeBack(root) {
+      const help = root === $2("help"), fromMenu = root.dataset.from;
+      if (help) toggleHelp(false);
+      else view.toggle(false);
+      restoreFocus(root);
+      if (fromMenu) gameMenu.open("root", help ? "controls" : "settings");
     }
     const flashMap = (i, on, off) => {
       toggleMap(MAPS[i]);
@@ -44016,10 +44007,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         // i18n-ignore (key names)
         case "menu":
           if (gameMenu.isOpen()) gameMenu.close();
-          else {
-            gameMenu.open();
-            settle($2("gmenu"), true, true);
-          }
+          else gameMenu.open();
           return true;
         case "lineage-back":
           return lab.back();

@@ -95,18 +95,22 @@ async function quitCheck() {
   let app;
   // (a userData of its own: the machine's saves and settings untouched)
   const data = await mkdtemp(join(tmpdir(), 'tidemote-quit-')), worlds = join(data, 'worlds');
+  const launch = () => _electron.launch({ executablePath: exe, args: [...base, `--user-data-dir=${data}`], timeout: 60000 });
+  // a world begun (the opening menu waits on Begin, or under automation goes by itself) and run long enough that
+  // quitting asks: simulated time past a second
+  const begin = async (page) => {
+    await page.waitForFunction(() => document.getElementById('intro')?.classList.contains('ask') || document.body.classList.contains('live'), null, { timeout: 180000 });
+    if (await page.evaluate(() => !document.body.classList.contains('live'))) await page.click('#begin');
+    await page.waitForFunction(() => document.body.classList.contains('live') && globalThis.__tidemote.eng.simTime > 2, null, { timeout: 120000 });
+  };
   try {
-    app = await _electron.launch({ executablePath: exe, args: [...base, `--user-data-dir=${data}`], timeout: 60000 });
+    app = await launch();
     const proc = app.process();
     const page = await app.firstWindow();
     await page.waitForLoadState();
     await page.evaluate(() => localStorage.setItem('tidemote.view', JSON.stringify({ particles: 4096, v: 6 })));
     await page.reload();
-    // (the opening menu waits on Begin, or under automation goes by itself)
-    await page.waitForFunction(() => document.getElementById('intro')?.classList.contains('ask') || document.body.classList.contains('live'), null, { timeout: 180000 });
-    if (await page.evaluate(() => !document.body.classList.contains('live'))) await page.click('#begin');
-    // (run long enough that quitting asks: simulated time past a second since the world began)
-    await page.waitForFunction(() => document.body.classList.contains('live') && globalThis.__tidemote.eng.simTime > 2, null, { timeout: 120000 });
+    await begin(page);
     await page.evaluate(() => globalThis.__tidemote.input.act('menu'));
     const closed = app.waitForEvent('close', { timeout: 120000 }).then(() => true, () => false);
     await page.click('#gmenu [data-g="quit"]');
@@ -119,13 +123,11 @@ async function quitCheck() {
     // opened again: the opening menu offers to continue it; then the window closed (its ✕, Alt+F4) once the world has
     // run keeps the last session again, without asking
     if (meta) {
-      app = await _electron.launch({ executablePath: exe, args: [...base, `--user-data-dir=${data}`], timeout: 60000 });
+      app = await launch();
       const page2 = await app.firstWindow();
       await page2.waitForFunction(() => !document.getElementById('menu-c')?.hidden || document.body.classList.contains('live'), null, { timeout: 180000 });
       r.continue = await page2.evaluate(() => !document.getElementById('menu-c').hidden && document.getElementById('menu-c-v').textContent);
-      await page2.waitForFunction(() => document.getElementById('intro')?.classList.contains('ask') || document.body.classList.contains('live'), null, { timeout: 180000 });
-      if (await page2.evaluate(() => !document.body.classList.contains('live'))) await page2.click('#begin');
-      await page2.waitForFunction(() => document.body.classList.contains('live') && globalThis.__tidemote.eng.simTime > 2, null, { timeout: 120000 });
+      await begin(page2);
       const closed2 = app.waitForEvent('close', { timeout: 120000 }).then(() => true, () => false);
       await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
       r.closeExited = await closed2;
