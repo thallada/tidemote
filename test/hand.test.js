@@ -1,20 +1,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHand, TOOLS, keyOf, works, INSTRUMENTS } from '../src/hand.js';
-import { NEEDLE } from '../src/shaders.js';
+import { createHand, TOOLS, keyOf, works, offered, INSTRUMENTS } from '../src/hand.js';
+import { NEEDLE, CALL } from '../src/shaders.js';
 
 const make = (drops = new Float64Array(16)) => {
-  const words = new Float32Array(116), ids = new Uint32Array(words.buffer);
+  const words = new Float32Array(120), ids = new Uint32Array(words.buffer);
   ids.fill(0xffffffff, 20, 22);
   return { words, ids, drops, hand: createHand(words, ids, { reach: 3, drops }) };
 };
 const run = (h, s, dt = 1 / 60) => { for (let t = 0; t < s; t += dt) h.update(dt); };
 
-test('eight tools, keyed 1 to 8 in order, and no tool at 0', () => {
-  assert.equal(TOOLS.length, 9);
+test('nine tools, keyed 1 to 9 in order, and no tool at 0', () => {
+  assert.equal(TOOLS.length, 10);
   assert.equal(keyOf('none'), '0');
   assert.equal(keyOf('loupe'), '1');
   assert.equal(keyOf('pipette'), '8');
+  assert.equal(keyOf('call'), '9');
   assert.deepEqual(TOOLS.filter((t) => !works(t.id)).map((t) => t.id), ['none', 'loupe']);
 });
 
@@ -23,7 +24,7 @@ test('the loupe and no tool write nothing: the world untouched', () => {
     const { hand, words, ids } = make();
     hand.set(tool);
     hand.hover(10, 10); hand.down(10, 10, 0); hand.move(12, 10, 0.1, 1); run(hand, 1); hand.up();
-    for (const i of [3, 7, 10, 11, 17, 30, 31]) assert.equal(words[i], 0, `${tool}: word ${i}`);
+    for (const i of [3, 7, 10, 11, 17, 30, 31, 33, 116, 117, 118, 119]) assert.equal(words[i], 0, `${tool}: word ${i}`);
     assert.equal(ids[21], 0xffffffff);
     assert.equal(hand.touched, false);
   }
@@ -192,4 +193,31 @@ test('the record forgets the acts told and those that cannot be, but never the l
   assert.equal(acts.length, 1);
   assert.equal(acts[0].x, 200);
   assert.equal(hand.touched, true);
+});
+
+test('the call: a tap calls for a pulse, a hold as long as held, in the band chosen; offered only with signals', () => {
+  const { hand, words } = make();
+  hand.set('call'); hand.hover(4, 5); hand.update(1 / 60, 10);
+  assert.deepEqual([...words.subarray(116, 120)], [0, 0, 0, 0], 'over the water, not pressed: silent');
+  assert.equal(hand.band, 1, 'song by default');
+  hand.band = 2;
+  hand.down(4, 5, 10); hand.up(10.02); hand.update(1 / 60, 10.02);
+  assert.deepEqual([...words.subarray(116, 120)], [4, 5, 3, 1], 'its center, reach and full loudness');
+  assert.equal(words[33], 2, 'its band');
+  hand.update(1 / 60, 10 + CALL.pulse - 0.01);
+  assert.equal(words[119], 1, 'still in the pulse');
+  hand.update(1 / 60, 10 + CALL.pulse + 0.01);
+  assert.deepEqual([...words.subarray(116, 120)], [0, 0, 0, 0], 'the pulse out: silent');
+  assert.equal(words[33], 0);
+  hand.down(6, 6, 20); hand.update(1 / 60, 25);
+  assert.equal(words[119], 1, 'held: still calling');
+  assert.equal(hand.level, 1);
+  hand.up(25); hand.update(1 / 60, 25.01);
+  assert.equal(words[119], 0, 'let go after the pulse: silent at once');
+  assert.deepEqual(hand.acts.map((a) => [a.tool, a.at, a.end]), [['call', 10, 10.02], ['call', 20, 25]], 'each press an act, as the lamp\'s');
+  hand.down(6, 6, 30); hand.set('lamp', 30.01); hand.update(1 / 60, 30.02);
+  assert.equal(words[119], 0, 'put down: silent');
+  assert.equal(offered('call', { signal: 1, heat: 1 }), true);
+  assert.equal(offered('call', { signal: 0, heat: 1 }), false);
+  assert.equal(offered('lamp', { signal: 0, heat: 0 }), true);
 });

@@ -335,7 +335,7 @@ body.spec-open .bench { right: var(--spec-pw); }
 .bench-note { font-style: normal; color: var(--ink-3); text-transform: none; letter-spacing: .04em; margin-left: var(--s3); font-weight: 400; }
 .bench .sub-a { color: var(--sun); }
 .bench-esc { font-style: normal; }
-.tiles { display: grid; grid-template-columns: repeat(9, minmax(60px, 1fr)); gap: 4px; }
+.tiles { display: grid; grid-template-columns: repeat(10, minmax(60px, 1fr)); gap: 4px; }
 .tile { position: relative; height: 62px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
 .tile svg { width: 20px; height: 20px; }
 .tile span { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; font-weight: 500; font-stretch: 108%; }
@@ -456,6 +456,13 @@ body.dragging-card #bench-open, body.dragging-card .bench-pip, body.dragging-car
 .held-reach { display: flex; align-items: center; }
 .held-reach b { min-width: 5em; text-align: center; color: var(--ink); font-weight: 400; }
 .held-reach button.ghost { width: 36px; height: 36px; }
+/* the call's band: four chips beside Reach (the drawer) or after it (the held strip) */
+.call-row { display: grid; grid-template-columns: var(--lab-w) minmax(0, 1fr); align-items: center; gap: var(--s3); height: 28px; }
+.call-row .segs { flex-wrap: nowrap; }
+.call-row .chip { flex: 1 1 0; justify-content: center; min-width: 0; padding: 0 6px; }
+.call-row .chip i, .held .call-band .chip i { width: 7px; height: 7px; margin-right: 5px; border-radius: 50%; background: currentColor; flex: none; }
+.held .call-band { flex: none; flex-wrap: nowrap; }
+.held .call-band .chip { height: 32px; padding: 0 8px; }
 
 /* every figure gets a fixed right-aligned cell, so nothing in the dock moves as it changes */
 .sys b { display: inline-block; text-align: right; font-weight: 500; color: var(--ink-2); letter-spacing: .04em; }
@@ -881,7 +888,7 @@ body.ui-off .padbar { display: none; }
 .rose { position: fixed; z-index: 40; width: 340px; height: 340px; margin: -170px 0 0 -170px; border-radius: 50%; pointer-events: none; box-sizing: border-box;
   border: 1px solid rgba(150, 222, 230, 0.35); background: radial-gradient(closest-side, transparent 34%, rgba(6, 9, 10, 0.86) 35%, rgba(6, 9, 10, 0.86) 99%, transparent); }
 .rose-wedge { position: absolute; inset: 0; border-radius: 50%; opacity: 0; transform: rotate(var(--lit, 0deg));
-  background: conic-gradient(from -22.5deg, rgba(241, 227, 160, 0.18) 0 45deg, transparent 45deg);
+  background: conic-gradient(from calc(var(--sector, 45deg) / -2), rgba(241, 227, 160, 0.18) 0 var(--sector, 45deg), transparent var(--sector, 45deg));
   -webkit-mask: radial-gradient(closest-side, transparent 35%, #000 36%); mask: radial-gradient(closest-side, transparent 35%, #000 36%); }
 .rose.lit .rose-wedge { opacity: 1; }
 .rose-it { position: absolute; left: calc(50% + var(--x) * 340px); top: calc(50% + var(--y) * 340px); transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 4px;

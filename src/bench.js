@@ -1,7 +1,8 @@
 // The bench (docs/hand.md): the tools in the dock's middle on screens wide enough for them, the Bench drawer above
-// the dock (a tile for each tool, a hint for the one in hand, its Reach), and on a phone the held strip that a tool
+// the dock (a tile for each tool, a hint for the one in hand, its Reach, the call's band), and on a phone the held strip that a tool
 // in hand folds the drawer to. Built once and updated in place (render), so nothing moves under the pointer.
 import { TOOLS, keyOf, toolOf, works, reachStep } from './hand.js';
+import { SIGNAL_BAND, SIGNAL_CSS } from './fmt.js';
 import { wireCardDrag, countText } from './minicard.js';
 import { fadeEdges } from './ui.js';
 import { tr } from './i18n.js';
@@ -15,6 +16,9 @@ const fromSlider = (v, { min, max }) => min * Math.exp((v / 1000) * Math.log(max
 // Load or Dispense: what the pipette's press does
 const modes = (id) => `<span class="pip-mode segs" role="group" aria-label="${tr('bench.mode.aria', "The pipette's mode toggle")}"><button type="button" class="chip" data-mode="0" id="${id}-load" aria-pressed="true" data-hint="${tr('bench.mode.load.hint', 'A single press sucks up a few cells at the tip. Holding draws in all cells within reach')}">${tr('bench.mode.load', 'Load')}</button>`
   + `<button type="button" class="chip" data-mode="1" id="${id}-dispense" aria-pressed="false" data-hint="${tr('bench.mode.dispense.hint', 'A single press dispenses the cells at the tip. Holding continually dispenses all cells in the pipette')}">${tr('bench.mode.dispense', 'Dispense')}</button></span>`;
+// The call's band: a chip each for rumble, song, click and flash, its hue a dot before its name
+// i18n: the call's band chips: the group's name, and each chip's hint ({band}: 0 rumble, 1 song, 2 click, 3 flash)
+const bands = (id) => `<span class="call-band segs" role="group" aria-label="${tr('bench.band.aria', "The call's band")}">${SIGNAL_BAND.map((w, b) => `<button type="button" class="chip" data-band="${b}" id="${id}-band-${b}" aria-pressed="false" data-hint="${tr('bench.band.hint', '{band, select, 0 {A low rumble, carried far and by the currents} 1 {Song, the band most singers use} 2 {A click, short and near} other {A flash, gone at once}}', { band: b })}"><i aria-hidden="true" style="color:${SIGNAL_CSS[b]}"></i>${w}</button>`).join('')}</span>`;
 // i18n: a tool's button's hint: {tool} its name, {key} the key that takes it up
 const toolHint = (t, i) => tr('bench.tool.hint', '{tool} · {key}', { tool: t.name, key: i });
 
@@ -57,7 +61,7 @@ function swipeDown(el, close) {
 }
 
 /**
- * hand: the page's hand (src/hand.js); pick(id) takes up a tool (the one in hand: puts it down); reach(r) sets the
+ * hand: the page's hand (src/hand.js); has(id): whether a tool is offered in this world (hand.js offered); pick(id) takes up a tool (the one in hand: puts it down); reach(r) sets the
  * reach of the tool in hand, size() -> { min, max, v, text } its range and value; onToggle(open) as the drawer
  * opens or closes. pip: the pipette's strip, its runs from the tip: view() -> { count, limit, keys,
  * held: [[cells, bodies]], armed, mixed (a species in more than one run) }, cards(flat) -> its mini-cards' markup,
@@ -66,22 +70,25 @@ function swipeDown(el, close) {
  * cabinet), sort() (each species' runs as one), cabinet() (opens it), arm(on) (Dispense: a press sets down rather
  * than draws up).
  */
-export function createBench({ hand, pick, reach, size, onToggle, pip }) {
+export function createBench({ hand, has = () => true, pick, reach, size, onToggle, pip }) {
   const drawer = $('bench'), btn = $('bench-open'), held = $('held'), dock = $('tools');
-  dock.innerHTML = TOOLS.map((t, i) => `<button type="button" class="tool" data-tool="${t.id}" aria-pressed="false" aria-label="${t.name}" data-hint="${toolHint(t, i)}">${icon(t.id)}<kbd>${i}</kbd></button>`).join('');
+  // (each tool keeps its own key, whichever are offered)
+  const tools = TOOLS.map((t, i) => [t, i]).filter(([t]) => has(t.id));
+  dock.innerHTML = tools.map(([t, i]) => `<button type="button" class="tool" data-tool="${t.id}" aria-pressed="false" aria-label="${t.name}" data-hint="${toolHint(t, i)}">${icon(t.id)}<kbd>${i}</kbd></button>`).join('');
   // i18n: the Bench drawer: its Tools heading, with a note after it in small type
   drawer.innerHTML = `<div class="grab" aria-hidden="true"><i></i></div><div class="bench-tools">
       <div class="sub-h"><span class="bench-t">${tr('bench.tools', 'Tools<note>tap to select · hold tool shortcut key to use temporarily</note>', { note: (c) => `<i class="bench-note">${[].concat(c).join('')}</i>` })}</span><span class="sub-a" id="bench-held"></span></div>
-      <div class="tiles" role="radiogroup" aria-label="${tr('bench.tools.aria', 'Tools')}">${TOOLS.map((t, i) => `<button type="button" role="radio" class="tile" data-tool="${t.id}" aria-checked="false" aria-label="${t.name}" data-hint="${toolHint(t, i)}"><kbd>${i}</kbd>${icon(t.id)}<span>${t.name}</span></button>`).join('')}</div>
+      <div class="tiles" role="radiogroup" aria-label="${tr('bench.tools.aria', 'Tools')}">${tools.map(([t, i]) => `<button type="button" role="radio" class="tile" data-tool="${t.id}" aria-checked="false" aria-label="${t.name}" data-hint="${toolHint(t, i)}"><kbd>${i}</kbd>${icon(t.id)}<span>${t.name}</span></button>`).join('')}</div>
       <p class="bench-hint" id="bench-hint" aria-live="polite"></p>
       <label class="reach"><span class="lbl term" data-tip="toolreach" tabindex="0">${tr('bench.reach', 'Reach')}</span><input type="range" id="reach" min="0" max="1000" step="1" aria-label="${tr('bench.reach.aria', 'Reach')}"><b id="reach-v" translate="no"></b></label>
+      <div class="call-row" id="call-row" hidden><span class="lbl">${tr('bench.band', 'Band')}</span>${bands('call')}</div>
     </div>
     <div class="bench-pip">
       <div class="sub-h"><span class="bench-t">${tr('bench.pipette', 'Pipette')}</span><span class="sub-a" id="pip-n"></span>${modes('pip')}<button type="button" class="chip" id="pip-sort" data-hint="${tr('bench.sort.hint', 'Sorts each species’ cells together into one card per species')}">${tr('bench.sort', 'Sort')}</button><button type="button" class="chip" id="pip-keep" data-hint="${tr('bench.save-all.hint', 'Saves all species cards here not yet saved into the cabinet')}">${tr('bench.save-all', 'Save all')}</button></div>
       <div class="strip" id="pip-strip"></div>
     </div>`;
   held.innerHTML = `<kbd id="held-k"></kbd><b id="held-n"></b><span class="held-reach"><button type="button" class="ghost" data-d="-1" aria-label="${tr('bench.held.less.aria', 'Less reach')}"><svg><use href="#i-minus"/></svg></button><b id="held-r" translate="no"></b>`
-    + `<button type="button" class="ghost" data-d="1" aria-label="${tr('bench.held.more.aria', 'More reach')}"><svg><use href="#i-plus"/></svg></button></span>${modes('held')}`
+    + `<button type="button" class="ghost" data-d="1" aria-label="${tr('bench.held.more.aria', 'More reach')}"><svg><use href="#i-plus"/></svg></button></span>${modes('held')}${bands('held')}`
     + `<button type="button" class="ghost" id="held-down" aria-label="${tr('bench.held.down.aria', 'Put the tool down')}" data-hint="${tr('bench.held.down.hint', 'Put it down · Esc')}"><svg><use href="#i-close"/></svg></button><div class="strip flat" id="held-strip"></div>`;
   const slider = $('reach'), strip = $('pip-strip'), hstrip = $('held-strip');
   [strip, hstrip, drawer.querySelector('.tiles')].forEach(fadeEdges);
@@ -90,7 +97,14 @@ export function createBench({ hand, pick, reach, size, onToggle, pip }) {
   dock.addEventListener('click', toolClick);
   drawer.addEventListener('click', toolClick);
   slider.addEventListener('input', () => reach(fromSlider(+slider.value, size())));
-  const mode = (e) => { const m = e.target.closest('[data-mode]'); if (m) { pip.arm(m.dataset.mode === '1'); render(); } return !!m; };
+  // (the pipette's mode, or the call's band)
+  const mode = (e) => {
+    const m = e.target.closest('[data-mode]'), b = e.target.closest('[data-band]');
+    if (m) pip.arm(m.dataset.mode === '1');
+    else if (b) hand.band = +b.dataset.band;
+    if (m || b) render();
+    return !!(m || b);
+  };
   held.addEventListener('click', (e) => {
     const d = e.target.closest('[data-d]');
     if (d) reach(reachStep(hand.reach, +d.dataset.d));
@@ -150,6 +164,10 @@ export function createBench({ hand, pick, reach, size, onToggle, pip }) {
     $('held-n').textContent = t.name;
     $('held-r').textContent = sz.text;
     held.querySelector('.held-reach').hidden = t.id === 'needle' || t.id === 'pipette';
+    // the call's band, while it is in hand
+    $('call-row').hidden = t.id !== 'call';
+    held.querySelector('.call-band').hidden = t.id !== 'call';
+    for (const b of document.querySelectorAll('.call-band [data-band]')) b.setAttribute('aria-pressed', String(+b.dataset.band === hand.band));
     renderPip(t.id === 'pipette');
   }
   // the pipette's contents: rebuilt only when its species change, never under the pointer; what it holds of each

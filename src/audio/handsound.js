@@ -1,7 +1,7 @@
 // The hand heard (docs/hand.md): what the viewer does with the tool in hand echoes in the soundtrack, clear over
 // the field but never over it for long. Runs in the audio thread on the conductor's clock. The page sends the
 // hand's acts as they happen ({ type: 'hand', ev, ... }) and, every frame something changes, its state
-// ({ type: 'hand', ev: 'state', tool, level, move, held, water, freezing, ice, ride, will, pan }); the sounds are
+// ({ type: 'hand', ev: 'state', tool, level, move, held, water, freezing, ice, ride, will, band, pan }); the sounds are
 // the soundtrack's own voices in the world's key.
 // What each tool sounds like is in docs/hand.md, Heard. The held sounds are single voices that swell and fade
 // with what the hand does, never a train of notes restarting; while the rod or the pipette is at work the field
@@ -22,6 +22,8 @@ const HEAT = [30, 95]; // the water under the stage (°): heard warming from, an
 const BOILING = 92; // the water under the stage (°) from which the boil's bubbles come
 const KEEP = 2; // seconds a held voice stays silent before it ends
 const GROAN = 3; // semitones the ice's groans sink
+// The call's notes, by band (rumble, song, click, flash): seconds between them while it is held
+const CALL_GAP = [0.9, 0.45, 0.11, 0.3];
 
 export class HandSound {
   constructor(cond) {
@@ -32,6 +34,8 @@ export class HandSound {
     this.held = {}; // the held voices: name -> { id, on (when it began), quiet (when it was last heard) }
     // (eased: the stir's and the scalpel's speed, the scalpel's grit from the bonds it cuts, the water's heat, how
     // fast ice forms, how much there is, riding's rush; groans: how many have sounded since the ice began)
+    // (the call: whether it was calling at the last block, when its next note is due, how many it has sounded)
+    this.callOn = false; this.callAt = 0; this.callN = 0;
     this.stir = 0; this.cutV = 0; this.grit = 0; this.heat = 0; this.freeze = 0; this.ice = 0; this.groans = 0; this.groan = null; this.rush = 0; this.dim = false;
   }
   // a scale degree of the world's key, oct octaves up from its root's
@@ -71,9 +75,11 @@ export class HandSound {
   }
 
   // instruments taken up from a tray: glass for the rod and the pipette, steel for the needle and the probe, a
-  // switch for the lamp, the shade and the stage, a lens's glass for the loupe (and nothing for empty hands)
+  // switch for the lamp, the shade and the stage, a lens's glass for the loupe, a string touched for the call (and
+  // nothing for empty hands)
   pick(tool, t, pan) {
-    if (tool === 'touch' || tool === 'pipette' || tool === 'loupe') this.at(t, 'tine', { freq: { touch: 2900, pipette: 3500, loupe: 4200 }[tool], dec: 0.4, bright: 0.9, amp: 0.018, pan });
+    if (tool === 'call') this.at(t, 'pluck', { freq: this.hz(0, 1), dec: 0.2, bright: 0.3, coef: 0.6, amp: 0.05, pan });
+    else if (tool === 'touch' || tool === 'pipette' || tool === 'loupe') this.at(t, 'tine', { freq: { touch: 2900, pipette: 3500, loupe: 4200 }[tool], dec: 0.4, bright: 0.9, amp: 0.018, pan });
     else if (tool === 'needle' || tool === 'cold') {
       this.at(t, 'tick', { freq: tool === 'needle' ? 6200 : 3300, dec: 0.03, amp: 0.053, pan });
       this.at(t, 'tine', { freq: tool === 'needle' ? 5100 : 1900, dec: 0.25, bright: 1, amp: 0.009, pan });
@@ -114,6 +120,22 @@ export class HandSound {
     this.warm(s.tool === 'warm' && s.water != null ? s.water : null, t);
     this.cold(s.tool === 'cold' ? s.freezing : 0, s.tool === 'cold' ? s.ice : 0, t);
     this.ride(s.ride ? s.will : 0, t);
+    this.call(s.tool === 'call' && v > 0 ? s.band ?? 1 : -1, t);
+  }
+
+  // The call into the water (band: 0..3, −1 none): a note in its band's register as it begins (a tap's pulse is that
+  // one), and the same again every CALL_GAP while it is held: rumble a low knock, song a plucked mid note walking a
+  // few steps of the key, click a tick, flash a glassy ping
+  call(band, t) {
+    if (band < 0) { this.callOn = false; return; }
+    if (this.callOn && t < this.callAt) return;
+    this.callOn = true;
+    this.callAt = t + CALL_GAP[band];
+    const pan = this.s.pan, k = this.callN++;
+    if (band === 0) this.at(t, 'wood', { freq: this.hz(0, -2), dec: 0.9, bright: 0.15, amp: 0.22, pan, rev: 0.5 });
+    else if (band === 1) this.at(t, 'pluck', { freq: this.hz([0, 2, 4, 2][k % 4], 1), dec: 0.45, bright: 0.35, coef: 0.5, amp: 0.1, pan, rev: 0.35 });
+    else if (band === 2) this.at(t, 'tick', { freq: 2400 + 400 * this.rnd(), dec: 0.012, amp: 0.07, pan });
+    else this.at(t, 'glint', { freq: this.hz(4, 3), dec: 0.5, amp: 0.016, pan, rev: 0.6, dly: 0.2 });
   }
 
   // A held voice, name: begun (make() gives its def and params, silent) when on, ended KEEP seconds after it was

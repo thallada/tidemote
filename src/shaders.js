@@ -92,6 +92,10 @@ export const NEEDLE = { w: 0.45, taper: 3, wet: 1.2, wetPx: 110, wetMax: 10, kil
 // from there (world units of blur a world unit along it), and how out of focus an instrument is raised over the
 // water (world units), the cells in its bore as much as its glass
 export const PIPETTE_DOF = { wet: 0.6, rate: 0.035, raised: 0.5 };
+// The hand's call into the water (docs/hand.md, Call): a full call puts as much into its band as `loud` lone full
+// callers would, spread over its reach (about 5 × signalGain at its middle for a song at the default reach), and a tap
+// calls for `pulse` simulated seconds
+export const CALL = { loud: 8, pulse: 0.3 };
 // A species' genome (struct Genome): its bytes and words
 export const G_BYTES = 256;
 export const G_WORDS = 64;
@@ -1652,8 +1656,17 @@ fn signalStep(c: u32) {
   let stones = stoneCells[c];
   let n = f32(stones & 0xffffu) / REEF_FIX + f32(stones >> 16u);
   let o = sigAccAt() + 4u * c;
-  let dep = vec4f(f32(atomicExchange(&ledger[o], 0u)), f32(atomicExchange(&ledger[o + 1u], 0u)),
+  var dep = vec4f(f32(atomicExchange(&ledger[o], 0u)), f32(atomicExchange(&ledger[o + 1u], 0u)),
     f32(atomicExchange(&ledger[o + 2u], 0u)), f32(atomicExchange(&ledger[o + 3u], 0u))) / SIGNAL_FIX;
+  // the hand's call (docs/hand.md, Call): CALL.loud full callers' worth into its band, spread over its reach, its edge
+  // softened over a grid cell so even the least reach (under a cell) puts all of it in (the integral of that disc is
+  // π(r² + 0.05)); zero in every headless run
+  let hc = sim.hand.call;
+  if (hc.w > 0.0) {
+    let r = max(hc.z, 0.5);
+    let hb = min(u32(sim.hand.wake.y), 3u);
+    dep[hb] += hc.w * ${f(CALL.loud)} * SIG_NORM[hb] * sim.dt * (1.0 - smoothstep(r - 0.5, r + 0.5, length(handD(vec2f(f32(x), f32(y)) + 0.5, hc.xy)))) / (0.5 * TAU * (r * r + 0.05));
+  }
   let next = acc / max(sx * sy, vec4f(1e-30)) * exp(-SIG_DECAY * (1.0 + SIG_STONE * n) * sim.dt) + dep;
   let w = ${2 * MAX_CELLS}u + 4u * c;
   heatNext[w] = next.x; heatNext[w + 1u] = next.y; heatNext[w + 2u] = next.z; heatNext[w + 3u] = next.w;
@@ -1728,8 +1741,9 @@ struct Hand {
                 // w how many cells the pipette draws (their IDs in the ledger's hand region)
   suck: vec4f,  // the pipette's tip, its reach (0: none), how fast it draws what is in reach (world units a second, 0: not pressed)
   needle: vec4f, // the needle in the water: its point, and its shaft's way off toward the corner, as long as it runs (0: none)
-  wake: vec4f,  // x the size of the rod's eddies (0: none)
+  wake: vec4f,  // x the size of the rod's eddies (0: none), y the call's band (0 rumble, 1 song, 2 click, 3 flash)
   eddies: array<vec4f, 20>, // the rod's wake: each eddy's center and the water's velocity it carries there, as it fades
+  call: vec4f,  // the call into the water (signalStep): its center, reach, how loud (0..1 of a full call, 0: none)
 };
 // kr: 0..9 kind, 10..11 role, 12 plant, 13 cyst, 14 hunter, 15 tail cell.
 struct Lite { pos: vec2f, kr: u32, col: u32, vel: u32, s0: u32, s1: u32, pad: u32 };

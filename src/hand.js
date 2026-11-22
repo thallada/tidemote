@@ -1,9 +1,9 @@
 // The viewer's hand (docs/hand.md): the bench's tools, what the one in hand does to the world, and the record of
 // what it has done. Every tool is a local cause the world could have made itself (a lamp is more sun on one
-// place, the rod and the needle what a falling grain or a hunter would do), written into the engine's hand words (Hand in simWGSL), which are
+// place, the rod and the needle what a falling grain or a hunter would do, the call a cell's own), written into the engine's hand words (Hand in simWGSL), which are
 // zero in every headless run. Pure but for those words; the page feeds it the pointer in world units.
 
-import { NEEDLE, SHADE } from './shaders.js';
+import { NEEDLE, SHADE, CALL } from './shaders.js';
 import { tr } from './i18n.js';
 
 // i18n: the bench's tools: each one's name, its hint (shown under the tiles while it is in hand) and, where it differs, its
@@ -18,9 +18,12 @@ export const TOOLS = [
   { id: 'cold', name: tr('tool.cold.name', 'Cold'), hint: tr('tool.cold.hint', 'The cold probe: chills the water; hold to freeze to ice') },
   { id: 'needle', name: tr('tool.needle.name', 'Needle'), hint: tr('tool.needle.hint', 'Pricks the cells it touches, its shaft pushes the rest aside') },
   { id: 'pipette', name: tr('tool.pipette.name', 'Pipette'), hint: tr('tool.pipette.hint', 'Load: a click draws up a few cells, held: all in reach · Dispense (or ⇧ click) ejects cells at the tip, held: continuously dispenses faster'), touch: tr('tool.pipette.touch', 'Load: a touch draws up a few cells, held: all in reach · Dispense: a touch ejects cells at the tip') },
+  { id: 'call', name: tr('tool.call.name', 'Call'), hint: tr('tool.call.hint', 'Calls into the water as cells do, in the band chosen: a click sends one pulse, held it keeps calling · the cells that hear it come, flee or fall silent'), touch: tr('tool.call.touch', 'Calls into the water as cells do, in the band chosen: a tap sends one pulse, held it keeps calling · the cells that hear it come, flee or fall silent') },
 ];
+/** Whether tool id is offered in a world of tunables K (the call only where there are signals: K.signal and the heat pass). */
+export const offered = (id, K) => id !== 'call' || !!(K.signal && K.heat);
 export const toolOf = (id) => TOOLS.find((t) => t.id === id) || TOOLS[0];
-// (Pan, nothing in hand, is 0, the tools 1 to 8)
+// (Pan, nothing in hand, is 0, the tools 1 to 9)
 export const keyOf = (id) => String(TOOLS.findIndex((t) => t.id === id));
 /** Whether a tool acts on the world (not none, not the loupe, which only look). */
 export const works = (id) => id !== 'none' && id !== 'loupe';
@@ -63,6 +66,9 @@ export function createHand(words, ids, { reach = REACH.def, drops }) {
     // (wet: how much of the needle is in the water, world units: NEEDLE.wet, more zoomed out; the page's)
     tool: 'loupe', reach, wet: NEEDLE.wet, held: false, rung: 0, last: null, at: null, from: null, dip: 0, eddies: [], wake: null, stroke: null,
     lamp: { x: 0, y: 0, r: reach, v: 0 }, stage: { x: 0, y: 0, r: reach, v: 0 },
+    // the call's band (0 rumble, 1 song, 2 click, 3 flash), and the simulated time a press's pulse lasts to (a tap
+    // calls that long, a hold as long as it is held); calling: whether it calls into the water now
+    band: 1, callTo: -Infinity, calling: false,
     // the ridden cell and where it is steered: [x, y, strength]; the pipette's draw: [x, y, reach, speed] (the page's)
     rider: NONE, will: null, suck: null,
     // the record: one entry per act (a tool held, or a run of taps and pricks in one place), its times simulated
@@ -81,21 +87,23 @@ export function createHand(words, ids, { reach = REACH.def, drops }) {
     },
     /** How much of the lamp's, shade's, stage's or probe's full strength the tool in hand has now (0..1). */
     get level() {
+      if (h.tool === 'call') return h.calling ? 1 : 0;
       const t = h.tool, v = t === 'lamp' || t === 'shade' ? h.lamp.v / (t === 'lamp' ? LAMP : -SHADE) : t === 'warm' || t === 'cold' ? h.stage.v * (t === 'warm' ? 1 : -1) : 0;
       return Math.max(0, v);
     },
     /** A world begun or put in place: its record of acts (kept with it), nothing of the last world's still acting. */
     reset(acts = []) {
-      h.up(); h.acts = acts; h.rider = NONE; h.will = null; h.suck = null;
+      h.up(); h.acts = acts; h.rider = NONE; h.will = null; h.suck = null; h.callTo = -Infinity; h.calling = false;
       h.lamp.v = h.stage.v = h.dip = 0; h.eddies = [];
     },
     /** The tool in hand (an id of TOOLS); taking one lets go of the last. */
-    set(id, t) { h.up(t); h.tool = toolOf(id).id; },
+    set(id, t) { h.up(t); h.tool = toolOf(id).id; h.callTo = -Infinity; },
     /** The pointer over the world at (x, y), or away from it (hover(null)): the lamp and stage follow it. */
     hover(x, y) { h.at = x == null ? null : [x, y]; },
     /** The pointer pressed at world point (x, y), simulated time t. */
     down(x, y, t) {
       h.held = true; h.last = h.at = h.from = [x, y];
+      if (h.tool === 'call') h.callTo = t + CALL.pulse;
       if (works(h.tool) && h.tool !== 'pipette') act(t, x, y);
     },
     /** The pointer moved to (x, y). */
@@ -160,6 +168,10 @@ export function createHand(words, ids, { reach = REACH.def, drops }) {
       words.fill(0, 32);
       h.eddies.forEach((e, k) => { const s = Math.exp(-(t - e.t) / WAKE.life); words.set([e.x, e.y, e.vx * s, e.vy * s], 36 + k * 4); });
       words[32] = h.eddies.length ? h.reach : 0;
+      // the call: while pressed, and a tap's pulse out (where it was last pressed), its band, center, reach and full loudness
+      h.calling = tl === 'call' && !!h.last && (h.held || t < h.callTo);
+      words[33] = h.calling ? h.band : 0;
+      words.set(h.calling ? [h.last[0], h.last[1], h.reach, 1] : [0, 0, 0, 0], 116);
     },
   };
   // a ring wave from (x, y), of strength s, in the oldest of the raindrop slots

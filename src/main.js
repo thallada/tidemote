@@ -32,7 +32,7 @@ import { earned } from './achievements.js';
 import { createCards, strangerCard, PORTRAIT_BOX, PORTRAIT_SHOWN, CARD_SCALE, CARD_W, CARD_H } from './card.js';
 import { createFilm, clearFilms } from './film.js';
 import { parseMind, interpretMind, settleMind } from './mind.js';
-import { createHand, REACH, reachStep, toolOf, TOOLS, works, INSTRUMENTS } from './hand.js';
+import { createHand, REACH, reachStep, toolOf, TOOLS, works, offered, INSTRUMENTS } from './hand.js';
 import { createBench } from './bench.js';
 import { createLadder } from './ladder.js';
 import { createPipette, setDownJob, mergeJobs, bodiesOf, PIPE_LIMIT } from './pipette.js';
@@ -388,7 +388,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, prompts: state.prompts, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, focus: state.focus, hdr: dsp.hdr, peak: dsp.peak, wide: dsp.wide, fixed: state.fixed, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+    savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.lensByCall && state.map === 'signal' ? 'off' : state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, prompts: state.prompts, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, focus: state.focus, hdr: dsp.hdr, peak: dsp.peak, wide: dsp.wide, fixed: state.fixed, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   // the look (src/look.js, docs/look.md): Darkfield as the Display settings ask, how strong as a whole and how much
@@ -3342,13 +3342,21 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   const inHand = () => works(hand.tool);
   // Take up a tool (a working one stops the auto camera); the one in hand taken up again is put down: Pan.
   function pickTool(id) {
+    if (!offered(id, K)) return;
     if (id === hand.tool) id = 'none';
     hand.set(id, eng.simTime);
+    callLens(id === 'call');
     hear('pick', { tool: hand.tool });
     if (id !== 'loupe') lensAt = null;
     if (inHand()) { takeOver(); endRide(); state.follow = false; }
     bench.render();
     view.render();
+  }
+  // The call in hand shows the signal lens where no map is shown, so its rings are seen leaving the point, and put down
+  // takes it away again (unless the viewer has chosen a map meanwhile); the lens it shows is never kept in the prefs
+  function callLens(on) {
+    if (on && state.map === 'off') { state.lensByCall = true; setMap('signal'); }
+    else if (!on && state.lensByCall) { state.lensByCall = false; if (state.map === 'signal') setMap('off'); }
   }
   // Reach, for the tool in hand: the loupe's is the lens's radius (px), every other tool's a world distance
   // i18n: the loupe's reach: its lens's width, {n} CSS pixels
@@ -3381,7 +3389,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     }
     return runs;
   }
-  const bench = createBench({ hand, pick: pickTool, reach: setReach, size: reachOf, onToggle: (on) => { if (on && phone()) { view.toggle(false); lab.close(); } },
+  const bench = createBench({ hand, has: (id) => offered(id, K), pick: pickTool, reach: setReach, size: reachOf, onToggle: (on) => { if (on && phone()) { view.toggle(false); lab.close(); } },
     pip: {
       view: () => ({ count: pipette.count + pull.got.length, limit: PIPE_LIMIT, armed: pull.armed, keys: pipRuns().map((r) => { const c = pipCard(r.sp); return r.key + (c ? '*' : ''); }), held: runs.map((r) => r.held), mixed: pipette.mixed }),
       // (after view, its runs)
@@ -3740,7 +3748,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     if (hand.dip > 0.5 !== heard.dipped) { heard.dipped = !heard.dipped; hear(heard.dipped ? 'dip' : 'lift'); }
     if (hand.rung !== heard.rung) { heard.rung = hand.rung; hear('ring'); }
     const held = hand.held || pull.on || spit.on, will = ride.on && hand.will ? hand.will[2] : 0;
-    const st = { tool: hand.tool, level: Math.round(hand.level * 100) / 100, move: Math.round(v * 10) / 10, held, ride: ride.on, will,
+    const st = { tool: hand.tool, level: Math.round(hand.level * 100) / 100, move: Math.round(v * 10) / 10, held, ride: ride.on, will, band: hand.band,
       water: heard.water, freezing: heard.freezing, ice: heard.ice };
     const key = JSON.stringify(st);
     // (recorded only once sent: a state that changed while sound was off is sent when it comes back on)
@@ -4122,6 +4130,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       // is only for as long as it is held
       if (how.repeat) return true;
       const tid = id.slice(5);
+      if (!offered(tid, K)) return false;
       if (how.key) quasi = tid !== hand.tool && tid !== 'none' ? { key: how.key, prev: hand.tool, at: performance.now() } : null;
       pickTool(tid);
       return true;
@@ -4181,7 +4190,14 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       // the controller's own
       case 'select': { const [x, y] = aim(); selectAt(x, y, undefined, undefined, false, 40); return true; }
       case 'apply': padApply(); return true;
-      case 'pipette-mode':
+      case 'switch-mode':
+        // (X with the call: its next band, as the bench's chips)
+        if (hand.tool === 'call') {
+          hand.band = (hand.band + 1) % 4; bench.render();
+          // i18n: the call's band chosen on a controller ({band}: signal.band.*)
+          flash(tr('flash.call-band', 'Call: {band}', { band: SIGNAL_BAND[hand.band] }));
+          return true;
+        }
         // (X with the pipette: loading or dispensing, as the held strip's switch)
         if (hand.tool !== 'pipette') return false;
         pull.armed = !pull.armed; bench.render();
@@ -4225,7 +4241,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   function openRose(kind) {
     const [x, y] = aim();
     const items = kind === 'tools'
-      ? ROSE_TOOLS.map((id) => ({ id, label: esc(toolOf(id).name), icon: `<svg aria-hidden="true"><use href="#i-t-${id}"/></svg>` }))
+      ? ROSE_TOOLS.filter((id) => offered(id, K)).map((id) => ({ id, label: esc(toolOf(id).name), icon: `<svg aria-hidden="true"><use href="#i-t-${id}"/></svg>` }))
       : ROSE_VIEW.map((id) => ({ id, label: esc(viewNames()[id]) }));
     // i18n: the controller's two roses, named for screen readers
     rose.open(items, x, y, kind === 'tools' ? tr('rose.tools', 'Tools') : tr('rose.view', 'View'));
@@ -4272,7 +4288,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     select: tr('legend.select', 'Select'), back: tr('legend.back', 'Back'), ride: tr('legend.ride', 'Ride'), panel: tr('legend.panel', 'Panel'),
     tools: tr('legend.tools', 'Tools'), view: tr('legend.view', 'View'), settings: tr('legend.settings', 'Settings'), lab: tr('legend.lab', 'Lab'),
     bench: tr('legend.bench', 'Bench'), last: tr('legend.last-tool', 'Last tool'), hold: tr('legend.hold', 'hold'),
-    use: tr('legend.use', 'Use'), down: tr('legend.down', 'Put down'), reach: tr('legend.reach', 'Reach'),
+    use: tr('legend.use', 'Use'), band: tr('legend.call-band', 'Next band'), down: tr('legend.down', 'Put down'), reach: tr('legend.reach', 'Reach'),
     load: tr('legend.load', 'Load'), dispense: tr('legend.dispense', 'Dispense'), toLoad: tr('legend.to-load', 'Switch to load'), toDispense: tr('legend.to-dispense', 'Switch to dispense'),
     steer: tr('legend.steer', 'Steer'), hop: tr('legend.hop', 'Next of kin'), off: tr('legend.off', 'Get off'),
     choose: tr('legend.choose', 'Choose'), tabs: tr('legend.tabs', 'Tabs'), zoom: tr('legend.zoom', 'Zoom'),
@@ -4293,7 +4309,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     if (ctx === 'tool') {
       // (the pipette: what A does now, loading or dispensing, and X switching to the other)
       const pip = hand.tool === 'pipette', d = pip && pull.armed !== shiftHeld;
-      return [['S', !pip ? L.use : d ? L.dispense : L.load], ...(pip ? [['W', d ? L.toLoad : L.toDispense]] : []), ['E', L.down], ['R', L.reach], ['LB', '', L.tools]];
+      return [['S', !pip ? L.use : d ? L.dispense : L.load], ...(pip ? [['W', d ? L.toLoad : L.toDispense]] : []), ...(hand.tool === 'call' ? [['W', L.band]] : []), ['E', L.down], ['R', L.reach], ['LB', '', L.tools]];
     }
     return [['S', L.select], ['E', L.back], ...(sel && !sel.lost ? [['W', L.ride]] : []), ...(sidePanel() ? [['N', L.panel]] : []),
       ['LB', L.last, L.tools], ['RB', L.bench, L.view], ['MENU', L.settings], ['VIEW', L.lab]];
@@ -5461,7 +5477,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     }
     // the readout, beside the ring (inside the screen)
     // i18n: the tool's readout by the pointer: its name, in capitals (hand.readout.pipette, hand.readout.reach)
-    const tool = tr('hand.readout.tool', '{t, select, loupe {LOUPE} touch {TOUCH} lamp {LAMP} shade {SHADE} warm {WARM} cold {COLD} needle {NEEDLE} pipette {PIPETTE} other {PAN}}', { t: toolOf(t).id });
+    const tool = tr('hand.readout.tool', '{t, select, loupe {LOUPE} touch {TOUCH} lamp {LAMP} shade {SHADE} warm {WARM} cold {COLD} needle {NEEDLE} pipette {PIPETTE} call {CALL} other {PAN}}', { t: toolOf(t).id });
     // i18n: the tool's readout by the pointer: {tool} its name (hand.readout.tool), and what the pipette holds ({n} cells of
     // {max}) or the tool's reach ({reach}, a length)
     const lines = [t === 'pipette' ? tr('hand.readout.pipette', '{tool} · {n, number} / {max, number}', { tool, n: pipette.count, max: PIPE_LIMIT }) : t === 'needle' ? tool : tr('hand.readout.reach', '{tool} · {reach}', { tool, reach: fmtLen(hand.reach) }), handDoing()];
@@ -5534,6 +5550,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     const dragging = ptr.dragging || !!input.apply?.moved;
     if (t === 'touch') return !hand.held ? tr('hand.doing.touch-over', 'Press: the rod into the water') : dragging ? tr('hand.doing.touch-drag', 'Plowing') : tr('hand.doing.touch-in', 'In the water · pushing aside');
     if (t === 'needle') return !hand.held ? tr('hand.doing.needle-over', 'Press: the needle into the water') : dragging ? tr('hand.doing.needle-drag', 'Cutting through') : tr('hand.doing.needle-in', 'Pricking');
+    // i18n: the call's readout: calling now, or what a press does; {band}: its band (signal.band.*)
+    if (t === 'call') return hand.calling ? tr('hand.doing.calling', 'Calling · {band}', { band: SIGNAL_BAND[hand.band] }) : tr('hand.doing.call-over', 'Press to call ({band}) · hold to keep calling', { band: SIGNAL_BAND[hand.band] });
     if (t === 'pipette') {
       const tip = pipette.tip, now = performance.now();
       // i18n: the pipette drawing up, {n} cells in so far
