@@ -53,9 +53,9 @@ test('twelve cosmetic shapes keep the archetype random-draw count', () => {
     let draws = 0;
     const g = archetypeGenome(type, () => { draws++; return r; });
     assert.equal(g.shape, shape);
-    // + 4 for the thermal optimum and tolerance; heat-maker founders draw one (two when chosen); + 7 for the growth plan; + 5 for the beat; + 4 for the tails; + 2 for phototaxis
+    // + 4 for the thermal optimum and tolerance; heat-maker founders draw one (two when chosen); + 7 for the growth plan; + 5 for the beat; + 4 for the tails; + 2 for phototaxis; + 12 for the signals
     const thermo = ['crawler', 'grazer', 'filament'].includes(type) ? (r < 0.25 ? 2 : 1) : 0;
-    assert.equal(draws, (type === 'grazer' ? 77 : type === 'filament' ? 78 : 76) + 4 + thermo + 7 + 5 + 4 + 2);
+    assert.equal(draws, (type === 'grazer' ? 77 : type === 'filament' ? 78 : 76) + 4 + thermo + 7 + 5 + 4 + 2 + 12);
     const before = JSON.stringify(g);
     for (let role = 0; role < 3; role++) assert.ok(cellShape(g, role) >= 0 && cellShape(g, role) < 12);
     assert.equal(JSON.stringify(g), before, 'cosmetic selection leaves the genome unchanged');
@@ -102,4 +102,24 @@ test('phototaxis round-trips through the genome buffer and costs upkeep', () => 
   assert.ok(g.metab > off.metab);
   const shun = finalizeGenome({ ...structuredClone(g), phototaxis: -g.phototaxis });
   assert.ok(Math.abs(shun.metab - g.metab) < 1e-9, 'shunning light costs as much as seeking it');
+});
+
+test('signal genes round-trip through the genome buffer, ears cost upkeep, and none are drawn without signals', async () => {
+  const { DEFAULT_K, G_BYTES } = await import('../src/shaders.js');
+  assert.equal(G_WORDS * 4, G_BYTES);
+  const u32 = new Uint32Array(G_WORDS), f32 = new Float32Array(u32.buffer);
+  // drawn low, a grazer founder sings, calls the alarm and hears
+  const g = archetypeGenome('grazer', () => 0.1);
+  assert.ok(g.call[0] > 0 && g.call[2] > 0 && g.ear.some((e) => e !== 0));
+  writeGenome(u32, f32, 0, g);
+  const back = readGenome(u32, f32, 0);
+  for (let k = 0; k < 4; k++) { assert.ok(Math.abs(back.call[k] - g.call[k]) < 1e-6); assert.ok(Math.abs(back.ear[k] - g.ear[k]) < 1e-6); }
+  assert.ok(g.metab > finalizeGenome({ ...structuredClone(g), ear: [0, 0, 0, 0] }).metab);
+  // a hunter never starts with an alarm (no hunter flees a hunter)
+  assert.equal(archetypeGenome('hunter', () => 0.1).call[2], 0);
+  // the same draws with signals off leave every gene before them as they were, and the signal genes at none
+  const off = archetypeGenome('grazer', () => 0.1, { ...DEFAULT_K, signal: 0 });
+  assert.deepEqual(off.call, [0, 0, 0, 0]);
+  assert.deepEqual(off.ear, [0, 0, 0, 0]);
+  assert.equal(off.phototaxis, g.phototaxis);
 });

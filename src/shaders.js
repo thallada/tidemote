@@ -16,6 +16,12 @@ export const THERMAL_WORDS = 4 * MAX_CELLS + 4;
 // of MAX_CELLS, then whether any is drawn
 export const ICE_SHOWN = THERMAL_WORDS;
 export const ICE_SHOWN_ANY = ICE_SHOWN + MAX_CELLS;
+// then, never saved either, the signals in the water (signalStep): SIGNAL_BANDS bands (rumble,
+// song, click, flash) per grid cell, interleaved: band b of grid cell c at SIGNAL_AT + SIGNAL_BANDS * c + b. A
+// transient field (it dies away in seconds), zero in a new world and in one loaded or put back.
+export const SIGNAL_BANDS = 4;
+export const SIGNAL_AT = ICE_SHOWN_ANY + 4;
+export const THERMAL_BUFFER_WORDS = SIGNAL_AT + SIGNAL_BANDS * MAX_CELLS;
 // The water seen in tiles (TILES × TILES of them over the world, a word a row and a bit a column): which hold ice and
 // which water warm enough that bubbles may show near it, ice's rows then hot water's (b.heatTiles; heatMain, and the
 // ice still drawn, ICE_SHOW_WGSL; compPick)
@@ -86,9 +92,13 @@ export const NEEDLE = { w: 0.45, taper: 3, wet: 1.2, wetPx: 110, wetMax: 10, kil
 // from there (world units of blur a world unit along it), and how out of focus an instrument is raised over the
 // water (world units), the cells in its bore as much as its glass
 export const PIPETTE_DOF = { wet: 0.6, rate: 0.035, raised: 0.5 };
+// A species' genome (struct Genome): its bytes and words
+export const G_BYTES = 256;
+export const G_WORDS = 64;
 // The pipette's working words (docs/hand.md), in the ledger after the species ledger: the cells it draws toward its
 // tip (their IDs, sorted), those taken there (PIPE_TAKE_W words each: kind, energy, age, id, color, info, its
-// partners' IDs), and what it sets down: a header, the species' genomes, the cells (9 words: species, offset,
+// partners' IDs), and what it sets down: a header, the species' genomes (G_WORDS + 2 words each: the genome, the slot
+// it wants, whether a stranger), the cells (9 words: species, offset,
 // velocity, energy, age, color, info), the IDs of cells set down before that its cells bond to (and where they are found), and the bonds (a
 // keeper, its partner and the keeper's slot; each a cell of this set-down or one of those IDs); with what came of
 // it (how many grains were taken, each species' slot, each cell's index and new ID). The header: how many cells
@@ -102,7 +112,7 @@ export const PIPE_EARLIER = 0x4000; // a bond's end at or past this: one of thos
 export const H_TAKEN = PIPE_MAX;
 export const H_IN = H_TAKEN + 1 + PIPE_TAKE * PIPE_TAKE_W;
 export const H_SP = H_IN + 8;
-export const H_CELLS = H_SP + PIPE_SP * 58;
+export const H_CELLS = H_SP + PIPE_SP * (G_WORDS + 2);
 export const H_IDS = H_CELLS + PIPE_MAX * 9;
 export const H_LINKS = H_IDS + 2 * PIPE_IDS;
 export const H_OUT = H_LINKS + 2 * PIPE_MAX;
@@ -111,9 +121,9 @@ export const H_CUTS = H_OUT + 1 + PIPE_SP + 2 * PIPE_MAX; // the bonds the needl
 export const RIDE_MAX = 4096;
 export const H_RIDE = H_CUTS + 1;
 export const HAND_WORDS = H_RIDE + 1 + RIDE_MAX;
-// Energy ledger per diet guild, in thousandths: light, (glint: unused), plant bites, husks, kills, upkeep,
-// children, heat-making. META_ENERGY + 40.. holds the thermal sample (THERMAL_LEDGER).
-export const ENERGY_SLOTS = ['light', 'glint', 'plant', 'husk', 'flesh', 'upkeep', 'children', 'heat'];
+// Energy ledger per diet guild, in thousandths: light, calling (signals; upkeep besides), plant bites, husks, kills,
+// upkeep, children, heat-making. META_ENERGY + 40.. holds the thermal sample (THERMAL_LEDGER).
+export const ENERGY_SLOTS = ['light', 'call', 'plant', 'husk', 'flesh', 'upkeep', 'children', 'heat'];
 // Sampled once a second per living cell: the warmth it lives at (HEAT_BINS bins of HEAT_BIN degrees
 // from 0), how many were torpid, and how many were heat-makers. Heat deaths per guild are
 // META_DEATH + 20 + guild.
@@ -140,8 +150,6 @@ export const STUDIO_N = 64; // a mini-card's portrait drawn alone (setStudio): t
 export const LOUPE_FIELD = 1.1;
 export const ORGANS = 4; // organelles per resolved cell (cellColor), directions per species (organDirs)
 export const PICK_WORDS = 12; // Particle's 10 words, then two partner IDs (NONE if absent).
-export const G_BYTES = 224;
-export const G_WORDS = 56;
 export const LITE_BYTES = 32;
 // a cell's drawn motion and events (ANIM_WGSL's Sway)
 export const SWAY_BYTES = 56;
@@ -169,7 +177,7 @@ const SORTED_AT = /* wgsl */ `fn sortedAt(a: vec2u) -> u32 {
 `;
 // The selected cell's mind (mindMain): a header of MIND_HEAD words, then MIND_NBR living neighbors
 // of MIND_NBR_WORDS words each. See parseMind in mind.js for the layout.
-export const MIND_HEAD = 68;
+export const MIND_HEAD = 74;
 export const MIND_NBR = 48;
 export const MIND_NBR_WORDS = 8;
 export const MIND_BYTES = (MIND_HEAD + MIND_NBR * MIND_NBR_WORDS) * 4;
@@ -335,6 +343,21 @@ export const DEFAULT_K = {
   phototaxis: 6,    // a cell's push up the light's slope at a full phototaxis gene (down it, negative): a motility of its own,
   phototaxisCost: 0.012, // so a drifting producer can follow the light; its upkeep per second at a full gene (either sign)
   photoSoft: 0.3,   // the share of the waves' steepest slope below which the push fades with it (0: a full push up to the crest)
+  // Signals (signalStep): cells call into four bands of a field on the binning grid (rumble, song, click,
+  // flash), which spreads and dies away, and steer up or down each band's slope by genes of their own (call, ear)
+  signal: 1,        // scales the calls' loudness and the push of hearing (0: no field, no calling, no hearing; needs heat)
+  signalReach: [8, 4, 2, 3],       // how far each band carries (grid cells: sqrt(diffusion / decay))
+  signalLife: [4, 1.5, 0.4, 0.15], // how long it lasts (seconds: 1 / decay); rumble is carried by the currents too
+  signalStone: 0.3, // each grain of stone in a grid cell adds this share to its decay: reefs cast acoustic shadows
+  signalGain: 0.1,  // a full caller's level where it calls, at steady state (each band's deposit is scaled to it): a
+                    // crowd of callers stands at a few, where hushing and relaying the alarm (levels of 1) are graded
+  signalSoft: 0.01, // the slope (level per grid cell) below which hearing's push fades with it: a lone caller's carries
+  signalTaxis: 4,   // a cell's push up a band's slope at a full ear (down it, negative): a motility of its own
+  signalDuty: 0.3,  // the share of its species' cadence a singer is in voice
+  signalHush: 1,    // a singer falls silent by this × the level of what it shuns (saturating)
+  signalRelay: 0.5, // fear added per unit of the level of what it shuns: alarm passes from cell to cell
+  signalCost: 0.008, // energy per second of calling at full amplitude (about a seventh of a typical cell's upkeep)
+  signalEarCost: 0.004, // upkeep per second per unit of ear (summed over the bands, either sign)
   thermoCost: 0.03, // energy per second a full heat-maker burns to warm itself and its water
   selfWarm: 4,      // degrees a full heat-maker runs above its water (×1.5 with one bond, ×2 with two)
   rotQ10: 2.5,      // husks rot this much faster per 10° above tRef
@@ -579,6 +602,11 @@ struct Genome {
   // a packed body's tails: how readily its edge buds one (x), how long one grows (y); z phototaxis
   // (-1..1: toward the light, or away from it, negative); w spare
   tail: vec4f,
+  // signals: how loudly it sings (x, 0..1) and in which band (y, 0..1 read as band min(u32(y * 4), 3)), how loudly it
+  // calls the alarm (z) and in which band (w)
+  call: vec4f,
+  // how hard it pushes itself up (positive) or down (negative) each band's slope, -1..1
+  ear: vec4f,
 };
 
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
@@ -822,10 +850,12 @@ const SENSE = {
   nutr: 'sGet(so + 8u)', pack: 'sGet(so + 9u)', stoneN: 'sGet(so + 10u)', plantN: 'sGet(so + 11u)', animN: 'sGet(so + 12u)',
   kinCol: 'unpack4x8unorm(sense[so + 13u])', food: 'sense[so + 16u]', silt: 'sense[so + 17u]',
   jF: 'vec3f(sGet2(so + 19u), sGet(so + 21u))', jS: 'vec3f(sGet2(so + 22u), sGet(so + 24u))',
-  fc: (n) => `select(sense[so + 28u + ${n}], sense[so + 16u], ${n} == 0u)`, silt2: 'sense[so + 32u]',
+  fc: (n) => `select(sense[so + 28u + ${n}], sense[so + 16u], ${n} == 0u)`, silt2: 'sense[so + 32u]', threat: 'sGet(so + 33u)',
 };
 function cellWGSL(K, w, part = 'all') {
   const W = (s) => (w ? ' ' + s : '');
+  // signals (signalStep): every bit of them left out with K.signal 0, or without the heat pass that steps the field
+  const SIG = !!(K.signal && K.heat);
   const scan = part !== 'act';
   // what the scan found: as it found it, or (lifeMain) where senseMain left it
   const F = (v) => (scan ? v : SENSE[v]);
@@ -954,7 +984,7 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
   let myR = 0.085 * g.size * (1.0 - 0.12 * f32(role));
   var nIn = 0.0;
   var preyNear = vec2f(0.0);
-  let s0 = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
+${SIG ? '  // (how near hunters are, as flight weighs them: the fear its alarm call answers)\n  var threat = 0.0;\n' : ''}  let s0 = pcg(p.id ^ pcg(sim.frame * 747796405u + sim.seed));
   var s = s0;
   // a tree grows from its tips: the daughter this cell lacks (budTurn; 3: none), where she would grow
   // (budAt, from here) and whether a cell is in the way (budBlocked)
@@ -1023,7 +1053,7 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
   for (var k = 0u; k < 18u; k++) {
     if (k == 9u) {
       let toM = strideL / strideM;
-      overlap *= toM; deepOther *= toM; preyNear *= toM; force *= toM; crowd *= toM; crowdP *= toM; pack *= toM; kinVel *= toM; kinN *= toM; jF *= toM; nIn *= toM;
+      overlap *= toM; deepOther *= toM; preyNear *= toM;${SIG ? ' threat *= toM;' : ''} force *= toM; crowd *= toM; crowdP *= toM; pack *= toM; kinVel *= toM; kinN *= toM; jF *= toM; nIn *= toM;
       st = strideM;
       at = select(0.0, rnd(&s) * strideM, strideM > 1.0);
     }
@@ -1079,7 +1109,7 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
         let appetite = select(0.0, select(gFlesh, ${f(K.grazePref)} * gGlint + ${f(K.plantPref)} * gFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K.hunt)}, canHunt && qk != p.kind);
         if (x >= bk) { fr += appetite * shape; pull = a + appetite; } else { dfr = core * invBk * invR; }
         // an animal that is not a hunter swims away from hunters near it, the harder the closer they are
-        if ((q.kr & (1u << 14u)) != 0u && qk != p.kind && gFlesh <= 0.5 && gPhoto <= 0.4) { fr -= ${f(K.flee)} * min(gSwim, 1.0) * (1.0 - x);${W(`mFl = ${f(K.flee)} * min(gSwim, 1.0) * (1.0 - x);`)} }
+        if ((q.kr & (1u << 14u)) != 0u && qk != p.kind && gFlesh <= 0.5 && gPhoto <= 0.4) { fr -= ${f(K.flee)} * min(gSwim, 1.0) * (1.0 - x);${SIG ? ' threat += 1.0 - x;' : ''}${W(`mFl = ${f(K.flee)} * min(gSwim, 1.0) * (1.0 - x);`)} }
         crowd += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind);
         if ((q.kr & (1u << 12u)) != 0u) { crowdP += (1.0 - x) * select(1.0, ${f(K.kinShade)}, bonding && qk == p.kind); }
         if (DIAG) {
@@ -1173,7 +1203,7 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
     }
     at -= len;
   }
-  overlap *= stride; deepOther *= stride; preyNear *= stride;
+  overlap *= stride; deepOther *= stride; preyNear *= stride;${SIG ? ' threat *= stride;' : ''}
   force *= stride;
   // a cell answers its neighbors as a whole, not each one in full: past socialN within reach the pair
   // forces are averaged, so a crowd drives a cell no harder than a neighborhood does
@@ -1198,7 +1228,7 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
     sense[so + 29u] = fc[1]; sense[so + 30u] = fc[2]; sense[so + 31u] = fc[3];
     sense[so + 32u] = silt2;
   }
-  if (DIAG) { sPut(so + 34u, crowd); sPut(so + 35u, overlap); sPut(so + 36u, deepOther); sPut2(so + 37u, preyNear); }
+${SIG ? '  sPut(so + 33u, threat);\n' : ''}  if (DIAG) { sPut(so + 34u, crowd); sPut(so + 35u, overlap); sPut(so + 36u, deepOther); sPut2(so + 37u, preyNear); }
 `;
   }
   return head + bonds + mid + found + /* wgsl */ `  // (from here its rolls are a stream of their own, the same whichever kernel scanned)
@@ -1287,7 +1317,16 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
     let lt = lightSlope(p.pos) * (g.tail.z * ${f(K.phototaxis)} * min(th.perf, 1.0));${W('mPhoto = lt;')}
     taxis += lt;
   }
-  // the hand's ride (docs/hand.md): a ridden cell's will, a velocity the viewer steers it at (hand.more.zw, world
+${SIG ? `  // hearing: a cell with ears pushes itself up (or down) the slope of each band it answers, by a motility of its own
+  // as phototaxis is; how loud what it shuns is, it keeps for its calls below
+  var shunned = 0.0;
+  if (any(g.ear != vec4f(0.0)) && !stranded) {
+    let hd = hear(p.pos, g.ear);
+    let ht = hd.push * min(th.perf, 1.0);${W('mSignal = ht;')}
+    taxis += ht;
+    shunned = hd.shunned;
+  }
+` : ''}  // the hand's ride (docs/hand.md): a ridden cell's will, a velocity the viewer steers it at (hand.more.zw, world
   // units a second: the page's willSpeed, fastest for a swimmer, slower for a cell adrift, slow for an anchored one)
   // that it takes on whatever else drives it, as firmly as hand.ids.z says (none at rest: it goes its own way), none
   // on dry ground. Its whole body takes on the same will (the cells bonded to it, and the body the page traced, H_RIDE),
@@ -1476,8 +1515,12 @@ ${scan ? `  if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K.colorMix)}); }` 
   let heatMaking = ${f(K.heat ? K.thermoCost : 0)} * thermo;
   // a ridden cell pays for its will as for swimming
   let willCost = select(0.0, bitcast<f32>(sim.hand.ids.z) * min(length(sim.hand.more.zw) / ${f(K.will)}, 1.0) * ${f(K.willCost)} * g.metab, willOn);
-  let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0))
-    * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) + heatMaking + willCost;`;
+${SIG ? `  // what it calls this step (voiceOf; lifeMain sends it into the water), paid for as upkeep is: warming the water
+  var voice = vec2f(0.0);
+  if (!th.torpid && (g.call.x > 0.0 || g.call.z > 0.0)) { voice = voiceOf(g.call, g.pulse, g.serial, p.energy, p.energy > 0.5 * divE, shunned, ${F('threat')}); }
+  let callCost = (voice.x + voice.y) * ${f(K.signalCost)};
+` : ''}  let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0))
+    * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) + heatMaking + willCost${SIG ? ' + callCost' : ''};`;
 }
 // The words senseMain leaves lifeMain for each cell (sense[]): the pair forces, stone's push, its kin's motion and
 // number, the crowd of producers, silt, packing, stone, plants and animals near, its kin's color, the two bonds it
@@ -1485,6 +1528,130 @@ ${scan ? `  if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K.colorMix)}); }` 
 // had, the bud's turn, bonds torn); a coarse step's gradients, neighbors' velocity, next foods and second grain;
 // K.diag's counts.
 export const senseWords = (K) => (K.diag ? 40 : 34);
+
+// The signal bands' constants (signalStep, hear, voiceOf, callOut), from the tunables: each band's decay (a second)
+// and diffusion (grid cells² a second) from its reach and life, and what a call of amplitude 1 for a second deposits
+// (SIG_NORM): enough that a full caller's own level at steady state is about signalGain. (A steady point source in a
+// screened diffusion of reach R, blurred by the bilinear splat and the bilinear read, each about a sixth of a cell²
+// each way, stands at ln(1 + 6R²) / (4πD) per unit a second.) K.signal scales the loudness and hearing's push.
+function signalConsts(K) {
+  const on = !!(K.signal && K.heat);
+  if (!on) return 'const SIGNAL_ON = false;';
+  const decay = K.signalLife.map((l) => 1 / l), D = K.signalReach.map((r, b) => r * r * decay[b]);
+  const norm = D.map((d, b) => K.signal * K.signalGain * 4 * Math.PI * d / Math.log(1 + 6 * K.signalReach[b] ** 2));
+  const v4 = (a) => `vec4f(${a.map(f).join(', ')})`;
+  return /* wgsl */ `const SIGNAL_ON = true;
+const SIGNAL_AT = ${SIGNAL_AT}u;
+const SIGNAL_FIX = 65536.0;
+const SIG_DECAY = ${v4(decay)};
+const SIG_D = ${v4(D)};
+const SIG_NORM = ${v4(norm)};
+const SIG_STONE = ${f(K.signalStone)};
+const SIG_SOFT = ${f(K.signalSoft)};
+const SIG_TAXIS = ${f(K.signalTaxis * K.signal)};
+const SIG_DUTY = ${f(K.signalDuty)};
+const SIG_HUSH = ${f(K.signalHush)};
+const SIG_RELAY = ${f(K.signalRelay)};
+const SIG_COST = ${f(K.signalCost)};`;
+}
+// The signals in the water (SIGNAL_AT: the four bands of a grid cell side by side, as a vec4: rumble, song, click,
+// flash): what a cell hears of them, what it calls into them, and how they spread and die away (signalStep, in the
+// heat pass). Only with K.signal and the heat pass.
+const SIGNAL_WGSL = /* wgsl */ `
+// band b of the signals at grid cell (x, y), wrapping
+fn sigCell(b: u32, x: i32, y: i32) -> f32 { return thermal[SIGNAL_AT + 4u * wrapCell(x, y) + b]; }
+fn sigBands(c: u32) -> vec4f { let o = SIGNAL_AT + 4u * c; return vec4f(thermal[o], thermal[o + 1u], thermal[o + 2u], thermal[o + 3u]); }
+// What a cell at p hears, by ear (how it answers each band, -1..1): the push up (or down) the slope of each band it
+// answers, full where the slope is steep and fading with it below SIG_SOFT, and how loud what it shuns is (each band's
+// level by how far its ear is negative). A slope is read as smoothField reads one (central differences at the four
+// nearest grid cells' centers, bilinear), under which a call splatted bilinearly about the caller (callOut) has no
+// slope where the caller is: a cell is not drawn by its own call.
+struct Heard { push: vec2f, shunned: f32 };
+fn hear(p: vec2f, ear: vec4f) -> Heard {
+  let u = p - 0.5;
+  let i = vec2i(floor(u));
+  let t = u - floor(u);
+  var h = Heard(vec2f(0.0), 0.0);
+  for (var b = 0u; b < 4u; b++) {
+    let e = ear[b];
+    if (e == 0.0) { continue; }
+    let v00 = sigCell(b, i.x, i.y); let v10 = sigCell(b, i.x + 1, i.y);
+    let v01 = sigCell(b, i.x, i.y + 1); let v11 = sigCell(b, i.x + 1, i.y + 1);
+    let sl = 0.5 * vec2f(
+      mix(mix(v10 - sigCell(b, i.x - 1, i.y), sigCell(b, i.x + 2, i.y) - v00, t.x), mix(v11 - sigCell(b, i.x - 1, i.y + 1), sigCell(b, i.x + 2, i.y + 1) - v01, t.x), t.y),
+      mix(mix(v01 - sigCell(b, i.x, i.y - 1), v11 - sigCell(b, i.x + 1, i.y - 1), t.x), mix(sigCell(b, i.x, i.y + 2) - v00, sigCell(b, i.x + 1, i.y + 2) - v10, t.x), t.y));
+    h.push += sl * (e / (length(sl) + SIG_SOFT));
+    h.shunned += max(-e, 0.0) * mix(mix(v00, v10, t.x), mix(v01, v11, t.x), t.y);
+  }
+  h.push *= SIG_TAXIS;
+  return h;
+}
+// What a cell calls this step: its song's and its alarm's amplitudes, each into its band (call: song, its band, alarm,
+// its band). It sings while fed (e over half its division energy: fed) and in voice, for SIG_DUTY of each beat of its
+// species' cadence (the drawn pulse's frequency, 0.8 + pulse × 4 radians a second, at a phase from its serial; at the
+// clock's wrap one beat is cut short), and falls silent as it hears what it shuns. It calls the alarm as it fears: hunters
+// near (threat), and what it shuns heard (an alarm passes on). A call costs SIG_COST a second at full amplitude: a cell
+// short of that for the step calls as loud as it can pay for.
+fn voiceOf(call: vec4f, pulse: f32, serial: u32, e: f32, fed: bool, shunned: f32, threat: f32) -> vec2f {
+  let beat = fract(sim.time * (0.8 + pulse * 4.0) / TAU + f32(pcg(serial) >> 8u) / 16777216.0);
+  var v = vec2f(select(0.0, call.x * (1.0 - saturate(shunned * SIG_HUSH)), fed && beat < SIG_DUTY), call.z * saturate(threat + shunned * SIG_RELAY));
+  let cost = (v.x + v.y) * SIG_COST * sim.dt;
+  if (cost > 0.0) { v *= clamp(e / cost, 0.0, 1.0); }
+  return v;
+}
+// A call of amplitude a this step into band (0..1, as the genome holds it), splatted bilinearly over the four grid cells
+// about p (their centers), for signalStep to take up
+fn callOut(p: vec2f, band: f32, a: f32) {
+  if (a <= 0.0) { return; }
+  let b = min(u32(band * 4.0), 3u);
+  let q = a * SIG_NORM[b] * sim.dt * SIGNAL_FIX;
+  let u = p - 0.5;
+  let i = vec2i(floor(u));
+  let t = u - floor(u);
+  let o = sigAccAt() + b;
+  atomicAdd(&ledger[o + 4u * wrapCell(i.x, i.y)], u32(q * (1.0 - t.x) * (1.0 - t.y) + 0.5));
+  atomicAdd(&ledger[o + 4u * wrapCell(i.x + 1, i.y)], u32(q * t.x * (1.0 - t.y) + 0.5));
+  atomicAdd(&ledger[o + 4u * wrapCell(i.x, i.y + 1)], u32(q * (1.0 - t.x) * t.y + 0.5));
+  atomicAdd(&ledger[o + 4u * wrapCell(i.x + 1, i.y + 1)], u32(q * t.x * t.y + 0.5));
+}
+// One grid cell's signals for the next step (heatNext after the temperatures and ice): each band spread as diffusion
+// spreads it over the step, by a Gaussian of variance 2 D dt each way over the 7 × 7 grid cells about it (rumble's
+// centered where the currents carried the water from), then decayed (faster among stone, which absorbs it), and the
+// calls made this step added. (A four-neighbor stencil spreads at most a quarter of a cell² each way a step: it would
+// cap each band's reach, the more the longer the step. The Gaussian is exact up to the 7 × 7: a band spreading more
+// than that in a step, the flash in a coarse one, reaches a little less far.)
+fn signalStep(c: u32) {
+  let x = i32(c % sim.grid.x);
+  let y = i32(c / sim.grid.x);
+  let drift = -flowAt(vec2f(f32(x), f32(y)) + 0.5) * sim.dt;
+  let inv = -0.25 / (SIG_D * sim.dt);
+  var wx: array<vec4f, 7>;
+  var sx = vec4f(0.0);
+  for (var k = 0; k < 7; k++) {
+    let o = f32(k - 3);
+    wx[k] = exp(vec4f(sqr(o - drift.x), o * o, o * o, o * o) * inv);
+    sx += wx[k];
+  }
+  var acc = vec4f(0.0);
+  var sy = vec4f(0.0);
+  for (var dy = -3; dy <= 3; dy++) {
+    let o = f32(dy);
+    let wy = exp(vec4f(sqr(o - drift.y), o * o, o * o, o * o) * inv);
+    var row = vec4f(0.0);
+    for (var dx = -3; dx <= 3; dx++) { row += wx[dx + 3] * sigBands(wrapCell(x + dx, y + dy)); }
+    acc += row * wy;
+    sy += wy;
+  }
+  let stones = stoneCells[c];
+  let n = f32(stones & 0xffffu) / REEF_FIX + f32(stones >> 16u);
+  let o = sigAccAt() + 4u * c;
+  let dep = vec4f(f32(atomicExchange(&ledger[o], 0u)), f32(atomicExchange(&ledger[o + 1u], 0u)),
+    f32(atomicExchange(&ledger[o + 2u], 0u)), f32(atomicExchange(&ledger[o + 3u], 0u))) / SIGNAL_FIX;
+  let next = acc / max(sx * sy, vec4f(1e-30)) * exp(-SIG_DECAY * (1.0 + SIG_STONE * n) * sim.dt) + dep;
+  let w = ${2 * MAX_CELLS}u + 4u * c;
+  heatNext[w] = next.x; heatNext[w + 1u] = next.y; heatNext[w + 2u] = next.z; heatNext[w + 3u] = next.w;
+}
+`;
 
 // dp4a: the WGSL language feature packed_4x8_integer_dot_product is available; lifeWG: the workgroup size of
 // the passes over the living list (contactMain, bondBackMain, senseMain, lifeMain, bodyTick), which the list is padded to
@@ -1657,9 +1824,11 @@ fn drawn(id: u32) -> bool {
 // step per grid cell (HEAT_FIX per degree), then husks per grid cell. In the ledger, which every kernel that
 // adds to them binds already, rather than a buffer of their own (the per-stage limit on storage buffers).
 // (deposits and husks per cell, then the cells heatMain leaves holding ice and hot water, copied to the heat field's
-// ICE_N and HOT_N, then the tiles that hold them, copied to b.heatTiles)
-const HEAT_ACC_WORDS = 2u * MAX_CELLS + 4u + ${2 * TILES}u;
+// ICE_N and HOT_N, then the tiles that hold them, copied to b.heatTiles; then the calls made this step, SIGNAL_BANDS
+// words a grid cell, interleaved as the field is, SIGNAL_FIX a unit, taken up by signalStep: sigAccAt)
+const HEAT_ACC_WORDS = 2u * MAX_CELLS + 4u + ${2 * TILES}u + ${SIGNAL_BANDS}u * MAX_CELLS;
 fn heatAccAt() -> u32 { return arrayLength(&ledger) - HEAT_ACC_WORDS; }
+fn sigAccAt() -> u32 { return heatAccAt() + 2u * MAX_CELLS + 4u + ${2 * TILES}u; }
 // one of species k's events: 0 born, 1 starved, 2 died old, 3 eaten, 4 scalded, 5 stranded (dried or frozen), 6 encysted, 7 woke
 fn splCause(k: u32, c: u32) { atomicAdd(&ledger[splBase() + SPL_CAUSE + k * SPL_NC + c], 1u); }
 // a cell of species h tried to eat one of species q (won: and ate it, or bit it), counted when both are watched
@@ -1733,6 +1902,7 @@ const DIAG = ${K.diag ? 'true' : 'false'};
 const LINK_R = ${f(K.linkR)};
 const DIET_MIN = ${f(K.dietMin)};
 const HEAT_ON = ${K.heat ? 'true' : 'false'};
+${signalConsts(K)}
 const POND = ${K.pond ? 'true' : 'false'};
 const TREF = ${f(K.tRef)};
 const HEAT_FIX = ${f(HEAT_FIX)};
@@ -2023,7 +2193,7 @@ fn cellThermal(g: Genome, t: f32) -> Thermal {
 fn depositHeat(p: vec2f, e: f32) {
   if (HEAT_ON && e > 0.0) { atomicAdd(&ledger[heatAccAt() + cellOf(p)], u32(e * HEAT_FIX + 0.5)); }
 }
-
+${K.signal && K.heat ? SIGNAL_WGSL : ''}
 // Specialists digest their food better than generalists: value of a food given the share of the diet devoted to it.
 fn spec(d: f32) -> f32 { let c = min(max(d, 0.0), 1.0); return pow(c, ${f(K.specPow)}); }
 // What an eater keeps of a meal holding raw energy: skill (diet specialization) times eatEff × warmth (fit).
@@ -2058,7 +2228,7 @@ fn addEnergy(guild: u32, slot: u32, e: f32) {
 fn deriveMetab(g: Genome) -> f32 {
   return (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
         + ${f(K.anchorCost)} * (1.0 - g.advect) + 0.004 * g.size + ${f(K.swimCost)} * g.swim * (1.0 - g.photo) + 0.006 * g.align + 0.004 * g.adhesion + ${f(K.calcCost)} * g.calcify
-        + ${f(K.phototaxisCost)} * abs(g.tail.z)
+        + ${f(K.phototaxisCost)} * abs(g.tail.z)${K.signal && K.heat ? ` + ${f(K.signalEarCost)} * dot(abs(g.ear), vec4f(1.0))` : ''}
         + ${f(K.beatCost)} * g.beat.x * g.beat.y * select(0.0, 1.0, (g.dev.x >= 0x80000000u || g.tail.x > 0.0) && g.adhesion > ${f(K.adhMin)})) * ${f(K.metab)};
 }
 
@@ -2100,6 +2270,14 @@ fn sampleRole(g: Genome, r: u32, s: ptr<function, u32>) -> u32 {
   return 2u;
 }
 
+// A signal gene (an amplitude, 0..1, or an ear, -1..1: lo): drifts while carried, and now and then is gained (drawn
+// from gain..1) or lost. A gene at none stays at none until gained (a drift from none would give every mutant a whisper
+// of every gene, and every cell the cost of hearing).
+fn mutSignal(v: f32, lo: f32, gain: f32, m: f32, s: ptr<function, u32>) -> f32 {
+  var x = select(clamp(v + gauss(s) * m * 0.15, lo, 1.0), 0.0, v == 0.0);
+  if (rnd(s) < m * 0.1) { x = select(0.0, mix(gain, 1.0, rnd(s)), x == 0.0); }
+  return x;
+}
 fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   // (written field by field from the parent's, not copied whole: a genome held at once costs a phone's GPU the
   // registers of the kernel it runs in, lifeMain)
@@ -2180,6 +2358,16 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   g.tail.z = clamp(pg.tail.z + gauss(s) * m * 0.15, -1.0, 1.0);
   if (rnd(s) < m * 0.1) { g.tail.z = select(0.0, mix(-0.6, 1.0, rnd(s)), abs(g.tail.z) < 0.05); }
   g.tail.w = pg.tail.w;
+${K.signal && K.heat ? `  // signals: the song's and the alarm's amplitudes and the ears drift, and now and then are gained or lost; a band now
+  // and then jumps to another
+  var cl = pg.call;
+  cl.x = mutSignal(cl.x, 0.0, 0.2, m, s);
+  if (rnd(s) < m * 0.1) { cl.y = rnd(s); }
+  cl.z = mutSignal(cl.z, 0.0, 0.2, m, s);
+  if (rnd(s) < m * 0.1) { cl.w = rnd(s); }
+  g.call = cl;
+  let er = pg.ear;
+  g.ear = vec4f(mutSignal(er.x, -1.0, -1.0, m, s), mutSignal(er.y, -1.0, -1.0, m, s), mutSignal(er.z, -1.0, -1.0, m, s), mutSignal(er.w, -1.0, -1.0, m, s));` : '  g.call = vec4f(0.0);\n  g.ear = vec4f(0.0);'}
   g.parent = pg.serial;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
@@ -2187,6 +2375,8 @@ fn mutateInto(slot: u32, parentKind: u32, s: ptr<function, u32>) {
   finalize(g);
 }
 
+// An ear drawn from one roll: either way, 0.3..1 strong
+fn earDraw(v: f32) -> f32 { let x = v * 2.0 - 1.0; return sign(x) * mix(0.3, 1.0, abs(x)); }
 // A spark of life founds a species suited to the water it sparked in (t).
 fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
   var g: Genome;
@@ -2229,7 +2419,20 @@ fn randomInto(slot: u32, s: ptr<function, u32>, t: f32) {
   g.tol = mix(3.0, 10.0, rnd(s));
   g.beat = vec4f(select(0.0, mix(0.15, 0.5, rnd(s)), rnd(s) < 0.25), mix(0.5, 2.5, rnd(s)), mix(0.3, 1.2, rnd(s)), select(0.0, 1.0, rnd(s) < 0.25));
   g.tail = vec4f(select(0.0, mix(0.3, 1.0, rnd(s)), rnd(s) < 0.2), rnd(s), select(0.0, mix(-0.6, 1.0, rnd(s)), rnd(s) < 0.3), 0.0);
-  g.parent = 0u;
+  g.call = vec4f(0.0);
+  g.ear = vec4f(0.0);
+${K.signal && K.heat ? `  // signals (drawn last, so every gene before is drawn as before; randomGenome mirrors it): a third sing, a third of
+  // those that are no hunters call the alarm, and a third hear, in a band or two, either way
+  let so = rnd(s); let sa = rnd(s); let sb = rnd(s);
+  let ao = rnd(s); let aa = rnd(s); let ab = rnd(s);
+  let prey = g.dFlesh <= 0.5 * max(g.dGlint + g.dHusk + g.dFlesh, 1e-3) && g.photo <= 0.4;
+  g.call = vec4f(select(0.0, mix(0.2, 1.0, sa), so < 0.33), sb, select(0.0, mix(0.2, 1.0, aa), ao < 0.33 && prey), ab);
+  let eo = rnd(s); let e2 = rnd(s); let b1 = rnd(s); let v1 = rnd(s); let b2 = rnd(s); let v2 = rnd(s);
+  if (eo < 0.33) {
+    g.ear[min(u32(b1 * 4.0), 3u)] = earDraw(v1);
+    if (e2 < 0.5) { g.ear[min(u32(b2 * 4.0), 3u)] = earDraw(v2); }
+  }
+` : ''}  g.parent = 0u;
   g.serial = atomicAdd(&ledger[1], 1u) + 1u;
   g.born = sim.time;
   g.depth = 0u;
@@ -2832,7 +3035,7 @@ var<workgroup> heatTileBits: array<atomic<u32>, ${2 * TILES}>;
 @compute @workgroup_size(${HEAT_WG})
 fn heatMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) li: u32) {
   if (gid.x < sim.grid.x * sim.grid.y) {
-    let h = heatStep(gid.x);
+    let h = heatStep(gid.x);${K.signal && K.heat ? '\n    signalStep(gid.x);' : ''}
     // (and the tile it lies in: compPick asks only of the tiles in view)
     let t = min(vec2u((vec2f(f32(gid.x % sim.grid.x), f32(gid.x / sim.grid.x)) + 0.5) * ${f(TILES)} / vec2f(sim.grid)), vec2u(${TILES - 1}u));
     if (h.x) { atomicAdd(&iceCells, 1u); atomicOr(&heatTileBits[t.y], 1u << t.x); }
@@ -3465,15 +3668,15 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   if ((sortedFull[i].info & 15u) == CYST) { cystStep(i); return; }
 ${cellWGSL(K, false, 'act')}
   var E = p.energy + shareE + (photoGain - upkeep) * sim.dt;
-  let dg = ledgerGuild(*g);
+${K.signal && K.heat ? '  callOut(p.pos, g.call.y, voice.x);\n  callOut(p.pos, g.call.w, voice.y);\n' : ''}  let dg = ledgerGuild(*g);
   if (DIAG && torn > 0u) { diagAdd(dg, 24u, torn); }
   // all the energy a cell spends warms its water (every eighth frame, eight frames' worth)
   if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, upkeep * sim.dt * 8.0 * ${f(K.metabHeat)}); }
   // light and upkeep flow every frame; the ledger samples them once a second per cell
   if (((sim.frame + p.id) % 60u) == 0u) {
     addEnergy(dg, 0u, photoGain * sim.dt * 60.0);
-    addEnergy(dg, 5u, (upkeep - heatMaking) * sim.dt * 60.0);
-    addEnergy(dg, 7u, heatMaking * sim.dt * 60.0);
+    addEnergy(dg, 5u, (upkeep - heatMaking${K.signal && K.heat ? ' - callCost' : ''}) * sim.dt * 60.0);
+    addEnergy(dg, 7u, heatMaking * sim.dt * 60.0);${K.signal && K.heat ? '\n    addEnergy(dg, 1u, callCost * sim.dt * 60.0);' : ''}
     if (HEAT_ON) {
       atomicAdd(&ledger[META_ENERGY + 40u + u32(clamp(Tc / ${f(HEAT_BIN)}, 0.0, ${f(HEAT_BINS - 1)}))], 1u);
       if (th.torpid) { atomicAdd(&ledger[META_ENERGY + 56u], 1u); }
@@ -3568,7 +3771,7 @@ ${cellWGSL(K, false, 'act')}
     var born = false;
     for (var k = 1u; k <= sim.ticks; k++) {
       E += (photoGain - g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(E / g.reproE, 0.0, 1.0))
-        * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) - heatMaking - willCost) * h;
+        * (1.0 + ${f(K.stressCost)} * th.stress) * select(1.0, ${f(K.torporCost)}, th.torpid) - heatMaking - willCost${K.signal && K.heat ? ' - callCost' : ''}) * h;
       age += h * ageRate;
       let tk = sim.tick - sim.ticks + k;
       if (!born && E > divE && ${SENSE.silt} != NONE && !th.torpid && age > select(${f(K.mature)} * g.lifespan, select(${f(K.growTipA)}, ${f(K.mature)} * g.lifespan, g.photo > 0.4), tree && (g.photo > 0.4 || g.beat.w > 0.5 || tail)) && (!tree || (budTurn < 3u && !budBlocked))) {
@@ -3825,9 +4028,9 @@ fn injectSlots(@builtin(global_invocation_id) gid: vec3u) {
   let j = gid.x;
   let b = handAt();
   if (j >= atomicLoad(&ledger[b + H_IN + 1u])) { return; }
-  let o = b + H_SP + j * 58u;
-  let want = atomicLoad(&ledger[o + 56u]);
-  let stranger = atomicLoad(&ledger[o + 57u]) != 0u;
+  let o = b + H_SP + j * ${G_WORDS + 2}u;
+  let want = atomicLoad(&ledger[o + G_WORDS]);
+  let stranger = atomicLoad(&ledger[o + G_WORDS + 1u]) != 0u;
   let serial = atomicLoad(&ledger[o + 41u]);
   var slot = NONE;
   // its own slot, if it still holds it (living there, or freed and not yet taken)
@@ -3929,6 +4132,7 @@ var<private> mMatter: vec2f;
 var<private> mForage: vec2f;
 var<private> mFlee: vec2f;
 var<private> mPhoto: vec2f;
+var<private> mSignal: vec2f;
 var<private> mFl: f32;
 var<private> mMatterN: vec4f;
 var<private> mN: u32;
@@ -4011,7 +4215,7 @@ ${cellWGSL(K, true)}
   for (var k = 0u; k < 4u; k++) { mPut(46u + k, mMatterN[k] * stride); }
   // warmth: its own temperature, the steer toward its optimum, the water, how well it works there
   mPut(21, Tc);
-  mPut2(50, taxis - mPhoto);
+  mPut2(50, taxis - mPhoto - mSignal);
   mPut(52, heat.x);
   mPut(53, th.perf);
   mPut(54, th.x);
@@ -4026,6 +4230,10 @@ ${cellWGSL(K, true)}
   // phototaxis: its push up (or down) the light's slope; a ridden cell's will
   mPut2(64, mPhoto);
   mPut2(66, will);
+  // signals: the push of hearing; what it calls this step (song, alarm: amplitudes); how loud what it shuns is; the
+  // hunters it fears (threat: their nearness, summed, as flight weighs it)
+  mPut2(68, mSignal);
+${K.signal && K.heat ? '  mPut(70, voice.x); mPut(71, voice.y); mPut(72, shunned); mPut(73, threat);' : '  for (var k = 70u; k < 74u; k++) { mPut(k, 0.0); }'}
 }
 `;
 }

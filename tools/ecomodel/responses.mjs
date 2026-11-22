@@ -22,7 +22,7 @@ for (const dir of process.argv.slice(2).filter((a, i, all) => a !== '--json' && 
       ...Object.fromEntries([['P', 'producer'], ['G', 'grazer'], ['H', 'predator'], ['S', 'scavenger']].flatMap(([k, g]) => {
         const n = N(g); if (n < 30) return [];
         const e = (x) => m((s) => s.energy[g][x]), d = (x) => m((s) => s.demography[g][x]);
-        return [['inc' + k, (e('light') + e('glint') + e('plant') + e('husk') + e('flesh')) / n], ['u' + k, e('upkeep') / n],
+        return [['inc' + k, (e('light') + e('plant') + e('husk') + e('flesh')) / n], ['u' + k, e('upkeep') / n],
           ['b' + k, e('children') / Math.max(d('births'), 1e-9)], ['birth' + k, d('births') / n], ['old' + k, d('oldAge') / n],
           ['eaten' + k, d('eaten') / n], ['starved' + k, d('starved') / n]];
       })),

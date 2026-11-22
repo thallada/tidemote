@@ -60,11 +60,11 @@ test('its link and its PNG text chunk give it back', () => {
   // still a PNG that decodes
   assert.equal(PNG.sync.read(Buffer.from(withCard)).width, 4);
   // the link fits a QR code of modest size: its digits in numeric mode, version 11 for a single-celled species'
-  // card, at most 12 for a body of BODY_MAX cells, each bonded to two before it (13 with the longest name and home)
+  // card, at most 13 for a body of BODY_MAX cells, each bonded to two before it (14 with the longest name and home)
   assert.equal(qr(link).version, 11);
   const mat = Array.from({ length: BODY_MAX }, (_, i) => ({ role: i % 3, bonds: [i - 1, i - 2].filter((j) => j >= 0) }));
-  assert.ok(qr(cardLink(encodeCard({ words, name: 'Vorath iss', home: 'Salt Reach', body: mat }))).version <= 12);
-  assert.ok(qr(cardLink(encodeCard({ words, name: 'x'.repeat(48), home: 'y'.repeat(48), body: mat }))).version <= 13);
+  assert.ok(qr(cardLink(encodeCard({ words, name: 'Vorath iss', home: 'Salt Reach', body: mat }))).version <= 13);
+  assert.ok(qr(cardLink(encodeCard({ words, name: 'x'.repeat(48), home: 'y'.repeat(48), body: mat }))).version <= 14);
 });
 
 test('the cabinet filters: from this world, other waters; search; newest first', () => {

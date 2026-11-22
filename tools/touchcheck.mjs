@@ -40,7 +40,7 @@ const out = await page.evaluate(async ({ zoom, frames, speed, contacts }) => {
     const swb = s.sway.getMappedRange(), t = new Uint32Array(s.touch.getMappedRange()), sw = new Uint32Array(swb), swf = new Float32Array(swb);
     const pb = s.parts.getMappedRange(), f = new Float32Array(pb), u = new Uint32Array(pb);
     const N = e.count, swN = sw.length / 14;
-    const size = (i) => gf[u[i * 10 + 4] * 56 + 31] * (1 - 0.12 * ((u[i * 10 + 9] >> 4) & 3));
+    const size = (i) => gf[u[i * 10 + 4] * 64 + 31] * (1 - 0.12 * ((u[i * 10 + 9] >> 4) & 3));
     // the living by grid cell, for the brute-force search
     const byCell = new Map();
     for (let i = 0; i < N; i++) { if (u[i * 10 + 4] < FIRST_LIFE) continue; const key = Math.floor(f[i * 10]) + gw * Math.floor(f[i * 10 + 1]); (byCell.get(key) || byCell.set(key, []).get(key)).push(i); }

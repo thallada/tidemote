@@ -23,7 +23,7 @@ for (const r of R) {
     if (N < 30) continue;
     const e = (x) => m((s) => s.energy[g][x]);
     const d = (x) => m((s) => s.demography[g][x]);
-    o['inc' + k] = (e('light') + e('glint') + e('plant') + e('husk') + e('flesh')) / N;
+    o['inc' + k] = (e('light') + e('plant') + e('husk') + e('flesh')) / N;
     o['u' + k] = e('upkeep') / N;
     o['b' + k] = e('children') / Math.max(d('births'), 1e-9);
     o['birth' + k] = d('births') / N;

@@ -119,6 +119,24 @@ const THERMO_FOUNDERS = new Set(['crawler', 'grazer', 'filament']);
 // Reefs are anchored and cannot follow it.
 const PHOTO_P = [0.35, 0.3, 0.9], PHOTO_A = [0.25, -0.5, 0.9];
 const PHOTOTAXIS = { plankton: PHOTO_P, filament: PHOTO_P, grazer: PHOTO_A, crawler: PHOTO_A, hunter: PHOTO_A, scavenger: PHOTO_A };
+// Founders with signals (signalStep in shaders.js): the share of each body plan that sings, that calls the alarm (none of
+// the flesh-eaters: no hunter flees a hunter), and that hears (reefs are anchored and cannot steer by it)
+const SIG_FOUNDERS = { reef: [0.33, 0.33, 0], plankton: [0.33, 0.33, 0.33], grazer: [0.33, 0.33, 0.33], crawler: [0.33, 0, 0.33],
+  hunter: [0.33, 0, 0.33], scavenger: [0.33, 0.33, 0.33], filament: [0.33, 0.33, 0.33] };
+// An ear drawn from one roll: either way, 0.3..1 strong (earDraw in shaders.js)
+const earDraw = (v) => { const x = v * 2 - 1; return Math.sign(x) * mix(0.3, 1, Math.abs(x)); };
+// The signal genes from twelve rolls (song: on, amplitude, band; alarm: on, amplitude, band; ears: on, a second, and
+// each one's band and strength) at the odds given; none at all where the run has no signals (K.signal 0, or no heat)
+function signalGenes(g, rolls, [song, alarm, ear], K) {
+  const [so, sa, sb, ao, aa, ab, eo, e2, b1, v1, b2, v2] = rolls;
+  g.call = [so < song ? mix(0.2, 1, sa) : 0, sb, ao < alarm ? mix(0.2, 1, aa) : 0, ab];
+  g.ear = [0, 0, 0, 0];
+  if (eo < ear) {
+    g.ear[Math.min(3, Math.floor(b1 * 4))] = earDraw(v1);
+    if (e2 < 0.5) g.ear[Math.min(3, Math.floor(b2 * 4))] = earDraw(v2);
+  }
+  if (!(K.signal && K.heat)) { g.call = [0, 0, 0, 0]; g.ear = [0, 0, 0, 0]; }
+}
 const gaussOf = (r) => (r() + r() + r() - 1.5) * 2;
 const unorm8 = (v) => Math.round(clamp(v, 0, 1) * 255) / 255;
 
@@ -174,6 +192,8 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
   // phototaxis (drawn after the tails): some drifting producers follow the light, and some animals seek or shun it
   const [ptOn, pt] = [r(), r()], [odds, lo, hi] = PHOTOTAXIS[type] || [0];
   g.phototaxis = ptOn < odds ? mix(lo, hi, pt) : 0;
+  // signals (drawn last of all)
+  signalGenes(g, Array.from({ length: 12 }, () => r()), SIG_FOUNDERS[type], K);
   return finalizeGenome(g, K);
 }
 
@@ -201,6 +221,9 @@ export function randomGenome(r = Math.random, K = DEFAULT_K, t = 19) {
     thermo: 0, grow: [devs[0][3], devs[1][3], devs[2][3], tail[1], tail[2], tail[3]].map(unorm8),
     parent: 0, serial: 0, born: 0, depth: 0,
   };
+  // signals (drawn last of all, as randomInto draws them): the alarm only for those that are no hunters
+  const prey = g.dFlesh <= 0.5 * Math.max(g.dGlint + g.dHusk + g.dFlesh, 1e-3) && g.photo <= 0.4;
+  signalGenes(g, Array.from({ length: 12 }, () => r()), [0.33, prey ? 0.33 : 0, 0.33], K);
   return finalizeGenome(g, K);
 }
 
@@ -240,6 +263,7 @@ export function finalizeGenome(g, K = DEFAULT_K) {
   g.metab = (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
     + (K.anchorCost ?? 0) * (1 - g.advect) + 0.004 * g.size + (K.swimCost ?? 0.018) * g.swim * (1 - g.photo) + 0.006 * g.align + 0.004 * (g.adhesion || 0) + (K.calcCost ?? 0) * (g.calcify || 0)
     + (K.phototaxisCost ?? 0) * Math.abs(g.phototaxis || 0)
+    + (K.signal && K.heat ? (K.signalEarCost ?? 0) * (g.ear || []).reduce((a, e) => a + Math.abs(e), 0) : 0)
     + (K.beatCost ?? 0) * (g.beat?.[0] ?? 0) * (g.beat?.[1] ?? 0) * (growPlan(g, K) || hasTails(g, K) ? 1 : 0)) * K.metab;
   g.col = packUnorm(...roleColor(g, 0));
   return g;
@@ -297,6 +321,22 @@ export function mutateLike(g, r = Math.random, K = DEFAULT_K) {
   h.tail = [odds, clamp(tl[1] + gauss() * m * 0.2, 0, 1)];
   h.phototaxis = clamp((h.phototaxis || 0) + gauss() * m * 0.15, -1, 1);
   if (r() < m * 0.1) h.phototaxis = Math.abs(h.phototaxis) < 0.05 ? mix(-0.6, 1, r()) : 0;
+  // signals (mutSignal): carried genes drift, and now and then one is gained or lost; a band now and then jumps
+  const mutSignal = (v, lo, from) => {
+    const d = gauss();
+    let x = v === 0 ? 0 : clamp(v + d * m * 0.15, lo, 1);
+    if (r() < m * 0.1) x = x === 0 ? mix(from, 1, r()) : 0;
+    return x;
+  };
+  if (K.signal && K.heat) {
+    const cl = [...(h.call || [0, 0, 0, 0])];
+    cl[0] = mutSignal(cl[0], 0, 0.2);
+    if (r() < m * 0.1) cl[1] = r();
+    cl[2] = mutSignal(cl[2], 0, 0.2);
+    if (r() < m * 0.1) cl[3] = r();
+    h.call = cl;
+    h.ear = (h.ear || [0, 0, 0, 0]).map((e) => mutSignal(e, -1, -1));
+  } else { h.call = [0, 0, 0, 0]; h.ear = [0, 0, 0, 0]; }
   h.parent = g.serial; h.serial = (g.serial || 0) + 1; h.depth = (g.depth || 0) + 1;
   return finalizeGenome(h, K);
 }
@@ -324,6 +364,9 @@ export function writeGenome(u32, f32, slot, g) {
   f32[o + 48] = b[0]; f32[o + 49] = b[1]; f32[o + 50] = b[2]; f32[o + 51] = b[3] ?? 0;
   const tl = g.tail || [0, 0];
   f32[o + 52] = tl[0]; f32[o + 53] = tl[1]; f32[o + 54] = g.phototaxis || 0; f32[o + 55] = 0;
+  // signals: call (song, its band, alarm, its band), then ear (each band, -1..1)
+  const cl = g.call || [0, 0, 0, 0], er = g.ear || [0, 0, 0, 0];
+  for (let k = 0; k < 4; k++) { f32[o + 56 + k] = cl[k] ?? 0; f32[o + 60 + k] = er[k] ?? 0; }
 }
 
 export const genomeSerial = (u32, slot) => u32[slot * G_WORDS + 41];
@@ -345,6 +388,7 @@ export function readGenome(u32, f32, slot) {
     col: u32[o + 39], parent: u32[o + 40], serial: u32[o + 41], born: f32[o + 42], depth: u32[o + 43],
     adhesion: f32[o + 44], calcify: f32[o + 45],
     topt: f32[o + 46], tol: f32[o + 47], beat: [f32[o + 48], f32[o + 49], f32[o + 50], f32[o + 51]], tail: [f32[o + 52], f32[o + 53]], phototaxis: f32[o + 54], thermo: (u32[o + 15] & 255) / 255, grow,
+    call: [f32[o + 56], f32[o + 57], f32[o + 58], f32[o + 59]], ear: [f32[o + 60], f32[o + 61], f32[o + 62], f32[o + 63]],
   };
 }
 

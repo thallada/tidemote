@@ -1,6 +1,6 @@
 import {
   simWGSL, senseWords, SIM_CLOCK, EDGE_SWAY_W, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, LERP_WGSL, POST_WGSL, GLASS_WGSL, SEA_WGSL, ICE_SHOW_WGSL, ICE_SHOWN, ICE_SHOWN_ANY, SHIFT_W, SHIFT_H, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
-  MAXK, FIRST_LIFE, MAX_CELLS, THERMAL_WORDS, TILES, HEAT_WG, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, NOTE_WORDS, NOTE_WGSL, NOTE_HEAD, NOTE_REC, PIPE_MAX, PIPE_TAKE, PIPE_TAKE_W, PIPE_SP, PIPE_IDS, H_TAKEN, H_CUTS, H_RIDE, RIDE_MAX, H_IN, H_SP, H_CELLS, H_IDS, H_LINKS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES, TUBE_N, TUBE_K, STUDIO_N,
+  MAXK, FIRST_LIFE, MAX_CELLS, THERMAL_WORDS, TILES, HEAT_WG, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, NOTE_WORDS, NOTE_WGSL, NOTE_HEAD, NOTE_REC, PIPE_MAX, PIPE_TAKE, PIPE_TAKE_W, PIPE_SP, PIPE_IDS, H_TAKEN, H_CUTS, H_RIDE, RIDE_MAX, H_IN, H_SP, H_CELLS, H_IDS, H_LINKS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, G_WORDS, LITE_BYTES, SIGNAL_AT, SIGNAL_BANDS, THERMAL_BUFFER_WORDS, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES, TUBE_N, TUBE_K, STUDIO_N,
 } from './shaders.js';
 import {
   archetypeGenome, randomGenome, writeGenome, parseParticle,
@@ -261,14 +261,15 @@ class Engine {
     // the heat field: the water's temperature per cell, the pool's floor (each cell's relief quantile,
     // src/geography.js), the order a frost freezes it in, its ice, how many cells hold ice (THERMAL_WORDS,
     // shaders.js); and heatMain's next temperatures and ice
-    // (then the ice as drawn, ICE_SHOWN, past what saves keep)
-    b.thermal = d.createBuffer({ size: (ICE_SHOWN_ANY + 4) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+    // (then the ice as drawn, ICE_SHOWN, and the signals, SIGNAL_AT, past what saves keep)
+    b.thermal = d.createBuffer({ size: THERMAL_BUFFER_WORDS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.iceShowU = d.createBuffer({ size: 16, usage: U.UNIFORM | U.COPY_DST });
     b.iceArgs = d.createBuffer({ size: 12, usage: U.STORAGE | U.INDIRECT });
     // the tiles of the water holding ice and hot water after the last step, and ice still drawn (TILES; heatMain,
     // iceShowMain, compPick): never saved, a step makes them again
     b.heatTiles = d.createBuffer({ size: 2 * TILES * 4, usage: U.STORAGE | U.COPY_DST });
-    b.heatNext = d.createBuffer({ size: 2 * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_SRC });
+    // (then the next signals, SIGNAL_BANDS a grid cell)
+    b.heatNext = d.createBuffer({ size: (2 + SIGNAL_BANDS) * MAX_CELLS * 4, usage: U.STORAGE | U.COPY_SRC });
     b.simRing = d.createBuffer({ size: SIM_STRIDE * MAX_STEPS, usage: U.COPY_SRC | U.COPY_DST });
     this.ringData = new ArrayBuffer(SIM_STRIDE * MAX_STEPS);
     b.view = d.createBuffer({ size: VIEW_BYTES, usage: U.UNIFORM | U.COPY_DST });
@@ -875,8 +876,9 @@ class Engine {
     b.sway = d.createBuffer({ size: Math.min(n, 1 << 20) * SWAY_BYTES, usage: U.STORAGE | U.COPY_SRC });
     b.stoneList = d.createBuffer({ size: n * 4, usage: U.STORAGE });
     // the claims, then the species ledger (observational), the hand's words (the pipette's, PIPE_* in shaders.js),
-    // the annotations' ring of events (NOTE_*, observational), then the step's heat deposits and husk piles (heatAccAt in SIM_WGSL); only the head and the claims are saved
-    b.ledger = d.createBuffer({ size: (META_CLAIM + n + SPL_WORDS + HAND_WORDS + NOTE_WORDS + 2 * MAX_CELLS + 4 + 2 * TILES) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+    // the annotations' ring of events (NOTE_*, observational), then the step's heat deposits and husk piles (heatAccAt in SIM_WGSL)
+    // and its calls (sigAccAt); only the head and the claims are saved
+    b.ledger = d.createBuffer({ size: (META_CLAIM + n + SPL_WORDS + HAND_WORDS + NOTE_WORDS + 2 * MAX_CELLS + 4 + 2 * TILES + SIGNAL_BANDS * MAX_CELLS) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.livingList = d.createBuffer({ size: (n + 256) * 4, usage: U.STORAGE | U.COPY_DST });
     // the particles too large to splat (splatMain): the points' draw arguments, then their indices
     b.quads = d.createBuffer({ size: (QUAD_HEAD + 2 * n) * 4, usage: U.STORAGE | U.INDIRECT | U.COPY_DST });
@@ -1431,6 +1433,7 @@ class Engine {
     this._clear(enc, this.b.ledger, this._heatAccAt(), cells * 4);
     // no ice
     this._clear(enc, this.b.thermal, 3 * MAX_CELLS * 4, (THERMAL_WORDS - 3 * MAX_CELLS) * 4);
+    this._clearSignals(enc);
     enc.clearBuffer(this.b.heatTiles);
     enc.clearBuffer(this.b.counts);
     this._clear(enc, this.b.ledger, LEDGER_HEAD, n * 4);
@@ -1867,6 +1870,7 @@ class Engine {
       enc.copyBufferToBuffer(b.heatNext, MAX_CELLS * 4, b.thermal, 3 * MAX_CELLS * 4, cells * 4);
       enc.copyBufferToBuffer(b.ledger, this._heatAccAt() + 2 * MAX_CELLS * 4, b.thermal, 4 * MAX_CELLS * 4, 8);
       enc.copyBufferToBuffer(b.ledger, this._heatAccAt() + (2 * MAX_CELLS + 4) * 4, b.heatTiles, 0, 2 * TILES * 4);
+      if (this.K.signal) enc.copyBufferToBuffer(b.heatNext, 2 * MAX_CELLS * 4, b.thermal, SIGNAL_AT * 4, SIGNAL_BANDS * cells * 4);
     }
   }
 
@@ -1993,6 +1997,7 @@ class Engine {
     const d = this.device, b = this.b;
     const enc = d.createCommandEncoder();
     for (const [k, buf] of Object.entries(keep.gpu)) enc.copyBufferToBuffer(buf, 0, b[k], 0, buf.size);
+    this._clearSignals(enc);
     d.queue.submit([enc.finish()]);
     const c = keep.cpu;
     // (bodyTick's marks are the step count: a world put back to an earlier count must not find later ones)
@@ -2052,6 +2057,7 @@ class Engine {
     // the species ledger starts afresh with the world put in place
     const enc = this.device.createCommandEncoder();
     this._clear(enc, this.b.ledger, this._splAt(), SPL_WORDS * 4);
+    this._clearSignals(enc);
     this.device.queue.submit([enc.finish()]);
     this.count = cpu.count; this.grid = [...cpu.grid];
     if (cpu.founders != null) this.founders = cpu.founders;
@@ -2140,20 +2146,22 @@ class Engine {
   }
 
   /**
-   * Read the water's temperature and ice on each grid cell now (headless diagnostics): { temp, ice }, each a
-   * Float32Array of grid[0] * grid[1] (ice the share of the cell frozen).
+   * Read the water's temperature and ice on each grid cell now (headless diagnostics): { temp, ice, signal }, the
+   * first two Float32Arrays of grid[0] * grid[1] (ice the share of the cell frozen), signal SIGNAL_BANDS values a grid
+   * cell (band b of cell c at SIGNAL_BANDS * c + b).
    */
   async readThermal() {
     const d = this.device, U = GPUBufferUsage, n = this.grid[0] * this.grid[1];
-    const st = d.createBuffer({ size: 2 * n * 4, usage: U.COPY_DST | U.MAP_READ });
+    const st = d.createBuffer({ size: (2 + SIGNAL_BANDS) * n * 4, usage: U.COPY_DST | U.MAP_READ });
     const enc = d.createCommandEncoder();
     enc.copyBufferToBuffer(this.b.thermal, 0, st, 0, n * 4);
     enc.copyBufferToBuffer(this.b.thermal, 3 * MAX_CELLS * 4, st, n * 4, n * 4);
+    enc.copyBufferToBuffer(this.b.thermal, SIGNAL_AT * 4, st, 2 * n * 4, SIGNAL_BANDS * n * 4);
     d.queue.submit([enc.finish()]);
     await st.mapAsync(GPUMapMode.READ);
     const all = new Float32Array(st.getMappedRange().slice(0));
     st.unmap(); st.destroy();
-    return { temp: all.subarray(0, n), ice: all.subarray(n) };
+    return { temp: all.subarray(0, n), ice: all.subarray(n, 2 * n), signal: all.subarray(2 * n) };
   }
 
   /** Read the ledger and genomes now (headless forks), in the shape onCensus receives, with K.diag's counters. */
@@ -2180,6 +2188,14 @@ class Engine {
   _handAt() { return this._splAt() + SPL_WORDS * 4; }
   _noteAt() { return this._handAt() + HAND_WORDS * 4; }
   _heatAccAt() { return this._noteAt() + NOTE_WORDS * 4; }
+  // the step's calls (bytes; sigAccAt in SIM_WGSL): after the heat deposits, the ice and hot water counts and the tiles
+  _sigAccAt() { return this._heatAccAt() + (2 * MAX_CELLS + 4 + 2 * TILES) * 4; }
+  // The signals in the water are transient (they die away in seconds) and kept by no save: silent in a new world, and in
+  // one loaded or put back, with no calls waiting to be taken up
+  _clearSignals(enc) {
+    this._clear(enc, this.b.thermal, SIGNAL_AT * 4, SIGNAL_BANDS * MAX_CELLS * 4);
+    this._clear(enc, this.b.ledger, this._sigAccAt(), SIGNAL_BANDS * MAX_CELLS * 4);
+  }
 
   /**
    * The pipette's bore drawn as cells in the main view (vsTube, docs/hand.md): n records laid out as struct Particle
@@ -2250,8 +2266,8 @@ class Engine {
     const earlier = (job.earlier || []).slice(0, PIPE_IDS), bonds = (job.bonds || []).slice(0, 2 * PIPE_MAX);
     const head = new Uint32Array(8), hf = new Float32Array(head.buffer);
     head[0] = n; head[1] = m; hf[2] = job.take; hf[3] = job.at[0]; hf[4] = job.at[1]; head[5] = earlier.length; head[6] = bonds.length;
-    const sp = new Uint32Array(m * 58);
-    job.species.slice(0, m).forEach((x, j) => { sp.set(x.words, j * 58); sp[j * 58 + 56] = x.slot ?? 0xffffffff; sp[j * 58 + 57] = x.stranger ? 1 : 0; });
+    const SW = G_WORDS + 2, sp = new Uint32Array(m * SW);
+    job.species.slice(0, m).forEach((x, j) => { sp.set(x.words, j * SW); sp[j * SW + G_WORDS] = x.slot ?? 0xffffffff; sp[j * SW + G_WORDS + 1] = x.stranger ? 1 : 0; });
     const cells = new Uint32Array(n * 9), cf = new Float32Array(cells.buffer);
     job.cells.slice(0, n).forEach((c, k) => {
       const o = k * 9;

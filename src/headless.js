@@ -16,6 +16,14 @@ function fieldStats({ temp, ice }, tbg) {
   return { mean, sd: Math.sqrt(Math.max(0, sq / n - mean * mean)), p99: d[Math.floor(0.99 * (n - 1))], max: d[n - 1], min: d[0], hotFrac: hot / n, coldFrac: cold / n, ice: frozen / n };
 }
 
+// The signals in the water per band (rumble, song, click, flash): the mean and the largest level over the grid cells.
+function signalStats(signal, bands = 4) {
+  if (!signal?.length) return null;
+  const n = signal.length / bands, mean = new Array(bands).fill(0), max = new Array(bands).fill(0);
+  for (let c = 0; c < n; c++) for (let b = 0; b < bands; b++) { const v = signal[c * bands + b]; mean[b] += v; if (v > max[b]) max[b] = v; }
+  return { mean: mean.map((m) => m / n), max };
+}
+
 export async function runHeadless(device, config, { print, width = 640, height = 360, snapshot, tap } = {}) {
   const originalRandom = Math.random;
   const errors = [];
@@ -44,7 +52,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
     const climate = createClimate(eng, rng);
     const samples = [];
     const ledger = { births: 2, mutants: 3, starved: 5, oldAge: 6, kills: 7, extinctions: 8, grazes: 9, scavenges: 10, bites: 11 };
-    let lastSample = -Infinity, lastPrint = -Infinity, prevG, prevD, prevE, prevT, latest, latestField = null, latestPacking = null;
+    let lastSample = -Infinity, lastPrint = -Infinity, prevG, prevD, prevE, prevT, latest, latestField = null, latestSignalField = null, latestPacking = null;
     let minLivingFrac = null, collapses = 0, collapsed = false;
     let bodiesT = -Infinity, latestBodies = null;
     const established = new Set(), lost = new Set();
@@ -82,11 +90,28 @@ export async function runHeadless(device, config, { print, width = 640, height =
         a.n += p; a.mean += p * (g.phototaxis || 0); if (Math.abs(g.phototaxis || 0) > 0.05) a.share += p;
       }
       for (const a of Object.values(photoTaxis)) { a.mean /= a.n || 1; a.share /= a.n || 1; delete a.n; }
+      // signals per guild, population-weighted: the shares that sing, call the alarm and hear (any ear), the mean
+      // song and alarm, the mean ear per band (negative: shunning it), and the singers' bands (shares of the singers)
+      const signal = {};
+      for (const { pop: p, genome: g } of species) {
+        const a = (signal[guildOfG(g)] ??= { n: 0, singers: 0, alarmers: 0, hearers: 0, song: 0, alarm: 0, ear: [0, 0, 0, 0], songBand: [0, 0, 0, 0] });
+        const [song, songBand, alarm] = g.call || [0, 0, 0], ear = g.ear || [0, 0, 0, 0];
+        a.n += p; a.song += p * song; a.alarm += p * alarm;
+        if (song > 0) { a.singers += p; a.songBand[Math.min(3, Math.floor(songBand * 4))] += p; }
+        if (alarm > 0) a.alarmers += p;
+        if (ear.some((e) => e !== 0)) a.hearers += p;
+        ear.forEach((e, b) => { a.ear[b] += p * e; });
+      }
+      for (const a of Object.values(signal)) {
+        const n = a.n || 1, s = a.singers || 1;
+        a.songBand = a.songBand.map((x) => x / s); a.ear = a.ear.map((x) => x / n);
+        a.singers /= n; a.alarmers /= n; a.hearers /= n; a.song /= n; a.alarm /= n; delete a.n;
+      }
       latest = { t, silt: pop[0], glint: pop[1], husk: pop[2], stone: pop[3], framboid: pop[4], ...community,
         ambient: eng.ambient, season: eng.season,
         // the pool (docs/catastrophes.md): its water level (the dry share of the floor is 1 - level), rain, the event's phase
         pond: { level: eng.level, rain: eng.rain, sky: eng.sky, frost: eng.frost, phase: climate.phase ?? null },
-        era: climate.name, photoTaxis,
+        era: climate.name, photoTaxis, signal,
         thermal: { tbg: eng.tbg, temp: eng.temp, excursion: eng.excursion, toptMean, toptSD: n ? Math.sqrt(Math.max(0, sq / n - toptMean ** 2)) : null, makerShare: n ? makers / n : 0, tolMean: n ? tol / n : null } };
       if (t - lastSample >= config.sample - 1e-6 || c.frameNo === frames) record(c);
       if (t - lastPrint >= config.print - 1e-6) {
@@ -138,7 +163,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
         carcassEaten: perMin(63), litter: c.demography[60] ?? 0 };
       // each guild's cysts now (dormant, counted among the living above)
       const dormant = Object.fromEntries(guilds.map((g, gi) => [g, c.demography[gi < 3 ? 57 + gi : 58 + gi] ?? 0]));
-      eng.readThermal().then((f) => { latestField = fieldStats(f, eng.tbg); }).catch(() => {});
+      eng.readThermal().then((f) => { latestField = fieldStats(f, eng.tbg); latestSignalField = signalStats(f.signal); }).catch(() => {});
       // how tightly the living sit (by drawn size), read now for the next sample
       const pk = latestPacking;
       eng.readParticles().then((p) => {
@@ -155,7 +180,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
         bodiesT = c.simTime;
         eng.readBodies().then((st) => { latestBodies = morphMix(bodyCensus(st.cpu, st.gpu, eng.K)); }).catch(() => {});
       }
-      samples.push({ ...latest, thermal, rates, demography, meals, energy, cycle, dormant, packing: pk, spatial: latestSpatial, bodies: latestBodies });
+      samples.push({ ...latest, signal: { ...latest.signal, field: latestSignalField }, thermal, rates, demography, meals, energy, cycle, dormant, packing: pk, spatial: latestSpatial, bodies: latestBodies });
       prevG = Array.from(c.globals); prevD = Array.from(c.demography); prevE = Array.from(c.energy); prevT = lastSample = c.simTime;
     }
     // config.step: each step covers step/60 s (coarse steps), so fewer steps fill the minutes
