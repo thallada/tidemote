@@ -102,10 +102,28 @@ const open = () => {
     if (input.type === 'keyDown' && input.key === 'F11') { win.setFullScreen(!win.isFullScreen()); e.preventDefault(); }
   });
   for (const [ev, on] of [['enter-full-screen', true], ['leave-full-screen', false]]) win.on(ev, () => { win.webContents.send('fullscreen', on); keepFull(on); });
+  // Closing the window (its ✕, Alt+F4) lets the page keep the world first (its last session, src/main.js, the game
+  // menu), which then asks to quit; a page that never said it listens, or gone, closes at once, and one that takes
+  // longer than CLOSE_WAIT_MS, or a second close, is closed anyway.
+  let closing = false;
+  win.on('close', (e) => {
+    if (quitting || closing || !listening.has(win.webContents)) return;
+    e.preventDefault();
+    closing = true;
+    win.webContents.send('closing');
+    setTimeout(() => { quitting = true; app.quit(); }, CLOSE_WAIT_MS);
+  });
+  win.webContents.on('render-process-gone', () => listening.delete(win.webContents));
   // Arguments after `--` pass DEFAULT_K overrides as the page's #k= hash: `electron . -- --k '{...}'`.
   const k = process.argv.indexOf('--k');
   win.loadURL(`${ORIGIN}/${k > 0 ? `#k=${encodeURIComponent(process.argv[k + 1])}` : ''}`);
 };
+
+// The pages that keep their world as their window closes (preload.cjs onClosing), and the app quitting (nothing waits then)
+const listening = new WeakSet();
+let quitting = false;
+const CLOSE_WAIT_MS = 30000;
+ipcMain.on('closing:listen', (e) => { if (e.senderFrame?.url.startsWith(ORIGIN)) listening.add(e.sender); });
 
 // Only the page itself may call the shell.
 const fromPage = (e) => { if (!e.senderFrame?.url.startsWith(ORIGIN)) throw new Error('not the page'); };
@@ -118,6 +136,7 @@ handleWin('fullscreen:get', (w) => w.isFullScreen());
 // session anywhere, or a game run nested in gamescope), which fills its output with the game's window, full screen or
 // not, so the page hides its full-screen button. Only gamescope sets these; an ordinary desktop never does.
 handle('fullscreen:forced', () => !!process.env.GAMESCOPE_WAYLAND_DISPLAY || process.env.XDG_CURRENT_DESKTOP === 'gamescope');
+handle('app:quit', () => { quitting = true; app.quit(); });
 handle('worlds:list', worlds.list);
 handle('worlds:put', worlds.put);
 handle('worlds:get', worlds.get);

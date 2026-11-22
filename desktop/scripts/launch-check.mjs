@@ -5,14 +5,17 @@
 // that WebGPU starts and the world steps. CI machines without a GPU get Chromium's software adapter
 // (SwiftShader, allowed by --enable-unsafe-swiftshader; Windows' runner is offered none at all, by any
 // switch tried: SwiftShader, its Vulkan, ANGLE's WARP) and a small world (4096 particles, as a count
-// chosen in Settings) so it compiles every pipeline and steps in seconds. smoke.mjs is the fuller check
-// on a real GPU and with Steam.
+// chosen and kept, at PREFS_V in src/main.js) so it compiles every pipeline and steps in seconds. smoke.mjs is the fuller check
+// on a real GPU and with Steam. Then (once a world steps) the menu's Quit: a world begun, Quit → Save and quit, and the
+// app must exit by itself, its world kept as the last session (userData/worlds/w-last.*), in a userData of its own.
 //   node desktop/scripts/launch-check.mjs --exe out/Tidemote-linux-x64/Tidemote [--out DIR] [--need-gpu]
 //     [--summary FILE]  appends a Markdown line for the run's summary ($GITHUB_STEP_SUMMARY)
 // On Linux it runs with Ozone's headless platform (no display needed) and without Chromium's sandbox
 // (an unpacked build's chrome-sandbox is not setuid root).
 import { _electron } from 'playwright-core';
-import { appendFile, mkdir, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const arg = (name, fallback) => {
@@ -33,11 +36,13 @@ const esc = (t) => String(t).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(
 async function attempt(extra) {
   const r = { args: [...base, ...extra] };
   let app;
+  // (a userData of its own, as a fresh install has: the machine's settings and saves untouched)
+  const data = await mkdtemp(join(tmpdir(), 'tidemote-launch-'));
   try {
-    app = await _electron.launch({ executablePath: exe, args: r.args, timeout: 60000 });
+    app = await _electron.launch({ executablePath: exe, args: [...r.args, `--user-data-dir=${data}`], timeout: 60000 });
     const page = await app.firstWindow();
     await page.waitForLoadState();
-    await page.evaluate(() => localStorage.setItem('tidemote.view', JSON.stringify({ particles: 4096, v: 4 })));
+    await page.evaluate(() => localStorage.setItem('tidemote.view', JSON.stringify({ particles: 4096, v: 6 })));
     await page.reload();
     const errors = [];
     page.on('pageerror', (e) => errors.push(String(e)));
@@ -77,13 +82,68 @@ async function attempt(extra) {
     r.exception = String(e?.message || e).split('\n')[0];
   } finally {
     await app?.close().catch(() => {});
+    await rm(data, { recursive: true, force: true }).catch(() => {});
   }
   const line = `${r.args.join(' ')} → ${r.exception ?? (r.stepped ? `stepped on ${r.gpu || 'an adapter'}` : `${r.failed ?? 'never stepped'}: ${r.detail ?? ''}`)}; fallback adapter: ${r.fallback}`;
   console.log(gha ? `::notice title=launch check (${process.platform})::${esc(line)}` : line);
   return r;
 }
 
+// The menu's Quit, as a player quits: whether the app exited (its code), and the last session it kept
+async function quitCheck() {
+  const r = {};
+  let app;
+  // (a userData of its own: the machine's saves and settings untouched)
+  const data = await mkdtemp(join(tmpdir(), 'tidemote-quit-')), worlds = join(data, 'worlds');
+  try {
+    app = await _electron.launch({ executablePath: exe, args: [...base, `--user-data-dir=${data}`], timeout: 60000 });
+    const proc = app.process();
+    const page = await app.firstWindow();
+    await page.waitForLoadState();
+    await page.evaluate(() => localStorage.setItem('tidemote.view', JSON.stringify({ particles: 4096, v: 6 })));
+    await page.reload();
+    // (the opening menu waits on Begin, or under automation goes by itself)
+    await page.waitForFunction(() => document.getElementById('intro')?.classList.contains('ask') || document.body.classList.contains('live'), null, { timeout: 180000 });
+    if (await page.evaluate(() => !document.body.classList.contains('live'))) await page.click('#begin');
+    // (run long enough that quitting asks: simulated time past a second since the world began)
+    await page.waitForFunction(() => document.body.classList.contains('live') && globalThis.__tidemote.eng.simTime > 2, null, { timeout: 120000 });
+    await page.evaluate(() => globalThis.__tidemote.input.act('menu'));
+    const closed = app.waitForEvent('close', { timeout: 120000 }).then(() => true, () => false);
+    await page.click('#gmenu [data-g="quit"]');
+    r.asked = await page.locator('#gmenu [data-g="quit-save"]').count() > 0;
+    if (r.asked) await page.click('#gmenu [data-g="quit-save"]');
+    r.exited = await closed;
+    r.code = proc.exitCode;
+    const meta = existsSync(join(worlds, 'w-last.json')) ? JSON.parse(await readFile(join(worlds, 'w-last.json'), 'utf8')) : null;
+    r.last = meta && { last: meta.last, name: meta.name, simTime: meta.simTime, bytes: meta.bytes, file: existsSync(join(worlds, 'w-last.tidemote')) };
+    // opened again: the opening menu offers to continue it; then the window closed (its ✕, Alt+F4) once the world has
+    // run keeps the last session again, without asking
+    if (meta) {
+      app = await _electron.launch({ executablePath: exe, args: [...base, `--user-data-dir=${data}`], timeout: 60000 });
+      const page2 = await app.firstWindow();
+      await page2.waitForFunction(() => !document.getElementById('menu-c')?.hidden || document.body.classList.contains('live'), null, { timeout: 180000 });
+      r.continue = await page2.evaluate(() => !document.getElementById('menu-c').hidden && document.getElementById('menu-c-v').textContent);
+      await page2.waitForFunction(() => document.getElementById('intro')?.classList.contains('ask') || document.body.classList.contains('live'), null, { timeout: 180000 });
+      if (await page2.evaluate(() => !document.body.classList.contains('live'))) await page2.click('#begin');
+      await page2.waitForFunction(() => document.body.classList.contains('live') && globalThis.__tidemote.eng.simTime > 2, null, { timeout: 120000 });
+      const closed2 = app.waitForEvent('close', { timeout: 120000 }).then(() => true, () => false);
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
+      r.closeExited = await closed2;
+      const again = JSON.parse(await readFile(join(worlds, 'w-last.json'), 'utf8'));
+      r.closeKept = again.savedAt > meta.savedAt;
+    }
+  } catch (e) {
+    r.exception = String(e?.message || e).split('\n')[0];
+    await app?.close().catch(() => {});
+  } finally {
+    await rm(data, { recursive: true, force: true }).catch(() => {});
+  }
+  console.log(`quit check → ${r.exception ?? `${r.exited ? `exited (${r.code})` : 'still running'}, ${r.last ? `kept the last session (${r.last.name}, ${r.last.bytes} bytes)` : 'kept no last session'}; opened again, ${r.continue ? `Continue (${r.continue})` : 'no Continue'}; the window closed: ${r.closeExited ? 'exited' : 'still running'}, ${r.closeKept ? 'kept it again' : 'kept nothing new'}`}`);
+  return r;
+}
+
 const report = await attempt([]);
+if (report.stepped) report.quit = await quitCheck();
 const problems = [];
 if (report.exception) problems.push(`the app did not start: ${report.exception}`);
 if (report.origin !== 'app://tidemote') problems.push(`page origin ${report.origin}`);
@@ -92,6 +152,8 @@ if (!report.steam?.loaded && !report.steam?.on) problems.push(`the Steam helper 
 if (report.steamInMain) problems.push('the Steam API loaded in the app\'s own process, not only in the helper');
 if (needGpu && !report.stepped) problems.push(`no world stepped: ${report.failed ?? 'started but never stepped'}`);
 if (report.running && report.errors?.length) problems.push(`page errors: ${report.errors.join(' | ')}`);
+const q = report.quit;
+if (q && (q.exception || !q.exited || !q.asked || !q.last?.last || !q.last?.file || !q.continue || !q.closeExited || !q.closeKept)) problems.push(`Quit → Save and quit: ${q.exception ?? JSON.stringify(q)}`);
 report.problems = problems;
 await writeFile(join(out, 'report.json'), JSON.stringify(report, null, 2));
 if (summary) {

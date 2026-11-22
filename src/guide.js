@@ -230,7 +230,7 @@ export const GUIDE = [
         tr('guide.pool.frost', '<b><evfrost>Frost</evfrost>.</b> A cold night chills the water to near 0° and ice grows over the pool as a mass of small crystals, pushing cells into the veins of water between ice sheets. Eventually, the ice thaws, and the torpid cells that survived being trapped in the ice awake again.', T),
       ]),
       p(tr('guide.pool.p2', 'Cells stranded on dry mud or caught in ice cannot swim or feed. They show <cystdry>dried or frozen</cystdry>; most rest as <cyst>cysts</cyst> and wait, losing energy very slowly, and the rest starve. The water\'s edge pulls cells near it back in. After each event the log tallies how much life and how many species were lost. Rain wakes cysts fast, so a drought ends in a burst of hatching.', T)),
-      p(tr('guide.pool.p3', '<b>Settings → Climate</b> allows turning all events off, or toggling each kind of event separately. It also has an option to immediately start a new event of any type.', T)),
+      p(tr('guide.pool.p3', 'The menu’s <b>Pool events</b> page allows turning all events off, or toggling each kind of event separately. It also has an option to immediately start a new event of any type.', T)),
     ),
   },
   {

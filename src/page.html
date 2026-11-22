@@ -70,6 +70,9 @@
   <symbol id="i-unfull" viewBox="0 0 20 20"><path d="M7.5 3v4.5H3M17 7.5h-4.5V3M12.5 17v-4.5H17M3 12.5h4.5V17" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-next" viewBox="0 0 20 20"><path d="m4 4.5 5.5 5.5L4 15.5M10.5 4.5 16 10l-5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-film" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><rect x="2.5" y="5" width="11" height="10" rx="1"/><path d="m13.5 8.5 4-2.5v8l-4-2.5"/><circle class="rec" cx="6" cy="8.5" r="1.3" fill="currentColor" stroke="none"/></g></symbol>
+  <symbol id="i-mark" viewBox="0 0 24 24"><path d="M3 15c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 9.5c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".45"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 20 20"><path d="M3 5.5h14M3 10h14M3 14.5h14" stroke="currentColor" stroke-width="1.3"/></symbol>
+  <symbol id="i-back" viewBox="0 0 20 20"><path d="m12.5 4.5-5.5 5.5 5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-close" viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-plus" viewBox="0 0 20 20"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-minus" viewBox="0 0 20 20"><path d="M4 10h12" stroke="currentColor" stroke-width="1.3"/></symbol>
@@ -113,7 +116,7 @@
 <div class="hud" id="hud">
   <!-- status rail: when and under what sky -->
   <header class="rail" id="rail">
-    <button data-i18n="rail.brand" type="button" class="brand" id="brand" aria-label="About Tidemote" data-hint="About Tidemote"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 9.5c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".45"/></svg><span translate="no">Tidemote</span></button>
+    <button data-i18n="rail.brand" type="button" class="brand" id="brand" data-act="menu" aria-label="Menu" aria-haspopup="dialog" aria-controls="gmenu" aria-expanded="false" data-hint="Menu · Esc"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 9.5c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".45"/></svg><span translate="no">Tidemote</span></button>
     <div data-i18n="rail.clock" class="clock" role="timer" aria-label="Simulated time"><span data-i18n="rail.epoch" class="lbl">Time</span><b id="epoch" translate="no">0:00</b></div>
     <div class="era-box" id="era-box"><span data-i18n="rail.era-n" class="lbl" id="era-n">Era 01</span><b data-i18n="rail.era" id="era">The First Tides</b><span class="era-tide" id="era-tide" aria-hidden="true"><svg viewBox="0 0 60 6" preserveAspectRatio="none"><path/></svg><i></i></span></div>
     <div class="gauge term" data-tip="light" tabindex="0" id="g-light"><span data-i18n="rail.light" class="lbl">Light</span><span class="seg" id="light-seg" aria-hidden="true"></span><b id="light-v" translate="no">–</b></div>
@@ -148,22 +151,20 @@ Double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-
       <button data-i18n="dock.film" type="button" class="act" id="film" aria-label="Film" aria-pressed="false" data-hint="Film · R" hidden><svg><use href="#i-film"/></svg><span data-i18n="dock.film-label" id="film-v">Film</span></button>
       <span class="snd-wrap"><button data-i18n="dock.snd" type="button" class="act" id="snd" aria-label="Sound" aria-pressed="false" data-hint="Sound · M"><svg><use href="#i-sound"/></svg><span data-i18n="dock.sound-label">Sound</span></button><input data-i18n="dock.vol" id="vol" type="range" min="0" max="100" step="1" value="80" aria-label="Volume" hidden></span>
       <button data-i18n="dock.set-open" type="button" class="act" id="set-open" data-act="settings" aria-label="Settings" aria-expanded="false" aria-controls="settings" data-hint="Settings · V"><svg><use href="#i-gear"/></svg><span data-i18n="dock.settings-label">Settings</span></button>
+      <button data-i18n="dock.gm-open" type="button" class="act" id="gm-open" data-act="menu" aria-label="Menu" aria-haspopup="dialog" aria-controls="gmenu" aria-expanded="false" data-hint="Menu · Esc"><svg><use href="#i-menu"/></svg><span data-i18n="dock.menu-label">Menu</span></button>
       <button data-i18n="dock.lab-open" type="button" class="act primary" id="lab-open" data-act="lab" aria-label="Field Lab" aria-expanded="false" aria-controls="lab" data-hint="Field Lab · K"><svg><use href="#i-lab"/></svg><span data-i18n="dock.lab-label">Lab</span></button>
     </div>
     <!-- the readout, and the adapting summary's button (main.js): its eased figures in the sun's color while the page eases anything for speed -->
     <button data-i18n="dock.sys" type="button" class="sys" id="sys" aria-label="Performance readout: current adapted settings" aria-controls="settings" data-tip="eased"><span data-i18n="dock.particles"><b id="sys-n" translate="no" class="w-n">–</b> particles</span><span data-i18n="dock.fps"><b id="sys-fps" translate="no" class="w-3">–</b> fps</span><span data-i18n="dock.ms"><b id="sys-ms" translate="no" class="w-4">–</b> ms</span><span data-i18n="dock.res"><b id="sys-res" translate="no" class="w-4">–</b> res</span></button>
   </nav>
 
-  <!-- settings: what is shown, and what it costs -->
+  <!-- settings: what is shown, and what it costs (the menu holds what is about this world: saves, a new world, events) -->
   <div data-i18n="settings.panel" class="settings panel float" id="settings" hidden role="dialog" aria-label="Settings">
     <div class="sec-h"><h2 data-i18n="settings.heading">Settings</h2>
       <div data-i18n="settings.set-tabs" class="tabs" role="tablist" id="set-tabs" aria-label="Settings sections">
         <button data-i18n="settings.display" type="button" role="tab" data-tab="display" aria-selected="true">Display</button>
         <button data-i18n="settings.audio" type="button" role="tab" data-tab="audio" aria-selected="false" tabindex="-1">Audio</button>
-        <button data-i18n="settings.perf" type="button" role="tab" data-tab="performance" aria-selected="false" tabindex="-1">Perf</button>
-        <button data-i18n="settings.climate" type="button" role="tab" data-tab="climate" aria-selected="false" tabindex="-1">Climate</button>
-        <button data-i18n="settings.worlds" type="button" role="tab" data-tab="worlds" aria-selected="false" tabindex="-1">Worlds</button>
-        <button data-i18n="settings.about" type="button" role="tab" data-tab="about" aria-selected="false" tabindex="-1">About</button>
+        <button data-i18n="settings.perf" type="button" role="tab" data-tab="performance" aria-selected="false" tabindex="-1">Performance</button>
       </div>
       <button data-i18n="settings.set-close" type="button" class="ghost" id="set-close" aria-label="Close settings"><svg><use href="#i-close"/></svg></button></div>
     <!-- (under the heading and the tabs, which stay put, the tab's options scroll) -->
@@ -189,6 +190,13 @@ Double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-
       </div>
       <div class="opts" id="opts"></div>
     </div>
+  </div>
+
+  <!-- the menu (main.js, the game menu): Esc with nothing left to close, a controller's Menu, the wordmark, a phone's dock;
+       this world's saves, a new world, the pool's events, then Settings, the Controls, About and (in the desktop app) Quit -->
+  <div data-i18n="gamemenu.panel" class="gmenu panel float" id="gmenu" hidden role="dialog" aria-label="Menu">
+    <div class="sec-h" id="gm-head"></div>
+    <div class="scroll" id="gm-body"></div>
     <input type="file" id="w-file" accept=".tidemote" hidden>
   </div>
 
@@ -336,6 +344,7 @@ Double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-
     <!-- for those who know Tidemote: the new world's particle count, or a saved world in its place (main.js, the menu) -->
     <div class="menu" id="menu" hidden>
       <div data-i18n="menu.row" class="menu-row" role="group" aria-label="World parameters">
+        <button type="button" class="menu-tab go" id="menu-c" hidden><span data-i18n="menu.continue">Continue</span><b id="menu-c-v"></b></button>
         <button type="button" class="menu-tab" id="menu-n" aria-expanded="false" aria-controls="menu-panel"><span data-i18n="menu.particles">Particles</span><b id="menu-n-v"></b></button>
         <button type="button" class="menu-tab" id="menu-w" aria-expanded="false" aria-controls="menu-panel"><span data-i18n="menu.saved-worlds">Saved worlds</span><b id="menu-w-v"></b></button>
       </div>

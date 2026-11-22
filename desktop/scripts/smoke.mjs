@@ -2,7 +2,7 @@
 // frame rate after a warm-up, a screenshot. Under WSL run it with Windows Node on a Windows build:
 //   tools/gpu-node.sh desktop/scripts/smoke.mjs --exe 'C:\...\Tidemote.exe' --out runs/desktop/smoke
 // --steam APPID starts Steam as that app (480, Spacewar, before Tidemote has its own) and checks the
-// shell: Steam's status, a save through Settings → Worlds (files, a preview), read back and deleted,
+// shell: Steam's status, a save through the menu's saves (files, a preview), read back and deleted,
 // an achievement call, the Workshop's subscribed worlds. Nothing is published.
 import { _electron } from 'playwright-core';
 import { copyFile, mkdir, writeFile } from 'node:fs/promises';
@@ -49,8 +49,8 @@ try {
 async function checkShell(page) {
   const r = { steam: await page.evaluate(() => globalThis.tidemoteDesktop?.steam()) };
   // a save through the page's own controls
-  await page.click('#set-open');
-  await page.click('[data-tab="worlds"]');
+  await page.evaluate(() => globalThis.__tidemote.input.act('menu'));
+  await page.click('#gmenu [data-g="save"]');
   const before = await page.evaluate(() => globalThis.tidemoteDesktop.worlds.list());
   await page.fill('#w-name', 'smoke check');
   await page.click('[data-o="w-save"]');
@@ -72,7 +72,7 @@ async function checkShell(page) {
   r.load = { saved: { t: m.simTime }, before: await living() };
   await page.click(`[data-o="w-load"][data-v="${m.id}"]`);
   await page.click(`[data-o="w-yes"][data-v="${m.id}"]`);
-  await page.waitForSelector('#settings', { state: 'hidden', timeout: 120000 });
+  await page.waitForSelector('#gmenu', { state: 'hidden', timeout: 120000 });
   r.load.opened = await living();
   await page.waitForTimeout(10000);
   r.load.later = await living();

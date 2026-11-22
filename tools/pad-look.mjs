@@ -20,6 +20,18 @@ fs.mkdirSync(out, { recursive: true });
 const { page, check, done, T, pad, frames } = await openPage({ size: { width: w, height: h }, file: arg('--page', 'dist/tidemote.html'), scale: SCALE });
 const shot = async (name, clip) => { await page.screenshot({ path: path.join(out, `${name}.png`), ...(clip ? { clip } : {}) }); };
 const wait = (ms) => page.waitForTimeout(ms);
+// Settings as a controller opens them: Menu (unless the menu is open), then A on its Settings; closed by B, back to the
+// menu, and B again
+const menuOpen = () => T(() => !document.getElementById('gmenu').hidden);
+async function openSettings() {
+  if (!(await menuOpen())) { await pad.press(BTN.MENU); await wait(250); }
+  await T(() => document.querySelector('#gmenu [data-g="settings"]')?.focus());
+  await pad.press(BTN.S); await wait(300);
+}
+async function closeSettings() {
+  await pad.press(BTN.E); await wait(200);
+  if (await menuOpen()) { await pad.press(BTN.E); await wait(200); }
+}
 const box = (sel, pad = 8) => T(([s, p]) => { const r = document.querySelector(s)?.getBoundingClientRect(); return r && r.width ? { x: Math.max(0, r.left - p), y: Math.max(0, r.top - p), width: Math.min(innerWidth - Math.max(0, r.left - p), r.width + 2 * p), height: Math.min(innerHeight - Math.max(0, r.top - p), r.height + 2 * p) } : null; }, [sel, pad]);
 const S = () => T(() => { const i = __tidemote.input; return { ctx: i.padCtx(), glyphs: i.mode.glyphs, ...i.open(), ...i.held(), active: document.activeElement?.id || document.activeElement?.className || document.activeElement?.tagName }; });
 
@@ -215,8 +227,25 @@ const legendFits = await T(() => { const r = document.getElementById('padbar').g
 check('the legend fits the screen, above the dock', legendFits);
 await shot('world');
 
-// ------------------------------------------------------------ Settings: every tab
+// ------------------------------------------------------------ the menu: its list and each page within it
 await pad.press(BTN.MENU); await wait(300);
+await layoutAudit('#gmenu', 'Menu');
+await ringAudit('#gmenu', 'Menu');
+await shot('menu', await box('#gmenu', 4));
+await shot('menu-screen');
+for (const [g, name] of [['save', 'worlds'], ['new', 'new'], ['events', 'events'], ['about', 'about']]) {
+  await T((g) => document.querySelector(`#gmenu [data-g="${g}"]`)?.focus(), g);
+  await pad.press(BTN.S); await wait(400);
+  await layoutAudit('#gmenu', `Menu · ${name}`);
+  await ringAudit('#gmenu', `Menu · ${name}`);
+  await shot(`menu-${name}`, await box('#gmenu', 4));
+  await pad.press(BTN.E); await wait(200);
+}
+// Quit, in the desktop app only: not in a browser
+check('the menu has no Quit in a browser', await T(() => !document.querySelector('#gmenu [data-g="quit"]')));
+
+// ------------------------------------------------------------ Settings: every tab
+await openSettings();
 await shot('settings-open', await box('#settings', 4));
 await shot('settings-screen');
 const tabs = await T(() => [...document.querySelectorAll('#settings [role="tab"]')].map((t) => t.textContent.trim()));
@@ -340,9 +369,9 @@ if (hasTerm) {
   await pad.press(BTN.E); await wait(300);
   const gone = await S();
   check('a hint a tap opened closes with its panel', tapped && !gone.settings && !gone.tip, JSON.stringify({ tapped, settings: gone.settings, tip: gone.tip }));
-  await pad.press(BTN.MENU); await wait(300);
+  await openSettings();
 }
-await pad.press(BTN.E); await wait(200);
+await closeSettings();
 
 // ------------------------------------------------------------ the Lab: View opens and closes it, and only it
 let s0 = await S();
@@ -577,7 +606,7 @@ await T(() => __tidemote.input.act('tool-none'));
 }
 // ------------------------------------------------------------ Settings → Display → Full screen, for a controller
 {
-  await pad.press(BTN.MENU); await wait(200);
+  await openSettings();
   await T(() => [...document.querySelectorAll('#settings [role="tab"]')].find((x) => /display/i.test(x.textContent))?.click());
   await frames(2);
   const row = await T(() => { const b = document.querySelector('#settings [data-o="fullscreen"][data-v="1"]'); b?.focus(); return !!b; });
@@ -588,7 +617,7 @@ await T(() => __tidemote.input.act('tool-none'));
     console.log(`     (full screen by the pad's A: ${JSON.stringify(fs)})`);
     if (fs.fs) { await T(() => document.exitFullscreen()); await wait(400); }
   }
-  await pad.press(BTN.E); await wait(200);
+  await closeSettings();
 }
 // ------------------------------------------------------------ the pointer
 const cursor = await T(() => getComputedStyle(document.querySelector('#dock button')).cursor);

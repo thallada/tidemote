@@ -110,11 +110,11 @@ first-time-player test in *How we'll know it works*. The tiers below follow it.
 
 | Tier | Where it goes | Actions |
 |---|---|---|
-| 1 | Sticks, triggers, face buttons, d-pad: always one press | Pan, zoom, select, back, ride / get off / hop, pause, slower, faster, auto camera, next scene, Settings, Lab |
+| 1 | Sticks, triggers, face buttons, d-pad: always one press | Pan, zoom, select, back, ride / get off / hop, pause, slower, faster, auto camera, next scene, the menu, Lab |
 | 2 | Held bumpers: the two roses | The eight tools, put down; the maps, currents, trails, glow, microscope, film, sound, hide the interface |
 | 2 | Contextual: while a tool is in hand | Apply, its other way (the pipette's dispense), reach |
-| 3 | Inside panels, by focus | Lab tabs, Lineage, species pages, cards, the cabinet, Settings, saves, Workshop |
-| — | Left to Settings or the hardware | Volume (Settings, or the Deck's own keys), fullscreen (the Deck always is), the readouts, Shift+R (Settings → Worlds) |
+| 3 | Inside panels, by focus | Lab tabs, Lineage, species pages, cards, the cabinet, the menu's pages (saves, Workshop, a new world, the pool's events, About), Settings, Quit |
+| — | Left to Settings or the hardware | Volume (Settings, or the Deck's own keys), fullscreen (the Deck always is), the readouts |
 
 ## The bindings
 
@@ -141,8 +141,8 @@ the glyphs say what to press.
 | RB, held | The view rose; tapped: the Bench drawer | G E H C T Y O R M U, B |
 | L3 | Follow the selected cell | Follow |
 | R3 | Reset the zoom | Z |
-| Menu (≡) | Settings | V |
-| View (⧉) | Field Lab, open or closed (only that: a hold that opened the Controls turned slow presses into the wrong dialog; the Controls are at Settings' foot) | K |
+| Menu (≡) | The menu (Settings is a row in it); pressed again, or in a panel, it closes what is open and opens the menu, or closes the menu | Esc with nothing left to close |
+| View (⧉) | Field Lab, open or closed (only that: a hold that opened the Controls turned slow presses into the wrong dialog; the Controls are in the menu) | K |
 
 A reticle sits at the middle of the open view when the pad is first used, and then keeps its place on the screen as
 panels open and close (clamped inside what they leave open; following a cell, it eases to the middle with the
@@ -161,13 +161,13 @@ like the cursor.
 | West (X) / East (B) | Get off |
 | LT / RT | Zoom |
 
-### In panels (focus inside the specimen panel, Lab, Settings, Bench, a card or the opening menu)
+### In panels (focus inside the specimen panel, Lab, the menu, Settings, Bench, a card or the opening menu)
 
 | Input | Action |
 |---|---|
 | D-pad / left stick | Move focus spatially (repeat after 400 ms, then every 90 ms), past sliders and lists too |
 | South (A) | Activate: press, toggle, open. On a slider or a list: take hold of it (ring turns cyan); the d-pad then steps it a twentieth of its span, the stick sweeps it (the whole span in 1.5 s), and A or B lets go. On a glossary term: show its hint; again, hide it |
-| East (B) | Back: let go of a slider, then one layer (card, then Settings, then the panel), then to the world |
+| East (B) | Back: let go of a slider, then one layer (card, then Settings, then the panel; a page of the menu back to its list), then to the world. Settings and the Controls opened from the menu go back to it, on the row that opened them |
 | LB / RB | Previous / next tab (Settings, Lab, specimen sections) |
 | Right stick | Scroll |
 
@@ -175,6 +175,12 @@ The legend over the dock says which of these applies to what has focus (Choose, 
 four seconds and fades (0.22 s in, 0.3 s out): after any bound button, when what the buttons do changes (a tool, a
 panel, a ride), and when the pad is first taken up; panning and zooming with the sticks and triggers leave it faded,
 and the auto camera hides it. RB in the bench (which has no tabs) closes it, as RB opened it.
+
+The game menu (main.js) is a list over the view, which keeps running: ≡ opens it, and so does Esc once the walk-back
+has nothing left to close (a press, never a key held; the pad's B never opens it, so a player backing out of things with
+B stays in the world). It holds this world's actions (Save and load, New world, Pool events), then Settings, the Controls,
+About and, in the desktop app, Quit, with nothing in it a keyboard alone can reach: Steam Deck Verified asks that the
+default controller configuration reach all content.
 
 The opening menu is a panel: any button reveals the pad (the spec's gesture gate), focus lands on Begin, the d-pad
 walks the count chips and saved worlds, and South begins.
@@ -374,7 +380,8 @@ Keyboard first, since there are none:
   3. South selects (the specimen opens) and X rides; the stick steers (`ride.at` or way set); South hops.
   4. East walks back the same thirteen steps as Escape.
   5. LB rose picks the lamp; RB rose turns on the light map; the centre cancels.
-  6. Menu opens Settings; the d-pad moves focus; South toggles an option; LB/RB change tabs; East closes.
+  6. Menu opens the menu; South on Settings opens them; the d-pad moves focus; South toggles an option; LB/RB change
+     tabs; East goes back to the menu, and again closes it.
   7. View opens the Lab, and held still only the Lab; Settings' Controls opens the Controls dialog with both columns.
   8. The hints show pad glyphs, then keys after a key press, and a mouse move doesn't change them.
   9. Unplugging mid-pan stops the pan.
@@ -504,9 +511,9 @@ touchscreen (step 15 tries those). Note each step that fails, and where you reac
     (Steam's keyboard), then B closes the card and the Lab gives focus back. ⧉ held long: still only the Lab.
 11. From the dock (Y with no side panel open), d-pad ↑: the rail at the top; A on a gauge explains it; ↓ comes back.
 12. Settings' foot → Controls: the Deck's buttons beside the keys. B closes them.
-13. Settings → Display → Controller: Xbox, then back to Auto. Settings → Worlds: open the saved world.
+13. Settings → Display → Controller: Xbox, then back to Auto. The menu's Save and load: open the saved world.
 14. Suspend the Deck mid-pan and wake it: nothing is still held.
 15. Touch and trackpads: a pinch zooms, a tap with the loupe sets its lens and a drag moves it; the right trackpad
     moves the mouse (the pointer shows; the legend keeps the Deck's buttons) and the pad hides it again.
 16. Read every text on the screen at arm's length: nothing too small (ui-audit checks 11 px at 1280×800). Note the
-    frame rate the page settles on (Settings → Perf).
+    frame rate the page settles on (Settings → Performance).

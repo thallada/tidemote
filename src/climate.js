@@ -33,7 +33,7 @@ export function excursionAt(x, t) {
 // grains grow over the thin pool, pushing cells into the veins of water left between them, then thaw). `eventPlan` in K forces events
 // for tests: "drought@900,duckweed@2400" (simulated seconds).
 export const EVENT_TYPES = ['drought', 'storm', 'duckweed', 'frost'];
-// i18n: an event's name (Settings → Climate, the rail's event chip)
+// i18n: an event's name (the menu's Pool events, the rail's event chip)
 export const EVENT_NAME = { drought: tr('climate.event.drought', 'Drought'), storm: tr('climate.event.storm', 'Storm'), duckweed: tr('climate.event.duckweed', 'Duckweed'), frost: tr('climate.event.frost', 'Frost') };
 const ease = (u) => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u));
 const ramp = (t, a, b) => ease((t - a) / Math.max(b - a, 1e-6));
@@ -111,7 +111,7 @@ export const eventSpan = (ev) => (ev.type === 'drought' ? ev.fall + ev.hold + ev
   : ev.type === 'frost' ? ev.cool + ev.grow + ev.hold + ev.thaw + 120 : ev.dur);
 
 export function createClimate(eng, rng = Math.random) {
-  // allowed: the event types the climate may draw (the page's Settings → Climate), all of them by default
+  // allowed: the event types the climate may draw (the page's, set in the menu's Pool events), all of them by default
   const climate = { tick, reset, onEra: null, onExcursion: null, onEvent: null, force, allowed: new Set(EVENT_TYPES) };
   const K = { ...DEFAULT_K, ...eng.K };
   const plan = () => String(K.eventPlan || '').split(',').filter(Boolean).map((x) => { const [type, at] = x.split('@'); return { type, at: +at }; });

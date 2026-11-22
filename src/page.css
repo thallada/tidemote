@@ -462,7 +462,7 @@ body.dragging-card #bench-open, body.dragging-card .bench-pip, body.dragging-car
 .sys .w-n { width: 7.6em; }
 .sys .w-3 { width: 2.4em; }
 .sys .w-4 { width: 3.2em; }
-/* the readout is a button (main.js, the adapting summary): its hint, and a click opens Settings → Perf. Its labels
+/* the readout is a button (main.js, the adapting summary): its hint, and a click opens Settings → Performance. Its labels
    brighten a step under the pointer, its box a finger tall but drawn no taller. While the page eases anything for
    speed (view.adapt: .adapting; .fps-held, .res-held for those figures) the eased figures turn the sun's color, Auto's
    "held" color, and a hairline stands at the strip's end, as the rail's gauges mark theirs (alone where only an effect
@@ -607,7 +607,7 @@ body:has(#bench:not([hidden]), #held:not([hidden])) .compiling { opacity: 0; }
 .flash.on { opacity: 1; }
 
 /* the interface hidden (U): only the world */
-body.ui-off :is(#hud, #spec, #lab, #help, #card, #tip, #plate) { visibility: hidden !important; opacity: 0 !important; }
+body.ui-off :is(#hud, #spec, #lab, #help, #card, #gmenu, #tip, #plate) { visibility: hidden !important; opacity: 0 !important; }
 
 .tip {
   position: fixed; z-index: 60; pointer-events: none; max-width: 300px;
@@ -760,6 +760,40 @@ span.set-reset { display: inline-flex; align-items: center; gap: var(--s3); colo
 .w-act .btn:disabled, .set-foot .link:disabled { opacity: .45; cursor: default; }
 .keys-note kbd, dt { color: var(--sun); }
 .help { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100% - 32px)); padding: 10px 18px 18px; z-index: 35; max-height: calc(100% - 32px); overflow-y: auto; }
+/* the game menu (main.js): a card over the middle of the view, its rows one under another; a page within it (the saves,
+   a new world, the events, About) is wider, its rows as Settings' */
+.gmenu { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(360px, calc(100% - 32px)); --pad: 16px; padding: var(--s2) var(--pad) 0;
+  z-index: 34; max-height: calc(100% - var(--top) - var(--bot) - 24px); display: flex; flex-direction: column; }
+.gmenu:not([data-page="root"]) { width: min(460px, calc(100% - 32px)); }
+.gmenu > .sec-h { flex: none; flex-wrap: wrap; gap: 0 var(--s2); }
+.gmenu > .sec-h h2 { margin-right: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gmenu > .sec-h > .ghost { flex: none; margin-right: -6px; }
+.gmenu > .sec-h > .gm-back { margin: 0 0 0 -8px; }
+.gm-title { display: flex; align-items: center; gap: 9px; }
+.gm-title .mark { width: 20px; height: 20px; color: var(--cyan); flex: none; }
+.gm-title span { font-size: 14px; font-weight: 300; letter-spacing: .32em; font-stretch: 125%; }
+.gm-sub { order: 3; flex-basis: 100%; margin: 0 0 var(--s2); min-height: 16px; color: var(--ink-3); font-size: 12px; letter-spacing: .04em; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gmenu > .scroll { margin: 0 calc(-1 * var(--pad)); padding: 0 var(--pad) var(--s3); }
+.gmenu .opts { margin-top: var(--s3); }
+.gm-list { display: flex; flex-direction: column; padding-top: var(--s2); }
+.gm-list hr { width: 100%; margin: var(--s2) 0; border: 0; border-top: 1px solid var(--line-faint); }
+.gm-item { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); min-height: 40px; padding: 0 12px; border-color: transparent; text-align: left;
+  font-size: 12px; letter-spacing: .16em; text-transform: uppercase; font-weight: 500; font-stretch: 112%; color: var(--ink-2); }
+.gm-item:hover:not(:disabled), .gm-item:focus-visible { color: var(--ink); border-color: var(--line-2); background: var(--cyan-deep); }
+.gm-item[data-g="quit"]:hover:not(:disabled), .gm-item[data-g="quit"]:focus-visible { border-color: var(--hot); background: rgba(255, 95, 58, 0.12); }
+.gm-item:disabled { opacity: .45; cursor: default; }
+.gm-item kbd { color: var(--sun); }
+body[data-glyphs="pad"] .gm-item kbd { display: none; }
+@media (pointer: coarse) { .gm-item kbd { display: none; } }
+.gm-quit { display: grid; gap: var(--s3); padding: var(--s2) 12px var(--s1); }
+.gm-quit p, .gm-note { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.45; }
+.gm-note { margin: var(--s3) 0; color: var(--ink-3); }
+.gm-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s2); }
+/* Settings → Performance → World: the particle count, and the link to the menu's New world */
+.set-n { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); min-height: 30px; }
+.set-n b { color: var(--ink); font-weight: 400; font-variant-numeric: tabular-nums; }
+/* the dock's Menu: only on a phone, in Settings' place (the wordmark that opens it on a wider screen is hidden there) */
+#gm-open { display: none; }
 /* a species card: its canvas as tall as the window allows, the name and the saves beside it */
 .card-dlg { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: max-content; max-width: calc(100% - 32px); padding: 10px 18px 16px; z-index: 36; max-height: calc(100% - 24px); overflow-y: auto;
   display: grid; grid-template-columns: auto minmax(220px, 260px); grid-template-rows: auto auto auto auto 1fr; column-gap: var(--s4); }
@@ -1334,6 +1368,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .menu-tab[aria-expanded="true"] { color: var(--ink); border-color: var(--sun); }
 .menu-tab[aria-expanded="true"]::after { transform: translateY(4px) rotate(-135deg); }
 .menu-tab:disabled { opacity: .45; cursor: default; }
+.menu-tab.go::after { display: none; }
 .menu-panel {
   --tick: var(--line-2); width: 100%; padding: var(--s3) var(--s3) var(--s2); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: left;
   /* the frame's corners ticked down its sides, as the HUD's brackets */
@@ -1557,6 +1592,11 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .splist .spark { display: none; }
   .barrow { grid-template-columns: 7.5em minmax(24px, 1fr) 7ch 5.4ch; font-size: 12px; }
   .settings { left: 0; right: 0; width: auto; bottom: var(--bot); max-height: calc(100% - var(--top) - var(--bot)); }
+  .gmenu, .gmenu:not([data-page="root"]) { left: 0; right: 0; top: auto; bottom: var(--bot); transform: none; width: auto; max-height: calc(100% - var(--top) - var(--bot)); }
+  #gm-open { display: flex; }
+  #set-open { display: none; }
+  /* (no Controls on a phone, which has no keys: the dialog is hidden here too) */
+  .gm-item[data-g="controls"] { display: none; }
   .settings .tabs button { padding: 0 6px; letter-spacing: .06em; }
   .readout b { font-size: 15px; }
   /* (four across, as on a laptop: the settings below them in the first screen) */

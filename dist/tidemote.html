@@ -518,7 +518,7 @@ body.dragging-card #bench-open, body.dragging-card .bench-pip, body.dragging-car
 .sys .w-n { width: 7.6em; }
 .sys .w-3 { width: 2.4em; }
 .sys .w-4 { width: 3.2em; }
-/* the readout is a button (main.js, the adapting summary): its hint, and a click opens Settings → Perf. Its labels
+/* the readout is a button (main.js, the adapting summary): its hint, and a click opens Settings → Performance. Its labels
    brighten a step under the pointer, its box a finger tall but drawn no taller. While the page eases anything for
    speed (view.adapt: .adapting; .fps-held, .res-held for those figures) the eased figures turn the sun's color, Auto's
    "held" color, and a hairline stands at the strip's end, as the rail's gauges mark theirs (alone where only an effect
@@ -663,7 +663,7 @@ body:has(#bench:not([hidden]), #held:not([hidden])) .compiling { opacity: 0; }
 .flash.on { opacity: 1; }
 
 /* the interface hidden (U): only the world */
-body.ui-off :is(#hud, #spec, #lab, #help, #card, #tip, #plate) { visibility: hidden !important; opacity: 0 !important; }
+body.ui-off :is(#hud, #spec, #lab, #help, #card, #gmenu, #tip, #plate) { visibility: hidden !important; opacity: 0 !important; }
 
 .tip {
   position: fixed; z-index: 60; pointer-events: none; max-width: 300px;
@@ -816,6 +816,40 @@ span.set-reset { display: inline-flex; align-items: center; gap: var(--s3); colo
 .w-act .btn:disabled, .set-foot .link:disabled { opacity: .45; cursor: default; }
 .keys-note kbd, dt { color: var(--sun); }
 .help { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100% - 32px)); padding: 10px 18px 18px; z-index: 35; max-height: calc(100% - 32px); overflow-y: auto; }
+/* the game menu (main.js): a card over the middle of the view, its rows one under another; a page within it (the saves,
+   a new world, the events, About) is wider, its rows as Settings' */
+.gmenu { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(360px, calc(100% - 32px)); --pad: 16px; padding: var(--s2) var(--pad) 0;
+  z-index: 34; max-height: calc(100% - var(--top) - var(--bot) - 24px); display: flex; flex-direction: column; }
+.gmenu:not([data-page="root"]) { width: min(460px, calc(100% - 32px)); }
+.gmenu > .sec-h { flex: none; flex-wrap: wrap; gap: 0 var(--s2); }
+.gmenu > .sec-h h2 { margin-right: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gmenu > .sec-h > .ghost { flex: none; margin-right: -6px; }
+.gmenu > .sec-h > .gm-back { margin: 0 0 0 -8px; }
+.gm-title { display: flex; align-items: center; gap: 9px; }
+.gm-title .mark { width: 20px; height: 20px; color: var(--cyan); flex: none; }
+.gm-title span { font-size: 14px; font-weight: 300; letter-spacing: .32em; font-stretch: 125%; }
+.gm-sub { order: 3; flex-basis: 100%; margin: 0 0 var(--s2); min-height: 16px; color: var(--ink-3); font-size: 12px; letter-spacing: .04em; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gmenu > .scroll { margin: 0 calc(-1 * var(--pad)); padding: 0 var(--pad) var(--s3); }
+.gmenu .opts { margin-top: var(--s3); }
+.gm-list { display: flex; flex-direction: column; padding-top: var(--s2); }
+.gm-list hr { width: 100%; margin: var(--s2) 0; border: 0; border-top: 1px solid var(--line-faint); }
+.gm-item { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); min-height: 40px; padding: 0 12px; border-color: transparent; text-align: left;
+  font-size: 12px; letter-spacing: .16em; text-transform: uppercase; font-weight: 500; font-stretch: 112%; color: var(--ink-2); }
+.gm-item:hover:not(:disabled), .gm-item:focus-visible { color: var(--ink); border-color: var(--line-2); background: var(--cyan-deep); }
+.gm-item[data-g="quit"]:hover:not(:disabled), .gm-item[data-g="quit"]:focus-visible { border-color: var(--hot); background: rgba(255, 95, 58, 0.12); }
+.gm-item:disabled { opacity: .45; cursor: default; }
+.gm-item kbd { color: var(--sun); }
+body[data-glyphs="pad"] .gm-item kbd { display: none; }
+@media (pointer: coarse) { .gm-item kbd { display: none; } }
+.gm-quit { display: grid; gap: var(--s3); padding: var(--s2) 12px var(--s1); }
+.gm-quit p, .gm-note { margin: 0; color: var(--ink-2); font-size: 12.5px; line-height: 1.45; }
+.gm-note { margin: var(--s3) 0; color: var(--ink-3); }
+.gm-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s2); }
+/* Settings → Performance → World: the particle count, and the link to the menu's New world */
+.set-n { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); min-height: 30px; }
+.set-n b { color: var(--ink); font-weight: 400; font-variant-numeric: tabular-nums; }
+/* the dock's Menu: only on a phone, in Settings' place (the wordmark that opens it on a wider screen is hidden there) */
+#gm-open { display: none; }
 /* a species card: its canvas as tall as the window allows, the name and the saves beside it */
 .card-dlg { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: max-content; max-width: calc(100% - 32px); padding: 10px 18px 16px; z-index: 36; max-height: calc(100% - 24px); overflow-y: auto;
   display: grid; grid-template-columns: auto minmax(220px, 260px); grid-template-rows: auto auto auto auto 1fr; column-gap: var(--s4); }
@@ -1390,6 +1424,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .menu-tab[aria-expanded="true"] { color: var(--ink); border-color: var(--sun); }
 .menu-tab[aria-expanded="true"]::after { transform: translateY(4px) rotate(-135deg); }
 .menu-tab:disabled { opacity: .45; cursor: default; }
+.menu-tab.go::after { display: none; }
 .menu-panel {
   --tick: var(--line-2); width: 100%; padding: var(--s3) var(--s3) var(--s2); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: left;
   /* the frame's corners ticked down its sides, as the HUD's brackets */
@@ -1613,6 +1648,11 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .splist .spark { display: none; }
   .barrow { grid-template-columns: 7.5em minmax(24px, 1fr) 7ch 5.4ch; font-size: 12px; }
   .settings { left: 0; right: 0; width: auto; bottom: var(--bot); max-height: calc(100% - var(--top) - var(--bot)); }
+  .gmenu, .gmenu:not([data-page="root"]) { left: 0; right: 0; top: auto; bottom: var(--bot); transform: none; width: auto; max-height: calc(100% - var(--top) - var(--bot)); }
+  #gm-open { display: flex; }
+  #set-open { display: none; }
+  /* (no Controls on a phone, which has no keys: the dialog is hidden here too) */
+  .gm-item[data-g="controls"] { display: none; }
   .settings .tabs button { padding: 0 6px; letter-spacing: .06em; }
   .readout b { font-size: 15px; }
   /* (four across, as on a laptop: the settings below them in the first screen) */
@@ -1708,6 +1748,9 @@ svg.niche .n-dot { fill: var(--cyan); }
   <symbol id="i-unfull" viewBox="0 0 20 20"><path d="M7.5 3v4.5H3M17 7.5h-4.5V3M12.5 17v-4.5H17M3 12.5h4.5V17" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-next" viewBox="0 0 20 20"><path d="m4 4.5 5.5 5.5L4 15.5M10.5 4.5 16 10l-5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-film" viewBox="0 0 20 20"><g fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><rect x="2.5" y="5" width="11" height="10" rx="1"/><path d="m13.5 8.5 4-2.5v8l-4-2.5"/><circle class="rec" cx="6" cy="8.5" r="1.3" fill="currentColor" stroke="none"/></g></symbol>
+  <symbol id="i-mark" viewBox="0 0 24 24"><path d="M3 15c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 9.5c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".45"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 20 20"><path d="M3 5.5h14M3 10h14M3 14.5h14" stroke="currentColor" stroke-width="1.3"/></symbol>
+  <symbol id="i-back" viewBox="0 0 20 20"><path d="m12.5 4.5-5.5 5.5 5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-close" viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-plus" viewBox="0 0 20 20"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="1.3"/></symbol>
   <symbol id="i-minus" viewBox="0 0 20 20"><path d="M4 10h12" stroke="currentColor" stroke-width="1.3"/></symbol>
@@ -1751,7 +1794,7 @@ svg.niche .n-dot { fill: var(--cyan); }
 <div class="hud" id="hud">
   <!-- status rail: when and under what sky -->
   <header class="rail" id="rail">
-    <button data-i18n="rail.brand" type="button" class="brand" id="brand" aria-label="About Tidemote" data-hint="About Tidemote"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 9.5c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".45"/></svg><span translate="no">Tidemote</span></button>
+    <button data-i18n="rail.brand" type="button" class="brand" id="brand" data-act="menu" aria-label="Menu" aria-haspopup="dialog" aria-controls="gmenu" aria-expanded="false" data-hint="Menu · Esc"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 9.5c3-5 6-5 9 0s6 5 9 0" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".45"/></svg><span translate="no">Tidemote</span></button>
     <div data-i18n="rail.clock" class="clock" role="timer" aria-label="Simulated time"><span data-i18n="rail.epoch" class="lbl">Time</span><b id="epoch" translate="no">0:00</b></div>
     <div class="era-box" id="era-box"><span data-i18n="rail.era-n" class="lbl" id="era-n">Era 01</span><b data-i18n="rail.era" id="era">The First Tides</b><span class="era-tide" id="era-tide" aria-hidden="true"><svg viewBox="0 0 60 6" preserveAspectRatio="none"><path/></svg><i></i></span></div>
     <div class="gauge term" data-tip="light" tabindex="0" id="g-light"><span data-i18n="rail.light" class="lbl">Light</span><span class="seg" id="light-seg" aria-hidden="true"></span><b id="light-v" translate="no">–</b></div>
@@ -1786,22 +1829,20 @@ Double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-
       <button data-i18n="dock.film" type="button" class="act" id="film" aria-label="Film" aria-pressed="false" data-hint="Film · R" hidden><svg><use href="#i-film"/></svg><span data-i18n="dock.film-label" id="film-v">Film</span></button>
       <span class="snd-wrap"><button data-i18n="dock.snd" type="button" class="act" id="snd" aria-label="Sound" aria-pressed="false" data-hint="Sound · M"><svg><use href="#i-sound"/></svg><span data-i18n="dock.sound-label">Sound</span></button><input data-i18n="dock.vol" id="vol" type="range" min="0" max="100" step="1" value="80" aria-label="Volume" hidden></span>
       <button data-i18n="dock.set-open" type="button" class="act" id="set-open" data-act="settings" aria-label="Settings" aria-expanded="false" aria-controls="settings" data-hint="Settings · V"><svg><use href="#i-gear"/></svg><span data-i18n="dock.settings-label">Settings</span></button>
+      <button data-i18n="dock.gm-open" type="button" class="act" id="gm-open" data-act="menu" aria-label="Menu" aria-haspopup="dialog" aria-controls="gmenu" aria-expanded="false" data-hint="Menu · Esc"><svg><use href="#i-menu"/></svg><span data-i18n="dock.menu-label">Menu</span></button>
       <button data-i18n="dock.lab-open" type="button" class="act primary" id="lab-open" data-act="lab" aria-label="Field Lab" aria-expanded="false" aria-controls="lab" data-hint="Field Lab · K"><svg><use href="#i-lab"/></svg><span data-i18n="dock.lab-label">Lab</span></button>
     </div>
     <!-- the readout, and the adapting summary's button (main.js): its eased figures in the sun's color while the page eases anything for speed -->
     <button data-i18n="dock.sys" type="button" class="sys" id="sys" aria-label="Performance readout: current adapted settings" aria-controls="settings" data-tip="eased"><span data-i18n="dock.particles"><b id="sys-n" translate="no" class="w-n">–</b> particles</span><span data-i18n="dock.fps"><b id="sys-fps" translate="no" class="w-3">–</b> fps</span><span data-i18n="dock.ms"><b id="sys-ms" translate="no" class="w-4">–</b> ms</span><span data-i18n="dock.res"><b id="sys-res" translate="no" class="w-4">–</b> res</span></button>
   </nav>
 
-  <!-- settings: what is shown, and what it costs -->
+  <!-- settings: what is shown, and what it costs (the menu holds what is about this world: saves, a new world, events) -->
   <div data-i18n="settings.panel" class="settings panel float" id="settings" hidden role="dialog" aria-label="Settings">
     <div class="sec-h"><h2 data-i18n="settings.heading">Settings</h2>
       <div data-i18n="settings.set-tabs" class="tabs" role="tablist" id="set-tabs" aria-label="Settings sections">
         <button data-i18n="settings.display" type="button" role="tab" data-tab="display" aria-selected="true">Display</button>
         <button data-i18n="settings.audio" type="button" role="tab" data-tab="audio" aria-selected="false" tabindex="-1">Audio</button>
-        <button data-i18n="settings.perf" type="button" role="tab" data-tab="performance" aria-selected="false" tabindex="-1">Perf</button>
-        <button data-i18n="settings.climate" type="button" role="tab" data-tab="climate" aria-selected="false" tabindex="-1">Climate</button>
-        <button data-i18n="settings.worlds" type="button" role="tab" data-tab="worlds" aria-selected="false" tabindex="-1">Worlds</button>
-        <button data-i18n="settings.about" type="button" role="tab" data-tab="about" aria-selected="false" tabindex="-1">About</button>
+        <button data-i18n="settings.perf" type="button" role="tab" data-tab="performance" aria-selected="false" tabindex="-1">Performance</button>
       </div>
       <button data-i18n="settings.set-close" type="button" class="ghost" id="set-close" aria-label="Close settings"><svg><use href="#i-close"/></svg></button></div>
     <!-- (under the heading and the tabs, which stay put, the tab's options scroll) -->
@@ -1827,6 +1868,13 @@ Double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-
       </div>
       <div class="opts" id="opts"></div>
     </div>
+  </div>
+
+  <!-- the menu (main.js, the game menu): Esc with nothing left to close, a controller's Menu, the wordmark, a phone's dock;
+       this world's saves, a new world, the pool's events, then Settings, the Controls, About and (in the desktop app) Quit -->
+  <div data-i18n="gamemenu.panel" class="gmenu panel float" id="gmenu" hidden role="dialog" aria-label="Menu">
+    <div class="sec-h" id="gm-head"></div>
+    <div class="scroll" id="gm-body"></div>
     <input type="file" id="w-file" accept=".tidemote" hidden>
   </div>
 
@@ -1974,6 +2022,7 @@ Double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-
     <!-- for those who know Tidemote: the new world's particle count, or a saved world in its place (main.js, the menu) -->
     <div class="menu" id="menu" hidden>
       <div data-i18n="menu.row" class="menu-row" role="group" aria-label="World parameters">
+        <button type="button" class="menu-tab go" id="menu-c" hidden><span data-i18n="menu.continue">Continue</span><b id="menu-c-v"></b></button>
         <button type="button" class="menu-tab" id="menu-n" aria-expanded="false" aria-controls="menu-panel"><span data-i18n="menu.particles">Particles</span><b id="menu-n-v"></b></button>
         <button type="button" class="menu-tab" id="menu-w" aria-expanded="false" aria-controls="menu-panel"><span data-i18n="menu.saved-worlds">Saved worlds</span><b id="menu-w-v"></b></button>
       </div>
@@ -23566,7 +23615,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
           tr("guide.pool.frost", "<b><evfrost>Frost</evfrost>.</b> A cold night chills the water to near 0° and ice grows over the pool as a mass of small crystals, pushing cells into the veins of water between ice sheets. Eventually, the ice thaws, and the torpid cells that survived being trapped in the ice awake again.", T)
         ]),
         p(tr("guide.pool.p2", "Cells stranded on dry mud or caught in ice cannot swim or feed. They show <cystdry>dried or frozen</cystdry>; most rest as <cyst>cysts</cyst> and wait, losing energy very slowly, and the rest starve. The water's edge pulls cells near it back in. After each event the log tallies how much life and how many species were lost. Rain wakes cysts fast, so a drought ends in a burst of hatching.", T)),
-        p(tr("guide.pool.p3", "<b>Settings → Climate</b> allows turning all events off, or toggling each kind of event separately. It also has an option to immediately start a new event of any type.", T))
+        p(tr("guide.pool.p3", "The menu’s <b>Pool events</b> page allows turning all events off, or toggling each kind of event separately. It also has an option to immediately start a new event of any type.", T))
       )
     },
     {
@@ -25380,7 +25429,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
   }
 
   // src/worlds.js
-  var SAVE_VERSION = "8.1.0";
+  var SAVE_VERSION = "8.2.0";
   var MAGIC = [84, 77, 87, 83];
   var major = (v) => typeof v === "string" && /^\d+\.\d+\.\d+$/.test(v) ? +v.split(".")[0] : null;
   function openable(v) {
@@ -28375,7 +28424,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     [BTN.RIGHT]: { press: "faster" },
     [BTN.LB]: { tap: "swap-tool", hold: "rose-tools" },
     [BTN.RB]: { tap: "bench", hold: "rose-view" },
-    [BTN.MENU]: { press: "settings" },
+    [BTN.MENU]: { press: "menu" },
     [BTN.VIEW]: { press: "lab" },
     [BTN.R3]: { press: "zoom-reset" }
   };
@@ -28407,13 +28456,15 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     const shiftWheel = W2(tr("key.shift-wheel", "⇧ Wheel"));
     const hold = W2(tr("pad.hold", "hold")), tap = W2(tr("pad.tap", "tap")), riding = W2(tr("pad.riding", "riding")), inSettings = W2(tr("pad.in-settings", "in Settings"));
     const keyHeld = W2(tr("key.held", "held")), toControls = W2(tr("pad.to-controls", "then Controls"));
+    const nothingOpen = W2(tr("key.nothing-open", "with nothing open")), toSettings = W2(tr("pad.to-settings", "then Settings")), toNew = W2(tr("pad.to-new", "then New world"));
     return [
       { group: tr("help.group.look", "Look"), rows: [
         { text: tr("help.k1", "Examine a cell or particle"), keys: [click], pad: [P("S")] },
         { text: tr("help.k2", "Pan · zoom"), keys: [drag, K("W A S D"), K("↑ ← ↓ →"), wheel, K("−"), K("=")], pad: [P("L"), P("LT"), P("RT")] },
         { text: tr("help.zoom-reset", "Reset zoom"), keys: [K("Z")], pad: [P("R3")] },
         { text: tr("help.k5", "Auto camera · go to next scene"), keys: [K("P"), K("X")], pad: [P("UP")] },
-        { text: tr("help.k9", "Back: put the tool down, get off, close a panel, clear the highlight and map"), keys: [esc3], pad: [P("E")] }
+        { text: tr("help.k9", "Back: put the tool down, get off, close a panel, clear the highlight and map"), keys: [esc3], pad: [P("E")] },
+        { text: tr("help.menu", "Menu: save, load, new world, pool events, settings, quit"), keys: [esc3, nothingOpen], pad: [P("MENU")] }
       ] },
       { group: tr("help.group.time", "Time"), rows: [
         { text: tr("help.k3", "Pause · resume"), keys: [space], pad: [P("DOWN")] },
@@ -28438,11 +28489,11 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         { text: tr("help.k6", "Start · stop filming"), keys: [K("R")], pad: [P("RB"), hold] },
         { text: tr("help.k10", "Collapse or open the Field Lab"), keys: [K("K")], pad: [P("VIEW")] },
         { text: tr("help.k-lineage-back", "In the Lab’s Lineage view: go back up a species in the lineage tree"), keys: [esc3, K("⌫")], pad: [P("E")] },
-        { text: tr("help.k11", "Settings"), keys: [K("V")], pad: [P("MENU")] },
+        { text: tr("help.k11", "Settings"), keys: [K("V")], pad: [P("MENU"), toSettings] },
         { text: tr("help.list", "This list of controls"), keys: [K("?")], pad: [P("MENU"), toControls] },
         { text: tr("help.k12", "Sound on or off"), keys: [K("M")], pad: [inSettings] },
         { text: tr("help.k19", "Full screen · hide readouts · hide everything"), keys: [K("F"), K("I"), K("U")], pad: [inSettings] },
-        { text: tr("help.k20", "Discard this world and start a new one"), keys: [K("⇧R ⇧R")], pad: [inSettings] }
+        { text: tr("help.k20", "Discard this world and start a new one"), keys: [K("⇧R ⇧R")], pad: [P("MENU"), toNew] }
       ] }
     ];
   }
@@ -39276,26 +39327,26 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
   var touchOnly = !matchMedia("(any-hover: hover)").matches;
   var throttles = navigator.userAgentData?.mobile ?? (/Android|iPhone|iPad|Mobile/.test(navigator.userAgent) || isCoarse && !matchMedia("(any-pointer: fine)").matches);
   var HELD = {
-    // i18n: Settings → Perf, under Adaptation: one thing held back for speed (listed joined by " · "): the water's waves worked out not at all ({level} 0), a quarter (1) or half (2) as often
+    // i18n: Settings → Performance, under Adaptation: one thing held back for speed (listed joined by " · "): the water's waves worked out not at all ({level} 0), a quarter (1) or half (2) as often
     sea: (l) => tr("settings.perf.held.sea", "{level, select, 0 {Water surface off} 1 {Water at a quarter rate} other {Water at half rate}}", { level: l }),
     bloom: () => tr("settings.perf.held.bloom", "Glow off"),
     specks: () => tr("settings.perf.held.specks", "Suspension off"),
-    // i18n: Settings → Perf, one thing held back: which cells touch which (for drawing them pressed together) worked out a quarter as often, not half
+    // i18n: Settings → Performance, one thing held back: which cells touch which (for drawing them pressed together) worked out a quarter as often, not half
     contacts: () => tr("settings.perf.held.contacts", "Contacts at a quarter rate"),
-    // i18n: Settings → Perf, one thing held back: the stone lit again only every {s} seconds
+    // i18n: Settings → Performance, one thing held back: the stone lit again only every {s} seconds
     stone: (l) => tr("settings.perf.held.stone", "Stone relit every {s} s", { s: KNOBS.stone.levels[l] }),
     haze: () => tr("settings.perf.held.haze", "Heat haze off"),
     microscope: () => tr("settings.perf.held.microscope", "Microscope off"),
     interiors: () => tr("settings.perf.held.interiors", "Cell insides off"),
-    // i18n: Settings → Perf, one thing held back: the ice drawn at half the resolution of the rest of the view
+    // i18n: Settings → Performance, one thing held back: the ice drawn at half the resolution of the rest of the view
     ice: () => tr("settings.perf.held.ice", "Ice at half resolution"),
-    // i18n: Settings → Perf, one thing held back: {n} the neighbors a cell weighs each step, fewer than the most
+    // i18n: Settings → Performance, one thing held back: {n} the neighbors a cell weighs each step, fewer than the most
     neighbors: (l) => tr("settings.perf.held.neighbors", "{n} neighbors", { n: KNOBS.neighbors.levels[l] }),
-    // i18n: Settings → Perf, one thing held back: the world drawn at {pct} percent of the screen's resolution
+    // i18n: Settings → Performance, one thing held back: the world drawn at {pct} percent of the screen's resolution
     scale: (v) => tr("settings.perf.held.scale", "{pct}% resolution", { pct: Math.round(v * 100) }),
-    // i18n: Settings → Perf, one thing held back: the frame rate aimed lower, {n} frames a second
+    // i18n: Settings → Performance, one thing held back: the frame rate aimed lower, {n} frames a second
     fps: (v) => tr("settings.perf.held.fps", "{n} fps", { n: v }),
-    // i18n: Settings → Perf, one thing held back: the world's steps taken two sixtieths of a second at a time, each spread over two frames
+    // i18n: Settings → Performance, one thing held back: the world's steps taken two sixtieths of a second at a time, each spread over two frames
     split: () => tr("settings.perf.held.split", "Steps split over two frames")
   };
   var EASES = { water: "sea", bloom: "bloom", specks: "specks", haze: "haze", microlook: "microscope", lod: "interiors" };
@@ -39481,7 +39532,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const K2 = eng.K;
     const prefs = loadPrefs();
     const dsp = displayPrefs(prefs);
-    let lab = null, specimen = null, view = null;
+    let lab = null, specimen = null, view = null, gameMenu = null;
     let dockTop = innerHeight, railBottom = 0;
     if (eng.late && eng.late.done < eng.late.total) {
       const box = $2("compiling"), seg = $2("cmp-seg"), num = $2("cmp-n"), total = eng.late.total;
@@ -40105,8 +40156,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       watchVer = -1;
       renderFeed();
     }
+    let savedSim = null;
     function seedWorld(n) {
       eng.seed(n, { aspect: innerWidth / Math.max(1, innerHeight) });
+      savedSim = null;
       freshAdapt();
       const g = eng.grid;
       cam.x = g[0] / 2;
@@ -40214,6 +40267,18 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       measuredN = final;
       return final;
     }
+    async function newWorld(n) {
+      if (state.phase !== "running") return;
+      if (n === "auto" ? !state.perf.particles && measuredN === eng.count : n === eng.count) {
+        state.perf.particles = n === "auto" ? null : n;
+        persist();
+        seedWorld(eng.count);
+        sound.overture();
+        flash(tr("flash.new-world", "A new world begins"));
+        return;
+      }
+      await setParticles(n);
+    }
     async function setParticles(n) {
       if (state.phase !== "running") return;
       state.perf.particles = n === "auto" ? null : n;
@@ -40259,7 +40324,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       return n;
     }
     const worldStore = desk ? desk.worlds : createWorldStore();
-    async function saveWorld(name) {
+    const unsaved = () => state.phase === "running" && !introUp() && (savedSim == null ? eng.simTime > 1 : Math.abs(eng.simTime - savedSim) > 1);
+    const LAST_ID = "w-last";
+    async function saveWorld(name, { last: last2 = false } = {}) {
       const { lastCensus, genera, ...keepLife } = life;
       const listed = new Set([...life.reg.values()].map((s) => s.genus));
       keepLife.genera = new Map([...genera].map(([k, g]) => [k, listed.has(k) ? g : { ...g, founder: null }]));
@@ -40267,10 +40334,11 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const page = { life: keepLife, climate: keepClimate, cam: { x: cam.x, y: cam.y, zoom: cam.zoomTarget }, chron: chron.save() };
       const top = [...life.reg.values()].filter((s) => s.alive && s.established).sort((a, b) => b.pop - a.pop);
       const meta = {
-        id: newKey("w"),
+        id: last2 ? LAST_ID : newKey("w"),
         name,
         savedAt: Date.now(),
         version: SAVE_VERSION,
+        last: last2,
         simTime: eng.simTime,
         count: eng.count,
         thriving: life.thriving,
@@ -40281,6 +40349,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const bytes = await encodeWorld({ meta, cpu: st.cpu, ...compactState(st), page });
       const preview = desk ? await takeView().then((px) => px && encodeBytes(px, "image/jpeg", 0.88)).catch(() => null) : null;
       await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes, preview || void 0);
+      savedSim = meta.simTime;
     }
     async function openWorld(bytes) {
       const w = await decodeWorld(bytes);
@@ -40354,6 +40423,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       }
       state.busy = false;
       state.phase = "running";
+      savedSim = eng.simTime;
       flash(tr("flash.world-loaded", "{name} loaded", { name: w.meta.name }));
       return true;
     }
@@ -42048,7 +42118,6 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     view = (() => {
       const el2 = $2("settings"), opts = $2("opts"), btn = $2("set-open"), tabs = [...el2.querySelectorAll("#set-tabs [data-tab]")];
       let tab = "display";
-      let pendingN = null;
       const choice = (id, title, key, items, cur, tip, cols = 0) => {
         const now = String(cur) === "auto" ? autoNow(id) : null;
         const sos = now?.sos ? " auto-sos" : "";
@@ -42101,16 +42170,16 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         haze: tr("settings.display.heat-shimmer", "Heat haze"),
         specks: tr("settings.display.specks", "Suspension"),
         interiors: tr("settings.display.lod", "Cell insides"),
-        // i18n: Settings → Perf → Pacing's row and the readout's adapting summary: the stone's light, which the page may work out again less often
+        // i18n: Settings → Performance → Pacing's row and the readout's adapting summary: the stone's light, which the page may work out again less often
         stone: tr("dock.adapt.stone", "Stone light"),
-        // i18n: Settings → Perf → Resolution's row and the readout's adapting summary: the ice's look, which the page may draw at a lower resolution
+        // i18n: Settings → Performance → Resolution's row and the readout's adapting summary: the ice's look, which the page may draw at a lower resolution
         ice: tr("dock.adapt.ice", "Ice"),
-        // i18n: Settings → Perf → Pacing's row and the readout's adapting summary: which cells touch which (drawn pressed together), which the page may work out less often
+        // i18n: Settings → Performance → Pacing's row and the readout's adapting summary: which cells touch which (drawn pressed together), which the page may work out less often
         contacts: tr("dock.adapt.contacts", "Cell contacts"),
         scale: tr("settings.perf.scale", "Render scale"),
         fps: tr("settings.perf.fps", "Target fps"),
         neighbors: tr("settings.perf.neighbors", "Neighbors"),
-        // i18n: Settings → Perf → Pacing's row and the readout's adapting summary: whether the world's step may be taken two sixtieths of a second at a time, spread over two frames, to keep 60 fps
+        // i18n: Settings → Performance → Pacing's row and the readout's adapting summary: whether the world's step may be taken two sixtieths of a second at a time, spread over two frames, to keep 60 fps
         split: tr("settings.perf.split", "Split steps")
       };
       const group = (id, text2, rows) => section(id, text2, block("", rows));
@@ -42158,154 +42227,16 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       function performance_() {
         const P2 = state.perf;
         const dev = Math.min(devicePixelRatio || 1, 2);
-        const sizes2 = PARTICLE_SIZES.filter((n) => n <= maxParticles());
-        const nowN = pendingN ?? (P2.particles || "auto");
-        return group("quality", tr("settings.perf.quality", "Quality"), onoff("adapt", tr("settings.perf.adapt", "Adaptation"), "", P2.adapt, "adapt") + `<p class="eased-now" id="perf-held">${heldWords()}</p>`) + group("res", tr("settings.perf.resolution", "Resolution"), choice("scale", NAMES.scale, "", [["auto", AUTO], [1, pctOf(100)], [0.75, pctOf(75)], [0.5, pctOf(50)], [0.25, pctOf(25)]], P2.scale, "renderscale") + (P2.scale === "auto" ? choice("floor", tr("settings.perf.floor", "Auto lowest"), "", [[0.75, pctOf(75)], [0.5, pctOf(50)], [0.35, pctOf(35)], [0.25, pctOf(25)]], P2.floor, "autofloor") : "") + choice("density", tr("settings.perf.density", "Pixel density"), "", [["auto", AUTO], [1, timesOf(1)], [1.5, timesOf(1.5), dev < 1.5], [2, timesOf(2), dev < 2]], P2.density, "density") + choice("fps", NAMES.fps, "", [["auto", AUTO], [30, "30"], [60, "60"], [0, tr("settings.perf.fps-display", "Display")]], P2.fps, "targetfps") + (K2.heat ? choice("iceScale", NAMES.ice, "", [["auto", AUTO], [1, FULL], [0.5, HALF]], P2.iceScale, "icescale") : "")) + group("pacing", tr("settings.perf.pacing", "Pacing"), (state.water ? choice("seaEvery", tr("settings.perf.sea-every", "Water surface"), "", [["auto", AUTO], [1, FULL], [2, RATE_HALF], [4, RATE_QUARTER]], P2.seaEvery, "seaevery") : "") + choice("contactsEvery", NAMES.contacts, "", [["auto", AUTO], [2, RATE_HALF], [4, RATE_QUARTER]], P2.contactsEvery, "contactsevery") + choice("stoneEvery", NAMES.stone, "", [["auto", AUTO], ...[0.5, 1, 2].map((v) => [v, tr("settings.perf.every-s", "{s} s", { s: v })])], P2.stoneEvery, "stoneevery") + choice("split", NAMES.split, "", [["auto", AUTO], ["off", OFF]], P2.split, "splitsteps")) + group("world", tr("settings.perf.world", "World"), choice("n", tr("settings.perf.particles", "Particles"), "", [["auto", AUTO], ...sizes2.map((n) => [n, kfmt(n)])], nowN, "particles") + choice("scan", NAMES.neighbors, "", [["auto", AUTO], ...scanChoices().map((n) => [n, String(n)])], P2.scan ?? "auto", "neighbors") + (pendingN != null && String(pendingN) !== String(P2.particles || "auto") ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">${pendingN === "auto" ? tr("settings.perf.apply-auto", "Start a new world with a measured count") : tr("settings.perf.apply", "Start a new world with {n, number}", { n: pendingN })}</button></div>` : "") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", tr("settings.perf.profile", "Profile"))}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">${tr("settings.perf.copy-profile", "Copy profile")}</button></div></div>` : ""));
-      }
-      function climate_() {
-        const E = state.events;
-        const kinds = E.on ? EVENT_TYPES.map((x) => onoff(`ev-${x}`, EVENT_NAME[x], "", E[x], `ev${x}`)).join("") : "";
-        const now = !K2.pond ? "" : state.phase === "running" && !climate.event && E.on && EVENT_TYPES.some((x) => E[x]) ? ((on) => `<div class="opt"><span class="lbl">${term("evstart", tr("settings.climate.start-now", "Start one now"))}</span><div class="row segs${on.length > 3 ? ' many" style="--cols: 2' : ""}">${on.map((x) => `<button type="button" class="chip" data-o="ev-start" data-v="${x}">${EVENT_NAME[x]}</button>`).join("")}</div></div>`)(EVENT_TYPES.filter((x) => E.on && E[x])) : climate?.event ? `<div class="opt"><span class="lbl">${tr("settings.climate.under-way", "Under way")}</span><span class="note">${tr("settings.climate.event-now", "{name}{phase, select, none {} drying { · drying} dry { · dry} rain { · rain} after { · after} cooling { · cooling} freezing { · freezing} frozen { · frozen} thaw { · thaw} other { · {phase}}}", { name: EVENT_NAME[climate.event.type], phase: climate.phase && climate.phase !== climate.event.type ? climate.phase : "none" })}</span></div>` : "";
-        return group("events", tr("settings.climate.events", "Pool events"), onoff("ev-on", tr("settings.climate.events-on", "Events"), "", E.on, "poolevents") + kinds + now);
-      }
-      let saves = null, used = 0, wName = "", ask2 = null, wBusy = "", wPoll = 0;
-      const defaultName = () => tr("worlds.default-name", "{era} · {age}", { era: eraName(climate.name), age: fmtDur(eng.simTime) });
-      const mb = (n) => tr("worlds.mb", "{n} MB", { n: (n / 1048576).toFixed(n < 10485760 ? 1 : 0) });
-      const mini = (o, v, text2, cls = "") => `<button type="button" class="btn mini${cls}" data-o="${o}" data-v="${esc2(v)}"${wBusy ? " disabled" : ""}>${text2}</button>`;
-      const ghost = (o, v, icon2, label3, hint) => `<button type="button" class="ghost" data-o="${o}" data-v="${esc2(v)}" aria-label="${label3}" data-hint="${hint}"${wBusy ? " disabled" : ""}><svg><use href="#i-${icon2}"/></svg></button>`;
-      function saveRow(m) {
-        const sw = [0, 1, 2, 3].map((i) => `<i${m.cols?.[i] != null ? ` style="background:${cssCol(m.cols[i])}"` : ""}></i>`).join("");
-        const a = ask2 && ask2.id === m.id ? ask2.kind : null, ws = m.from === "workshop";
-        const can = m.downloading != null ? "ok" : openable(m.version);
-        const line2 = a === "load" ? `<em>${tr("worlds.ask-load", "Discard this world?")}</em>` : can !== "ok" ? tr("worlds.cannot-open", "<em>{why, select, newer {Needs a newer Tidemote} other {From an older Tidemote}}</em> · {when}", { why: can, when: when(m.savedAt) }) : a === "del" ? `<em>${ws ? tr("worlds.ask-unsubscribe", "Unsubscribe from it?") : tr("worlds.ask-delete", "Delete this save?")}</em>` : a === "share" ? `<em>${m.workshop ? tr("worlds.ask-update", "Update it on the Steam Workshop?") : tr("worlds.ask-share", "Share it on the Steam Workshop for anyone to see?")}</em>` : m.downloading != null ? tr("worlds.downloading", "Downloading · {pct}%", { pct: Math.round(m.downloading * 100) }) : tr("worlds.row", "{age} · {count} · {species, plural, other {{species} species}} · {when}", { age: fmtDur(m.simTime), count: kfmt(m.count), species: +m.thriving || 0, when: when(m.savedAt) });
-        const CANCEL = tr("worlds.cancel", "Cancel"), LOAD = tr("worlds.load", "Load"), UNSUB = tr("worlds.unsubscribe", "Unsubscribe"), DEL = tr("worlds.delete", "Delete");
-        const acts = a === "load" ? mini("w-no", m.id, CANCEL) + mini("w-first", m.id, tr("worlds.save-first", "Save first")) + mini("w-yes", m.id, wBusy === "load" ? tr("worlds.loading", "Loading") : LOAD, " hot-btn") : a === "del" ? mini("w-no", m.id, CANCEL) + mini("w-yes", m.id, ws ? UNSUB : DEL, " hot-btn") : a === "share" ? mini("w-no", m.id, CANCEL) + mini("w-yes", m.id, wBusy === "share" ? tr("worlds.sharing", "Sharing") : m.workshop ? tr("worlds.update", "Update") : tr("worlds.share", "Share"), " hot-btn") : ws ? (m.downloading != null || can !== "ok" ? "" : mini("w-load", m.id, LOAD)) + ghost("w-page", m.id, "share", tr("worlds.on-steam", "On Steam"), tr("worlds.on-steam.hint", "Its page on the Steam Workshop")) + ghost("w-del", m.id, "close", UNSUB, UNSUB) : (can !== "ok" ? "" : mini("w-load", m.id, LOAD) + (steamOn.on ? ghost("w-share", m.id, "share", tr("worlds.share", "Share"), m.workshop ? tr("worlds.share.hint-update", "Update it on the Steam Workshop") : tr("worlds.share.hint", "Share on the Steam Workshop")) : "")) + ghost("w-dl", m.id, "down", tr("worlds.download", "Download"), desk ? tr("worlds.download.hint-desktop", "Save a copy as a file") : tr("worlds.download.hint", "Download a file to open on another device")) + ghost("w-del", m.id, "close", DEL, DEL);
-        return `<div class="w-row"><span class="w-sw" aria-hidden="true">${sw}</span><div class="w-txt"><b>${esc2(m.name)}</b><span>${line2}</span></div><div class="w-act">${acts}</div></div>`;
-      }
-      function worlds_() {
-        const off = wBusy || state.phase !== "running" ? " disabled" : "";
-        const save2 = `<div class="w-save"><input type="text" id="w-name" maxlength="60" autocomplete="off" spellcheck="false" placeholder="${esc2(defaultName())}" value="${esc2(wName)}" aria-label="${tr("worlds.name.aria", "Name this save")}"${off}><button type="button" class="btn hot-btn" data-o="w-save" data-v="0"${off}>${wBusy === "save" ? tr("worlds.saving", "Saving") : tr("worlds.save", "Save")}</button></div>`;
-        const own2 = saves && saves.filter((m) => m.from !== "workshop"), ws = saves && saves.filter((m) => m.from === "workshop");
-        const list = saves == null ? `<p class="note">${tr("worlds.reading", "Reading the saved worlds…")}</p>` : own2.length ? own2.map(saveRow).join("") : `<p class="note">${tr("worlds.none", "No saved worlds yet.")}</p>`;
-        const browse = `<div class="w-more"><button type="button" class="link" data-o="w-browse" data-v="0">${tr("worlds.browse", "Browse the Workshop")}</button></div>`;
-        const wsList = !steamOn.on || saves == null ? "" : section("w-ws", tr("worlds.workshop", "From the Workshop"), block("", (ws.length ? ws.map(saveRow).join("") : `<p class="note">${tr("worlds.workshop-none", "Subscribed worlds from the Steam Workshop.")}</p>`) + browse));
-        return group("w-save", tr("worlds.save-heading", "Save this world"), save2) + section("w-list", tr("worlds.saved-heading", "Saved worlds"), block("", list, { aside: own2 && own2.length ? tr("worlds.used", "{n} · {size}", { n: own2.length, size: mb(used) }) : "", tip: "saves" })) + wsList;
-      }
-      async function refreshSaves() {
-        try {
-          saves = await worldStore.list();
-        } catch {
-          saves = [];
-        }
-        used = saves.reduce((a, m) => a + (m.from !== "workshop" && m.bytes || 0), 0);
-        render();
-        clearTimeout(wPoll);
-        if (saves.some((m) => m.downloading != null)) wPoll = setTimeout(() => {
-          if (!el2.hidden && tab === "worlds") refreshSaves();
-        }, 2e3);
-      }
-      const wsDescription = (m) => tr("worlds.ws-description", "A Tidemote world after {age}: {count} particles, {species, plural, other {{species} species}} thriving.", { age: durWords(m.simTime), count: kfmt(m.count), species: +m.thriving || 0 });
-      const download = (m, bytes) => saveFile(new Blob([bytes], { type: "application/gzip" }), `${m.name.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-") || tr("worlds.file-name", "world")}.tidemote`);
-      async function worldAct(id, v) {
-        const busy = async (what, fn) => {
-          wBusy = what;
-          render();
-          try {
-            await fn();
-          } catch (e) {
-            flash(String(e.message || e));
-          }
-          wBusy = "";
-          render();
-        };
-        if (id === "w-save") {
-          if (wBusy || state.phase !== "running") return;
-          await busy("save", async () => {
-            await saveWorld(wName.trim() || defaultName());
-            wName = "";
-            flash(tr("flash.world-saved", "World saved"));
-            await refreshSaves();
-          });
-        } else if (id === "w-load" || id === "w-del" || id === "w-share") {
-          ask2 = { kind: { "w-load": "load", "w-del": "del", "w-share": "share" }[id], id: v };
-          render();
-        } else if (id === "w-no") {
-          ask2 = null;
-          render();
-        } else if (id === "w-yes" && ask2?.kind === "share") {
-          const m = saves.find((x) => x.id === v);
-          ask2 = null;
-          if (!m || wBusy) return;
-          await busy("share", async () => {
-            const r = await desk.workshop.share(v, { title: m.name, description: wsDescription(m) });
-            unlock(["SHARED"]);
-            flash(r.agreement ? tr("flash.ws-agreement", "Accept the Workshop agreement on Steam to make it public") : m.workshop ? tr("flash.ws-updated", "Updated on the Workshop") : tr("flash.ws-shared", "Shared on the Workshop"));
-            desk.workshop.open(r.id);
-            await refreshSaves();
-          });
-        } else if (id === "w-page") {
-          const m = saves.find((x) => x.id === v);
-          if (m) desk.workshop.open(m.workshop);
-        } else if (id === "w-browse") desk?.workshop.browse();
-        else if (id === "w-yes" && ask2?.kind === "del") {
-          ask2 = null;
-          await worldStore.remove(v).catch((e) => flash(String(e.message || e)));
-          await refreshSaves();
-        } else if (id === "w-yes" || id === "w-first") {
-          if (wBusy || state.phase !== "running") return;
-          let loaded = false;
-          await busy("load", async () => {
-            const w = await openWorld(await worldStore.get(v));
-            if (id === "w-first") await saveWorld(defaultName());
-            ask2 = null;
-            loaded = await loadWorld(w);
-          });
-          if (loaded) toggle(false);
-          else refreshSaves();
-        } else if (id === "w-dl") {
-          const m = saves.find((x) => x.id === v);
-          if (m) download(m, await worldStore.get(v));
-        } else if (id === "w-open") $2("w-file").click();
-      }
-      $2("w-file").addEventListener("change", async (e) => {
-        const f2 = e.target.files[0];
-        e.target.value = "";
-        if (!f2) return;
-        wBusy = "open";
-        render();
-        try {
-          const bytes = await f2.arrayBuffer();
-          const { meta } = await openWorld(bytes);
-          await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes);
-          ask2 = { kind: "load", id: meta.id };
-        } catch (err) {
-          flash(tr("flash.open-failed", "Could not open {file}: {why}", { file: f2.name, why: String(err.message || err) }));
-        }
-        wBusy = "";
-        await refreshSaves();
-      });
-      const ext = (href, text2) => `<a class="sp" target="_blank" rel="noopener" href="${href}">${text2}</a>`;
-      function about_() {
-        const link = (href) => (c) => ext(href, c.join(""));
-        const privacy = tr("settings.about.privacy", "{app, select,desktop {Everything runs on this computer: there is no account and no analytics. Saved worlds are files on this computer and synced to Steam Cloud if connected.}other {Everything runs on this device: there is no account and no analytics. Saved worlds stay in this browser unless you download them.}}", { app: globalThis.tidemoteDesktop ? "desktop" : "web" });
-        return group("intro", "", `<div class="about"><p>${tr("settings.about.p1", "A sealed biosphere of up to millions of particles, and all of them live, eat, breed, and die in your browser, simulated on the GPU with WebGPU. Some cells drink the moving light of the tide. Others graze on the producers, and others hunt the grazers. Scavengers break down the dead and return them to the water as silt, and from that silt the next generation builds its children. Children mutate into new species. Species that bond grow into bodies: filaments, branched fronds, spirals, packed tissues. Some of these bodies grow beating tails and swim. Every 10 to 18 minutes the climate turns, and the world has to begin again in its own way. It makes its own music, too: each cell sings its species' song, over a chorus of the births, kills, and deaths in view.")}</p>
-<p>${tr("settings.about.p2", "No hand steers any of this: every ecological rule is local. The complex interacting colonies emerge from simple rules acting on the mutating genome each cell carries. The Field Lab's <guide>Guide</guide> explains how it works.", { guide: (c) => `<button type="button" class="link" data-o="guide" data-v="0">${c.join("")}</button>` })}</p></div>`) + group("made", tr("settings.about.made-by", "Made by"), `<div class="about"><p>${tr("settings.about.credits", "Developed by <a1>Tyler Hallada</a1> with AI coding tools (<a2>Claude Code</a2> and <a4>Codex</a4>), which wrote most of the code. Graphics and sounds in this game are procedurally generated from code. No generative image, video, or sound AI model content is used in this game. The soundtrack is composed live from the simulation and the cells in view, played in a custom browser port of <a3>SuperCollider</a3>. Every line of text in the interface was reviewed and edited by hand.", { a1: link("https://www.hallada.net"), a2: link("https://claude.com/claude-code"), a3: link("https://supercollider.github.io/"), a4: link("https://openai.com/codex/") })}</p></div>`) + group("src", tr("settings.about.source", "Source"), `<div class="about"><p>${tr("settings.about.license", "Free software under the <a1>GPL-3.0</a1>: the code, design notes, and tools used in development are on <a2>GitHub</a2>. Feedback, bug reports, and ideas are welcome as issues.", { a1: link("https://www.gnu.org/licenses/gpl-3.0.html"), a2: link("https://github.com/thallada/tidemote") })}</p>
-<p>${privacy}</p></div>`) + (globalThis.tidemoteDesktop ? "" : group("desktop", tr("settings.about.desktop", "Desktop"), `<div class="about"><p>${tr("settings.about.desktop-p", "Tidemote is also a desktop app, at its best on a computer with a dedicated graphics card.")}</p><div class="stores">${storeLinks()}</div></div>`));
+        return group("quality", tr("settings.perf.quality", "Quality"), onoff("adapt", tr("settings.perf.adapt", "Adaptation"), "", P2.adapt, "adapt") + `<p class="eased-now" id="perf-held">${heldWords()}</p>`) + group("res", tr("settings.perf.resolution", "Resolution"), choice("scale", NAMES.scale, "", [["auto", AUTO], [1, pctOf(100)], [0.75, pctOf(75)], [0.5, pctOf(50)], [0.25, pctOf(25)]], P2.scale, "renderscale") + (P2.scale === "auto" ? choice("floor", tr("settings.perf.floor", "Auto lowest"), "", [[0.75, pctOf(75)], [0.5, pctOf(50)], [0.35, pctOf(35)], [0.25, pctOf(25)]], P2.floor, "autofloor") : "") + choice("density", tr("settings.perf.density", "Pixel density"), "", [["auto", AUTO], [1, timesOf(1)], [1.5, timesOf(1.5), dev < 1.5], [2, timesOf(2), dev < 2]], P2.density, "density") + choice("fps", NAMES.fps, "", [["auto", AUTO], [30, "30"], [60, "60"], [0, tr("settings.perf.fps-display", "Display")]], P2.fps, "targetfps") + (K2.heat ? choice("iceScale", NAMES.ice, "", [["auto", AUTO], [1, FULL], [0.5, HALF]], P2.iceScale, "icescale") : "")) + group("pacing", tr("settings.perf.pacing", "Pacing"), (state.water ? choice("seaEvery", tr("settings.perf.sea-every", "Water surface"), "", [["auto", AUTO], [1, FULL], [2, RATE_HALF], [4, RATE_QUARTER]], P2.seaEvery, "seaevery") : "") + choice("contactsEvery", NAMES.contacts, "", [["auto", AUTO], [2, RATE_HALF], [4, RATE_QUARTER]], P2.contactsEvery, "contactsevery") + choice("stoneEvery", NAMES.stone, "", [["auto", AUTO], ...[0.5, 1, 2].map((v) => [v, tr("settings.perf.every-s", "{s} s", { s: v })])], P2.stoneEvery, "stoneevery") + choice("split", NAMES.split, "", [["auto", AUTO], ["off", OFF]], P2.split, "splitsteps")) + group("world", tr("settings.perf.world", "World"), `<div class="opt"><span class="lbl">${term("particles", tr("settings.perf.particles", "Particles"))}</span><div class="row set-n"><b>${fmt(eng.count)}</b><button type="button" class="link" data-o="new-world" data-v="0">${tr("settings.perf.new-world", "New world")}</button></div></div>` + choice("scan", NAMES.neighbors, "", [["auto", AUTO], ...scanChoices().map((n) => [n, String(n)])], P2.scan ?? "auto", "neighbors") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", tr("settings.perf.profile", "Profile"))}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">${tr("settings.perf.copy-profile", "Copy profile")}</button></div></div>` : ""));
       }
       const keysNote = `<button type="button" class="link keys-note" data-open="help">${tr("settings.keys-note", "Controls")}</button>`;
       function foot() {
-        if (tab === "about") return `<div class="set-foot">${keysNote}</div>`;
-        const kept = !desk ? tr("settings.worlds.kept-browser", "Kept in this browser.") : steamOn.cloud ? tr("settings.worlds.kept-cloud", "Kept on this computer and in Steam Cloud.") : tr("settings.worlds.kept-computer", "Kept on this computer.");
-        if (tab === "worlds") return `<div class="set-foot"><span class="keys-note">${kept}</span><button type="button" class="link set-reset" data-o="w-open" data-v="0"${wBusy ? " disabled" : ""}>${tr("settings.worlds.open-file", "Open a file")}</button></div>`;
         const reset = confirming ? `<span class="set-reset"><span>${tr("settings.reset-ask", "Reset every {tab, select, display {display} audio {audio} performance {performance} climate {climate} other {{tab}}} setting?", { tab })}</span><button type="button" class="link" data-o="reset-no" data-v="0">${tr("settings.reset-cancel", "Cancel")}</button><button type="button" class="btn hot-btn" data-o="reset-yes" data-v="0">${tr("settings.reset-yes", "Reset")}</button></span>` : `<button type="button" class="link set-reset" data-o="reset" data-v="0">${tr("settings.reset", "Reset to defaults")}</button>`;
         return `<div class="set-foot">${confirming ? "" : keysNote}${reset}</div>`;
       }
       function resetTab() {
         const s = eng.settings, P2 = state.perf;
-        if (tab === "climate") {
-          state.events = EVENTS_ON();
-          applyEvents();
-        } else if (tab === "display") {
+        if (tab === "display") {
           trailIdx = 1;
           s.trails = trailLevels[trailIdx];
           for (const k of ["bloom", "specks", "lod"]) s[k] = defaults[k];
@@ -42340,7 +42271,6 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           renderScale = Math.max(renderScale, P2.floor);
           resetAdapt();
           fit3();
-          pendingN = P2.particles ? "auto" : null;
         }
       }
       function render() {
@@ -42351,15 +42281,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           b.tabIndex = on ? 0 : -1;
         });
         $2("readout").hidden = tab !== "performance";
-        const typing = document.activeElement?.id === "w-name";
-        setHTML(opts, (tab === "display" ? display() : tab === "audio" ? audio_() : tab === "performance" ? performance_() : tab === "climate" ? climate_() : tab === "about" ? about_() : worlds_()) + foot());
-        if (typing && !$2("w-name").disabled) {
-          const i = $2("w-name");
-          i.focus();
-          i.setSelectionRange(i.value.length, i.value.length);
-        }
+        setHTML(opts, (tab === "display" ? display() : tab === "audio" ? audio_() : performance_()) + foot());
         if (tab === "display") drawCal();
-        if (tab === "worlds" && saves == null) refreshSaves();
         readout(true);
       }
       let roAt = 0;
@@ -42414,7 +42337,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           const [, v, st] = at[id];
           return `<div class="am-r" data-s="${st}"><span class="lbl">${NAMES[id]}</span><i></i><b>${adaptValue(id, v, st)}</b><em>${st === "held" ? EASED : st === "fixed" ? FIXED : ""}</em></div>`;
         };
-        return (held ? `<div class="am-h"><span>${tr("dock.adapt.title", "Adapting")}</span><span>${WHY_WORDS[perf.why] ?? ""}</span></div>` : `<div class="am-h calm"><span>${tr("settings.perf.held-none", "Full Quality")}</span></div>`) + SUMMED.map((ids) => `<div class="am-g">${ids.filter((id) => id !== "haze" && id !== "ice" || K2.heat).map(row).join("")}</div>`).join("") + `<div class="am-f">${tr("dock.adapt.open", "{touch, select, yes {Tap again to open Settings → Perf} other {Click to open Settings → Perf}}", { touch: isCoarse ? "yes" : "no" })}</div>`;
+        return (held ? `<div class="am-h"><span>${tr("dock.adapt.title", "Adapting")}</span><span>${WHY_WORDS[perf.why] ?? ""}</span></div>` : `<div class="am-h calm"><span>${tr("settings.perf.held-none", "Full Quality")}</span></div>`) + SUMMED.map((ids) => `<div class="am-g">${ids.filter((id) => id !== "haze" && id !== "ice" || K2.heat).map(row).join("")}</div>`).join("") + `<div class="am-f">${tr("dock.adapt.open", "{touch, select, yes {Tap again to open Settings → Performance} other {Click to open Settings → Performance}}", { touch: isCoarse ? "yes" : "no" })}</div>`;
       };
       function adapt() {
         const held = new Set(heldNow().map((r) => r[0]));
@@ -42433,10 +42356,6 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       });
       function set(id, v) {
         const s = eng.settings, P2 = state.perf;
-        if (id.startsWith("w-")) {
-          worldAct(id, v);
-          return;
-        }
         if (EASES[id]) {
           fixRow(id, v !== "auto");
           if (v === "auto") v = AUTO_VAL[id];
@@ -42483,17 +42402,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         } else if (id === "wide") {
           dsp.wide = +v;
           applyDisplay();
-        } else if (id === "ev-start") {
-          if (!climate.event) climate.force(v);
-          toggle(false);
-          return;
         } else if (id === "film") {
           toggle(false);
           filmAct();
           return;
-        } else if (id.startsWith("ev-")) {
-          state.events[id.slice(3)] = !!+v;
-          applyEvents();
         } else if (id === "ui") {
           setInterface(!!+v);
           return;
@@ -42535,20 +42447,15 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
             k.hold = 0;
           }
         } else if (id === "split") P2.split = v;
-        else if (id === "n") pendingN = v === "auto" ? "auto" : +v;
-        else if (id === "apply") {
-          const n = pendingN;
-          pendingN = null;
-          setParticles(n);
-        } else if (id === "profile") {
+        else if (id === "profile") {
           copyProfile();
+          return;
+        } else if (id === "new-world") {
+          toggle(false);
+          gameMenu.open("new");
           return;
         } else if (id === "sound") {
           if (!!+v !== sound.on) toggleSound();
-          return;
-        } else if (id === "guide") {
-          toggle(false);
-          lab.open("guide");
           return;
         } else if (id === "reset" || id === "reset-no") {
           confirming = id === "reset";
@@ -42565,8 +42472,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         if (b && !b.disabled) set(b.dataset.o, b.dataset.v);
       });
       opts.addEventListener("input", (e) => {
-        if (e.target.id === "w-name") wName = e.target.value;
-        else if (e.target.id === "set-vol") {
+        if (e.target.id === "set-vol") {
           if (!sound.on) toggleSound();
           sound.setVolume(Number(e.target.value) / 100);
         } else if (e.target.id === "set-peak") {
@@ -42595,17 +42501,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       opts.addEventListener("keydown", (e) => {
         if (e.target.id === "set-peak") wakeCal();
       });
-      opts.addEventListener("keydown", (e) => {
-        if (e.target.id === "w-name" && e.key === "Enter") {
-          e.preventDefault();
-          worldAct("w-save");
-        }
-      });
       tabs.forEach((b) => b.addEventListener("click", () => {
         if (tab !== b.dataset.tab) $2("set-body").scrollTop = 0;
         tab = b.dataset.tab;
         confirming = false;
-        ask2 = null;
         render();
       }));
       $2("set-tabs").addEventListener("keydown", (e) => {
@@ -42691,36 +42590,407 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       });
       function toggle(on = el2.hidden, to) {
         const other2 = to && tab !== to;
+        delete el2.dataset.from;
         if (to) {
           on = el2.hidden || tab !== to;
           if (on) {
             tab = to;
             confirming = false;
-            ask2 = null;
           }
         }
         el2.hidden = !on;
         btn.setAttribute("aria-expanded", String(on));
         if (on) {
           $2("help").hidden = true;
+          gameMenu?.close();
           if (phone()) lab.close();
-          saves = null;
           render();
           if (other2) $2("set-body").scrollTop = 0;
         } else {
-          pendingN = null;
           confirming = false;
-          ask2 = null;
           unplace();
         }
       }
       btn.addEventListener("click", () => toggle());
-      $2("brand").addEventListener("click", () => toggle(true, "about"));
       $2("set-close").addEventListener("click", () => {
         toggle(false);
         restoreFocus(el2);
       });
-      return { render, toggle, readout, adapt, isOpen: () => !el2.hidden };
+      return { render, toggle, readout, adapt, isOpen: () => !el2.hidden, choice, onoff, group };
+    })();
+    gameMenu = (() => {
+      const el2 = $2("gmenu"), head = $2("gm-head"), body = $2("gm-body");
+      const openers2 = [$2("brand"), $2("gm-open")];
+      const { choice, onoff, group } = view;
+      let page = "root", pickN = null, quitAsk = false, quitting = "";
+      function climate_() {
+        const E = state.events;
+        const kinds = E.on ? EVENT_TYPES.map((x) => onoff(`ev-${x}`, EVENT_NAME[x], "", E[x], `ev${x}`)).join("") : "";
+        const now = !K2.pond ? "" : state.phase === "running" && !climate.event && E.on && EVENT_TYPES.some((x) => E[x]) ? ((on) => `<div class="opt"><span class="lbl">${term("evstart", tr("settings.climate.start-now", "Start one now"))}</span><div class="row segs${on.length > 3 ? ' many" style="--cols: 2' : ""}">${on.map((x) => `<button type="button" class="chip" data-o="ev-start" data-v="${x}">${EVENT_NAME[x]}</button>`).join("")}</div></div>`)(EVENT_TYPES.filter((x) => E.on && E[x])) : climate?.event ? `<div class="opt"><span class="lbl">${tr("settings.climate.under-way", "Under way")}</span><span class="note">${tr("settings.climate.event-now", "{name}{phase, select, none {} drying { · drying} dry { · dry} rain { · rain} after { · after} cooling { · cooling} freezing { · freezing} frozen { · frozen} thaw { · thaw} other { · {phase}}}", { name: EVENT_NAME[climate.event.type], phase: climate.phase && climate.phase !== climate.event.type ? climate.phase : "none" })}</span></div>` : "";
+        return group("events", "", onoff("ev-on", tr("settings.climate.events-on", "Events"), "", E.on, "poolevents") + kinds + now);
+      }
+      let saves = null, used = 0, wName = "", ask2 = null, wBusy = "", wPoll = 0;
+      const defaultName = () => tr("worlds.default-name", "{era} · {age}", { era: eraName(climate.name), age: fmtDur(eng.simTime) });
+      const mb = (n) => tr("worlds.mb", "{n} MB", { n: (n / 1048576).toFixed(n < 10485760 ? 1 : 0) });
+      const mini = (o, v, text2, cls = "") => `<button type="button" class="btn mini${cls}" data-o="${o}" data-v="${esc2(v)}"${wBusy ? " disabled" : ""}>${text2}</button>`;
+      const ghost = (o, v, icon2, label3, hint) => `<button type="button" class="ghost" data-o="${o}" data-v="${esc2(v)}" aria-label="${label3}" data-hint="${hint}"${wBusy ? " disabled" : ""}><svg><use href="#i-${icon2}"/></svg></button>`;
+      function saveRow(m) {
+        const sw = [0, 1, 2, 3].map((i) => `<i${m.cols?.[i] != null ? ` style="background:${cssCol(m.cols[i])}"` : ""}></i>`).join("");
+        const a = ask2 && ask2.id === m.id ? ask2.kind : null, ws = m.from === "workshop";
+        const can = m.downloading != null ? "ok" : openable(m.version);
+        const line2 = a === "load" ? `<em>${tr("worlds.ask-load", "Discard this world?")}</em>` : can !== "ok" ? tr("worlds.cannot-open", "<em>{why, select, newer {Needs a newer Tidemote} other {From an older Tidemote}}</em> · {when}", { why: can, when: when(m.savedAt) }) : a === "del" ? `<em>${ws ? tr("worlds.ask-unsubscribe", "Unsubscribe from it?") : tr("worlds.ask-delete", "Delete this save?")}</em>` : a === "share" ? `<em>${m.workshop ? tr("worlds.ask-update", "Update it on the Steam Workshop?") : tr("worlds.ask-share", "Share it on the Steam Workshop for anyone to see?")}</em>` : m.downloading != null ? tr("worlds.downloading", "Downloading · {pct}%", { pct: Math.round(m.downloading * 100) }) : tr("worlds.row", "{age} · {count} · {species, plural, other {{species} species}} · {when}", { age: fmtDur(m.simTime), count: kfmt(m.count), species: +m.thriving || 0, when: when(m.savedAt) });
+        const CANCEL = tr("worlds.cancel", "Cancel"), LOAD = tr("worlds.load", "Load"), UNSUB = tr("worlds.unsubscribe", "Unsubscribe"), DEL = tr("worlds.delete", "Delete");
+        const acts = a === "load" ? mini("w-no", m.id, CANCEL) + mini("w-first", m.id, tr("worlds.save-first", "Save first")) + mini("w-yes", m.id, wBusy === "load" ? tr("worlds.loading", "Loading") : LOAD, " hot-btn") : a === "del" ? mini("w-no", m.id, CANCEL) + mini("w-yes", m.id, ws ? UNSUB : DEL, " hot-btn") : a === "share" ? mini("w-no", m.id, CANCEL) + mini("w-yes", m.id, wBusy === "share" ? tr("worlds.sharing", "Sharing") : m.workshop ? tr("worlds.update", "Update") : tr("worlds.share", "Share"), " hot-btn") : ws ? (m.downloading != null || can !== "ok" ? "" : mini("w-load", m.id, LOAD)) + ghost("w-page", m.id, "share", tr("worlds.on-steam", "On Steam"), tr("worlds.on-steam.hint", "Its page on the Steam Workshop")) + ghost("w-del", m.id, "close", UNSUB, UNSUB) : (can !== "ok" ? "" : mini("w-load", m.id, LOAD) + (steamOn.on ? ghost("w-share", m.id, "share", tr("worlds.share", "Share"), m.workshop ? tr("worlds.share.hint-update", "Update it on the Steam Workshop") : tr("worlds.share.hint", "Share on the Steam Workshop")) : "")) + ghost("w-dl", m.id, "down", tr("worlds.download", "Download"), desk ? tr("worlds.download.hint-desktop", "Save a copy as a file") : tr("worlds.download.hint", "Download a file to open on another device")) + ghost("w-del", m.id, "close", DEL, DEL);
+        return `<div class="w-row"><span class="w-sw" aria-hidden="true">${sw}</span><div class="w-txt"><b>${esc2(m.name)}</b><span>${line2}</span></div><div class="w-act">${acts}</div></div>`;
+      }
+      function worlds_() {
+        const off = wBusy || state.phase !== "running" ? " disabled" : "";
+        const save2 = `<div class="w-save"><input type="text" id="w-name" maxlength="60" autocomplete="off" spellcheck="false" placeholder="${esc2(defaultName())}" value="${esc2(wName)}" aria-label="${tr("worlds.name.aria", "Name this save")}"${off}><button type="button" class="btn hot-btn" data-o="w-save" data-v="0"${off}>${wBusy === "save" ? tr("worlds.saving", "Saving") : tr("worlds.save", "Save")}</button></div>`;
+        const own2 = saves && saves.filter((m) => m.from !== "workshop"), ws = saves && saves.filter((m) => m.from === "workshop");
+        const list = saves == null ? `<p class="note">${tr("worlds.reading", "Reading the saved worlds…")}</p>` : own2.length ? own2.map(saveRow).join("") : `<p class="note">${tr("worlds.none", "No saved worlds yet.")}</p>`;
+        const browse = `<div class="w-more"><button type="button" class="link" data-o="w-browse" data-v="0">${tr("worlds.browse", "Browse the Workshop")}</button></div>`;
+        const wsList = !steamOn.on || saves == null ? "" : section("w-ws", tr("worlds.workshop", "From the Workshop"), block("", (ws.length ? ws.map(saveRow).join("") : `<p class="note">${tr("worlds.workshop-none", "Subscribed worlds from the Steam Workshop.")}</p>`) + browse));
+        return group("w-save", tr("worlds.save-heading", "Save this world"), save2) + section("w-list", tr("worlds.saved-heading", "Saved worlds"), block("", list, { aside: own2 && own2.length ? tr("worlds.used", "{n} · {size}", { n: own2.length, size: mb(used) }) : "", tip: "saves" })) + wsList;
+      }
+      async function refreshSaves() {
+        try {
+          saves = await worldStore.list();
+        } catch {
+          saves = [];
+        }
+        used = saves.reduce((a, m) => a + (m.from !== "workshop" && m.bytes || 0), 0);
+        render();
+        clearTimeout(wPoll);
+        if (saves.some((m) => m.downloading != null)) wPoll = setTimeout(() => {
+          if (!el2.hidden && page === "worlds") refreshSaves();
+        }, 2e3);
+      }
+      const wsDescription = (m) => tr("worlds.ws-description", "A Tidemote world after {age}: {count} particles, {species, plural, other {{species} species}} thriving.", { age: durWords(m.simTime), count: kfmt(m.count), species: +m.thriving || 0 });
+      const download = (m, bytes) => saveFile(new Blob([bytes], { type: "application/gzip" }), `${m.name.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-") || tr("worlds.file-name", "world")}.tidemote`);
+      async function worldAct(id, v) {
+        const busy = async (what, fn) => {
+          wBusy = what;
+          render();
+          try {
+            await fn();
+          } catch (e) {
+            flash(String(e.message || e));
+          }
+          wBusy = "";
+          render();
+        };
+        if (id === "w-save") {
+          if (wBusy || state.phase !== "running") return;
+          await busy("save", async () => {
+            await saveWorld(wName.trim() || defaultName());
+            wName = "";
+            flash(tr("flash.world-saved", "World saved"));
+            await refreshSaves();
+          });
+        } else if (id === "w-load" || id === "w-del" || id === "w-share") {
+          ask2 = { kind: { "w-load": "load", "w-del": "del", "w-share": "share" }[id], id: v };
+          render();
+        } else if (id === "w-no") {
+          ask2 = null;
+          render();
+        } else if (id === "w-yes" && ask2?.kind === "share") {
+          const m = saves.find((x) => x.id === v);
+          ask2 = null;
+          if (!m || wBusy) return;
+          await busy("share", async () => {
+            const r = await desk.workshop.share(v, { title: m.name, description: wsDescription(m) });
+            unlock(["SHARED"]);
+            flash(r.agreement ? tr("flash.ws-agreement", "Accept the Workshop agreement on Steam to make it public") : m.workshop ? tr("flash.ws-updated", "Updated on the Workshop") : tr("flash.ws-shared", "Shared on the Workshop"));
+            desk.workshop.open(r.id);
+            await refreshSaves();
+          });
+        } else if (id === "w-page") {
+          const m = saves.find((x) => x.id === v);
+          if (m) desk.workshop.open(m.workshop);
+        } else if (id === "w-browse") desk?.workshop.browse();
+        else if (id === "w-yes" && ask2?.kind === "del") {
+          ask2 = null;
+          await worldStore.remove(v).catch((e) => flash(String(e.message || e)));
+          await refreshSaves();
+        } else if (id === "w-yes" || id === "w-first") {
+          if (wBusy || state.phase !== "running") return;
+          let loaded = false;
+          await busy("load", async () => {
+            const w = await openWorld(await worldStore.get(v));
+            if (id === "w-first") await saveWorld(defaultName());
+            ask2 = null;
+            loaded = await loadWorld(w);
+          });
+          if (loaded) close();
+          else refreshSaves();
+        } else if (id === "w-dl") {
+          const m = saves.find((x) => x.id === v);
+          if (m) download(m, await worldStore.get(v));
+        } else if (id === "w-open") $2("w-file").click();
+      }
+      $2("w-file").addEventListener("change", async (e) => {
+        const f2 = e.target.files[0];
+        e.target.value = "";
+        if (!f2) return;
+        wBusy = "open";
+        render();
+        try {
+          const bytes = await f2.arrayBuffer();
+          const { meta } = await openWorld(bytes);
+          await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes);
+          ask2 = { kind: "load", id: meta.id };
+        } catch (err) {
+          flash(tr("flash.open-failed", "Could not open {file}: {why}", { file: f2.name, why: String(err.message || err) }));
+        }
+        wBusy = "";
+        await refreshSaves();
+      });
+      const ext = (href, text2) => `<a class="sp" target="_blank" rel="noopener" href="${href}">${text2}</a>`;
+      function about_() {
+        const link = (href) => (c) => ext(href, c.join(""));
+        const privacy = tr("settings.about.privacy", "{app, select,desktop {Everything runs on this computer: there is no account and no analytics. Saved worlds are files on this computer and synced to Steam Cloud if connected.}other {Everything runs on this device: there is no account and no analytics. Saved worlds stay in this browser unless you download them.}}", { app: globalThis.tidemoteDesktop ? "desktop" : "web" });
+        return group("intro", "", `<div class="about"><p>${tr("settings.about.p1", "A sealed biosphere of up to millions of particles, and all of them live, eat, breed, and die in your browser, simulated on the GPU with WebGPU. Some cells drink the moving light of the tide. Others graze on the producers, and others hunt the grazers. Scavengers break down the dead and return them to the water as silt, and from that silt the next generation builds its children. Children mutate into new species. Species that bond grow into bodies: filaments, branched fronds, spirals, packed tissues. Some of these bodies grow beating tails and swim. Every 10 to 18 minutes the climate turns, and the world has to begin again in its own way. It makes its own music, too: each cell sings its species' song, over a chorus of the births, kills, and deaths in view.")}</p>
+<p>${tr("settings.about.p2", "No hand steers any of this: every ecological rule is local. The complex interacting colonies emerge from simple rules acting on the mutating genome each cell carries. The Field Lab's <guide>Guide</guide> explains how it works.", { guide: (c) => `<button type="button" class="link" data-o="guide" data-v="0">${c.join("")}</button>` })}</p></div>`) + group("made", tr("settings.about.made-by", "Made by"), `<div class="about"><p>${tr("settings.about.credits", "Developed by <a1>Tyler Hallada</a1> with AI coding tools (<a2>Claude Code</a2> and <a4>Codex</a4>), which wrote most of the code. Graphics and sounds in this game are procedurally generated from code. No generative image, video, or sound AI model content is used in this game. The soundtrack is composed live from the simulation and the cells in view, played in a custom browser port of <a3>SuperCollider</a3>. Every line of text in the interface was reviewed and edited by hand.", { a1: link("https://www.hallada.net"), a2: link("https://claude.com/claude-code"), a3: link("https://supercollider.github.io/"), a4: link("https://openai.com/codex/") })}</p></div>`) + group("src", tr("settings.about.source", "Source"), `<div class="about"><p>${tr("settings.about.license", "Free software under the <a1>GPL-3.0</a1>: the code, design notes, and tools used in development are on <a2>GitHub</a2>. Feedback, bug reports, and ideas are welcome as issues.", { a1: link("https://www.gnu.org/licenses/gpl-3.0.html"), a2: link("https://github.com/thallada/tidemote") })}</p>
+<p>${privacy}</p></div>`) + (globalThis.tidemoteDesktop ? "" : group("desktop", tr("settings.about.desktop", "Desktop"), `<div class="about"><p>${tr("settings.about.desktop-p", "Tidemote is also a desktop app, at its best on a computer with a dedicated graphics card.")}</p><div class="stores">${storeLinks()}</div></div>`));
+      }
+      function worldsFoot() {
+        const kept = !desk ? tr("settings.worlds.kept-browser", "Kept in this browser.") : steamOn.cloud ? tr("settings.worlds.kept-cloud", "Kept on this computer and in Steam Cloud.") : tr("settings.worlds.kept-computer", "Kept on this computer.");
+        return `<div class="set-foot"><span class="keys-note">${kept}</span><button type="button" class="link set-reset" data-o="w-open" data-v="0"${wBusy ? " disabled" : ""}>${tr("settings.worlds.open-file", "Open a file")}</button></div>`;
+      }
+      function new_() {
+        const P2 = state.perf, cur = pickN ?? (P2.particles || "auto");
+        const sizes2 = PARTICLE_SIZES.filter((n) => n <= maxParticles());
+        const auto = measuredN ? tr("gamemenu.auto-measured", "Auto {n}", { n: kfmt(measuredN) }) : tr("settings.auto", "Auto");
+        const off = wBusy ? " disabled" : "";
+        return group("new", "", choice("n", tr("settings.perf.particles", "Particles"), "", [["auto", auto], ...sizes2.map((n) => [n, kfmt(n)])], cur, "particles", 3) + `<p class="gm-note">${tr("gamemenu.new-note", "This world ends when the new one begins.")}</p><div class="gm-acts">${unsaved() ? `<button type="button" class="btn" data-o="new-first" data-v="0"${off}>${tr("gamemenu.new-save-first", "Save this one first")}</button>` : ""}<button type="button" class="btn hot-btn" data-o="new-go" data-v="0"${off}>${wBusy === "new" ? tr("gamemenu.new-saving", "Saving") : tr("gamemenu.new-begin", "Begin a new world")}</button></div>`);
+      }
+      async function begin(saveFirst) {
+        if (wBusy || state.phase !== "running") return;
+        if (saveFirst) {
+          wBusy = "new";
+          render();
+          try {
+            await saveWorld(defaultName());
+          } catch (e) {
+            flash(String(e.message || e));
+            wBusy = "";
+            render();
+            return;
+          }
+          wBusy = "";
+        }
+        const n = pickN ?? (state.perf.particles || "auto");
+        pickN = null;
+        close();
+        await newWorld(n);
+      }
+      const QUIT_ROW = () => desk?.quit ? `<hr>${quitRow()}` : "";
+      function quitRow() {
+        if (quitting) return `<button type="button" class="gm-item" data-g="quit" disabled><span>${quitting === "save" ? tr("gamemenu.quitting-save", "Saving and quitting") : tr("gamemenu.quitting", "Quitting")}</span></button>`;
+        if (!quitAsk) return item("quit", tr("gamemenu.quit", "Quit Tidemote"));
+        return `<div class="gm-quit" role="group" aria-label="${tr("gamemenu.quit", "Quit Tidemote")}"><p>${tr("gamemenu.quit-ask", "Save this world before quitting? It will be kept as the last session, to continue from.")}</p><div class="gm-acts"><button type="button" class="btn" data-g="quit-no">${tr("gamemenu.quit-cancel", "Cancel")}</button><button type="button" class="btn" data-g="quit-now">${tr("gamemenu.quit-without", "Quit without saving")}</button><button type="button" class="btn hot-btn" data-g="quit-save">${tr("gamemenu.quit-save", "Save and quit")}</button></div></div>`;
+      }
+      const item = (g, text2, key = "", dis = false) => `<button type="button" class="gm-item" data-g="${g}"${dis ? " disabled" : ""}><span>${text2}</span>${key ? `<kbd>${key}</kbd>` : ""}</button>`;
+      function root_() {
+        const running = state.phase === "running";
+        return `<nav class="gm-list" aria-label="${tr("gamemenu.list", "Menu")}">` + item("world", tr("gamemenu.back", "Back to the world"), tr("key.esc", "Esc")) + item("save", tr("gamemenu.save", "Save this world"), "", !running) + item("load", tr("gamemenu.load", "Load a world")) + item("new", tr("gamemenu.new", "New world"), "", !running) + item("events", tr("gamemenu.events", "Pool events")) + "<hr>" + item("settings", tr("gamemenu.settings", "Settings"), "V") + item("controls", tr("gamemenu.controls", "Controls"), "?") + item("about", tr("gamemenu.about", "About Tidemote")) + QUIT_ROW() + "</nav>";
+      }
+      const TITLE = () => ({ worlds: tr("gamemenu.worlds-title", "Save and load"), new: tr("gamemenu.new-title", "New world"), events: tr("gamemenu.events-title", "Pool events"), about: tr("gamemenu.about-title", "About Tidemote") });
+      function header() {
+        const x = `<button type="button" class="ghost" data-g="close" aria-label="${tr("gamemenu.close", "Close the menu")}"><svg><use href="#i-close"/></svg></button>`;
+        if (page === "root") {
+          const sub = state.phase === "running" ? tr("gamemenu.world", "{era} · {age} · {count}", { era: eraName(climate.name), age: fmtDur(eng.simTime), count: kfmt(eng.count) }) : "";
+          return `<h2 class="gm-title"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-mark"/></svg><span translate="no">Tidemote</span></h2>${x}<p class="gm-sub">${sub}</p>`;
+        }
+        return `<button type="button" class="ghost gm-back" data-g="root" aria-label="${tr("gamemenu.back-list", "Back to the menu")}"><svg><use href="#i-back"/></svg></button><h2>${TITLE()[page]}</h2>${x}`;
+      }
+      function render() {
+        if (el2.hidden) return;
+        const a = document.activeElement, at = a && el2.contains(a) ? { g: a.dataset.g, o: a.dataset.o, v: a.dataset.v, id: a.id } : null;
+        const typing = a?.id === "w-name" ? [a.selectionStart, a.selectionEnd] : null;
+        el2.dataset.page = page;
+        head.innerHTML = header();
+        setHTML(body, page === "root" ? root_() : `<div class="opts">${page === "worlds" ? worlds_() + worldsFoot() : page === "new" ? new_() : page === "events" ? climate_() : about_()}</div>`);
+        if (at) {
+          const sel2 = at.id ? `#${CSS.escape(at.id)}` : at.g ? `[data-g="${at.g}"]` : at.o ? `[data-o="${at.o}"][data-v="${CSS.escape(at.v ?? "")}"]` : null;
+          const b = sel2 && el2.querySelector(sel2);
+          if (b && canFocus(b)) {
+            b.focus({ preventScroll: true });
+            if (typing) b.setSelectionRange(...typing);
+          }
+        }
+      }
+      function show(p2, at = null) {
+        page = p2;
+        quitAsk = false;
+        if (p2 !== "worlds") {
+          clearTimeout(wPoll);
+          ask2 = null;
+        }
+        if (p2 === "worlds") {
+          saves = null;
+          refreshSaves();
+        }
+        body.scrollTop = 0;
+        render();
+        const pad3 = mode.glyphs === "pad", q = (s) => body.querySelector(s);
+        const to = p2 === "root" ? q(`[data-g="${at || "world"}"]`) : p2 === "worlds" ? at === "load" ? q('[data-o="w-load"]') || q('[data-o="w-open"]') : pad3 || isCoarse ? q('[data-o="w-save"]') : q("#w-name") : p2 === "new" ? q('[data-o="n"][aria-pressed="true"]') : q('button, [tabindex="0"]');
+        (to && canFocus(to) ? to : el2.querySelector("[data-g]"))?.focus({ preventScroll: true });
+      }
+      function open(p2 = "root", at = null) {
+        if (!el2.hidden && page === p2) return;
+        if (el2.hidden) {
+          view.toggle(false);
+          toggleHelp(false);
+          if (phone()) {
+            lab.close();
+            bench.toggle(false);
+          }
+          const a = document.activeElement;
+          if (a && a !== document.body && !el2.contains(a)) opener = a;
+          el2.hidden = false;
+          for (const b of openers2) b.setAttribute("aria-expanded", "true");
+        }
+        show(p2, at);
+      }
+      let opener = null;
+      const until = (f2, ms) => new Promise((res) => {
+        const t0 = performance.now(), tick = () => f2() || performance.now() - t0 > ms ? res() : setTimeout(tick, 100);
+        tick();
+      });
+      function close() {
+        if (el2.hidden) return;
+        el2.hidden = true;
+        page = "root";
+        quitAsk = false;
+        ask2 = null;
+        pickN = null;
+        clearTimeout(wPoll);
+        for (const b of openers2) b.setAttribute("aria-expanded", "false");
+        const a = document.activeElement;
+        if (a && el2.contains(a)) {
+          if (opener?.isConnected && canFocus(opener)) opener.focus({ preventScroll: true });
+          else a.blur();
+        }
+        opener = null;
+      }
+      function back2() {
+        if (quitAsk) {
+          quitAsk = false;
+          render();
+          el2.querySelector('[data-g="quit"]')?.focus({ preventScroll: true });
+          return;
+        }
+        if (page !== "root") {
+          const from = page;
+          show("root", from === "worlds" ? "save" : from);
+          return;
+        }
+        close();
+      }
+      function away(which) {
+        close();
+        if (which === "settings") {
+          view.toggle(true);
+          $2("settings").dataset.from = "menu";
+          settle($2("settings"), true, true);
+        } else {
+          toggleHelp(true);
+          $2("help").dataset.from = "menu";
+          settle($2("help"), true, true);
+        }
+      }
+      async function quit(save2, strict = true) {
+        if (quitting || !desk?.quit) return;
+        quitting = save2 ? "save" : "now";
+        quitAsk = false;
+        render();
+        try {
+          if (film.state !== "idle") {
+            if (film.state === "recording") film.stop();
+            await until(() => film.state === "idle", 2e4);
+          }
+          if (save2) await saveWorld(tr("worlds.last-name", "Last session · {era} · {age}", { era: eraName(climate.name), age: fmtDur(eng.simTime) }), { last: true });
+        } catch (e) {
+          console.error("[tidemote] quitting:", e);
+          if (strict) {
+            quitting = "";
+            flash(String(e.message || e));
+            render();
+            return;
+          }
+        }
+        desk.quit();
+      }
+      desk?.onClosing?.(() => quit(unsaved(), false));
+      head.addEventListener("click", (e) => {
+        const b = e.target.closest("[data-g]");
+        if (b) go(b.dataset.g);
+      });
+      body.addEventListener("click", (e) => {
+        const b = e.target.closest("[data-g], [data-o]");
+        if (!b || b.disabled) return;
+        if (b.dataset.g) go(b.dataset.g);
+        else set(b.dataset.o, b.dataset.v);
+      });
+      function go(g) {
+        if (g === "close" || g === "world") close();
+        else if (g === "root") back2();
+        else if (g === "save" || g === "load") show("worlds", g);
+        else if (g === "new" || g === "events" || g === "about") show(g);
+        else if (g === "settings" || g === "controls") away(g);
+        else if (g === "quit") {
+          if (unsaved()) {
+            quitAsk = true;
+            render();
+            el2.querySelector('[data-g="quit-save"]')?.focus({ preventScroll: true });
+          } else quit(false);
+        } else if (g === "quit-no") back2();
+        else if (g === "quit-now") quit(false);
+        else if (g === "quit-save") quit(true);
+      }
+      function set(id, v) {
+        if (id.startsWith("w-")) {
+          worldAct(id, v);
+          return;
+        }
+        if (id === "n") {
+          pickN = v === "auto" ? "auto" : +v;
+          render();
+          return;
+        }
+        if (id === "new-go" || id === "new-first") {
+          begin(id === "new-first");
+          return;
+        }
+        if (id === "ev-start") {
+          if (!climate.event) climate.force(v);
+          close();
+          return;
+        }
+        if (id.startsWith("ev-")) {
+          state.events[id.slice(3)] = !!+v;
+          applyEvents();
+          persist();
+          render();
+          return;
+        }
+        if (id === "guide") {
+          close();
+          lab.open("guide");
+        }
+      }
+      body.addEventListener("input", (e) => {
+        if (e.target.id === "w-name") wName = e.target.value;
+      });
+      body.addEventListener("keydown", (e) => {
+        if (e.target.id === "w-name" && e.key === "Enter") {
+          e.preventDefault();
+          worldAct("w-save");
+        }
+      });
+      for (const b of openers2) b.addEventListener("click", () => act("menu"));
+      return { open, close, back: back2, render, isOpen: () => !el2.hidden, page: () => page };
     })();
     async function copyProfile() {
       flash(tr("flash.profiling", "Profiling for three seconds"));
@@ -42829,7 +43099,11 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       $2("help-keys").innerHTML = controlsTable(padFamily());
     }
     function toggleHelp(on = $2("help").hidden) {
-      if (on) renderHelp();
+      delete $2("help").dataset.from;
+      if (on) {
+        renderHelp();
+        gameMenu?.close();
+      }
       $2("help").hidden = !on;
       if (on) view.toggle(false);
     }
@@ -42846,8 +43120,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     function closeMenus() {
       view.toggle(false);
       toggleHelp(false);
+      gameMenu.close();
     }
-    const UI_PARTS = ["hud", "spec", "lab", "help", "card", "tip", "plate"];
+    const UI_PARTS = ["hud", "spec", "lab", "help", "card", "gmenu", "tip", "plate"];
     function setInterface(on, say = true) {
       state.ui = on;
       document.body.classList.toggle("ui-off", !on);
@@ -42910,6 +43185,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       onToggle: (on) => {
         if (on && phone()) {
           view.toggle(false);
+          gameMenu.close();
           lab.close();
         }
       },
@@ -43401,6 +43677,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         takeOver();
       }
       if (phone() && view.isOpen()) view.toggle(false);
+      if (phone()) gameMenu.close();
       if (folds) bench.toggle(false);
       hideIntro();
     });
@@ -43525,7 +43802,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const nav = createFocus();
     const zoomHeld = /* @__PURE__ */ new Map();
     const input = { way: [0, 0], stick: null, apply: null, lastTool: "loupe", grab: null, panel: null };
-    for (const id of ["intro", "card", "help", "settings", "ladder", "bench", "held", "spec", "lab", "dock", "rail"]) $2(id).dataset.navRoot = "";
+    for (const id of ["intro", "card", "gmenu", "help", "settings", "ladder", "bench", "held", "spec", "lab", "dock", "rail"]) $2(id).dataset.navRoot = "";
     const rose = createRose($2("rose"));
     const FAMILY_NAME = () => ({ xbox: tr("prompts.xbox", "Xbox"), ps: tr("prompts.ps", "PlayStation"), switch: tr("prompts.switch", "Switch"), deck: tr("prompts.deck", "Steam Deck") });
     let onDeck = false;
@@ -43603,6 +43880,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     function padRoot() {
       if (introUp()) return $2("intro");
       if (cards.isOpen()) return $2("card");
+      if (gameMenu.isOpen()) return $2("gmenu");
       if (!$2("help").hidden) return $2("help");
       if (view.isOpen()) return $2("settings");
       if (ladder.isOpen()) return $2("ladder");
@@ -43620,15 +43898,20 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const sidePanel = () => [$2("spec"), lab.isOpen() ? $2("lab") : null, bench.isOpen() ? $2("bench") : null].find((el2) => el2 && !el2.hidden) || null;
     function back() {
       if (!state.ui) setInterface(true);
+      else if (gameMenu.isOpen()) gameMenu.back();
       else if (ladder.isOpen()) ladder.toggle(false);
       else if (inHand()) pickTool("none");
       else if (ride.on) toggleRide(false);
       else if (!$2("help").hidden) {
+        const m = $2("help").dataset.from;
         toggleHelp(false);
         restoreFocus($2("help"));
+        if (m) gameMenu.open("root", "controls");
       } else if (view.isOpen()) {
+        const m = $2("settings").dataset.from;
         view.toggle(false);
         restoreFocus($2("settings"));
+        if (m) gameMenu.open("root", "settings");
       } else if (bench.isOpen()) {
         bench.toggle(false);
         restoreFocus($2("bench"));
@@ -43650,12 +43933,21 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         menu.back();
         return true;
       }
+      if (root === $2("gmenu")) {
+        gameMenu.back();
+        return true;
+      }
+      const from = root.dataset.from;
       if (root === $2("card")) cards.close();
       else if (root === $2("help")) toggleHelp(false);
       else if (root === $2("settings")) view.toggle(false);
       else if (root === $2("ladder")) ladder.toggle(false);
       else if (root === $2("bench")) bench.toggle(false);
       restoreFocus(root);
+      if (from && (root === $2("help") || root === $2("settings"))) {
+        gameMenu.open("root", root === $2("help") ? "controls" : "settings");
+        settle($2("gmenu"), true, true);
+      }
       return true;
     }
     const flashMap = (i, on, off) => {
@@ -43718,8 +44010,17 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         return true;
       }
       switch (id) {
+        // (Esc with nothing left to close opens the menu: a press, not a key held, and never the pad's B)
         case "back":
-          return back();
+          return back() || (how.key === "Escape" && !how.repeat && state.phase === "running" && !introUp() ? act("menu") : false);
+        // i18n-ignore (key names)
+        case "menu":
+          if (gameMenu.isOpen()) gameMenu.close();
+          else {
+            gameMenu.open();
+            settle($2("gmenu"), true, true);
+          }
+          return true;
         case "lineage-back":
           return lab.back();
         case "pause":
@@ -43984,7 +44285,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       panel: tr("legend.panel", "Panel"),
       tools: tr("legend.tools", "Tools"),
       view: tr("legend.view", "View"),
-      settings: tr("legend.settings", "Settings"),
+      menu: tr("legend.menu", "Menu"),
       lab: tr("legend.lab", "Lab"),
       bench: tr("legend.bench", "Bench"),
       last: tr("legend.last-tool", "Last tool"),
@@ -44034,7 +44335,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         ...sidePanel() ? [["N", L.panel]] : [],
         ["LB", L.last, L.tools],
         ["RB", L.bench, L.view],
-        ["MENU", L.settings],
+        ["MENU", L.menu],
         ["VIEW", L.lab]
       ];
     }
@@ -44370,7 +44671,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       if (mouseAt.on && document.elementFromPoint(mouseAt.x, mouseAt.y) === canvas) Object.assign(hover, mouseAt);
     }
     const menu = (() => {
-      const el2 = $2("menu"), panel = $2("menu-panel"), tabN = $2("menu-n"), tabW = $2("menu-w");
+      const el2 = $2("menu"), panel = $2("menu-panel"), tabN = $2("menu-n"), tabW = $2("menu-w"), tabC = $2("menu-c");
       let open = null, saves = null, busy = "", err = "", go = false, startAfter = false;
       let whenStarted = null;
       const startedP = new Promise((r) => {
@@ -44379,6 +44680,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const P2 = state.perf;
       const countText2 = () => P2.particles ? kfmt(P2.particles) : measuredN ? kfmt(measuredN) : tr("menu.auto", "Auto");
       const listed = () => (saves || []).filter((m) => m.downloading == null);
+      const lastSave = () => listed().find((m) => m.last && openable(m.version) === "ok");
       const heavy = (n) => measuredN && n > measuredN * 1.4;
       function nPanel() {
         const off = busy ? " disabled" : "";
@@ -44396,12 +44698,17 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       }
       function wPanel() {
         const ws = listed();
-        const list = saves == null ? `<p class="menu-note">${tr("worlds.reading", "Reading the saved worlds…")}</p>` : ws.length ? `<div class="menu-list">${ws.map(row).join("")}</div>` : `<p class="menu-note">${tr("menu.no-saves", "No saved worlds yet. Save one from Settings → Worlds.")}</p>`;
-        return `<div class="menu-h"><span>${tr("menu.open-saved", "Open a saved world")}</span><b>${ws.length || ""}</b></div>${list}` + (err ? `<p class="menu-note"><em>${esc2(err)}</em></p>` : "") + `<div class="menu-foot"><span class="lbl">${desk ? tr("menu.kept-computer", "On this computer") : tr("menu.kept-browser", "In this browser")}</span><button type="button" class="btn" data-m="file" data-hint="${tr("menu.file.hint", "Open a .tidemote file\nSaved from Settings → Worlds")}"${busy ? " disabled" : ""}>${busy === "file" ? tr("menu.opening", "Opening") : tr("menu.file", "Open a file")}</button></div>`;
+        const list = saves == null ? `<p class="menu-note">${tr("worlds.reading", "Reading the saved worlds…")}</p>` : ws.length ? `<div class="menu-list">${ws.map(row).join("")}</div>` : `<p class="menu-note">${tr("menu.no-saves", "No saved worlds yet. Save one from the menu (Esc).")}</p>`;
+        return `<div class="menu-h"><span>${tr("menu.open-saved", "Open a saved world")}</span><b>${ws.length || ""}</b></div>${list}` + (err ? `<p class="menu-note"><em>${esc2(err)}</em></p>` : "") + `<div class="menu-foot"><span class="lbl">${desk ? tr("menu.kept-computer", "On this computer") : tr("menu.kept-browser", "In this browser")}</span><button type="button" class="btn" data-m="file" data-hint="${tr("menu.file.hint", "Open a .tidemote file\nSaved from the menu")}"${busy ? " disabled" : ""}>${busy === "file" ? tr("menu.opening", "Opening") : tr("menu.file", "Open a file")}</button></div>`;
       }
       function render() {
         $2("menu-n-v").textContent = countText2();
         $2("menu-w-v").textContent = saves == null ? "" : String(listed().length);
+        const last2 = lastSave();
+        tabC.hidden = !last2;
+        tabC.disabled = !!busy;
+        $2("menu-c-v").textContent = last2 ? fmtDur(last2.simTime) : "";
+        if (last2) tabC.dataset.hint = tr("menu.continue.hint", "Continue the last session\n{name}", { name: last2.name });
         tabN.setAttribute("aria-expanded", String(open === "n"));
         tabW.setAttribute("aria-expanded", String(open === "w"));
         $2("intro").classList.toggle("menu-open", !!open);
@@ -44487,6 +44794,14 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         });
       });
       tabN.addEventListener("click", () => toggle("n"));
+      tabC.addEventListener("click", () => {
+        const m = lastSave();
+        if (m) {
+          open = null;
+          render();
+          pickW(m.id);
+        }
+      });
       tabW.addEventListener("click", () => toggle("w"));
       $2("begin").addEventListener("click", () => {
         if (!go || introHidden) return;
@@ -46370,7 +46685,7 @@ Tidemote ${SAVE_VERSION} · world time ${fmtClock(eng.simTime)} · ${eng.count} 
           b.textContent = tr("err.saving", "Saving…");
           try {
             await saveWorld(tr("err.saved-name", "{era} · {age} (stopped)", { era: eraName(climate.name), age: fmtDur(eng.simTime) }));
-            b.textContent = tr("err.saved", "Saved to Settings → Worlds");
+            b.textContent = tr("err.saved", "Saved: load it from the menu");
           } catch (err) {
             console.error("[tidemote] saving the stopped world:", err);
             b.textContent = tr("err.save-failed", "Could not save: {why}", { why: String(err.message || err) });
@@ -46481,7 +46796,7 @@ Tidemote ${SAVE_VERSION} · world time ${fmtClock(eng.simTime)} · ${eng.count} 
         },
         state: () => ({ format: eng.format, display: { ...eng.display }, caps: { ...caps }, prefs: { ...dsp }, config: ctx.getConfiguration?.() && { colorSpace: ctx.getConfiguration().colorSpace, toneMapping: ctx.getConfiguration().toneMapping?.mode } })
       },
-      // a .tidemote file's bytes, as Settings → Worlds opens one
+      // a .tidemote file's bytes, as the menu's saves open one
       openWorld: async (bytes) => loadWorld(await openWorld(bytes)),
       // riding, for tools/ridelab.mjs: its state, the specimen, the body traced
       ride: { state: ride, sel: () => sel, members: () => members, viewShort },
@@ -46502,7 +46817,7 @@ Tidemote ${SAVE_VERSION} · world time ${fmtClock(eng.simTime)} · ${eng.count} 
           cam.x = wx - (ax - innerWidth / 2) / p2;
           cam.y = wy - (ay - innerHeight / 2) / p2;
         },
-        open: () => ({ settings: view.isOpen(), help: !$2("help").hidden, bench: bench.isOpen(), lab: lab.isOpen(), spec: !$2("spec").hidden, card: cards.isOpen(), ladder: ladder.isOpen() }),
+        open: () => ({ menu: gameMenu.isOpen(), menuPage: gameMenu.isOpen() ? gameMenu.page() : null, settings: view.isOpen(), help: !$2("help").hidden, bench: bench.isOpen(), lab: lab.isOpen(), spec: !$2("spec").hidden, card: cards.isOpen(), ladder: ladder.isOpen() }),
         // the slider or list a controller holds, the instrument's focus (0 lifted .. 1 in the water), the pipette dispensing
         selAt: () => sel ? toScreen(sel.disp[0], sel.disp[1]) : null,
         // where a tap set the loupe's lens on a touch screen (screen px), if one did

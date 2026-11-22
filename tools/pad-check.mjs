@@ -1,8 +1,8 @@
 // Drives the built page with a scripted gamepad (navigator.getGamepads replaced; docs/controller.md, Tests) and checks
 // what a controller does: the intro begun by its A, the hints and the reticle following it (and not a mouse moved),
 // the stick panning and the triggers zooming, A selecting what is under the reticle, X riding and the stick steering,
-// B walking back, the tool rose and the view rose, a tool applied, the bench, Settings and the Lab entered and left
-// with focus moving by the d-pad and tabs by the bumpers, the Controls opened from Settings, the d-pad's time, a Deck's
+// B walking back, the tool rose and the view rose, a tool applied, the bench, the menu, Settings and the Lab entered and
+// left with focus moving by the d-pad and tabs by the bumpers, the Controls opened from the menu, the d-pad's time, a Deck's
 // glyphs, and a pad unplugged mid-pan letting go.
 //   npm run build && tools/gpu-node.sh tools/pad-check.mjs [--size 1280x800]
 //   (on Linux without a display: TIDEMOTE_VK=1 tools/capped.sh node tools/pad-check.mjs)
@@ -15,7 +15,7 @@ const tag = `${w}×${h}`;
 const S = () => T(() => { const t = __tidemote, s = t.state, i = t.input; return { glyphs: i.mode.glyphs, pointer: i.mode.pointer, family: i.mode.family, ctx: i.padCtx(),
   live: document.body.classList.contains('live'), aim: !document.getElementById('aim').hidden, rose: i.rose.shown, x: t.cam.x, y: t.cam.y, zoomT: t.cam.zoomTarget,
   tool: t.hand.tool, held: !!t.hand.held, map: s.map, paused: s.paused, speed: s.speed, auto: t.director.active, ride: t.ride.state.on, sel: !!t.ride.sel(),
-  u: Math.hypot(...t.ride.state.th.u), focus: document.activeElement?.closest('[data-nav-root]')?.id || null, active: document.activeElement?.id || document.activeElement?.tagName, ...i.open() }; });
+  u: Math.hypot(...t.ride.state.th.u), focus: document.activeElement?.closest('[data-nav-root]')?.id || null, active: document.activeElement?.id || document.activeElement?.dataset?.g || document.activeElement?.tagName, ...i.open() }; });
 
 // the intro: a pad plugged in, its A on Begin
 await page.waitForFunction(() => document.getElementById('intro').classList.contains('ask'), null, { polling: 100, timeout: 120000 });
@@ -88,13 +88,24 @@ await pad.press(BTN.E); b = await S(); check(`${tag} B clears the map`, !b.map |
 // the bench, Settings, the Lab: entered with focus, left by B
 await pad.press(BTN.RB); b = await S(); check(`${tag} RB tapped opens the bench, focus in it`, b.bench && b.focus === 'bench', JSON.stringify({ bench: b.bench, focus: b.focus }));
 await pad.press(BTN.E); b = await S(); check(`${tag} B closes the bench`, !b.bench && !b.focus);
-await pad.press(BTN.MENU); b = await S(); check(`${tag} Menu opens Settings, focus in them`, b.settings && b.focus === 'settings', JSON.stringify({ settings: b.settings, focus: b.focus }));
+// B with nothing open walks back no further: the menu is the Menu button's
+b = await S(); await pad.press(BTN.E); b = await S(); check(`${tag} B with nothing open does not open the menu`, !b.menu, JSON.stringify({ menu: b.menu }));
+await pad.press(BTN.MENU); b = await S(); check(`${tag} Menu opens the menu, focus in it`, b.menu && b.focus === 'gmenu', JSON.stringify({ menu: b.menu, focus: b.focus }));
+a = b; await pad.press(BTN.DOWN); b = await S();
+check(`${tag} the d-pad moves focus down the menu`, b.active !== a.active && b.focus === 'gmenu', `${a.active} → ${b.active}`);
+await T(() => document.querySelector('#gmenu [data-g="settings"]')?.focus());
+await pad.press(BTN.S); b = await S(); check(`${tag} A on the menu's Settings opens Settings, focus in them`, b.settings && !b.menu && b.focus === 'settings', JSON.stringify({ settings: b.settings, menu: b.menu, focus: b.focus }));
 const tab0 = await T(() => document.querySelector('#set-tabs [aria-selected="true"]')?.textContent);
 await pad.press(BTN.RB); const tab1 = await T(() => document.querySelector('#set-tabs [aria-selected="true"]')?.textContent);
 check(`${tag} RB changes the Settings tab`, tab0 !== tab1, `${tab0} → ${tab1}`);
 a = await S(); await pad.press(BTN.DOWN); await pad.press(BTN.DOWN); b = await S();
 check(`${tag} the d-pad moves focus in Settings`, b.active !== a.active && b.focus === 'settings', `${a.active} → ${b.active}`);
-await pad.press(BTN.E); b = await S(); check(`${tag} B closes Settings`, !b.settings && !b.focus);
+await pad.press(BTN.E); b = await S(); check(`${tag} B closes Settings, back to the menu on its Settings`, !b.settings && b.menu && b.focus === 'gmenu' && /settings/.test(await T(() => document.activeElement?.dataset?.g || '')), JSON.stringify({ settings: b.settings, menu: b.menu, focus: b.focus }));
+// a page within the menu: A opens it, B goes back to the list, B again closes the menu
+await T(() => document.querySelector('#gmenu [data-g="new"]')?.focus());
+await pad.press(BTN.S); b = await S(); check(`${tag} A on New world opens its page`, b.menu && b.menuPage === 'new' && b.focus === 'gmenu', JSON.stringify({ page: b.menuPage, focus: b.focus }));
+await pad.press(BTN.E); b = await S(); check(`${tag} B goes back to the menu's list`, b.menu && b.menuPage === 'root');
+await pad.press(BTN.E); b = await S(); check(`${tag} B again closes the menu`, !b.menu && !b.focus, JSON.stringify({ menu: b.menu, focus: b.focus }));
 const lab0 = (await S()).lab;
 await pad.press(BTN.VIEW); await page.waitForTimeout(300); b = await S();
 check(`${tag} View tapped toggles the Lab`, b.lab !== lab0, JSON.stringify({ lab: b.lab, focus: b.focus }));
@@ -110,18 +121,20 @@ await pad.hold(BTN.VIEW, 600); await pad.up(BTN.VIEW); await page.waitForTimeout
 check(`${tag} View held toggles the Lab, never opens the Controls`, !b.help && b.lab !== labHeld, JSON.stringify({ help: b.help, before: labHeld, lab: b.lab }));
 await pad.press(BTN.VIEW); await page.waitForTimeout(300);
 await T(() => document.activeElement?.blur());
-// the Controls, from Settings' foot: Menu, then A on Controls
+// the Controls, from the menu: Menu, then A on Controls
 await pad.press(BTN.MENU); await page.waitForTimeout(200);
-await T(() => document.querySelector('#settings [data-open="help"]')?.focus());
+await T(() => document.querySelector('#gmenu [data-g="controls"]')?.focus());
 await pad.press(BTN.S); await page.waitForTimeout(200); b = await S();
-check(`${tag} Settings' Controls opens the Controls`, b.help, JSON.stringify({ help: b.help }));
+check(`${tag} the menu's Controls opens the Controls`, b.help, JSON.stringify({ help: b.help }));
 const col = await T(() => ({ gl: document.querySelectorAll('#help-keys .gl').length, a: [...document.querySelectorAll('#help-keys .gl')].some((g) => g.getAttribute('aria-label') === 'A') }));
 check(`${tag} its controller column draws the pad's buttons`, col.gl > 15 && col.a, JSON.stringify(col));
-await pad.press(BTN.E); b = await S(); check(`${tag} B closes it`, !b.help);
+await pad.press(BTN.E); b = await S(); check(`${tag} B closes it, back to the menu`, !b.help && b.menu, JSON.stringify({ help: b.help, menu: b.menu }));
+if (b.menu) { await pad.press(BTN.E); b = await S(); }
 if (b.settings) { await pad.press(BTN.E); b = await S(); }
 if (b.lab !== lab0) await T(() => { __tidemote.lab.toggle(); document.activeElement?.blur(); });
 
-// the d-pad's time and the auto camera
+// the d-pad's time and the auto camera (out of any panel the steps above left focus in: B leaves it)
+if ((await S()).ctx === 'panel') await pad.press(BTN.E);
 a = await S(); await pad.press(BTN.DOWN); b = await S(); check(`${tag} d-pad ↓ pauses`, b.paused !== a.paused);
 await pad.press(BTN.DOWN);
 await pad.press(BTN.RIGHT); b = await S(); check(`${tag} d-pad → goes faster`, b.speed > 1, String(b.speed));

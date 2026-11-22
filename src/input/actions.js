@@ -55,7 +55,7 @@ const PAD_WORLD = {
   [BTN.S]: { press: 'select' }, [BTN.E]: { press: 'back' }, [BTN.W]: { press: 'ride' }, [BTN.N]: { press: 'panel' },
   [BTN.UP]: { press: 'auto-next' }, [BTN.DOWN]: { press: 'pause' }, [BTN.LEFT]: { press: 'slower' }, [BTN.RIGHT]: { press: 'faster' },
   [BTN.LB]: { tap: 'swap-tool', hold: 'rose-tools' }, [BTN.RB]: { tap: 'bench', hold: 'rose-view' },
-  [BTN.MENU]: { press: 'settings' }, [BTN.VIEW]: { press: 'lab' }, [BTN.R3]: { press: 'zoom-reset' },
+  [BTN.MENU]: { press: 'menu' }, [BTN.VIEW]: { press: 'lab' }, [BTN.R3]: { press: 'zoom-reset' },
 };
 // (X with the pipette: switch between loading and dispensing; the other tools have one way)
 const PAD_TOOL = { ...PAD_WORLD, [BTN.S]: { press: 'apply' }, [BTN.W]: { press: 'pipette-mode' } };
@@ -94,6 +94,9 @@ export function helpRows() {
   // i18n: in the Controls dialog: a key held down (Shift, for the pipette's other way while held); the Controls found
   // in Settings, at its foot
   const keyHeld = W(tr('key.held', 'held')), toControls = W(tr('pad.to-controls', 'then Controls'));
+  // i18n: in the Controls dialog: Esc opens the menu when nothing is left to close; on a controller, the menu's Settings
+  // and its New world
+  const nothingOpen = W(tr('key.nothing-open', 'with nothing open')), toSettings = W(tr('pad.to-settings', 'then Settings')), toNew = W(tr('pad.to-new', 'then New world'));
   return [
     { group: tr('help.group.look', 'Look'), rows: [
       { text: tr('help.k1', 'Examine a cell or particle'), keys: [click], pad: [P('S')] },
@@ -101,6 +104,7 @@ export function helpRows() {
       { text: tr('help.zoom-reset', 'Reset zoom'), keys: [K('Z')], pad: [P('R3')] },
       { text: tr('help.k5', 'Auto camera · go to next scene'), keys: [K('P'), K('X')], pad: [P('UP')] },
       { text: tr('help.k9', 'Back: put the tool down, get off, close a panel, clear the highlight and map'), keys: [esc], pad: [P('E')] },
+      { text: tr('help.menu', 'Menu: save, load, new world, pool events, settings, quit'), keys: [esc, nothingOpen], pad: [P('MENU')] },
     ] },
     { group: tr('help.group.time', 'Time'), rows: [
       { text: tr('help.k3', 'Pause · resume'), keys: [space], pad: [P('DOWN')] },
@@ -125,11 +129,11 @@ export function helpRows() {
       { text: tr('help.k6', 'Start · stop filming'), keys: [K('R')], pad: [P('RB'), hold] },
       { text: tr('help.k10', 'Collapse or open the Field Lab'), keys: [K('K')], pad: [P('VIEW')] },
       { text: tr('help.k-lineage-back', 'In the Lab’s Lineage view: go back up a species in the lineage tree'), keys: [esc, K('⌫')], pad: [P('E')] },
-      { text: tr('help.k11', 'Settings'), keys: [K('V')], pad: [P('MENU')] },
+      { text: tr('help.k11', 'Settings'), keys: [K('V')], pad: [P('MENU'), toSettings] },
       { text: tr('help.list', 'This list of controls'), keys: [K('?')], pad: [P('MENU'), toControls] },
       { text: tr('help.k12', 'Sound on or off'), keys: [K('M')], pad: [inSettings] },
       { text: tr('help.k19', 'Full screen · hide readouts · hide everything'), keys: [K('F'), K('I'), K('U')], pad: [inSettings] },
-      { text: tr('help.k20', 'Discard this world and start a new one'), keys: [K('⇧R ⇧R')], pad: [inSettings] },
+      { text: tr('help.k20', 'Discard this world and start a new one'), keys: [K('⇧R ⇧R')], pad: [P('MENU'), toNew] },
     ] },
   ];
 }

@@ -104,7 +104,7 @@ function measure({ MIN_TEXT, MIN_TARGET, MIN_TOUCH, touch }) {
     else if (innerHeight < 500) compassShown.na = `${innerHeight}px tall`;
   }
   const over = [];
-  for (const id of ['lab', 'spec', 'settings', 'help', 'rail', 'dock']) {
+  for (const id of ['lab', 'spec', 'settings', 'gmenu', 'help', 'rail', 'dock']) {
     const e = document.getElementById(id) || document.querySelector(`.${id}`);
     if (!e || !vis(e)) continue;
     const r = e.getBoundingClientRect();
@@ -208,6 +208,17 @@ for (const s of SIZES) {
   await open('#set-tabs [data-tab="performance"]');
   await page.waitForTimeout(1500);
   await snap('perf');
+  // the menu, its list and its saves (an older build, --page, has none)
+  if (await page.$('#gmenu')) {
+    await page.evaluate(() => globalThis.__tidemote.input.act('menu'));
+    await page.waitForTimeout(300);
+    await snap('menu');
+    await page.evaluate(() => document.querySelector('#gmenu [data-g="save"]').click());
+    await page.waitForTimeout(400);
+    await snap('menu-worlds');
+    await page.evaluate(() => globalThis.__tidemote.input.act('menu'));
+    await open('[aria-controls="settings"]');
+  }
   // the bench (docs/hand.md): its drawer with the pipette in hand and a colony in it, the speed ladder, the cabinet
   // with a card in it (an older build, --page, may have none of them)
   if (await page.evaluate(() => !!globalThis.__tidemote.hand)) {

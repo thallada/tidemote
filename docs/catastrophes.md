@@ -244,7 +244,7 @@ wrap puts them and show no seam at the world's edges. Raindrop ripples bend the 
   cylinder with bright walls and faint cell bands, its tip in a pointed sheath (the root cap's pocket). Drawn
   only: cells pass through the roots.
 
-**Settings → Climate** turns the events off, or each kind on its own (the climate's `allowed`, kept with the page's
+**The menu's Pool events** turns the events off, or each kind on its own (the climate's `allowed`, kept with the page's
 preferences; an event of a kind turned off ends at once), and starts one now. The page announces each event and its turns (the chronicle's "The pool" filter in the Field Lab), counts the pools a
 drought leaves (`countPools`), and tallies life and species lost once it has passed. The auto camera gives most of
 its shots to an event while it lasts (`eventShot`): a stretch of shore, the duckweed, the last raindrop.

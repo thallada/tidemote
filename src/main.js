@@ -69,23 +69,23 @@ const throttles = navigator.userAgentData?.mobile ?? (/Android|iPhone|iPad|Mobil
 // What the tuner holds back (tuner.js adaptation), as Settings → Performance says it: each knob below its best, by its
 // level, the render scale on Auto, and the frame rate aimed lower
 const HELD = {
-  // i18n: Settings → Perf, under Adaptation: one thing held back for speed (listed joined by " · "): the water's waves worked out not at all ({level} 0), a quarter (1) or half (2) as often
+  // i18n: Settings → Performance, under Adaptation: one thing held back for speed (listed joined by " · "): the water's waves worked out not at all ({level} 0), a quarter (1) or half (2) as often
   sea: (l) => tr('settings.perf.held.sea', '{level, select, 0 {Water surface off} 1 {Water at a quarter rate} other {Water at half rate}}', { level: l }),
   bloom: () => tr('settings.perf.held.bloom', 'Glow off'), specks: () => tr('settings.perf.held.specks', 'Suspension off'),
-  // i18n: Settings → Perf, one thing held back: which cells touch which (for drawing them pressed together) worked out a quarter as often, not half
+  // i18n: Settings → Performance, one thing held back: which cells touch which (for drawing them pressed together) worked out a quarter as often, not half
   contacts: () => tr('settings.perf.held.contacts', 'Contacts at a quarter rate'),
-  // i18n: Settings → Perf, one thing held back: the stone lit again only every {s} seconds
+  // i18n: Settings → Performance, one thing held back: the stone lit again only every {s} seconds
   stone: (l) => tr('settings.perf.held.stone', 'Stone relit every {s} s', { s: KNOBS.stone.levels[l] }), haze: () => tr('settings.perf.held.haze', 'Heat haze off'),
   microscope: () => tr('settings.perf.held.microscope', 'Microscope off'), interiors: () => tr('settings.perf.held.interiors', 'Cell insides off'),
-  // i18n: Settings → Perf, one thing held back: the ice drawn at half the resolution of the rest of the view
+  // i18n: Settings → Performance, one thing held back: the ice drawn at half the resolution of the rest of the view
   ice: () => tr('settings.perf.held.ice', 'Ice at half resolution'),
-  // i18n: Settings → Perf, one thing held back: {n} the neighbors a cell weighs each step, fewer than the most
+  // i18n: Settings → Performance, one thing held back: {n} the neighbors a cell weighs each step, fewer than the most
   neighbors: (l) => tr('settings.perf.held.neighbors', '{n} neighbors', { n: KNOBS.neighbors.levels[l] }),
-  // i18n: Settings → Perf, one thing held back: the world drawn at {pct} percent of the screen's resolution
+  // i18n: Settings → Performance, one thing held back: the world drawn at {pct} percent of the screen's resolution
   scale: (v) => tr('settings.perf.held.scale', '{pct}% resolution', { pct: Math.round(v * 100) }),
-  // i18n: Settings → Perf, one thing held back: the frame rate aimed lower, {n} frames a second
+  // i18n: Settings → Performance, one thing held back: the frame rate aimed lower, {n} frames a second
   fps: (v) => tr('settings.perf.held.fps', '{n} fps', { n: v }),
-  // i18n: Settings → Perf, one thing held back: the world's steps taken two sixtieths of a second at a time, each spread over two frames
+  // i18n: Settings → Performance, one thing held back: the world's steps taken two sixtieths of a second at a time, each spread over two frames
   split: () => tr('settings.perf.held.split', 'Steps split over two frames') };
 // The Display rows the tuner may ease (by their ids), each offering Auto, its default: the effect drawn as Auto's
 // value (its data-v: Normal, or on), which the knob eases while Performance → Adaptation is on. A value the viewer
@@ -286,7 +286,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   const prefs = loadPrefs();
   // the display's choices (HDR, its headroom, wide color: applyDisplay)
   const dsp = displayPrefs(prefs);
-  let lab = null, specimen = null, view = null; // panels, created below
+  let lab = null, specimen = null, view = null, gameMenu = null; // panels, created below
   let dockTop = innerHeight, railBottom = 0;
   // the shaders compiling after the world starts (Engine._compileLate: the loupe, the close-up, fast speeds), a tick
   // each as it lands; faded out once the last has
@@ -816,8 +816,12 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     renderFeed();
   }
 
+  // the world's simulated time when it was last saved or loaded (null: never, a new world), so quitting knows
+  // whether there is anything to lose
+  let savedSim = null;
   function seedWorld(n) {
     eng.seed(n, { aspect: innerWidth / Math.max(1, innerHeight) });
+    savedSim = null;
     // (a fresh judgment of what the device sustains, below the floor no more; its first frames are its seeding's, not
     // the GPU's measure: overload waits them out, resetAdapt's calm)
     freshAdapt();
@@ -949,6 +953,20 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     return final;
   }
 
+  // A new world (the menu's New world): with the count this one has, seeded again as Shift+R does; with another,
+  // setParticles ('auto', never measured or measured to another count, measures the GPU again)
+  async function newWorld(n) {
+    if (state.phase !== 'running') return;
+    if (n === 'auto' ? !state.perf.particles && measuredN === eng.count : n === eng.count) {
+      state.perf.particles = n === 'auto' ? null : n;
+      persist();
+      seedWorld(eng.count);
+      sound.overture();
+      flash(tr('flash.new-world', 'A new world begins'));
+      return;
+    }
+    await setParticles(n);
+  }
   // A new world with another particle count ('auto' measures the GPU again, as on the first visit).
   async function setParticles(n) {
     if (state.phase !== 'running') return;
@@ -988,24 +1006,30 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   // The engine's state with the page's record of the world (names, lineages, chronicle, history,
   // eras and the camera), kept in this browser (worlds.js) or, in the desktop app, as files.
   const worldStore = desk ? desk.worlds : createWorldStore();
-  async function saveWorld(name) {
+  const unsaved = () => state.phase === 'running' && !introUp() && (savedSim == null ? eng.simTime > 1 : Math.abs(eng.simTime - savedSim) > 1);
+  // the save that quitting keeps (Save and quit, or the desktop window closed): one, written over each time, which the
+  // opening menu offers to continue
+  const LAST_ID = 'w-last';
+  // last: kept as the last session, in its one place
+  async function saveWorld(name, { last = false } = {}) {
     // the page's record and the GPU's copy are taken together, before anything awaits
     const { lastCensus, genera, ...keepLife } = life;
     // a genus none of whose species is still in the registry no longer needs its founder's genome
     // (register() compares a newcomer only with its parent's genus); most genera of an old world
     const listed = new Set([...life.reg.values()].map((s) => s.genus));
     keepLife.genera = new Map([...genera].map(([k, g]) => [k, listed.has(k) ? g : { ...g, founder: null }]));
-    // which events may happen is the page's setting (Settings → Climate), not the world's
+    // which events may happen is the page's setting (the menu's Pool events), not the world's
     const keepClimate = Object.fromEntries(Object.entries(climate).filter(([k, v]) => typeof v !== 'function' && k !== 'allowed'));
     const page = { life: keepLife, climate: keepClimate, cam: { x: cam.x, y: cam.y, zoom: cam.zoomTarget }, chron: chron.save() };
     const top = [...life.reg.values()].filter((s) => s.alive && s.established).sort((a, b) => b.pop - a.pop);
-    const meta = { id: newKey('w'), name, savedAt: Date.now(), version: SAVE_VERSION,
+    const meta = { id: last ? LAST_ID : newKey('w'), name, savedAt: Date.now(), version: SAVE_VERSION, last,
       simTime: eng.simTime, count: eng.count, thriving: life.thriving, cols: top.slice(0, 4).map((s) => s.genome.col), touched: hand.touched };
     const st = await eng.readState();
     const bytes = await encodeWorld({ meta, cpu: st.cpu, ...compactState(st), page });
     // in the desktop app, a picture of the view for the Workshop
     const preview = desk ? await takeView().then((px) => px && encodeBytes(px, 'image/jpeg', 0.88)).catch(() => null) : null;
     await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes, preview || undefined);
+    savedSim = meta.simTime;
   }
   // a world as file bytes, read and checked before the one running is touched
   async function openWorld(bytes) {
@@ -1069,6 +1093,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     }
     state.busy = false;
     state.phase = 'running';
+    savedSim = eng.simTime;
     // i18n: {name} is the saved world's name
     flash(tr('flash.world-loaded', '{name} loaded', { name: w.meta.name }));
     return true;
@@ -2643,7 +2668,6 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   view = (() => {
     const el = $('settings'), opts = $('opts'), btn = $('set-open'), tabs = [...el.querySelectorAll('#set-tabs [data-tab]')];
     let tab = 'display';
-    let pendingN = null;
     // one row per option: its name and key on the left, the choices on the right. With Auto chosen
     // (and autoNow(id) known), the Auto chip shows what it is using now and the choice nearest it is
     // marked; readout() keeps both current in place. cols: the choices as a grid of that many to a line (.many), as a
@@ -2691,19 +2715,19 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     const OFF = tr('settings.off', 'Off'), NORMAL = tr('settings.normal', 'Normal'), AUTO = tr('settings.auto', 'Auto');
     // i18n: Settings' choices for a rate or a resolution: in full, or half of it
     const FULL = tr('settings.full', 'Full'), HALF = tr('settings.half', 'Half');
-    // i18n: Settings → Perf → Pacing's choices: work done at half its full rate, or a quarter
+    // i18n: Settings → Performance → Pacing's choices: work done at half its full rate, or a quarter
     const RATE_HALF = tr('settings.rate-half', '½'), RATE_QUARTER = tr('settings.rate-quarter', '¼');
     const SUBTLE = tr('settings.subtle', 'Subtle'), STRONG = tr('settings.strong', 'Strong');
     // the settings the page may adapt, by the names of their rows in Display and Performance (the stone has no row)
     const NAMES = { microscope: tr('settings.display.microscope', 'Microscope'), bloom: tr('settings.display.bloom', 'Glow'), sea: tr('settings.display.water', 'Surface'),
       haze: tr('settings.display.heat-shimmer', 'Heat haze'), specks: tr('settings.display.specks', 'Suspension'), interiors: tr('settings.display.lod', 'Cell insides'),
-      // i18n: Settings → Perf → Pacing's row and the readout's adapting summary: the stone's light, which the page may work out again less often
+      // i18n: Settings → Performance → Pacing's row and the readout's adapting summary: the stone's light, which the page may work out again less often
       stone: tr('dock.adapt.stone', 'Stone light'),
-      // i18n: Settings → Perf → Resolution's row and the readout's adapting summary: the ice's look, which the page may draw at a lower resolution
+      // i18n: Settings → Performance → Resolution's row and the readout's adapting summary: the ice's look, which the page may draw at a lower resolution
       ice: tr('dock.adapt.ice', 'Ice'),
-      // i18n: Settings → Perf → Pacing's row and the readout's adapting summary: which cells touch which (drawn pressed together), which the page may work out less often
+      // i18n: Settings → Performance → Pacing's row and the readout's adapting summary: which cells touch which (drawn pressed together), which the page may work out less often
       contacts: tr('dock.adapt.contacts', 'Cell contacts'), scale: tr('settings.perf.scale', 'Render scale'), fps: tr('settings.perf.fps', 'Target fps'), neighbors: tr('settings.perf.neighbors', 'Neighbors'),
-      // i18n: Settings → Perf → Pacing's row and the readout's adapting summary: whether the world's step may be taken two sixtieths of a second at a time, spread over two frames, to keep 60 fps
+      // i18n: Settings → Performance → Pacing's row and the readout's adapting summary: whether the world's step may be taken two sixtieths of a second at a time, spread over two frames, to keep 60 fps
       split: tr('settings.perf.split', 'Split steps') };
     // a group of option rows, under a heading or (text '') none
     const group = (id, text, rows) => section(id, text, block('', rows));
@@ -2790,15 +2814,13 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
         + group('character', tr('settings.audio.character', 'Character'), mix('space') + mix('tone'));
     }
     // what the tuner holds back now, in words (Performance, under Adaptation)
-    // i18n: Settings → Perf, under Adaptation, when the page holds nothing back for speed
+    // i18n: Settings → Performance, under Adaptation, when the page holds nothing back for speed
     const heldWords = () => { const h = heldNow(); return h.length ? h.map(([id, l]) => HELD[id](l)).join(' · ') : tr('settings.perf.held-none', 'Full Quality'); };
     // the neighbor budgets offered: Auto's (the tuner's levels), 1½ and 2 times the default, and one chosen before
     const scanChoices = () => [...new Set([...KNOBS.neighbors.levels, ...[1.5, 2].map((f) => Math.round((K.maxScan * f) / 8) * 8), state.perf.scan ?? K.maxScan])].sort((a, b) => a - b);
     function performance_() {
       const P = state.perf;
       const dev = Math.min(devicePixelRatio || 1, 2);
-      const sizes = PARTICLE_SIZES.filter((n) => n <= maxParticles());
-      const nowN = pendingN ?? (P.particles || 'auto');
       // (what the tuner holds back now under Adaptation, a line of fixed height that readout keeps current)
       return group('quality', tr('settings.perf.quality', 'Quality'), onoff('adapt', tr('settings.perf.adapt', 'Adaptation'), '', P.adapt, 'adapt')
         + `<p class="eased-now" id="perf-held">${heldWords()}</p>`)
@@ -2807,188 +2829,31 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
         + choice('density', tr('settings.perf.density', 'Pixel density'), '', [['auto', AUTO], [1, timesOf(1)], [1.5, timesOf(1.5), dev < 1.5], [2, timesOf(2), dev < 2]], P.density, 'density')
         + choice('fps', NAMES.fps, '', [['auto', AUTO], [30, '30'], [60, '60'], [0, tr('settings.perf.fps-display', 'Display')]], P.fps, 'targetfps')
         + (K.heat ? choice('iceScale', NAMES.ice, '', [['auto', AUTO], [1, FULL], [0.5, HALF]], P.iceScale, 'icescale') : ''))
-        // i18n: Settings → Perf: the work the page may do less often (the water's waves, cells' contacts, the stone's light) and how the world's step is spread over frames
+        // i18n: Settings → Performance: the work the page may do less often (the water's waves, cells' contacts, the stone's light) and how the world's step is spread over frames
         + group('pacing', tr('settings.perf.pacing', 'Pacing'), (state.water ? choice('seaEvery', tr('settings.perf.sea-every', 'Water surface'), '', [['auto', AUTO], [1, FULL], [2, RATE_HALF], [4, RATE_QUARTER]], P.seaEvery, 'seaevery') : '')
         + choice('contactsEvery', NAMES.contacts, '', [['auto', AUTO], [2, RATE_HALF], [4, RATE_QUARTER]], P.contactsEvery, 'contactsevery')
-        // i18n: a choice in Settings → Perf → Pacing: the stone's light worked out again every {s} seconds
+        // i18n: a choice in Settings → Performance → Pacing: the stone's light worked out again every {s} seconds
         + choice('stoneEvery', NAMES.stone, '', [['auto', AUTO], ...[0.5, 1, 2].map((v) => [v, tr('settings.perf.every-s', '{s} s', { s: v })])], P.stoneEvery, 'stoneevery')
         + choice('split', NAMES.split, '', [['auto', AUTO], ['off', OFF]], P.split, 'splitsteps'))
-        + group('world', tr('settings.perf.world', 'World'), choice('n', tr('settings.perf.particles', 'Particles'), '', [['auto', AUTO], ...sizes.map((n) => [n, kfmt(n)])], nowN, 'particles')
+        // (the particle count is a new world's: the menu's New world, which this opens)
+        // i18n: Settings → Performance → World: the particles this world has ({n}), and the link to the menu's New world
+        + group('world', tr('settings.perf.world', 'World'), `<div class="opt"><span class="lbl">${term('particles', tr('settings.perf.particles', 'Particles'))}</span><div class="row set-n"><b>${fmt(eng.count)}</b><button type="button" class="link" data-o="new-world" data-v="0">${tr('settings.perf.new-world', 'New world')}</button></div></div>`
         + choice('scan', NAMES.neighbors, '', [['auto', AUTO], ...scanChoices().map((n) => [n, String(n)])], P.scan ?? 'auto', 'neighbors')
-        + (pendingN != null && String(pendingN) !== String(P.particles || 'auto')
-          // i18n: a new world with {n} particles, or as many as the GPU is measured to draw smoothly
-          ? `<div class="opt"><span></span><button type="button" class="btn hot-btn" data-o="apply" data-v="0">${pendingN === 'auto' ? tr('settings.perf.apply-auto', 'Start a new world with a measured count') : tr('settings.perf.apply', 'Start a new world with {n, number}', { n: pendingN })}</button></div>` : '')
         + (hasTS ? `<div class="opt"><span class="lbl">${term('profile', tr('settings.perf.profile', 'Profile'))}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">${tr('settings.perf.copy-profile', 'Copy profile')}</button></div></div>` : ''));
-    }
-    // the pool's events: on or off, each kind on or off, and one started now
-    function climate_() {
-      const E = state.events;
-      const kinds = E.on ? EVENT_TYPES.map((x) => onoff(`ev-${x}`, EVENT_NAME[x], '', E[x], `ev${x}`)).join('') : '';
-      const now = !K.pond ? '' : state.phase === 'running' && !climate.event && E.on && EVENT_TYPES.some((x) => E[x])
-        ? ((on) => `<div class="opt"><span class="lbl">${term('evstart', tr('settings.climate.start-now', 'Start one now'))}</span><div class="row segs${on.length > 3 ? ' many" style="--cols: 2' : ''}">${on.map((x) => `<button type="button" class="chip" data-o="ev-start" data-v="${x}">${EVENT_NAME[x]}</button>`).join('')}</div></div>`)(EVENT_TYPES.filter((x) => E.on && E[x]))
-        // i18n: the event under way ({name}, climate.event.drought...) and the stage it has reached
-        : climate?.event ? `<div class="opt"><span class="lbl">${tr('settings.climate.under-way', 'Under way')}</span><span class="note">${tr('settings.climate.event-now', '{name}{phase, select, none {} drying { · drying} dry { · dry} rain { · rain} after { · after} cooling { · cooling} freezing { · freezing} frozen { · frozen} thaw { · thaw} other { · {phase}}}', { name: EVENT_NAME[climate.event.type], phase: climate.phase && climate.phase !== climate.event.type ? climate.phase : 'none' })}</span></div>` : '';
-      return group('events', tr('settings.climate.events', 'Pool events'), onoff('ev-on', tr('settings.climate.events-on', 'Events'), '', E.on, 'poolevents') + kinds + now);
-    }
-    // the saves kept in this browser (null until read; in the desktop app, with the Workshop's worlds
-    // subscribed to, m.from 'workshop'), the name being typed, a load, delete or share waiting to be
-    // confirmed ({ kind, id }), and what is under way ('save', 'load', 'open', 'share')
-    let saves = null, used = 0, wName = '', ask = null, wBusy = '', wPoll = 0;
-    // i18n: a save's name unless the viewer gives one: the era's name and the world's age (a duration)
-    const defaultName = () => tr('worlds.default-name', '{era} · {age}', { era: eraName(climate.name), age: fmtDur(eng.simTime) });
-    const mb = (n) => tr('worlds.mb', '{n} MB', { n: (n / 1048576).toFixed(n < 10485760 ? 1 : 0) });
-    const mini = (o, v, text, cls = '') => `<button type="button" class="btn mini${cls}" data-o="${o}" data-v="${esc(v)}"${wBusy ? ' disabled' : ''}>${text}</button>`;
-    const ghost = (o, v, icon, label, hint) => `<button type="button" class="ghost" data-o="${o}" data-v="${esc(v)}" aria-label="${label}" data-hint="${hint}"${wBusy ? ' disabled' : ''}><svg><use href="#i-${icon}"/></svg></button>`;
-    function saveRow(m) {
-      const sw = [0, 1, 2, 3].map((i) => `<i${m.cols?.[i] != null ? ` style="background:${cssCol(m.cols[i])}"` : ''}></i>`).join('');
-      const a = ask && ask.id === m.id ? ask.kind : null, ws = m.from === 'workshop';
-      // a save of another major version lists, but does not open (worlds.js SAVE_VERSION)
-      const can = m.downloading != null ? 'ok' : openable(m.version);
-      // i18n: a saved world's line under its name (Settings → Worlds): a question while an act waits to be confirmed,
-      // why it cannot open, or {age} its world time, {count} its particles (64k), {species} its species thriving, {when} when saved
-      const line = a === 'load' ? `<em>${tr('worlds.ask-load', 'Discard this world?')}</em>`
-        : can !== 'ok' ? tr('worlds.cannot-open', '<em>{why, select, newer {Needs a newer Tidemote} other {From an older Tidemote}}</em> · {when}', { why: can, when: when(m.savedAt) }) : a === 'del' ? `<em>${ws ? tr('worlds.ask-unsubscribe', 'Unsubscribe from it?') : tr('worlds.ask-delete', 'Delete this save?')}</em>`
-        : a === 'share' ? `<em>${m.workshop ? tr('worlds.ask-update', 'Update it on the Steam Workshop?') : tr('worlds.ask-share', 'Share it on the Steam Workshop for anyone to see?')}</em>`
-        : m.downloading != null ? tr('worlds.downloading', 'Downloading · {pct}%', { pct: Math.round(m.downloading * 100) })
-        : tr('worlds.row', '{age} · {count} · {species, plural, other {{species} species}} · {when}', { age: fmtDur(m.simTime), count: kfmt(m.count), species: +m.thriving || 0, when: when(m.savedAt) });
-      const CANCEL = tr('worlds.cancel', 'Cancel'), LOAD = tr('worlds.load', 'Load'), UNSUB = tr('worlds.unsubscribe', 'Unsubscribe'), DEL = tr('worlds.delete', 'Delete');
-      const acts = a === 'load' ? mini('w-no', m.id, CANCEL) + mini('w-first', m.id, tr('worlds.save-first', 'Save first')) + mini('w-yes', m.id, wBusy === 'load' ? tr('worlds.loading', 'Loading') : LOAD, ' hot-btn')
-        : a === 'del' ? mini('w-no', m.id, CANCEL) + mini('w-yes', m.id, ws ? UNSUB : DEL, ' hot-btn')
-        : a === 'share' ? mini('w-no', m.id, CANCEL) + mini('w-yes', m.id, wBusy === 'share' ? tr('worlds.sharing', 'Sharing') : m.workshop ? tr('worlds.update', 'Update') : tr('worlds.share', 'Share'), ' hot-btn')
-        : ws ? (m.downloading != null || can !== 'ok' ? '' : mini('w-load', m.id, LOAD)) + ghost('w-page', m.id, 'share', tr('worlds.on-steam', 'On Steam'), tr('worlds.on-steam.hint', 'Its page on the Steam Workshop'))
-          + ghost('w-del', m.id, 'close', UNSUB, UNSUB)
-        : (can !== 'ok' ? '' : mini('w-load', m.id, LOAD) + (steamOn.on ? ghost('w-share', m.id, 'share', tr('worlds.share', 'Share'), m.workshop ? tr('worlds.share.hint-update', 'Update it on the Steam Workshop') : tr('worlds.share.hint', 'Share on the Steam Workshop')) : ''))
-          + ghost('w-dl', m.id, 'down', tr('worlds.download', 'Download'), desk ? tr('worlds.download.hint-desktop', 'Save a copy as a file') : tr('worlds.download.hint', 'Download a file to open on another device'))
-          + ghost('w-del', m.id, 'close', DEL, DEL);
-      return `<div class="w-row"><span class="w-sw" aria-hidden="true">${sw}</span><div class="w-txt"><b>${esc(m.name)}</b><span>${line}</span></div><div class="w-act">${acts}</div></div>`;
-    }
-    function worlds_() {
-      const off = wBusy || state.phase !== 'running' ? ' disabled' : '';
-      const save = `<div class="w-save"><input type="text" id="w-name" maxlength="60" autocomplete="off" spellcheck="false" placeholder="${esc(defaultName())}" value="${esc(wName)}" aria-label="${tr('worlds.name.aria', 'Name this save')}"${off}>`
-        + `<button type="button" class="btn hot-btn" data-o="w-save" data-v="0"${off}>${wBusy === 'save' ? tr('worlds.saving', 'Saving') : tr('worlds.save', 'Save')}</button></div>`;
-      const own = saves && saves.filter((m) => m.from !== 'workshop'), ws = saves && saves.filter((m) => m.from === 'workshop');
-      const list = saves == null ? `<p class="note">${tr('worlds.reading', 'Reading the saved worlds…')}</p>`
-        : own.length ? own.map(saveRow).join('')
-        : `<p class="note">${tr('worlds.none', 'No saved worlds yet.')}</p>`;
-      const browse = `<div class="w-more"><button type="button" class="link" data-o="w-browse" data-v="0">${tr('worlds.browse', 'Browse the Workshop')}</button></div>`;
-      const wsList = !steamOn.on || saves == null ? '' : section('w-ws', tr('worlds.workshop', 'From the Workshop'), block('', (ws.length ? ws.map(saveRow).join('')
-        : `<p class="note">${tr('worlds.workshop-none', 'Subscribed worlds from the Steam Workshop.')}</p>`) + browse));
-      // i18n: beside "Saved worlds": {n} how many, {size} the space they take (worlds.mb)
-      return group('w-save', tr('worlds.save-heading', 'Save this world'), save) + section('w-list', tr('worlds.saved-heading', 'Saved worlds'), block('', list, { aside: own && own.length ? tr('worlds.used', '{n} · {size}', { n: own.length, size: mb(used) }) : '', tip: 'saves' })) + wsList;
-    }
-    async function refreshSaves() {
-      try { saves = await worldStore.list(); } catch { saves = []; }
-      used = saves.reduce((a, m) => a + (m.from !== 'workshop' && m.bytes || 0), 0);
-      render();
-      // the Workshop's downloads, followed while the tab is open
-      clearTimeout(wPoll);
-      if (saves.some((m) => m.downloading != null)) wPoll = setTimeout(() => { if (!el.hidden && tab === 'worlds') refreshSaves(); }, 2000);
-    }
-    // a shared world's words on the Workshop (the sharer may change them there)
-    // i18n: a world shared on the Steam Workshop, its description there: {age} how long it has run (in words), {count}
-    // its particles (64k), {species} its species thriving
-    const wsDescription = (m) => tr('worlds.ws-description', 'A Tidemote world after {age}: {count} particles, {species, plural, other {{species} species}} thriving.', { age: durWords(m.simTime), count: kfmt(m.count), species: +m.thriving || 0 });
-    // i18n: a saved world's file name when its name has no letters to keep
-    const download = (m, bytes) => saveFile(new Blob([bytes], { type: 'application/gzip' }), `${m.name.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') || tr('worlds.file-name', 'world')}.tidemote`);
-    async function worldAct(id, v) {
-      const busy = async (what, fn) => {
-        wBusy = what; render();
-        try { await fn(); } catch (e) { flash(String(e.message || e)); }
-        wBusy = ''; render();
-      };
-      if (id === 'w-save') {
-        if (wBusy || state.phase !== 'running') return;
-        await busy('save', async () => {
-          await saveWorld(wName.trim() || defaultName());
-          wName = '';
-          flash(tr('flash.world-saved', 'World saved'));
-          await refreshSaves();
-        });
-      } else if (id === 'w-load' || id === 'w-del' || id === 'w-share') { ask = { kind: { 'w-load': 'load', 'w-del': 'del', 'w-share': 'share' }[id], id: v }; render(); }
-      else if (id === 'w-no') { ask = null; render(); }
-      else if (id === 'w-yes' && ask?.kind === 'share') {
-        const m = saves.find((x) => x.id === v);
-        ask = null;
-        if (!m || wBusy) return;
-        await busy('share', async () => {
-          const r = await desk.workshop.share(v, { title: m.name, description: wsDescription(m) });
-          unlock(['SHARED']);
-          flash(r.agreement ? tr('flash.ws-agreement', 'Accept the Workshop agreement on Steam to make it public') : m.workshop ? tr('flash.ws-updated', 'Updated on the Workshop') : tr('flash.ws-shared', 'Shared on the Workshop'));
-          desk.workshop.open(r.id);
-          await refreshSaves();
-        });
-      } else if (id === 'w-page') { const m = saves.find((x) => x.id === v); if (m) desk.workshop.open(m.workshop); }
-      else if (id === 'w-browse') desk?.workshop.browse();
-      else if (id === 'w-yes' && ask?.kind === 'del') {
-        ask = null;
-        await worldStore.remove(v).catch((e) => flash(String(e.message || e)));
-        await refreshSaves();
-      } else if (id === 'w-yes' || id === 'w-first') {
-        if (wBusy || state.phase !== 'running') return;
-        let loaded = false;
-        await busy('load', async () => {
-          // checked before anything is discarded: a world that cannot open leaves this one running
-          const w = await openWorld(await worldStore.get(v));
-          if (id === 'w-first') await saveWorld(defaultName());
-          ask = null;
-          loaded = await loadWorld(w);
-        });
-        if (loaded) toggle(false); else refreshSaves();
-      } else if (id === 'w-dl') {
-        const m = saves.find((x) => x.id === v);
-        if (m) download(m, await worldStore.get(v));
-      } else if (id === 'w-open') $('w-file').click();
-    }
-    // a file downloaded from here (on any device): kept with the saves, then offered to load
-    $('w-file').addEventListener('change', async (e) => {
-      const f = e.target.files[0];
-      e.target.value = '';
-      if (!f) return;
-      wBusy = 'open'; render();
-      try {
-        const bytes = await f.arrayBuffer();
-        const { meta } = await openWorld(bytes);
-        await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes);
-        ask = { kind: 'load', id: meta.id };
-      // i18n: {file} the file's name, {why} what went wrong
-      } catch (err) { flash(tr('flash.open-failed', 'Could not open {file}: {why}', { file: f.name, why: String(err.message || err) })); }
-      wBusy = '';
-      await refreshSaves();
-    });
-    const ext = (href, text) => `<a class="sp" target="_blank" rel="noopener" href="${href}">${text}</a>`;
-    function about_() {
-      const link = (href) => (c) => ext(href, c.join(''));
-      // i18n: {app}: desktop in the desktop app (saves are files there, in Steam Cloud when it is on), other in a browser
-      const privacy = tr('settings.about.privacy', '{app, select,desktop {Everything runs on this computer: there is no account and no analytics. Saved worlds are files on this computer and synced to Steam Cloud if connected.}other {Everything runs on this device: there is no account and no analytics. Saved worlds stay in this browser unless you download them.}}', { app: globalThis.tidemoteDesktop ? 'desktop' : 'web' });
-      return group('intro', '', `<div class="about"><p>${tr('settings.about.p1', "A sealed biosphere of up to millions of particles, and all of them live, eat, breed, and die in your browser, simulated on the GPU with WebGPU. Some cells drink the moving light of the tide. Others graze on the producers, and others hunt the grazers. Scavengers break down the dead and return them to the water as silt, and from that silt the next generation builds its children. Children mutate into new species. Species that bond grow into bodies: filaments, branched fronds, spirals, packed tissues. Some of these bodies grow beating tails and swim. Every 10 to 18 minutes the climate turns, and the world has to begin again in its own way. It makes its own music, too: each cell sings its species' song, over a chorus of the births, kills, and deaths in view.")}</p>
-<p>${tr('settings.about.p2', "No hand steers any of this: every ecological rule is local. The complex interacting colonies emerge from simple rules acting on the mutating genome each cell carries. The Field Lab's <guide>Guide</guide> explains how it works.", { guide: (c) => `<button type="button" class="link" data-o="guide" data-v="0">${c.join('')}</button>` })}</p></div>`)
-        // i18n: the credits: <a1> a link to the developer's site, <a2> to Claude Code's page, <a4> to Codex's, <a3> to SuperCollider's
-        + group('made', tr('settings.about.made-by', 'Made by'), `<div class="about"><p>${tr('settings.about.credits', "Developed by <a1>Tyler Hallada</a1> with AI coding tools (<a2>Claude Code</a2> and <a4>Codex</a4>), which wrote most of the code. Graphics and sounds in this game are procedurally generated from code. No generative image, video, or sound AI model content is used in this game. The soundtrack is composed live from the simulation and the cells in view, played in a custom browser port of <a3>SuperCollider</a3>. Every line of text in the interface was reviewed and edited by hand.", { a1: link('https://www.hallada.net'), a2: link('https://claude.com/claude-code'), a3: link('https://supercollider.github.io/'), a4: link('https://openai.com/codex/') })}</p></div>`)
-        + group('src', tr('settings.about.source', 'Source'), `<div class="about"><p>${tr('settings.about.license', 'Free software under the <a1>GPL-3.0</a1>: the code, design notes, and tools used in development are on <a2>GitHub</a2>. Feedback, bug reports, and ideas are welcome as issues.', { a1: link('https://www.gnu.org/licenses/gpl-3.0.html'), a2: link('https://github.com/thallada/tidemote') })}</p>
-<p>${privacy}</p></div>`)
-        // (where to get the desktop app, except in it)
-        + (globalThis.tidemoteDesktop ? '' : group('desktop', tr('settings.about.desktop', 'Desktop'), `<div class="about"><p>${tr('settings.about.desktop-p', 'Tidemote is also a desktop app, at its best on a computer with a dedicated graphics card.')}</p><div class="stores">${storeLinks()}</div></div>`));
     }
     // the keyboard note, and this tab's reset (which asks first)
     const keysNote = `<button type="button" class="link keys-note" data-open="help">${tr('settings.keys-note', 'Controls')}</button>`;
     function foot() {
-      if (tab === 'about') return `<div class="set-foot">${keysNote}</div>`;
-      // i18n: where saved worlds are kept (Settings → Worlds, at the foot)
-      const kept = !desk ? tr('settings.worlds.kept-browser', 'Kept in this browser.') : steamOn.cloud ? tr('settings.worlds.kept-cloud', 'Kept on this computer and in Steam Cloud.') : tr('settings.worlds.kept-computer', 'Kept on this computer.');
-      if (tab === 'worlds') return `<div class="set-foot"><span class="keys-note">${kept}</span><button type="button" class="link set-reset" data-o="w-open" data-v="0"${wBusy ? ' disabled' : ''}>${tr('settings.worlds.open-file', 'Open a file')}</button></div>`;
       const reset = confirming
         // i18n: {tab} is the Settings tab whose options are reset
         ? `<span class="set-reset"><span>${tr('settings.reset-ask', 'Reset every {tab, select, display {display} audio {audio} performance {performance} climate {climate} other {{tab}}} setting?', { tab })}</span><button type="button" class="link" data-o="reset-no" data-v="0">${tr('settings.reset-cancel', 'Cancel')}</button><button type="button" class="btn hot-btn" data-o="reset-yes" data-v="0">${tr('settings.reset-yes', 'Reset')}</button></span>`
         : `<button type="button" class="link set-reset" data-o="reset" data-v="0">${tr('settings.reset', 'Reset to defaults')}</button>`;
       return `<div class="set-foot">${confirming ? '' : keysNote}${reset}</div>`;
     }
-    // this tab's settings as a fresh page opens them (a particle count waits for its own new world)
+    // this tab's settings as a fresh page opens them (the particle count is the menu's New world)
     function resetTab() {
       const s = eng.settings, P = state.perf;
-      if (tab === 'climate') {
-        state.events = EVENTS_ON();
-        applyEvents();
-      } else if (tab === 'display') {
+      if (tab === 'display') {
         trailIdx = 1; s.trails = trailLevels[trailIdx];
         for (const k of ['bloom', 'specks', 'lod']) s[k] = defaults[k];
         state.map = 'off'; state.haze = true; applyMap();
@@ -3006,18 +2871,14 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
         Object.assign(P, { scale: 'auto', floor: 0.5, density: 'auto', fps: 'auto', scan: null, adapt: true, seaEvery: 'auto', contactsEvery: 'auto', stoneEvery: 'auto', iceScale: 'auto', split: 'auto' });
         for (const k of Object.keys(tune)) { tune[k].level = KNOBS[k].levels.length - 1; tune[k].hold = 0; }
         renderScale = Math.max(renderScale, P.floor); resetAdapt(); fit();
-        pendingN = P.particles ? 'auto' : null;
       }
     }
     function render() {
       if (el.hidden) return;
       tabs.forEach((b) => { const on = b.dataset.tab === tab; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; });
       $('readout').hidden = tab !== 'performance';
-      const typing = document.activeElement?.id === 'w-name';
-      setHTML(opts, (tab === 'display' ? display() : tab === 'audio' ? audio_() : tab === 'performance' ? performance_() : tab === 'climate' ? climate_() : tab === 'about' ? about_() : worlds_()) + foot());
-      if (typing && !$('w-name').disabled) { const i = $('w-name'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+      setHTML(opts, (tab === 'display' ? display() : tab === 'audio' ? audio_() : performance_()) + foot());
       if (tab === 'display') drawCal();
-      if (tab === 'worlds' && saves == null) refreshSaves();
       readout(true);
     }
     let roAt = 0;
@@ -3090,7 +2951,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       return (held ? `<div class="am-h"><span>${tr('dock.adapt.title', 'Adapting')}</span><span>${WHY_WORDS[perf.why] ?? ''}</span></div>` : `<div class="am-h calm"><span>${tr('settings.perf.held-none', 'Full Quality')}</span></div>`)
         + SUMMED.map((ids) => `<div class="am-g">${ids.filter((id) => (id !== 'haze' && id !== 'ice') || K.heat).map(row).join('')}</div>`).join('')
         // i18n: the readout's adapting summary, at its foot: what a click (or on a touch screen, a second tap) does
-        + `<div class="am-f">${tr('dock.adapt.open', '{touch, select, yes {Tap again to open Settings → Perf} other {Click to open Settings → Perf}}', { touch: isCoarse ? 'yes' : 'no' })}</div>`;
+        + `<div class="am-f">${tr('dock.adapt.open', '{touch, select, yes {Tap again to open Settings → Performance} other {Click to open Settings → Performance}}', { touch: isCoarse ? 'yes' : 'no' })}</div>`;
     };
     function adapt() {
       const held = new Set(heldNow().map((r) => r[0]));
@@ -3104,7 +2965,6 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     strip.addEventListener('click', () => { const tap = tapped; tapped = false; if (!(tap && strip.hasAttribute('aria-describedby'))) toggle(true, 'performance'); });
     function set(id, v) {
       const s = eng.settings, P = state.perf;
-      if (id.startsWith('w-')) { worldAct(id, v); return; }
       // (a row the tuner may ease: Auto draws Auto's value and lets the tuner ease it; any other value is the viewer's)
       if (EASES[id]) { fixRow(id, v !== 'auto'); if (v === 'auto') v = AUTO_VAL[id]; }
       if (id === 'trails') { trailIdx = +v; s.trails = trailLevels[trailIdx]; }
@@ -3126,9 +2986,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       else if (id === 'focus') { state.focus = +v; applyLook(); }
       else if (id === 'hdr') { dsp.hdr = !!+v; applyDisplay(); }
       else if (id === 'wide') { dsp.wide = +v; applyDisplay(); }
-      else if (id === 'ev-start') { if (!climate.event) climate.force(v); toggle(false); return; }
       else if (id === 'film') { toggle(false); filmAct(); return; }
-      else if (id.startsWith('ev-')) { state.events[id.slice(3)] = !!+v; applyEvents(); }
       else if (id === 'ui') { setInterface(!!+v); return; }
       else if (id === 'fullscreen') { if (!!+v !== ($('fs').getAttribute('aria-pressed') === 'true')) toggleFullscreen(); return; }
       else if (id === 'auto') { state.auto = !!+v; renderAuto(director.active); }
@@ -3141,11 +2999,9 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       // (a Pacing row: Auto starts its knob from its best, as Neighbors does; a value fixes it, applyTune)
       else if (KNOB_OF[id]) { P[id] = v === 'auto' ? 'auto' : +v; if (v === 'auto') { const k = tune[KNOB_OF[id]]; k.level = KNOBS[KNOB_OF[id]].levels.length - 1; k.hold = 0; } }
       else if (id === 'split') P.split = v;
-      else if (id === 'n') pendingN = v === 'auto' ? 'auto' : +v;
-      else if (id === 'apply') { const n = pendingN; pendingN = null; setParticles(n); }
       else if (id === 'profile') { copyProfile(); return; }
+      else if (id === 'new-world') { toggle(false); gameMenu.open('new'); return; }
       else if (id === 'sound') { if (!!+v !== sound.on) toggleSound(); return; }
-      else if (id === 'guide') { toggle(false); lab.open('guide'); return; }
       else if (id === 'reset' || id === 'reset-no') { confirming = id === 'reset'; render(); return; }
       else if (id === 'reset-yes') { confirming = false; resetTab(); }
       // (a knob whose effect is off, or with Adaptation off, sits at its best: applyTune)
@@ -3153,8 +3009,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     }
     opts.addEventListener('click', (e) => { const b = e.target.closest('[data-o]'); if (b && !b.disabled) set(b.dataset.o, b.dataset.v); });
     opts.addEventListener('input', (e) => {
-      if (e.target.id === 'w-name') wName = e.target.value;
-      else if (e.target.id === 'set-vol') { if (!sound.on) toggleSound(); sound.setVolume(Number(e.target.value) / 100); }
+      if (e.target.id === 'set-vol') { if (!sound.on) toggleSound(); sound.setVolume(Number(e.target.value) / 100); }
       else if (e.target.id === 'set-peak') { dsp.peak = sliderToPeak(+e.target.value); setLive($('set-peak-v'), peakWords(dsp.peak)); applyDisplay(); wakeCal(); }
     });
     opts.addEventListener('change', (e) => { if (e.target.id === 'set-peak') persist(); });
@@ -3167,9 +3022,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       addEventListener('pointerup', up, true); addEventListener('pointercancel', up, true);
     });
     opts.addEventListener('keydown', (e) => { if (e.target.id === 'set-peak') wakeCal(); });
-    opts.addEventListener('keydown', (e) => { if (e.target.id === 'w-name' && e.key === 'Enter') { e.preventDefault(); worldAct('w-save'); } });
     // (another tab opens at its top)
-    tabs.forEach((b) => b.addEventListener('click', () => { if (tab !== b.dataset.tab) $('set-body').scrollTop = 0; tab = b.dataset.tab; confirming = false; ask = null; render(); }));
+    tabs.forEach((b) => b.addEventListener('click', () => { if (tab !== b.dataset.tab) $('set-body').scrollTop = 0; tab = b.dataset.tab; confirming = false; render(); }));
     $('set-tabs').addEventListener('keydown', (e) => {
       if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
       const i = tabs.findIndex((b) => b.dataset.tab === tab);
@@ -3228,18 +3082,372 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     }
     // (a smaller window keeps it inside; a narrow one puts it back where narrow screens have it)
     addEventListener('resize', () => { if (placed) { if (roomy.matches) place(placed.x, placed.y, placed.w, placed.h); else unplace(); } });
-    // open on a tab (the wordmark opens About), or close if that tab is already showing
+    // open on a tab (the readout opens Performance), or close if that tab is already showing
     function toggle(on = el.hidden, to) {
       const other = to && tab !== to;
-      if (to) { on = el.hidden || tab !== to; if (on) { tab = to; confirming = false; ask = null; } }
+      delete el.dataset.from; // (opened from the menu: set again by it, after)
+      if (to) { on = el.hidden || tab !== to; if (on) { tab = to; confirming = false; } }
       el.hidden = !on;
       btn.setAttribute('aria-expanded', String(on));
-      if (on) { $('help').hidden = true; if (phone()) lab.close(); saves = null; render(); if (other) $('set-body').scrollTop = 0; } else { pendingN = null; confirming = false; ask = null; unplace(); }
+      if (on) { $('help').hidden = true; gameMenu?.close(); if (phone()) lab.close(); render(); if (other) $('set-body').scrollTop = 0; } else { confirming = false; unplace(); }
     }
     btn.addEventListener('click', () => toggle());
-    $('brand').addEventListener('click', () => toggle(true, 'about'));
     $('set-close').addEventListener('click', () => { toggle(false); restoreFocus(el); });
-    return { render, toggle, readout, adapt, isOpen: () => !el.hidden };
+    // (the menu's rows are built from the same pieces)
+    return { render, toggle, readout, adapt, isOpen: () => !el.hidden, choice, onoff, group };
+  })();
+
+  // ------------------------------------------------------------ the game menu
+  // What is about this world, and the way out, over the view (which keeps running: Space pauses it). Esc opens it once
+  // nothing is left to close, as does a controller's Menu, the rail's wordmark and, on a phone, the dock's Menu. Its
+  // first page is a list: back to the world, save, load, a new world, the pool's events, then Settings, the Controls,
+  // About and, in the desktop app, Quit. Saving and loading, a new world, the events and About are pages within it, B or
+  // Esc back to the list; Settings and the Controls open in their own panels, which go back to the menu as they close.
+  gameMenu = (() => {
+    const el = $('gmenu'), head = $('gm-head'), body = $('gm-body');
+    const openers = [$('brand'), $('gm-open')];
+    const { choice, onoff, group } = view;
+    // the page showing, the count chosen for a new world (its own until begun), Quit asking whether to save first, and
+    // quitting under way
+    let page = 'root', pickN = null, quitAsk = false, quitting = '';
+    // the pool's events: on or off, each kind on or off, and one started now
+    function climate_() {
+      const E = state.events;
+      const kinds = E.on ? EVENT_TYPES.map((x) => onoff(`ev-${x}`, EVENT_NAME[x], '', E[x], `ev${x}`)).join('') : '';
+      const now = !K.pond ? '' : state.phase === 'running' && !climate.event && E.on && EVENT_TYPES.some((x) => E[x])
+        ? ((on) => `<div class="opt"><span class="lbl">${term('evstart', tr('settings.climate.start-now', 'Start one now'))}</span><div class="row segs${on.length > 3 ? ' many" style="--cols: 2' : ''}">${on.map((x) => `<button type="button" class="chip" data-o="ev-start" data-v="${x}">${EVENT_NAME[x]}</button>`).join('')}</div></div>`)(EVENT_TYPES.filter((x) => E.on && E[x]))
+        // i18n: the event under way ({name}, climate.event.drought...) and the stage it has reached
+        : climate?.event ? `<div class="opt"><span class="lbl">${tr('settings.climate.under-way', 'Under way')}</span><span class="note">${tr('settings.climate.event-now', '{name}{phase, select, none {} drying { · drying} dry { · dry} rain { · rain} after { · after} cooling { · cooling} freezing { · freezing} frozen { · frozen} thaw { · thaw} other { · {phase}}}', { name: EVENT_NAME[climate.event.type], phase: climate.phase && climate.phase !== climate.event.type ? climate.phase : 'none' })}</span></div>` : '';
+      // (the page's heading names it)
+      return group('events', '', onoff('ev-on', tr('settings.climate.events-on', 'Events'), '', E.on, 'poolevents') + kinds + now);
+    }
+    // the saves kept in this browser (null until read; in the desktop app, with the Workshop's worlds
+    // subscribed to, m.from 'workshop'), the name being typed, a load, delete or share waiting to be
+    // confirmed ({ kind, id }), and what is under way ('save', 'load', 'open', 'share')
+    let saves = null, used = 0, wName = '', ask = null, wBusy = '', wPoll = 0;
+    // i18n: a save's name unless the viewer gives one: the era's name and the world's age (a duration)
+    const defaultName = () => tr('worlds.default-name', '{era} · {age}', { era: eraName(climate.name), age: fmtDur(eng.simTime) });
+    const mb = (n) => tr('worlds.mb', '{n} MB', { n: (n / 1048576).toFixed(n < 10485760 ? 1 : 0) });
+    const mini = (o, v, text, cls = '') => `<button type="button" class="btn mini${cls}" data-o="${o}" data-v="${esc(v)}"${wBusy ? ' disabled' : ''}>${text}</button>`;
+    const ghost = (o, v, icon, label, hint) => `<button type="button" class="ghost" data-o="${o}" data-v="${esc(v)}" aria-label="${label}" data-hint="${hint}"${wBusy ? ' disabled' : ''}><svg><use href="#i-${icon}"/></svg></button>`;
+    function saveRow(m) {
+      const sw = [0, 1, 2, 3].map((i) => `<i${m.cols?.[i] != null ? ` style="background:${cssCol(m.cols[i])}"` : ''}></i>`).join('');
+      const a = ask && ask.id === m.id ? ask.kind : null, ws = m.from === 'workshop';
+      // a save of another major version lists, but does not open (worlds.js SAVE_VERSION)
+      const can = m.downloading != null ? 'ok' : openable(m.version);
+      // i18n: a saved world's line under its name (Settings → Worlds): a question while an act waits to be confirmed,
+      // why it cannot open, or {age} its world time, {count} its particles (64k), {species} its species thriving, {when} when saved
+      const line = a === 'load' ? `<em>${tr('worlds.ask-load', 'Discard this world?')}</em>`
+        : can !== 'ok' ? tr('worlds.cannot-open', '<em>{why, select, newer {Needs a newer Tidemote} other {From an older Tidemote}}</em> · {when}', { why: can, when: when(m.savedAt) }) : a === 'del' ? `<em>${ws ? tr('worlds.ask-unsubscribe', 'Unsubscribe from it?') : tr('worlds.ask-delete', 'Delete this save?')}</em>`
+        : a === 'share' ? `<em>${m.workshop ? tr('worlds.ask-update', 'Update it on the Steam Workshop?') : tr('worlds.ask-share', 'Share it on the Steam Workshop for anyone to see?')}</em>`
+        : m.downloading != null ? tr('worlds.downloading', 'Downloading · {pct}%', { pct: Math.round(m.downloading * 100) })
+        : tr('worlds.row', '{age} · {count} · {species, plural, other {{species} species}} · {when}', { age: fmtDur(m.simTime), count: kfmt(m.count), species: +m.thriving || 0, when: when(m.savedAt) });
+      const CANCEL = tr('worlds.cancel', 'Cancel'), LOAD = tr('worlds.load', 'Load'), UNSUB = tr('worlds.unsubscribe', 'Unsubscribe'), DEL = tr('worlds.delete', 'Delete');
+      const acts = a === 'load' ? mini('w-no', m.id, CANCEL) + mini('w-first', m.id, tr('worlds.save-first', 'Save first')) + mini('w-yes', m.id, wBusy === 'load' ? tr('worlds.loading', 'Loading') : LOAD, ' hot-btn')
+        : a === 'del' ? mini('w-no', m.id, CANCEL) + mini('w-yes', m.id, ws ? UNSUB : DEL, ' hot-btn')
+        : a === 'share' ? mini('w-no', m.id, CANCEL) + mini('w-yes', m.id, wBusy === 'share' ? tr('worlds.sharing', 'Sharing') : m.workshop ? tr('worlds.update', 'Update') : tr('worlds.share', 'Share'), ' hot-btn')
+        : ws ? (m.downloading != null || can !== 'ok' ? '' : mini('w-load', m.id, LOAD)) + ghost('w-page', m.id, 'share', tr('worlds.on-steam', 'On Steam'), tr('worlds.on-steam.hint', 'Its page on the Steam Workshop'))
+          + ghost('w-del', m.id, 'close', UNSUB, UNSUB)
+        : (can !== 'ok' ? '' : mini('w-load', m.id, LOAD) + (steamOn.on ? ghost('w-share', m.id, 'share', tr('worlds.share', 'Share'), m.workshop ? tr('worlds.share.hint-update', 'Update it on the Steam Workshop') : tr('worlds.share.hint', 'Share on the Steam Workshop')) : ''))
+          + ghost('w-dl', m.id, 'down', tr('worlds.download', 'Download'), desk ? tr('worlds.download.hint-desktop', 'Save a copy as a file') : tr('worlds.download.hint', 'Download a file to open on another device'))
+          + ghost('w-del', m.id, 'close', DEL, DEL);
+      return `<div class="w-row"><span class="w-sw" aria-hidden="true">${sw}</span><div class="w-txt"><b>${esc(m.name)}</b><span>${line}</span></div><div class="w-act">${acts}</div></div>`;
+    }
+    function worlds_() {
+      const off = wBusy || state.phase !== 'running' ? ' disabled' : '';
+      const save = `<div class="w-save"><input type="text" id="w-name" maxlength="60" autocomplete="off" spellcheck="false" placeholder="${esc(defaultName())}" value="${esc(wName)}" aria-label="${tr('worlds.name.aria', 'Name this save')}"${off}>`
+        + `<button type="button" class="btn hot-btn" data-o="w-save" data-v="0"${off}>${wBusy === 'save' ? tr('worlds.saving', 'Saving') : tr('worlds.save', 'Save')}</button></div>`;
+      const own = saves && saves.filter((m) => m.from !== 'workshop'), ws = saves && saves.filter((m) => m.from === 'workshop');
+      const list = saves == null ? `<p class="note">${tr('worlds.reading', 'Reading the saved worlds…')}</p>`
+        : own.length ? own.map(saveRow).join('')
+        : `<p class="note">${tr('worlds.none', 'No saved worlds yet.')}</p>`;
+      const browse = `<div class="w-more"><button type="button" class="link" data-o="w-browse" data-v="0">${tr('worlds.browse', 'Browse the Workshop')}</button></div>`;
+      const wsList = !steamOn.on || saves == null ? '' : section('w-ws', tr('worlds.workshop', 'From the Workshop'), block('', (ws.length ? ws.map(saveRow).join('')
+        : `<p class="note">${tr('worlds.workshop-none', 'Subscribed worlds from the Steam Workshop.')}</p>`) + browse));
+      // i18n: beside "Saved worlds": {n} how many, {size} the space they take (worlds.mb)
+      return group('w-save', tr('worlds.save-heading', 'Save this world'), save) + section('w-list', tr('worlds.saved-heading', 'Saved worlds'), block('', list, { aside: own && own.length ? tr('worlds.used', '{n} · {size}', { n: own.length, size: mb(used) }) : '', tip: 'saves' })) + wsList;
+    }
+    async function refreshSaves() {
+      try { saves = await worldStore.list(); } catch { saves = []; }
+      used = saves.reduce((a, m) => a + (m.from !== 'workshop' && m.bytes || 0), 0);
+      render();
+      // the Workshop's downloads, followed while the tab is open
+      clearTimeout(wPoll);
+      if (saves.some((m) => m.downloading != null)) wPoll = setTimeout(() => { if (!el.hidden && page === 'worlds') refreshSaves(); }, 2000);
+    }
+    // a shared world's words on the Workshop (the sharer may change them there)
+    // i18n: a world shared on the Steam Workshop, its description there: {age} how long it has run (in words), {count}
+    // its particles (64k), {species} its species thriving
+    const wsDescription = (m) => tr('worlds.ws-description', 'A Tidemote world after {age}: {count} particles, {species, plural, other {{species} species}} thriving.', { age: durWords(m.simTime), count: kfmt(m.count), species: +m.thriving || 0 });
+    // i18n: a saved world's file name when its name has no letters to keep
+    const download = (m, bytes) => saveFile(new Blob([bytes], { type: 'application/gzip' }), `${m.name.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') || tr('worlds.file-name', 'world')}.tidemote`);
+    async function worldAct(id, v) {
+      const busy = async (what, fn) => {
+        wBusy = what; render();
+        try { await fn(); } catch (e) { flash(String(e.message || e)); }
+        wBusy = ''; render();
+      };
+      if (id === 'w-save') {
+        if (wBusy || state.phase !== 'running') return;
+        await busy('save', async () => {
+          await saveWorld(wName.trim() || defaultName());
+          wName = '';
+          flash(tr('flash.world-saved', 'World saved'));
+          await refreshSaves();
+        });
+      } else if (id === 'w-load' || id === 'w-del' || id === 'w-share') { ask = { kind: { 'w-load': 'load', 'w-del': 'del', 'w-share': 'share' }[id], id: v }; render(); }
+      else if (id === 'w-no') { ask = null; render(); }
+      else if (id === 'w-yes' && ask?.kind === 'share') {
+        const m = saves.find((x) => x.id === v);
+        ask = null;
+        if (!m || wBusy) return;
+        await busy('share', async () => {
+          const r = await desk.workshop.share(v, { title: m.name, description: wsDescription(m) });
+          unlock(['SHARED']);
+          flash(r.agreement ? tr('flash.ws-agreement', 'Accept the Workshop agreement on Steam to make it public') : m.workshop ? tr('flash.ws-updated', 'Updated on the Workshop') : tr('flash.ws-shared', 'Shared on the Workshop'));
+          desk.workshop.open(r.id);
+          await refreshSaves();
+        });
+      } else if (id === 'w-page') { const m = saves.find((x) => x.id === v); if (m) desk.workshop.open(m.workshop); }
+      else if (id === 'w-browse') desk?.workshop.browse();
+      else if (id === 'w-yes' && ask?.kind === 'del') {
+        ask = null;
+        await worldStore.remove(v).catch((e) => flash(String(e.message || e)));
+        await refreshSaves();
+      } else if (id === 'w-yes' || id === 'w-first') {
+        if (wBusy || state.phase !== 'running') return;
+        let loaded = false;
+        await busy('load', async () => {
+          // checked before anything is discarded: a world that cannot open leaves this one running
+          const w = await openWorld(await worldStore.get(v));
+          if (id === 'w-first') await saveWorld(defaultName());
+          ask = null;
+          loaded = await loadWorld(w);
+        });
+        if (loaded) close(); else refreshSaves();
+      } else if (id === 'w-dl') {
+        const m = saves.find((x) => x.id === v);
+        if (m) download(m, await worldStore.get(v));
+      } else if (id === 'w-open') $('w-file').click();
+    }
+    // a file downloaded from here (on any device): kept with the saves, then offered to load
+    $('w-file').addEventListener('change', async (e) => {
+      const f = e.target.files[0];
+      e.target.value = '';
+      if (!f) return;
+      wBusy = 'open'; render();
+      try {
+        const bytes = await f.arrayBuffer();
+        const { meta } = await openWorld(bytes);
+        await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes);
+        ask = { kind: 'load', id: meta.id };
+      // i18n: {file} the file's name, {why} what went wrong
+      } catch (err) { flash(tr('flash.open-failed', 'Could not open {file}: {why}', { file: f.name, why: String(err.message || err) })); }
+      wBusy = '';
+      await refreshSaves();
+    });
+    const ext = (href, text) => `<a class="sp" target="_blank" rel="noopener" href="${href}">${text}</a>`;
+    function about_() {
+      const link = (href) => (c) => ext(href, c.join(''));
+      // i18n: {app}: desktop in the desktop app (saves are files there, in Steam Cloud when it is on), other in a browser
+      const privacy = tr('settings.about.privacy', '{app, select,desktop {Everything runs on this computer: there is no account and no analytics. Saved worlds are files on this computer and synced to Steam Cloud if connected.}other {Everything runs on this device: there is no account and no analytics. Saved worlds stay in this browser unless you download them.}}', { app: globalThis.tidemoteDesktop ? 'desktop' : 'web' });
+      return group('intro', '', `<div class="about"><p>${tr('settings.about.p1', "A sealed biosphere of up to millions of particles, and all of them live, eat, breed, and die in your browser, simulated on the GPU with WebGPU. Some cells drink the moving light of the tide. Others graze on the producers, and others hunt the grazers. Scavengers break down the dead and return them to the water as silt, and from that silt the next generation builds its children. Children mutate into new species. Species that bond grow into bodies: filaments, branched fronds, spirals, packed tissues. Some of these bodies grow beating tails and swim. Every 10 to 18 minutes the climate turns, and the world has to begin again in its own way. It makes its own music, too: each cell sings its species' song, over a chorus of the births, kills, and deaths in view.")}</p>
+<p>${tr('settings.about.p2', "No hand steers any of this: every ecological rule is local. The complex interacting colonies emerge from simple rules acting on the mutating genome each cell carries. The Field Lab's <guide>Guide</guide> explains how it works.", { guide: (c) => `<button type="button" class="link" data-o="guide" data-v="0">${c.join('')}</button>` })}</p></div>`)
+        // i18n: the credits: <a1> a link to the developer's site, <a2> to Claude Code's page, <a4> to Codex's, <a3> to SuperCollider's
+        + group('made', tr('settings.about.made-by', 'Made by'), `<div class="about"><p>${tr('settings.about.credits', "Developed by <a1>Tyler Hallada</a1> with AI coding tools (<a2>Claude Code</a2> and <a4>Codex</a4>), which wrote most of the code. Graphics and sounds in this game are procedurally generated from code. No generative image, video, or sound AI model content is used in this game. The soundtrack is composed live from the simulation and the cells in view, played in a custom browser port of <a3>SuperCollider</a3>. Every line of text in the interface was reviewed and edited by hand.", { a1: link('https://www.hallada.net'), a2: link('https://claude.com/claude-code'), a3: link('https://supercollider.github.io/'), a4: link('https://openai.com/codex/') })}</p></div>`)
+        + group('src', tr('settings.about.source', 'Source'), `<div class="about"><p>${tr('settings.about.license', 'Free software under the <a1>GPL-3.0</a1>: the code, design notes, and tools used in development are on <a2>GitHub</a2>. Feedback, bug reports, and ideas are welcome as issues.', { a1: link('https://www.gnu.org/licenses/gpl-3.0.html'), a2: link('https://github.com/thallada/tidemote') })}</p>
+<p>${privacy}</p></div>`)
+        // (where to get the desktop app, except in it)
+        + (globalThis.tidemoteDesktop ? '' : group('desktop', tr('settings.about.desktop', 'Desktop'), `<div class="about"><p>${tr('settings.about.desktop-p', 'Tidemote is also a desktop app, at its best on a computer with a dedicated graphics card.')}</p><div class="stores">${storeLinks()}</div></div>`));
+    }
+    // the saves list's foot: where they are kept, and a file opened
+    function worldsFoot() {
+      // i18n: where saved worlds are kept (the menu's saves, at the foot)
+      const kept = !desk ? tr('settings.worlds.kept-browser', 'Kept in this browser.') : steamOn.cloud ? tr('settings.worlds.kept-cloud', 'Kept on this computer and in Steam Cloud.') : tr('settings.worlds.kept-computer', 'Kept on this computer.');
+      return `<div class="set-foot"><span class="keys-note">${kept}</span><button type="button" class="link set-reset" data-o="w-open" data-v="0"${wBusy ? ' disabled' : ''}>${tr('settings.worlds.open-file', 'Open a file')}</button></div>`;
+    }
+    // A new world: its particle count (Auto, as many as the GPU draws smoothly, or a size; kept as the count for worlds
+    // after it, as the opening menu keeps it), then begun, this one saved first if it has run since it was last saved
+    function new_() {
+      const P = state.perf, cur = pickN ?? (P.particles || 'auto');
+      const sizes = PARTICLE_SIZES.filter((n) => n <= maxParticles());
+      // i18n: the menu's New world: the Auto count, with the count this GPU was measured to draw smoothly ({n}, short: 64k)
+      const auto = measuredN ? tr('gamemenu.auto-measured', 'Auto {n}', { n: kfmt(measuredN) }) : tr('settings.auto', 'Auto');
+      const off = wBusy ? ' disabled' : '';
+      // i18n: the menu's New world: what beginning one does to this one, and its buttons
+      return group('new', '', choice('n', tr('settings.perf.particles', 'Particles'), '', [['auto', auto], ...sizes.map((n) => [n, kfmt(n)])], cur, 'particles', 3)
+        + `<p class="gm-note">${tr('gamemenu.new-note', 'This world ends when the new one begins.')}</p>`
+        + `<div class="gm-acts">${unsaved() ? `<button type="button" class="btn" data-o="new-first" data-v="0"${off}>${tr('gamemenu.new-save-first', 'Save this one first')}</button>` : ''}`
+        + `<button type="button" class="btn hot-btn" data-o="new-go" data-v="0"${off}>${wBusy === 'new' ? tr('gamemenu.new-saving', 'Saving') : tr('gamemenu.new-begin', 'Begin a new world')}</button></div>`);
+    }
+    async function begin(saveFirst) {
+      if (wBusy || state.phase !== 'running') return;
+      if (saveFirst) {
+        wBusy = 'new'; render();
+        try { await saveWorld(defaultName()); } catch (e) { flash(String(e.message || e)); wBusy = ''; render(); return; }
+        wBusy = '';
+      }
+      const n = pickN ?? (state.perf.particles || 'auto');
+      pickN = null;
+      close();
+      await newWorld(n);
+    }
+
+    // the first page: one row a place to go, its key beside it (none on a touch screen, nor while a controller is in use)
+    const QUIT_ROW = () => (desk?.quit ? `<hr>${quitRow()}` : '');
+    function quitRow() {
+      // i18n: the menu's Quit, in the desktop app: the row, its question when this world has run since it was last saved,
+      // its answers, and what it says while it saves the world as the last session and quits
+      if (quitting) return `<button type="button" class="gm-item" data-g="quit" disabled><span>${quitting === 'save' ? tr('gamemenu.quitting-save', 'Saving and quitting') : tr('gamemenu.quitting', 'Quitting')}</span></button>`;
+      if (!quitAsk) return item('quit', tr('gamemenu.quit', 'Quit Tidemote'));
+      return `<div class="gm-quit" role="group" aria-label="${tr('gamemenu.quit', 'Quit Tidemote')}"><p>${tr('gamemenu.quit-ask', 'Save this world before quitting? It will be kept as the last session, to continue from.')}</p>`
+        + `<div class="gm-acts"><button type="button" class="btn" data-g="quit-no">${tr('gamemenu.quit-cancel', 'Cancel')}</button>`
+        + `<button type="button" class="btn" data-g="quit-now">${tr('gamemenu.quit-without', 'Quit without saving')}</button>`
+        + `<button type="button" class="btn hot-btn" data-g="quit-save">${tr('gamemenu.quit-save', 'Save and quit')}</button></div></div>`;
+    }
+    const item = (g, text, key = '', dis = false) => `<button type="button" class="gm-item" data-g="${g}"${dis ? ' disabled' : ''}><span>${text}</span>${key ? `<kbd>${key}</kbd>` : ''}</button>`;
+    function root_() {
+      const running = state.phase === 'running';
+      // i18n: the menu's rows (keys beside some: Esc goes back to the world, V opens Settings, ? the Controls)
+      return `<nav class="gm-list" aria-label="${tr('gamemenu.list', 'Menu')}">`
+        + item('world', tr('gamemenu.back', 'Back to the world'), tr('key.esc', 'Esc'))
+        + item('save', tr('gamemenu.save', 'Save this world'), '', !running)
+        + item('load', tr('gamemenu.load', 'Load a world'))
+        + item('new', tr('gamemenu.new', 'New world'), '', !running)
+        + item('events', tr('gamemenu.events', 'Pool events'))
+        + '<hr>'
+        + item('settings', tr('gamemenu.settings', 'Settings'), 'V')
+        + item('controls', tr('gamemenu.controls', 'Controls'), '?')
+        + item('about', tr('gamemenu.about', 'About Tidemote'))
+        + QUIT_ROW() + '</nav>';
+    }
+    // i18n: the menu's pages, their headings
+    const TITLE = () => ({ worlds: tr('gamemenu.worlds-title', 'Save and load'), new: tr('gamemenu.new-title', 'New world'), events: tr('gamemenu.events-title', 'Pool events'), about: tr('gamemenu.about-title', 'About Tidemote') });
+    function header() {
+      const x = `<button type="button" class="ghost" data-g="close" aria-label="${tr('gamemenu.close', 'Close the menu')}"><svg><use href="#i-close"/></svg></button>`;
+      if (page === 'root') {
+        // i18n: under the menu's title: this world's era ({era}), age ({age}, a duration) and particles ({count}, short: 64k)
+        const sub = state.phase === 'running' ? tr('gamemenu.world', '{era} · {age} · {count}', { era: eraName(climate.name), age: fmtDur(eng.simTime), count: kfmt(eng.count) }) : '';
+        // (the product's name, as the rail's wordmark has it)
+        return `<h2 class="gm-title"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-mark"/></svg><span translate="no">Tidemote</span></h2>${x}<p class="gm-sub">${sub}</p>`; // i18n-ignore (the product's name)
+      }
+      return `<button type="button" class="ghost gm-back" data-g="root" aria-label="${tr('gamemenu.back-list', 'Back to the menu')}"><svg><use href="#i-back"/></svg></button><h2>${TITLE()[page]}</h2>${x}`;
+    }
+    function render() {
+      if (el.hidden) return;
+      // (the control under the pointer or focus is drawn anew: focus kept on the same one)
+      const a = document.activeElement, at = a && el.contains(a) ? { g: a.dataset.g, o: a.dataset.o, v: a.dataset.v, id: a.id } : null;
+      const typing = a?.id === 'w-name' ? [a.selectionStart, a.selectionEnd] : null;
+      el.dataset.page = page;
+      head.innerHTML = header();
+      setHTML(body, page === 'root' ? root_() : `<div class="opts">${page === 'worlds' ? worlds_() + worldsFoot() : page === 'new' ? new_() : page === 'events' ? climate_() : about_()}</div>`);
+      if (at) {
+        const sel = at.id ? `#${CSS.escape(at.id)}` : at.g ? `[data-g="${at.g}"]` : at.o ? `[data-o="${at.o}"][data-v="${CSS.escape(at.v ?? '')}"]` : null;
+        const b = sel && el.querySelector(sel);
+        if (b && canFocus(b)) { b.focus({ preventScroll: true }); if (typing) b.setSelectionRange(...typing); }
+      }
+    }
+    // a page shown, focus on where it begins: the row it was opened from going back, the name being typed to save (or with
+    // a controller, Save), the first save to load, the count chosen, the first control
+    function show(p, at = null) {
+      page = p; quitAsk = false;
+      if (p !== 'worlds') { clearTimeout(wPoll); ask = null; }
+      if (p === 'worlds') { saves = null; refreshSaves(); }
+      body.scrollTop = 0;
+      render();
+      const pad = mode.glyphs === 'pad', q = (s) => body.querySelector(s);
+      const to = p === 'root' ? q(`[data-g="${at || 'world'}"]`)
+        : p === 'worlds' ? (at === 'load' ? q('[data-o="w-load"]') || q('[data-o="w-open"]') : pad || isCoarse ? q('[data-o="w-save"]') : q('#w-name'))
+        : p === 'new' ? q('[data-o="n"][aria-pressed="true"]') : q('button, [tabindex="0"]');
+      (to && canFocus(to) ? to : el.querySelector('[data-g]'))?.focus({ preventScroll: true });
+    }
+    function open(p = 'root', at = null) {
+      if (!el.hidden && page === p) return;
+      if (el.hidden) {
+        // (what was open where it shows goes: Settings, the Controls, a phone's Lab and bench)
+        view.toggle(false); toggleHelp(false);
+        if (phone()) { lab.close(); bench.toggle(false); }
+        const a = document.activeElement;
+        if (a && a !== document.body && !el.contains(a)) opener = a;
+        el.hidden = false;
+        for (const b of openers) b.setAttribute('aria-expanded', 'true');
+      }
+      show(p, at);
+    }
+    let opener = null;
+    const until = (f, ms) => new Promise((res) => { const t0 = performance.now(), tick = () => (f() || performance.now() - t0 > ms ? res() : setTimeout(tick, 100)); tick(); });
+    function close() {
+      if (el.hidden) return;
+      el.hidden = true;
+      page = 'root'; quitAsk = false; ask = null; pickN = null;
+      clearTimeout(wPoll);
+      for (const b of openers) b.setAttribute('aria-expanded', 'false');
+      const a = document.activeElement;
+      if (a && el.contains(a)) { if (opener?.isConnected && canFocus(opener)) opener.focus({ preventScroll: true }); else a.blur(); }
+      opener = null;
+    }
+    // One step back: Quit's question put away, a page back to the list, the list closed
+    function back() {
+      if (quitAsk) { quitAsk = false; render(); el.querySelector('[data-g="quit"]')?.focus({ preventScroll: true }); return; }
+      if (page !== 'root') { const from = page; show('root', from === 'worlds' ? 'save' : from); return; }
+      close();
+    }
+    // Settings or the Controls, opened from here: closed by B or Esc, back to the list on the row that opened them
+    function away(which) {
+      close();
+      if (which === 'settings') { view.toggle(true); $('settings').dataset.from = 'menu'; settle($('settings'), true, true); }
+      else { toggleHelp(true); $('help').dataset.from = 'menu'; settle($('help'), true, true); }
+    }
+
+    // Quitting (the desktop app): the world kept as the last session first if save, a film being made finished; then the
+    // window closes. From the menu, a save that fails stays (said, and Quit offered again); from the window being
+    // closed, nothing holds the closing up
+    async function quit(save, strict = true) {
+      if (quitting || !desk?.quit) return;
+      quitting = save ? 'save' : 'now'; quitAsk = false; render();
+      try {
+        if (film.state !== 'idle') { if (film.state === 'recording') film.stop(); await until(() => film.state === 'idle', 20000); }
+        // i18n: the last session's name, as a save: the era's name ({era}) and the world's age ({age}, a duration)
+        if (save) await saveWorld(tr('worlds.last-name', 'Last session · {era} · {age}', { era: eraName(climate.name), age: fmtDur(eng.simTime) }), { last: true });
+      } catch (e) {
+        console.error('[tidemote] quitting:', e);
+        if (strict) { quitting = ''; flash(String(e.message || e)); render(); return; }
+      }
+      desk.quit();
+    }
+    // the window closed (its ✕, Alt+F4): the world kept as the last session if it has run since it was last saved
+    desk?.onClosing?.(() => quit(unsaved(), false));
+
+    head.addEventListener('click', (e) => { const b = e.target.closest('[data-g]'); if (b) go(b.dataset.g); });
+    body.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-g], [data-o]');
+      if (!b || b.disabled) return;
+      if (b.dataset.g) go(b.dataset.g); else set(b.dataset.o, b.dataset.v);
+    });
+    function go(g) {
+      if (g === 'close' || g === 'world') close();
+      else if (g === 'root') back();
+      else if (g === 'save' || g === 'load') show('worlds', g);
+      else if (g === 'new' || g === 'events' || g === 'about') show(g);
+      else if (g === 'settings' || g === 'controls') away(g);
+      else if (g === 'quit') { if (unsaved()) { quitAsk = true; render(); el.querySelector('[data-g="quit-save"]')?.focus({ preventScroll: true }); } else quit(false); }
+      else if (g === 'quit-no') back();
+      else if (g === 'quit-now') quit(false);
+      else if (g === 'quit-save') quit(true);
+    }
+    function set(id, v) {
+      if (id.startsWith('w-')) { worldAct(id, v); return; }
+      if (id === 'n') { pickN = v === 'auto' ? 'auto' : +v; render(); return; }
+      if (id === 'new-go' || id === 'new-first') { begin(id === 'new-first'); return; }
+      if (id === 'ev-start') { if (!climate.event) climate.force(v); close(); return; }
+      if (id.startsWith('ev-')) { state.events[id.slice(3)] = !!+v; applyEvents(); persist(); render(); return; }
+      if (id === 'guide') { close(); lab.open('guide'); }
+    }
+    body.addEventListener('input', (e) => { if (e.target.id === 'w-name') wName = e.target.value; });
+    body.addEventListener('keydown', (e) => { if (e.target.id === 'w-name' && e.key === 'Enter') { e.preventDefault(); worldAct('w-save'); } });
+    // the wordmark and a phone's Menu: open it (focus into it, as Esc and a controller's Menu do), or close it
+    for (const b of openers) b.addEventListener('click', () => act('menu'));
+    return { open, close, back, render, isOpen: () => !el.hidden, page: () => page };
   })();
   // How the page runs on this device, to report it: three seconds of frames timed pass by pass on the
   // GPU and one simulation step dispatch by dispatch, with what was drawn, copied as JSON.
@@ -3299,14 +3507,14 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   for (const row of document.querySelectorAll('.tabs')) wireTabRow(row);
   // the Controls dialog: every key and button, from the action table, in the controller family in use
   function renderHelp() { $('help-keys').innerHTML = controlsTable(padFamily()); }
-  function toggleHelp(on = $('help').hidden) { if (on) renderHelp(); $('help').hidden = !on; if (on) view.toggle(false); }
+  function toggleHelp(on = $('help').hidden) { delete $('help').dataset.from; if (on) { renderHelp(); gameMenu?.close(); } $('help').hidden = !on; if (on) view.toggle(false); }
   document.addEventListener('click', (e) => { if (e.target.closest?.('[data-open="help"]')) { toggleHelp(true); settle($('help'), true, true); } });
   $('help-close').addEventListener('click', () => { toggleHelp(false); restoreFocus($('help')); });
-  function closeMenus() { view.toggle(false); toggleHelp(false); }
+  function closeMenus() { view.toggle(false); toggleHelp(false); gameMenu.close(); }
   // The interface hidden (U, or Display → Interface; U or Esc brings it back): only the world shows.
   // The loupe still follows the mouse (it has its own setting) and the auto camera still films, without
   // its captions. Not on a touch screen, which has no key to bring it back.
-  const UI_PARTS = ['hud', 'spec', 'lab', 'help', 'card', 'tip', 'plate'];
+  const UI_PARTS = ['hud', 'spec', 'lab', 'help', 'card', 'gmenu', 'tip', 'plate'];
   function setInterface(on, say = true) {
     state.ui = on;
     document.body.classList.toggle('ui-off', !on);
@@ -3369,7 +3577,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     }
     return runs;
   }
-  const bench = createBench({ hand, pick: pickTool, reach: setReach, size: reachOf, onToggle: (on) => { if (on && phone()) { view.toggle(false); lab.close(); } },
+  const bench = createBench({ hand, pick: pickTool, reach: setReach, size: reachOf, onToggle: (on) => { if (on && phone()) { view.toggle(false); gameMenu.close(); lab.close(); } },
     pip: {
       view: () => ({ count: pipette.count + pull.got.length, limit: PIPE_LIMIT, armed: pull.armed, keys: pipRuns().map((r) => { const c = pipCard(r.sp); return r.key + (c ? '*' : ''); }), held: runs.map((r) => r.held), mixed: pipette.mixed }),
       // (after view, its runs)
@@ -3812,6 +4020,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       takeOver();
     }
     if (phone() && view.isOpen()) view.toggle(false);
+    if (phone()) gameMenu.close();
     if (folds) bench.toggle(false);
     hideIntro();
   });
@@ -3921,7 +4130,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   // stick change until A or B lets go; panel: the side panel the pad's focus went into, kept until B or Y leaves it)
   const input = { way: [0, 0], stick: null, apply: null, lastTool: 'loupe', grab: null, panel: null };
   // the panels a controller's focus moves within (focus.js remembers each one's last control)
-  for (const id of ['intro', 'card', 'help', 'settings', 'ladder', 'bench', 'held', 'spec', 'lab', 'dock', 'rail']) $(id).dataset.navRoot = '';
+  for (const id of ['intro', 'card', 'gmenu', 'help', 'settings', 'ladder', 'bench', 'held', 'spec', 'lab', 'dock', 'rail']) $(id).dataset.navRoot = '';
   const rose = createRose($('rose'));
   // the controller family the hints draw: the viewer's choice (Settings → Display → Controller), else the pad's own
   // i18n: the controller families' names (Settings → Display → Controller); hardware makers' names, kept as such
@@ -3996,6 +4205,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   function padRoot() {
     if (introUp()) return $('intro');
     if (cards.isOpen()) return $('card');
+    if (gameMenu.isOpen()) return $('gmenu');
     if (!$('help').hidden) return $('help');
     if (view.isOpen()) return $('settings');
     if (ladder.isOpen()) return $('ladder');
@@ -4021,11 +4231,12 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   // and the Lab back along its Lineage and narrowed or closed. Whether it did anything.
   function back() {
     if (!state.ui) setInterface(true);
+    else if (gameMenu.isOpen()) gameMenu.back();
     else if (ladder.isOpen()) ladder.toggle(false);
     else if (inHand()) pickTool('none');
     else if (ride.on) toggleRide(false);
-    else if (!$('help').hidden) { toggleHelp(false); restoreFocus($('help')); }
-    else if (view.isOpen()) { view.toggle(false); restoreFocus($('settings')); }
+    else if (!$('help').hidden) { const m = $('help').dataset.from; toggleHelp(false); restoreFocus($('help')); if (m) gameMenu.open('root', 'controls'); }
+    else if (view.isOpen()) { const m = $('settings').dataset.from; view.toggle(false); restoreFocus($('settings')); if (m) gameMenu.open('root', 'settings'); }
     else if (bench.isOpen()) { bench.toggle(false); restoreFocus($('bench')); }
     else if (sel || spView != null) deselect();
     else if (focus.key) clearFocus();
@@ -4044,12 +4255,16 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     input.panel = null;
     if (!root) return false;
     if (root === $('intro')) { menu.back(); return true; }
+    if (root === $('gmenu')) { gameMenu.back(); return true; }
+    // (Settings and the Controls opened from the menu go back to it)
+    const from = root.dataset.from;
     if (root === $('card')) cards.close();
     else if (root === $('help')) toggleHelp(false);
     else if (root === $('settings')) view.toggle(false);
     else if (root === $('ladder')) ladder.toggle(false);
     else if (root === $('bench')) bench.toggle(false);
     restoreFocus(root);
+    if (from && (root === $('help') || root === $('settings'))) { gameMenu.open('root', root === $('help') ? 'controls' : 'settings'); settle($('gmenu'), true, true); }
     return true;
   }
   const flashMap = (i, on, off) => { toggleMap(MAPS[i]); flash(state.map === MAPS[i].id ? on : off); };
@@ -4115,7 +4330,9 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       return true;
     }
     switch (id) {
-      case 'back': return back();
+      // (Esc with nothing left to close opens the menu: a press, not a key held, and never the pad's B)
+      case 'back': return back() || (how.key === 'Escape' && !how.repeat && state.phase === 'running' && !introUp() ? act('menu') : false); // i18n-ignore (key names)
+      case 'menu': if (gameMenu.isOpen()) gameMenu.close(); else { gameMenu.open(); settle($('gmenu'), true, true); } return true;
       case 'lineage-back': return lab.back();
       case 'pause': togglePause(); return true;
       case 'slower': stepSpeed(-1); return true;
@@ -4257,7 +4474,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   // tap, then what holding it does ("hold" before it)
   const LEGEND = () => ({
     select: tr('legend.select', 'Select'), back: tr('legend.back', 'Back'), ride: tr('legend.ride', 'Ride'), panel: tr('legend.panel', 'Panel'),
-    tools: tr('legend.tools', 'Tools'), view: tr('legend.view', 'View'), settings: tr('legend.settings', 'Settings'), lab: tr('legend.lab', 'Lab'),
+    tools: tr('legend.tools', 'Tools'), view: tr('legend.view', 'View'), menu: tr('legend.menu', 'Menu'), lab: tr('legend.lab', 'Lab'),
     bench: tr('legend.bench', 'Bench'), last: tr('legend.last-tool', 'Last tool'), hold: tr('legend.hold', 'hold'),
     use: tr('legend.use', 'Use'), down: tr('legend.down', 'Put down'), reach: tr('legend.reach', 'Reach'),
     load: tr('legend.load', 'Load'), dispense: tr('legend.dispense', 'Dispense'), toLoad: tr('legend.to-load', 'Switch to load'), toDispense: tr('legend.to-dispense', 'Switch to dispense'),
@@ -4283,7 +4500,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       return [['S', !pip ? L.use : d ? L.dispense : L.load], ...(pip ? [['W', d ? L.toLoad : L.toDispense]] : []), ['E', L.down], ['R', L.reach], ['LB', '', L.tools]];
     }
     return [['S', L.select], ['E', L.back], ...(sel && !sel.lost ? [['W', L.ride]] : []), ...(sidePanel() ? [['N', L.panel]] : []),
-      ['LB', L.last, L.tools], ['RB', L.bench, L.view], ['MENU', L.settings], ['VIEW', L.lab]];
+      ['LB', L.last, L.tools], ['RB', L.bench, L.view], ['MENU', L.menu], ['VIEW', L.lab]];
   }
   function legendX(ctx) {
     const root = ctx === 'panel' ? padRoot() : null;
@@ -4598,13 +4815,15 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   // first moments are seen and heard. In an automated browser (navigator.webdriver: the headless tools) the
   // intro goes by itself as it used to, unless the soundtrack waits on a key.
   const menu = (() => {
-    const el = $('menu'), panel = $('menu-panel'), tabN = $('menu-n'), tabW = $('menu-w');
+    const el = $('menu'), panel = $('menu-panel'), tabN = $('menu-n'), tabW = $('menu-w'), tabC = $('menu-c');
     let open = null, saves = null, busy = '', err = '', go = false, startAfter = false;
     let whenStarted = null;
     const startedP = new Promise((r) => { whenStarted = r; });
     const P = state.perf;
     const countText = () => (P.particles ? kfmt(P.particles) : measuredN ? kfmt(measuredN) : tr('menu.auto', 'Auto'));
     const listed = () => (saves || []).filter((m) => m.downloading == null);
+    // the last session (the desktop app keeps one as it quits): continued in a press
+    const lastSave = () => listed().find((m) => m.last && openable(m.version) === 'ok');
     // what each count means, as hints (hover, keyboard focus); a count well past what this GPU drew smoothly
     // is also marked, for touch screens, which show no hint on a button
     const heavy = (n) => measuredN && n > measuredN * 1.4;
@@ -4635,14 +4854,20 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       const ws = listed();
       const list = saves == null ? `<p class="menu-note">${tr('worlds.reading', 'Reading the saved worlds…')}</p>`
         : ws.length ? `<div class="menu-list">${ws.map(row).join('')}</div>`
-        : `<p class="menu-note">${tr('menu.no-saves', 'No saved worlds yet. Save one from Settings → Worlds.')}</p>`;
+        : `<p class="menu-note">${tr('menu.no-saves', 'No saved worlds yet. Save one from the menu (Esc).')}</p>`;
       return `<div class="menu-h"><span>${tr('menu.open-saved', 'Open a saved world')}</span><b>${ws.length || ''}</b></div>${list}`
         + (err ? `<p class="menu-note"><em>${esc(err)}</em></p>` : '')
-        + `<div class="menu-foot"><span class="lbl">${desk ? tr('menu.kept-computer', 'On this computer') : tr('menu.kept-browser', 'In this browser')}</span><button type="button" class="btn" data-m="file" data-hint="${tr('menu.file.hint', 'Open a .tidemote file\nSaved from Settings → Worlds')}"${busy ? ' disabled' : ''}>${busy === 'file' ? tr('menu.opening', 'Opening') : tr('menu.file', 'Open a file')}</button></div>`;
+        + `<div class="menu-foot"><span class="lbl">${desk ? tr('menu.kept-computer', 'On this computer') : tr('menu.kept-browser', 'In this browser')}</span><button type="button" class="btn" data-m="file" data-hint="${tr('menu.file.hint', 'Open a .tidemote file\nSaved from the menu')}"${busy ? ' disabled' : ''}>${busy === 'file' ? tr('menu.opening', 'Opening') : tr('menu.file', 'Open a file')}</button></div>`;
     }
     function render() {
       $('menu-n-v').textContent = countText();
       $('menu-w-v').textContent = saves == null ? '' : String(listed().length);
+      const last = lastSave();
+      tabC.hidden = !last;
+      tabC.disabled = !!busy;
+      $('menu-c-v').textContent = last ? fmtDur(last.simTime) : '';
+      // i18n: the opening menu's Continue: its hint, the last session's name ({name})
+      if (last) tabC.dataset.hint = tr('menu.continue.hint', 'Continue the last session\n{name}', { name: last.name });
       tabN.setAttribute('aria-expanded', String(open === 'n'));
       tabW.setAttribute('aria-expanded', String(open === 'w'));
       $('intro').classList.toggle('menu-open', !!open);
@@ -4695,7 +4920,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       start();
     }
     const pickW = (id) => take(`w:${id}`, async () => openIt(await openWorld(await worldStore.get(id))));
-    // a .tidemote file (downloaded from Settings → Worlds on any device): kept with the saves, then opened
+    // a .tidemote file (downloaded from the menu's saves on any device): kept with the saves, then opened
     $('menu-file').addEventListener('change', (e) => {
       const f = e.target.files[0];
       e.target.value = '';
@@ -4710,6 +4935,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       });
     });
     tabN.addEventListener('click', () => toggle('n'));
+    tabC.addEventListener('click', () => { const m = lastSave(); if (m) { open = null; render(); pickW(m.id); } });
     tabW.addEventListener('click', () => toggle('w'));
     // (Begin pressed as a click alone: a controller's A, or assistive technology; a pointer or a key has begun already)
     $('begin').addEventListener('click', () => { if (!go || introHidden) return; if (busy) startAfter = true; else start(); });
@@ -4976,7 +5202,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   function splitTicks() {
     const T = frameTarget();
     // (and not before coarse steps have compiled: a Pixel 3's first seconds took each as two 1/60 s steps a frame;
-    // nor with Settings → Perf → Split steps Off)
+    // nor with Settings → Performance → Split steps Off)
     if (state.perf.split === 'off' || T < 900 * H || ticksFor(T) !== 1 || !perf.simS || !perf.renderR || splitPer() === 1 || !eng.coarseReady) return false;
     const S1 = perf.split ? perf.simS / tickCost(2) : perf.simS;
     return perf.renderR + S1 > T * (perf.split ? 0.75 : 0.85);
@@ -6575,7 +6801,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       { label: tr('err.save', 'Save this world'), run: async (b) => {
         b.disabled = true; b.textContent = tr('err.saving', 'Saving…');
         // i18n: the name of a world saved from the error screen: its era's name and its age (a duration)
-        try { await saveWorld(tr('err.saved-name', '{era} · {age} (stopped)', { era: eraName(climate.name), age: fmtDur(eng.simTime) })); b.textContent = tr('err.saved', 'Saved to Settings → Worlds'); }
+        try { await saveWorld(tr('err.saved-name', '{era} · {age} (stopped)', { era: eraName(climate.name), age: fmtDur(eng.simTime) })); b.textContent = tr('err.saved', 'Saved: load it from the menu'); }
         catch (err) { console.error('[tidemote] saving the stopped world:', err); b.textContent = tr('err.save-failed', 'Could not save: {why}', { why: String(err.message || err) }); }
       } },
       { label: tr('err.new-world', 'Start a new world'), run: () => { seedWorld(eng.count); sound.overture(); go(); } },
@@ -6620,7 +6846,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       onFrame: (f) => { frameTaps.push(f); },
       state: () => ({ format: eng.format, display: { ...eng.display }, caps: { ...caps }, prefs: { ...dsp }, config: ctx.getConfiguration?.() && { colorSpace: ctx.getConfiguration().colorSpace, toneMapping: ctx.getConfiguration().toneMapping?.mode } }),
     },
-    // a .tidemote file's bytes, as Settings → Worlds opens one
+    // a .tidemote file's bytes, as the menu's saves open one
     openWorld: async (bytes) => loadWorld(await openWorld(bytes)),
     // riding, for tools/ridelab.mjs: its state, the specimen, the body traced
     ride: { state: ride, sel: () => sel, members: () => members, viewShort },
@@ -6629,7 +6855,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     input: { mode, pads, act, rose, padCtx, aim, glyph,
       // the camera moved so that world point (wx, wy) sits under the reticle
       lookAt(wx, wy) { const [ax, ay] = aim(), p = cssPPU(); state.follow = false; cam.x = wx - (ax - innerWidth / 2) / p; cam.y = wy - (ay - innerHeight / 2) / p; },
-      open: () => ({ settings: view.isOpen(), help: !$('help').hidden, bench: bench.isOpen(), lab: lab.isOpen(), spec: !$('spec').hidden, card: cards.isOpen(), ladder: ladder.isOpen() }),
+      open: () => ({ menu: gameMenu.isOpen(), menuPage: gameMenu.isOpen() ? gameMenu.page() : null, settings: view.isOpen(), help: !$('help').hidden, bench: bench.isOpen(), lab: lab.isOpen(), spec: !$('spec').hidden, card: cards.isOpen(), ladder: ladder.isOpen() }),
       // the slider or list a controller holds, the instrument's focus (0 lifted .. 1 in the water), the pipette dispensing
       selAt: () => (sel ? toScreen(sel.disp[0], sel.disp[1]) : null),
       // where a tap set the loupe's lens on a touch screen (screen px), if one did

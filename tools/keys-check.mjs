@@ -83,6 +83,24 @@ await press('v'); await press('g');
 const walk = [];
 for (let i = 0; i < 6; i++) { await press('Escape'); const s = await S(); walk.push(`${s.tool}|${s.ride}|${s.settings}|${s.sel}|${s.map || 'off'}`); }
 check('Esc walks back: the tool, the settings, the selection, then the map', walk[0].startsWith('none|false|true|true') && walk[1].startsWith('none|false|false|true') && walk[2].startsWith('none|false|false|false|light') && /\|(off|null)$/.test(walk[3]), walk.join('  '));
+// with nothing left to close, Esc opens the menu, and again closes it
+const menus = [];
+for (let i = 0; i < 2; i++) { await press('Escape'); menus.push((await S()).menu); }
+check('Esc with nothing left to close opens the menu, Esc again closes it', menus[0] === true && menus[1] === false, JSON.stringify(menus));
+// (a key held, repeating, never opens it)
+await T(() => dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', repeat: true, bubbles: true, cancelable: true })));
+await frames(3); b = await S(); check('a held Esc (repeating) does not open the menu', !b.menu);
+// the menu: the arrows move down its rows, Enter opens a page, Esc goes back to the list, then closes it
+await press('Escape'); await press('ArrowDown'); await press('Enter'); b = await S();
+check('in the menu, ↓ then Enter opens Save this world', b.menu && b.menuPage === 'worlds', JSON.stringify({ menu: b.menu, page: b.menuPage }));
+await T(() => document.activeElement?.blur?.());
+await press('Escape'); b = await S(); check('Esc goes back to the menu\'s list', b.menu && b.menuPage === 'root', JSON.stringify({ menu: b.menu, page: b.menuPage }));
+await press('Escape'); b = await S(); check('Esc again closes the menu', !b.menu);
+// V opens Settings over it; the menu's Settings goes back to the menu on Esc
+await press('Escape'); await T(() => document.querySelector('#gmenu [data-g="settings"]').click()); b = await S();
+check('the menu\'s Settings opens Settings in its place', b.settings && !b.menu, JSON.stringify({ settings: b.settings, menu: b.menu }));
+await press('Escape'); b = await S(); check('Esc in Settings opened from the menu goes back to the menu', !b.settings && b.menu, JSON.stringify({ settings: b.settings, menu: b.menu }));
+await press('Escape'); b = await S(); check('and Esc closes it', !b.menu && !b.settings);
 
 // the panels
 await press('?'); b = await S(); check('? opens the Controls', b.help);

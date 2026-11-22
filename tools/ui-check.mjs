@@ -238,7 +238,9 @@ for (const touch of [false, true]) {
     check(`${tag} Next hides once the auto camera stops`, !(await nx()).shown);
   }
   // Settings → Audio → Volume (an older build has it on Display)
-  await page.click('#set-open');
+  // (on a phone the dock's Settings is its Menu: Settings is a row in it)
+  if (await page.locator('#set-open').isVisible()) await page.click('#set-open');
+  else { await page.click('#gm-open'); await page.click('#gmenu [data-g="settings"]'); }
   await page.waitForTimeout(300);
   const tabOf = async (t) => { const b = await page.$(`#set-tabs [data-tab="${t}"]`); if (b) { await b.click(); await page.waitForTimeout(300); } return !!b; };
   await tabOf('audio');

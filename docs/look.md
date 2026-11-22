@@ -10,7 +10,7 @@ and its shallow focus (Focus blur: Off, Subtle, Normal, Strong, `FOCUS`: `dof` 0
 0.6, 0.8; `dof` 0 turns all of `lensScene`'s softening off, the rim's too);
 `applyLook` in `src/main.js`. Glow (Y) is the bloom, and so also the halation and veiling flare drawn from its blur.
 Tools set the look with `T.look.set(p, strength)` (tunables over Darkfield's) and `T.look.off()`, and a perf plan's
-scenario with `look: "on"` or `"off"`. The tuner may fade the microscope out where frames run late (Settings → Perf →
+scenario with `look: "on"` or `"off"`. The tuner may fade the microscope out where frames run late (Settings → Performance →
 Adaptation; docs/performance.md), in every live view: the loupe and the live close-up read the main view's post
 uniforms, so the look, Glow, Suspension and the tuner's knobs ease in all three at once. A card's portrait (the
 close-up not live) reads its own copy (`b.postPlain`) with the look whole and the suspension shown, so it never keeps a

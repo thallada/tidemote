@@ -54,6 +54,23 @@ A young 3.4M world: 75–80 MB at first, 39 MB by columns, 27.5–28.8 MB now. 4
 randomness: velocities (Brownian, about 11 MB) and the places within cells (about 8 MB). zstd-19
 would take 5% more off at ten times the time, and browsers do not read it.
 
+## Quitting and the last session
+
+The menu (Esc once nothing is left to close, ≡ on a controller, the TIDEMOTE wordmark; `gameMenu` in `src/main.js`)
+ends with **Quit Tidemote**, the window's only way out from inside the app, which opens full screen. When the world
+has run since it was last saved or loaded (`unsaved()`), Quit asks: **Save and quit** keeps it as the *last session*,
+**Quit without saving**, or Cancel; otherwise it quits at once. The last session is one save, `w-last` (meta
+`last: true`), written over each time, which Steam Cloud syncs like any other; the opening menu shows **Continue**
+(its age beside it) while one is there, and it is listed with the others. A film being made is finished first.
+
+Closing the window (its ✕, Alt+F4) does the same without asking: the main process holds the window (`close`
+prevented) and sends `closing`, the page keeps the last session if the world has run since its last save, then calls
+`tidemoteDesktop.quit()`. It waits at most `CLOSE_WAIT_MS` (30 s, room for a large world to be read back and encoded);
+a second close, a page that never registered (`onClosing`) or one whose renderer is gone closes at once. A
+world still on the opening menu, never begun, is not kept. The browser build has no Quit (a page cannot close its
+own tab). `desktop/scripts/launch-check.mjs` checks Quit → Save and quit after its launch check: the app exits by
+itself and has written `w-last` (one already there is put back).
+
 ## Save versions
 
 `SAVE_VERSION` in `src/worlds.js` is semver, kept in every file's head and in its meta (so a list
@@ -75,9 +92,11 @@ can tell before reading the world). A save opens only in a version of its own ma
   8.1.0: the engine's record keeps a floor shift under way (`cpu.floor`, as `snapshot` keeps it: the era and drift
   of one still being worked out, or the floor it eases from and to; none when absent), so a world saved during a
   shift goes on shifting.
+  8.2.0: a save's meta says whether it is the last session (`last`, the one the desktop app keeps as it quits;
+  absent or false otherwise).
 - patch: fixes that change nothing a reader sees.
 
-Settings → Worlds lists a save of another major as "Needs a newer Tidemote" or "From an older
+The menu's Save and load lists a save of another major as "Needs a newer Tidemote" or "From an older
 Tidemote", without Load or Share. Files from before versions ('TMW1', 'TMW2') count as older.
 
 Steam Cloud keeps that folder by Auto-Cloud, with no API calls. In Steamworks → Application →
@@ -95,7 +114,7 @@ the app.
 
 ## Workshop
 
-A save's share button (Settings → Worlds, shown with Steam running) asks first, then makes a Workshop
+A save's share button (the menu's Save and load, shown with Steam running) asks first, then makes a Workshop
 item (public) holding `world.tidemote` and `world.json`, the save's preview as its picture, and opens
 its page in Steam (where the sharer can change its words and visibility, and accepts the Workshop
 agreement if Steam asks). The save remembers its item (`meta.workshop`), so sharing it again updates
@@ -180,7 +199,7 @@ tools/gpu-node.sh desktop/scripts/smoke.mjs --exe '...' --steam 480          # a
 Under WSL, copy a Windows package to a Windows path (`%LOCALAPPDATA%\tidemote-desktop`) before
 running it; the smoke check drives it with Playwright's Electron launcher and writes
 `runs/desktop/smoke/{report.json,window.png}`. With `--steam APPID` it also checks Steam's status, a
-save through Settings → Worlds (its files and preview, read back, deleted), an achievement call and
+save through the menu's Save and load (its files and preview, read back, deleted), an achievement call and
 the subscribed list; it publishes nothing.
 
 ## Why Electron
@@ -194,7 +213,7 @@ version, its own switches, real fullscreen and saves the browser cannot evict.
 
 Chromium keeps compiled WebGPU pipelines per profile (`DawnWebGPUCache`), so a load after the first
 starts the world in about 0.6–0.8 s instead of 4.4 (RTX 4070 Ti; the page's own `boot` times, in
-Settings → Perf → Copy profile). Why an update undid that (Chromium source, October 2026):
+Settings → Performance → Copy profile). Why an update undid that (Chromium source, October 2026):
 
 - The GPU process looks pipelines up only in an in-memory cache of 6 MiB
   (`kDefaultMaxProgramCacheMemoryBytes`), one for the whole profile, every site's WebGPU shared.

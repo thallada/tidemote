@@ -15,6 +15,10 @@ contextBridge.exposeInMainWorld('tidemoteDesktop', {
   // the window's full screen (F11's too): toggle(), get() -> on, on(fn) calls fn(on) whenever it changes; forced() ->
   // whether the screen is the window's anyway (gamescope: a Steam Deck's Game Mode), and full screen means nothing
   fullscreen: { toggle: call('fullscreen:toggle'), get: call('fullscreen:get'), forced: call('fullscreen:forced'), on: (fn) => { ipcRenderer.on('fullscreen', (_, on) => fn(on)); } },
+  // the app closed (the menu's Quit), and the window about to close (its ✕, Alt+F4): fn() keeps the world first and then
+  // calls quit(); a page that never asks is closed at once
+  quit: call('app:quit'),
+  onClosing: (fn) => { ipcRenderer.on('closing', () => fn()); ipcRenderer.send('closing:listen'); },
   // a film written as it is made, into Videos/Tidemote (src/film.js): open(name) -> { id, free }, then
   // write(id, bytes) in order, patch(id, at, bytes), close(id) -> its path
   film: { open: call('film:open'), write: call('film:write'), patch: call('film:patch'), close: call('film:close'), abort: call('film:abort') },
