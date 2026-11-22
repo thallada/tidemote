@@ -14,7 +14,7 @@ export const BTN = { S: 0, E: 1, W: 2, N: 3, LB: 4, RB: 5, LT: 6, RT: 7, VIEW: 8
 export const BTN_NAME = Object.fromEntries(Object.entries(BTN).map(([k, v]) => [v, k]));
 
 /** The tools, in the order of the digits that take them up (hand.js TOOLS). */
-export const TOOL_IDS = ['none', 'loupe', 'touch', 'lamp', 'shade', 'warm', 'cold', 'needle', 'pipette'];
+export const TOOL_IDS = ['none', 'loupe', 'touch', 'lamp', 'shade', 'warm', 'cold', 'needle', 'pipette', 'call'];
 
 // Keys held rather than pressed: each frame they move the camera (or steer a ride) and zoom, as a stick and the
 // triggers do.
@@ -30,7 +30,7 @@ const KEYMAP = [
 ];
 const BY_KEY = new Map();
 for (const [ks, id] of KEYMAP) for (const k of [].concat(ks)) { BY_KEY.set(k, id); if (k.length === 1 && k.toLowerCase() !== k.toUpperCase()) BY_KEY.set(k.toUpperCase(), id); }
-for (let d = 0; d <= 8; d++) BY_KEY.set(String(d), `tool-${TOOL_IDS[d]}`);
+for (let d = 0; d < TOOL_IDS.length; d++) BY_KEY.set(String(d), `tool-${TOOL_IDS[d]}`);
 
 /** A held key's zoom direction (+1 in, −1 out), or 0. */
 export const zoomKey = (key) => ZOOM_KEYS[key] || 0;
@@ -57,8 +57,8 @@ const PAD_WORLD = {
   [BTN.LB]: { tap: 'swap-tool', hold: 'rose-tools' }, [BTN.RB]: { tap: 'bench', hold: 'rose-view' },
   [BTN.MENU]: { press: 'settings' }, [BTN.VIEW]: { press: 'lab' }, [BTN.R3]: { press: 'zoom-reset' },
 };
-// (X with the pipette: switch between loading and dispensing; the other tools have one way)
-const PAD_TOOL = { ...PAD_WORLD, [BTN.S]: { press: 'apply' }, [BTN.W]: { press: 'pipette-mode' } };
+// (X with the pipette: switch between loading and dispensing; with the call: its next band; the other tools have one way)
+const PAD_TOOL = { ...PAD_WORLD, [BTN.S]: { press: 'apply' }, [BTN.W]: { press: 'switch-mode' } };
 const PAD_RIDE = { ...PAD_WORLD, [BTN.S]: { press: 'hop' }, [BTN.W]: { press: 'ride' } };
 // In a panel the d-pad and the stick move focus (focus.js), S presses what has it (a slider or a list: takes hold of
 // it, so the d-pad and the stick change it, until S or E lets go; a glossary term: shows or hides its hint), E goes
@@ -73,8 +73,9 @@ export const PAD_MAP = { world: PAD_WORLD, tool: PAD_TOOL, ride: PAD_RIDE, panel
 /** The binding of pad button b in context ctx ('world', 'tool', 'ride', 'panel'): { press | tap | hold, repeat } or null. */
 export const padBinding = (b, ctx) => (PAD_MAP[ctx] || PAD_WORLD)[b] || null;
 
-// ------------------------------------------------------------ the roses (rose.js): eight octants, clockwise from the top
-export const ROSE_TOOLS = ['loupe', 'touch', 'lamp', 'shade', 'warm', 'cold', 'needle', 'pipette'];
+// ------------------------------------------------------------ the roses (rose.js): a sector each, clockwise from the top
+// (the tools: the call only in a world with signals, main.js)
+export const ROSE_TOOLS = ['loupe', 'touch', 'lamp', 'shade', 'warm', 'cold', 'needle', 'pipette', 'call'];
 export const ROSE_VIEW = ['map-light', 'map-heat', 'map-tide', 'currents', 'trails', 'glow', 'look', 'film'];
 
 // ------------------------------------------------------------ the Controls dialog
@@ -94,6 +95,8 @@ export function helpRows() {
   // i18n: in the Controls dialog: a key held down (Shift, for the pipette's other way while held); the Controls found
   // in Settings, at its foot
   const keyHeld = W(tr('key.held', 'held')), toControls = W(tr('pad.to-controls', 'then Controls'));
+  // i18n: in the Controls dialog: a choice made on the Bench drawer (the call's band)
+  const onBench = W(tr('key.on-bench', 'on the Bench'));
   return [
     { group: tr('help.group.look', 'Look'), rows: [
       { text: tr('help.k1', 'Examine a cell or particle'), keys: [click], pad: [P('S')] },
@@ -112,9 +115,10 @@ export function helpRows() {
       { text: tr('help.panel', 'Into the side panel · scroll it'), keys: [tab, wheel], pad: [P('N'), P('R')] },
     ] },
     { group: tr('help.group.hand', 'The hand'), rows: [
-      { text: tr('help.k16', 'Swap tools: 1. loupe, 2. touch, 3. lamp, 4. shade, 5. warm, 6. cold, 7. needle, 8. pipette · 0. pan'), keys: [K('1–8'), K('0')], pad: [P('LB'), W(tr('pad.lb-tools', 'held: the tool rose · tapped: the last tool'))] },
+      { text: tr('help.k16', 'Swap tools: 1. loupe, 2. touch, 3. lamp, 4. shade, 5. warm, 6. cold, 7. needle, 8. pipette, 9. call · 0. pan'), keys: [K('1–9'), K('0')], pad: [P('LB'), W(tr('pad.lb-tools', 'held: the tool rose · tapped: the last tool'))] },
       { text: tr('help.tool-use', 'Use the tool in hand'), keys: [click], pad: [P('S')] },
       { text: tr('help.pipette-mode', 'Pipette: switch between loading and dispensing'), keys: [K('⇧'), keyHeld], pad: [P('W')] },
+      { text: tr('help.call-band', 'Call: choose its band (rumble, song, click or flash)'), keys: [onBench], pad: [P('W')] },
       { text: tr('help.k18', 'Adjust tool effect radius (with the loupe: its magnification)'), keys: [K('['), K(']'), shiftWheel], pad: [P('R')] },
       { text: tr('help.k17', 'The bench · drop tool'), keys: [K('B'), esc], pad: [P('RB'), tap, P('E')] },
     ] },

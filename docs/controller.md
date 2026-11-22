@@ -111,7 +111,7 @@ first-time-player test in *How we'll know it works*. The tiers below follow it.
 | Tier | Where it goes | Actions |
 |---|---|---|
 | 1 | Sticks, triggers, face buttons, d-pad: always one press | Pan, zoom, select, back, ride / get off / hop, pause, slower, faster, auto camera, next scene, Settings, Lab |
-| 2 | Held bumpers: the two roses | The eight tools, put down; the maps, currents, trails, glow, microscope, film, sound, hide the interface |
+| 2 | Held bumpers: the two roses | The nine tools (the call only with signals), put down; the maps, currents, trails, glow, microscope, film, sound, hide the interface |
 | 2 | Contextual: while a tool is in hand | Apply, its other way (the pipette's dispense), reach |
 | 3 | Inside panels, by focus | Lab tabs, Lineage, species pages, cards, the cabinet, Settings, saves, Workshop |
 | — | Left to Settings or the hardware | Volume (Settings, or the Deck's own keys), fullscreen (the Deck always is), the readouts, Shift+R (Settings → Worlds) |
@@ -137,7 +137,7 @@ the glyphs say what to press.
 | D-pad ← / → | Slower / faster | `,` `.` |
 | D-pad ↓ | Pause / resume | Space |
 | D-pad ↑ | Auto camera; pressed again while it runs, the next scene | P, X |
-| LB, held | The tool rose; tapped: the last tool / put down (a hold is a quarter second) | 1–8, 0 |
+| LB, held | The tool rose; tapped: the last tool / put down (a hold is a quarter second) | 1–9, 0 |
 | RB, held | The view rose; tapped: the Bench drawer | G E H C T Y O R M U, B |
 | L3 | Follow the selected cell | Follow |
 | R3 | Reset the zoom | Z |
@@ -185,7 +185,7 @@ Both roses follow the ring mock (C-ring), which was turned down for the mouse an
 it had small targets and it covered the spot you meant to touch. Held on a bumper with the glyph in the hint, aimed
 by angle, those problems go away. It's the pattern players know from weapon wheels and Frostpunk's two radials.
 
-- **Tool rose (LB):** eight octants for the loupe, touch, lamp, shade, warm, cold, needle and pipette, in the dock's
+- **Tool rose (LB):** nine sectors for the loupe, touch, lamp, shade, warm, cold, needle, pipette and call (eight without signals), in the dock's
   order clockwise from the top. The centre cancels; LB tapped puts the tool down, and tapped again takes it back up.
 - **View rose (RB):** light map, heat map, tide map, currents, trails, glow and microscope, plus an eighth slot for
   film. Sound and hiding the interface stay in Settings, and the Deck has volume keys.

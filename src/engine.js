@@ -189,10 +189,10 @@ class Engine {
     // (bloom, the sea and the microscope's optics and look fade in and out over a second or so as fx turns them, never
     // flipping: _fadeFx; the close-up keeps the look whole, so a card's portrait never has it faded)
     this.fxFade = { bloom: 1, sea: 1, look: 1, t: null };
-    this.simData = new ArrayBuffer(912);
+    this.simData = new ArrayBuffer(928);
     // the viewer's hand (docs/hand.md; the page's src/hand.js sets it): Hand in simWGSL, its words as floats and
     // as ids. Zero, its ids NONE, in every headless run.
-    this.hand = new Float32Array(116);
+    this.hand = new Float32Array(120);
     this.handU = new Uint32Array(this.hand.buffer);
     this.handU.fill(0xffffffff, 20, 22);
     // the pool (docs/catastrophes.md), set by the climate: the water level (a quantile of the floor's relief; 1: all
@@ -255,7 +255,7 @@ class Engine {
 
     const d = device;
     const b = this.b;
-    b.sim = d.createBuffer({ size: 912, usage: U.UNIFORM | U.COPY_DST });
+    b.sim = d.createBuffer({ size: 928, usage: U.UNIFORM | U.COPY_DST });
     // each substep's index (bodyTick), one 256-byte slot apiece, for steps of up to SUB_TICKS ticks
     b.subU = d.createBuffer({ size: SUB_TICKS * 256, usage: U.UNIFORM | U.COPY_DST });
     for (let k = 0; k < SUB_TICKS; k++) d.queue.writeBuffer(b.subU, k * 256, new Uint32Array([k]));
@@ -1790,10 +1790,10 @@ class Engine {
     f.set(this.duck, 72);
     f.set(clk.drops, 80);
     u.set(this.handU, 96);
-    f.set(this.watchRect, 212);
-    u[216] = this.watchEv; u[217] = this.watchBites;
-    f.set(clk.edgePh, 220);
-    u[224] = Math.floor(this.simTime / SIM_CLOCK) >>> 0;
+    f.set(this.watchRect, 216);
+    u[220] = this.watchEv; u[221] = this.watchBites;
+    f.set(clk.edgePh, 224);
+    u[228] = Math.floor(this.simTime / SIM_CLOCK) >>> 0;
     // the needle pricks once
     this.handU[20] = 0xffffffff;
   }
@@ -1916,7 +1916,8 @@ class Engine {
   // IDLE_* in simWGSL), as the WGSL asks it: then the code they leave out would do nothing, and they make the same world.
   // The hand (Hand: its lamp, the rod, the needle's cut and shaft, the ridden cell, the pipette, the rod's wake); no dry
   // ground (sim.pond.x); no raindrop's ring alive (sim.drops, with a margin around its life for the clock's rounding);
-  // no duckweed (sim.duck.w).
+  // no duckweed (sim.duck.w). (The hand's call, sim.hand.call and its band in wake.y, is the heat pass's signalStep's,
+  // which has no lean form: lifeMain never reads it, so it does not bear on this.)
   _stepLean() {
     const f = this.simF, u = this.simU, H = 96;
     if (f[H + 3] !== 0 || f[H + 16] > 0 || f[H + 17] > 0 || u[H + 21] !== 0xffffffff || f[H + 26] > 0 || f[H + 30] !== 0 || f[H + 31] !== 0 || f[H + 32] > 0) return false;

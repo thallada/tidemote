@@ -113,7 +113,7 @@ for (const touch of [false, true]) {
     for (const [w, min] of [[320, 2], [360, 4], [390, 4]]) {
       await page.setViewportSize({ width: w, height: 700 }); await page.waitForTimeout(400);
       const seen = [];
-      for (const k of ['0', '1', '2', '3', '4', '5', '6', '7', '8']) { await page.keyboard.press(k); await page.waitForTimeout(150); seen.push(await fit(min)); }
+      for (const k of ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']) { await page.keyboard.press(k); await page.waitForTimeout(150); seen.push(await fit(min)); }
       await page.keyboard.press('0');
       await page.evaluate(() => globalThis.__tidemote.setSpeed('fast', true)); await page.waitForTimeout(1200); seen.push(await fit(min));
       await page.evaluate(() => globalThis.__tidemote.setSpeed(1, true)); await page.click('#t-play'); await page.waitForTimeout(150); seen.push(await fit(min)); await page.click('#t-play');

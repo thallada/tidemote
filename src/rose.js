@@ -1,4 +1,4 @@
-// The rose (docs/controller.md, The roses): a ring of eight choices held open on a controller's bumper, the stick's
+// The rose (docs/controller.md, The roses): a ring of choices (eight, or the tools' nine) held open on a controller's bumper, the stick's
 // angle lighting one, letting go of the bumper taking it. The tools on LB, the view's toggles on RB.
 //
 // sectorOf is the pure part: which octant a stick points at, with a band of hysteresis at the borders so a stick held
@@ -33,7 +33,7 @@ export function createRose(el) {
   el.hidden = true;
   const draw = () => {
     for (const [i, b] of [...el.querySelectorAll('.rose-it')].entries()) b.classList.toggle('on', i === lit);
-    el.style.setProperty('--lit', `${Math.max(0, lit) * 45}deg`);
+    el.style.setProperty('--lit', `${(Math.max(0, lit) * 360) / Math.max(1, items.length)}deg`);
     el.classList.toggle('lit', lit >= 0);
   };
   return {
@@ -41,8 +41,9 @@ export function createRose(el) {
     open(list, x, y, label) {
       items = list; lit = -1; isOpen = true;
       el.setAttribute('aria-label', label);
+      el.style.setProperty('--sector', `${360 / list.length}deg`);
       el.innerHTML = '<div class="rose-wedge"></div>' + list.map((it, i) => {
-        const a = (i * Math.PI) / 4;
+        const a = (i * 2 * Math.PI) / list.length;
         return `<div class="rose-it" role="menuitem" style="--x:${(Math.sin(a) * 0.36).toFixed(3)};--y:${(-Math.cos(a) * 0.36).toFixed(3)}">${it.icon || ''}<span>${it.label}</span></div>`;
       }).join('');
       el.style.left = `${x}px`; el.style.top = `${y}px`;

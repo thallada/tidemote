@@ -21,7 +21,7 @@ const KEYS = {
 test('every key of the shortcut map does what it did', () => {
   for (const [k, id] of Object.entries(KEYS)) assert.equal(key(k), id, k);
   TOOL_IDS.forEach((t, d) => assert.equal(key(String(d)), `tool-${t}`));
-  assert.equal(key('9'), null);
+  assert.equal(key('9'), 'tool-call');
   assert.equal(key('q'), null);
 });
 
@@ -51,7 +51,7 @@ test('no pad button does two things in one context', () => {
 test('the world, a tool, a ride and a panel each read the face buttons their own way', () => {
   assert.equal(padBinding(BTN.S, 'world').press, 'select');
   assert.equal(padBinding(BTN.S, 'tool').press, 'apply');
-  assert.equal(padBinding(BTN.W, 'tool').press, 'pipette-mode');
+  assert.equal(padBinding(BTN.W, 'tool').press, 'switch-mode');
   // (View is the Lab only: no hold that a slow press could turn into the Controls)
   assert.deepEqual(padBinding(BTN.VIEW, 'world'), { press: 'lab' });
   assert.equal(padBinding(BTN.S, 'ride').press, 'hop');

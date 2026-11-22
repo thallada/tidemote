@@ -5,7 +5,7 @@ between worlds. The plan, its options and its reasons are in docs/interactivity-
 built, and where it differs.
 
 **The rule.** The hand does nothing the world cannot do by itself. Every tool is a local cause (a lamp is more sun
-on one place, the rod a grain rolling through, the needle a hunter, the pipette a current that carries cells off), as slow as the
+on one place, the rod a grain rolling through, the needle a hunter, the pipette a current that carries cells off, the call a caller), as slow as the
 world, and bounded by physics rather than by limits on what it may do. Nothing in it reads the census.
 
 ## The hand's words
@@ -24,6 +24,7 @@ hand.
 | Warm, Cold | 5, 6 | The same quarter and all: the water under the disc drawn, 80% of the way a second (`STAGE.rate`), toward a temperature that share of the way from the open water's to the stage's 115° (`STAGE.hot`) or the probe's −20° (`STAGE.cold`). Water boils at 100° (`BOIL`) and is never hotter (`heatMain`'s last `min`, an identity below it). The water it leaves keeps its heat and gives it up as any water does. From about 45° the air dissolved in it comes out as small bubbles, swelling as it warms; near a boil vapor bubbles swell, wobble and collapse over the hot glass, each collapse sending out a faint ring and leaving specks of air, and the view roils. Each bubble is drawn as a microscope shows one (`bubLook`): a bright line where light glances off its edge, a crescent toward the lamp, red parted from blue, a dark band of total reflection inside it, the lamp gathered to a spot off its center, what lies beyond it shown smaller through it (`bubblesAt`), its outline an oval or lobed, specks clinging to it; most small and a few large, some up by the coverslip far out of focus (spread, dim, ringing), some in twos and threes sharing a flat wall. They drift with the current as the cells and silt around them do and sway with the water's surface: each lives a few seconds, carried whole from where it began (`bubGen`, `bubSet`), growing in and dissolving away as the next ones come. Ice is the water's own phase (`heatMain`'s ice block, docs/catastrophes.md): water below 0° freezes, giving up its latent heat (`iceLatent`) first, and ice above 0° melts, taking it in. So the probe freezes the water under it as the frost's night does, and the stage melts any ice, the frost's too (a frost's night freezes the hole again after); the ice it leaves thaws as the water about it warms it. Its edge holds back the water as the frost's does (`pondWith`), crystals growing ahead of it (drawn by `iceLook`, `frazil`); past the edge's film what lies in it (cells, cysts, husks, grains) is frozen solid, carried by no current and moved by nothing (`inIce`) | `heatMain`; `poolOver`, `extremes`, `shimmer` in the composite |
 | Needle | 7 | Pressed, the needle is let down into the water from the lower right, steeply, so only its last 1.2 units are in it close up (`NEEDLE.wet`; the rest of it, over the water, rises out of focus and touches nothing); zoomed out it is let down farther, staying 110 css px long on the screen up to 10 units (`NEEDLE.wetPx`, `wetMax`; `hand.wet`, set by the page each frame), so it sweeps more cells at once: its point (within 0.12, `NEEDLE.kill`) pricks every cell it touches, as a hunter's kill does, its carcass left; its shaft, tapering over 3 units to 0.45 (`NEEDLE`), pushes the other cells and grains out of its way; a drag cuts every bond within 0.32 of the point's stroke. A tap also pricks the cell nearest it (within 36 px on a touch screen) | `resolveCount`; `cutAt` in `keepBond`; `needlePush` in `handPush` |
 | Pipette | 8 | Draws up and sets down (below) | `suckFlow` in `cellWGSL`; the take in `resolveCount`; `inject*` |
+| Call | 9 | Calls into the signals (below): a press is a pulse, held it calls on | `signalStep` (the heat pass) |
 
 The needle and the rod sweep: each step they push aside what lies in them and what they passed over since the
 world last stepped (`hand.stepped()`, after a frame with steps: frames the world does not step in, at 120 Hz or at
@@ -40,6 +41,26 @@ the cold probe's frosting steel, each from its side of the field, and Touch's gl
 the disc it pushes with; the needle and the rod rise out of focus along their length past the water; out of focus over the water as the pointer
 moves and sharp in it while pressed. They are drawn in the view's own coordinates, once, never round the world's
 edge.
+
+## The call
+
+Only in a world with signals (`K.signal` and the heat pass; `offered` in `src/hand.js`: elsewhere it is not on the
+bench, its key and the tool rose leave it out). A press calls into the water where it is pressed, over the reach, in
+the band chosen beside Reach (Rumble, Song, Click, Flash; Song first; a controller's X steps to the next); a tap
+calls for `CALL.pulse` (0.3) simulated seconds, a hold for as long as it is held (a ring leaves the point and the
+field stands about it while held). It is a caller as a cell is one, into the same field the cells call into and hear
+(`SIGNAL_WGSL`): those whose ear answers its band are drawn up its slope or pushed down it, singers
+that shun it hush, and alarms relay. Its words are `hand.call` (center, reach, loudness 0..1) and the band in
+`hand.wake.y`; `signalStep` adds `CALL.loud` (8) full callers' worth of that band's deposit (`SIG_NORM`, a second's,
+times `sim.dt`, so coarse steps put in as much a second) spread over the reach, its edge softened over a grid cell so
+even the least reach puts all of it in. A disc stands lower at its middle than a point does (about 0.6 of it for a
+song at the default reach), so a full call there stands at about 5 × `signalGain`: a small chorus. It is the heat
+pass's, which has no lean form; `lifeMain` never reads it (`_stepLean` is unchanged). Taken up where no map is shown,
+it shows the signal lens (and takes it away again when put down, unless a map was chosen meanwhile; that lens is
+never kept in the prefs), so the rings are seen leaving the point. Heard: a note in the band's register as it begins
+and again while held (rumble a low knock every 0.9 s, song a plucked note walking a few steps of the key every
+0.45 s, click a tick every 0.11 s, flash a glassy ping every 0.3 s). Each press is an act in the record, as the
+lamp's (the chronicler: "A call rang out over the western waters").
 
 ## Riding
 

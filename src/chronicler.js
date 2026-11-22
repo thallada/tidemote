@@ -1367,7 +1367,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
   // The hand's act, told as weather (docs/hand.md): what touched which water and for how long, then what the
   // species there did after, from the counts of each species within its reach as it began and a few minutes
   // after it ended. Never "you"; now and then, at most once an hour and never twice running, a wry word.
-  // The tools (a.tool): lamp, shade, warm (the stage), cold (the cold probe), touch, needle, ride (the reins),
+  // The tools (a.tool): lamp, shade, warm (the stage), cold (the cold probe), touch, needle, call (a call into the water), ride (the reins),
   // pipette (cells drawn up), setdown (cells set down from the pipette); a select on {tool} names setdown in its `other` branch.
   function handStory(ctx) {
     const { reg, t } = ctx;
@@ -1390,7 +1390,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     S.hand = null;
     const bits = [];
     // i18n: after the hand's act, a species there thrived: {name} (a link); {tool}: what was done (other: setdown); {from}, {to}: its cells there before and after
-    if (up) bits.push(tr('chron.hand.rose', '{name} {tool, select, lamp {bloomed under it} shade {thrived in the dark} warm {took to the warmth} cold {took to the cold} touch {gathered there after} needle {moved in after} ride {gathered where it went} pipette {took the room they left} other {took hold there}}, from {from, plural, =0 {none} other {#}} to {to, plural, other {# cells}}',
+    if (up) bits.push(tr('chron.hand.rose', '{name} {tool, select, lamp {bloomed under it} shade {thrived in the dark} warm {took to the warmth} cold {took to the cold} touch {gathered there after} needle {moved in after} call {gathered to it} ride {gathered where it went} pipette {took the room they left} other {took hold there}}, from {from, plural, =0 {none} other {#}} to {to, plural, other {# cells}}',
       { name: L(reg, up[0]), tool, from: up[1] || 0, to: up[2] }));
     // i18n: after the hand's act, a species there dwindled: {name} (a link); {from}, {to}: its cells there before and after, or gone when {gone} is yes
     if (down && down[0] !== up?.[0]) bits.push(tr('chron.hand.fell', '{name} {gone, select, yes {was gone from it} other {fell from {from, number} to {to, number}}}', { name: L(reg, down[0]), gone: down[2] ? 'no' : 'yes', from: down[1], to: down[2] }));
@@ -1401,12 +1401,12 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     const wry = again && t - S.wry >= 3600 && !S.handTold.at(-1)?.[2];
     // i18n: what the hand did, as weather: {tool} (other: setdown); {place}: where (chron.hand.place); {how}: long when it lasted {dur}, drops when the water was touched with {count} drops,
     // i18n: burst when the needle burst {count} cells; {count}: how many, in words ({n} as a number); {countStart}: the same beginning the sentence
-    const act = tr('chron.hand.act', '{tool, select, lamp {A light fell on {place}{how, select, long { for {dur}} other {}}} shade {A shadow lay over {place}{how, select, long { for {dur}} other {}}} warm {Warmth was laid on {place}{how, select, long { for {dur}} other {}}} cold {A chill was laid on {place}{how, select, long { for {dur}} other {}}} touch {Something stirred {place}{how, select, drops { with {count} {n, plural, one {drop} other {drops}}} long { for {dur}} other {}}} needle {A needle went through {place}, and {count} {n, plural, one {cell} other {cells}} burst} ride {A cell was steered to {place}{how, select, long { for {dur}} other {}}} pipette {Something drew up {count} {n, plural, one {cell} other {cells}} from {place}{how, select, long { for {dur}} other {}}} other {{countStart} {n, plural, one {cell from elsewhere was} other {cells from elsewhere were}} set down in {place}{how, select, long { for {dur}} other {}}}}',
+    const act = tr('chron.hand.act', '{tool, select, lamp {A light fell on {place}{how, select, long { for {dur}} other {}}} shade {A shadow lay over {place}{how, select, long { for {dur}} other {}}} warm {Warmth was laid on {place}{how, select, long { for {dur}} other {}}} cold {A chill was laid on {place}{how, select, long { for {dur}} other {}}} touch {Something stirred {place}{how, select, drops { with {count} {n, plural, one {drop} other {drops}}} long { for {dur}} other {}}} needle {A needle went through {place}, and {count} {n, plural, one {cell} other {cells}} burst} call {A call rang out over {place}{how, select, long { for {dur}} other {}}} ride {A cell was steered to {place}{how, select, long { for {dur}} other {}}} pipette {Something drew up {count} {n, plural, one {cell} other {cells}} from {place}{how, select, long { for {dur}} other {}}} other {{countStart} {n, plural, one {cell from elsewhere was} other {cells from elsewhere were}} set down in {place}{how, select, long { for {dur}} other {}}}}',
       { tool, place, how, dur: durWords(dur), count: numWord(a.n), n: a.n, countStart: numWordStart(a.n) });
     // i18n: the hand's act ({act}: chron.hand.act) and, when {some} is yes, what the species there did after ({after}: chron.hand.rose, chron.hand.fell, in a list)
     const told = tr('chron.hand.told', '{act}{some, select, yes {; {after}} other {}}.', { act, some: bits.length ? 'yes' : 'no', after: andList(bits) });
     // i18n: the hand has done the same before (at most once an hour, never twice running): {tool} (other: pipette or setdown)
-    const sameAgain = wry ? tr('chron.hand.again', 'Someone has been at {tool, select, lamp {the lamp} shade {the shade} warm {the stage} cold {the cold probe} touch {the water} needle {the needle} ride {the reins} other {the pipette}} again.', { tool }) : null;
+    const sameAgain = wry ? tr('chron.hand.again', 'Someone has been at {tool, select, lamp {the lamp} shade {the shade} warm {the stage} cold {the cold probe} touch {the water} needle {the needle} call {the caller} ride {the reins} other {the pipette}} again.', { tool }) : null;
     return { kind: 'hand', score: 0.48 + 0.14 * bits.length + (pricks ? 0.14 : 0), col: 0xffa0e3f1, subjects: [up?.[0], down?.[0]].filter(Boolean),
       html: sameAgain ? sentences([sameAgain, told]) : told,
       onTold: () => { if (wry) S.wry = t; S.handTold.push([t, a.tool, wry]); if (S.handTold.length > 20) S.handTold.shift(); } };
