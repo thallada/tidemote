@@ -8,7 +8,7 @@
 export const openedAt = location.href;
 
 /** Whether the page runs as an installed app (from its icon), not in a browser's tab. */
-export function installed() {
+function installed() {
   return matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || navigator.standalone === true;
 }
 
@@ -40,15 +40,11 @@ export function createPwa({ onChange = () => {}, onInstalled = () => {} } = {}) 
       if (!served || installed()) return null;
       return offer ? 'prompt' : appleTouch() ? 'share' : null;
     },
-    /** The browser's install dialog; whether it was accepted. */
+    /** The browser's install dialog (an offer opens it once; appinstalled says when it was accepted). */
     async prompt() {
       const e = offer;
-      if (!e) return false;
       offer = null;
-      await e.prompt();
-      const { outcome } = await e.userChoice;
-      onChange();
-      return outcome === 'accepted';
+      try { await e?.prompt(); } finally { changed(); }
     },
   };
 }

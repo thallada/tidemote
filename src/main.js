@@ -54,7 +54,7 @@ import { createFocus, canFocus, adjust, isAdjustable } from './input/focus.js';
 import { controlsTable } from './input/controls.js';
 import { createRose } from './rose.js';
 import { storeLinks } from './stores.js';
-import { createPwa, openedAt } from './pwa.js';
+import { createPwa, openedAt, appleTouch } from './pwa.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('stage');
@@ -169,8 +169,7 @@ async function boot(tries = 4) {
   if (!navigator.gpu) {
     // Safari offers WebGPU only on macOS/iOS/iPadOS 26 and later; on earlier systems even Safari 26+ has
     // no navigator.gpu and no feature flag brings it (its "WebGPU support for HDR" flag is something else)
-    const ua = navigator.userAgent;
-    const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+    const ua = navigator.userAgent, ios = appleTouch();
     const safari = /AppleWebKit/.test(ua) && /Safari\//.test(ua) && !/Chrome|Chromium|CriOS|FxiOS|EdgiOS|Edg\/|OPR\/|Android/.test(ua);
     if (safari && ios) fail(tr('err.no-webgpu.safari-ios', 'Safari has WebGPU in iOS 26 or later'), tr('err.no-webgpu.safari-ios.detail', 'Tidemote simulates its world on your graphics card through WebGPU, which Safari offers from iOS and iPadOS 26 and onwards. Update the system to run it here or use another browser with WebGPU support like Chrome.'));
     else if (safari) fail(tr('err.no-webgpu.safari-mac', 'Safari has WebGPU from macOS 26 onwards'), tr('err.no-webgpu.safari-mac.detail', 'Tidemote simulates its world on your graphics card through WebGPU, which Safari offers only on macOS 26 Tahoe and later. Update the system to run it here or use another browser with WebGPU support like Chrome.'));
@@ -3448,7 +3447,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       else if (g === 'root') back();
       else if (g === 'save' || g === 'load') show('worlds', g);
       else if (g === 'new' || g === 'events' || g === 'about') show(g);
-      else if (g === 'install') { if (pwa.can() === 'prompt') pwa.prompt().catch(() => {}).then(() => render()); else show('install'); }
+      else if (g === 'install') { if (pwa.can() === 'prompt') pwa.prompt().catch(() => {}); else show('install'); }
       else if (g === 'settings' || g === 'controls') away(g);
       else if (g === 'quit') { if (unsaved()) { quitAsk = true; render(); el.querySelector('[data-g="quit-save"]')?.focus({ preventScroll: true }); } else quit(false); }
       else if (g === 'quit-no') back();

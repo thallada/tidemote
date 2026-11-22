@@ -39368,15 +39368,15 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         if (!served || installed()) return null;
         return offer ? "prompt" : appleTouch() ? "share" : null;
       },
-      /** The browser's install dialog; whether it was accepted. */
+      /** The browser's install dialog (an offer opens it once; appinstalled says when it was accepted). */
       async prompt() {
         const e = offer;
-        if (!e) return false;
         offer = null;
-        await e.prompt();
-        const { outcome } = await e.userChoice;
-        onChange();
-        return outcome === "accepted";
+        try {
+          await e?.prompt();
+        } finally {
+          changed();
+        }
       }
     };
   }
@@ -39480,8 +39480,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
   async function boot(tries = 4) {
     if (tries === 4) await freshShaders();
     if (!navigator.gpu) {
-      const ua = navigator.userAgent;
-      const ios = /iPhone|iPad|iPod/.test(ua) || /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
+      const ua = navigator.userAgent, ios = appleTouch();
       const safari = /AppleWebKit/.test(ua) && /Safari\//.test(ua) && !/Chrome|Chromium|CriOS|FxiOS|EdgiOS|Edg\/|OPR\/|Android/.test(ua);
       if (safari && ios) fail(tr("err.no-webgpu.safari-ios", "Safari has WebGPU in iOS 26 or later"), tr("err.no-webgpu.safari-ios.detail", "Tidemote simulates its world on your graphics card through WebGPU, which Safari offers from iOS and iPadOS 26 and onwards. Update the system to run it here or use another browser with WebGPU support like Chrome."));
       else if (safari) fail(tr("err.no-webgpu.safari-mac", "Safari has WebGPU from macOS 26 onwards"), tr("err.no-webgpu.safari-mac.detail", "Tidemote simulates its world on your graphics card through WebGPU, which Safari offers only on macOS 26 Tahoe and later. Update the system to run it here or use another browser with WebGPU support like Chrome."));
@@ -43007,7 +43006,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         else if (g === "new" || g === "events" || g === "about") show(g);
         else if (g === "install") {
           if (pwa.can() === "prompt") pwa.prompt().catch(() => {
-          }).then(() => render());
+          });
           else show("install");
         } else if (g === "settings" || g === "controls") away(g);
         else if (g === "quit") {
