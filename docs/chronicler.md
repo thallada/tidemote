@@ -26,6 +26,11 @@ saved: a loaded world starts it afresh, and `snapshot`/`readState` copy only the
 unchanged. Checked against the global ledger (births, starvation, old age, being eaten, scalding all agree to within
 the counts of slots reused by new species between reads).
 
+The world's voices (the signals in the water: `signalStep` in `src/shaders.js`) need nothing more: each
+species' genome in the census carries its `call` (song and alarm, each a loudness and a band: Rumble, Song, Click,
+Flash) and `ear` (drawn up or pushed down each band's slope), weighed by its cells; who eats whom comes from the pair
+ledger above. With `K.signal: 0` (or no heat) every one of these genes is zero, and none of their stories is told.
+
 The climate's news comes in as notes: an era begins (`note('era')`), one of the pool's events begins, turns and ends
 (`note('event')`), a heat wave or cold snap begins (`note('excursion')`).
 
@@ -55,6 +60,9 @@ hundred extinctions an hour: the counts that look dramatic are its ordinary chur
 | era | as an era ends: who rose, who fell, the genera of note lost, and its character (a guild's era when that guild's share rose ≥ 0.1; of losses, of new species, flourishing, lean); at most one in 30 min | 0.2–0.75 |
 | aftermath | as an event ends: who slept through it as cysts, who flourished, who lost most of its cells, the species of weight it took | 0.55–0.85 (forced) |
 | heat | as a heat wave ends: the cells it scalded (≥ 3% of the living) and the species worst hit; a cold snap's cysts | 0.45–0.7 |
+| chorus | the first chorus: half the living carry a song, held 3 min, with ≥ 4 established species singing, from under two fifths (founders sing at a third; a world that starts in chorus has not found its voice); a great quiet: after a chorus, a tenth or fewer held 3 min, and why (life crashed to under 0.4 of the chorus's living; the chorus's 16 greatest singers mostly eaten; or the silent outlasted them); the chorus is told again only after a quiet. One voice: a band holding ≥ 92% of a choir's singers for 3 min where ≥ 2 bands held 15% each | 0.65–0.7; 0.75 (0.62 after a crash, 0.45 while life is collapsed); 0.62 |
+| band | a band first sung in: its first established singer after the world's third minute, told once the band's singers are 3% of the living; a band fallen silent: one that held 3% of the living and ≥ 3 established species at once, now with no established singer and under 0.2% (a band one species held falls silent with that species' death, which is the story); a parting: two species of weight (≥ 3%) sharing a band 30–50 min ago, a descendant of one (≥ 2%, new since) now in another band while its forebear fell to half, the other or its line still holding the old band (once a pair) | 0.62; 0.6–0.64; 0.65 |
+| ear | an eavesdropper: a predator or grazer of weight (≥ 1% of the living) whose main food (≥ 40% of ≥ 40 meals in 20 min) sings in a band its ear is drawn to (≥ 0.3), not being a singer there itself (that is only gathering), told as hunting in silence where it makes no call; prey of weight shunning (ear ≤ −0.3) the band its main eater sings or cries its alarm in. Once per genus and band in 3 hours | 0.6–0.71; 0.6–0.66 |
 | elder, record, reef, spark, succession | the oldest species at 2, 4, 8 hours; the most thriving species ever (≥ 1.15× the record, after 20 min); reef stone half again in 15 min, and its builder; a spark from the silt holding a tenth of the pool; a species overtaking the one it descends from | 0.4–0.6 |
 
 `whyDeclined` reads the deaths over the decline: eaten (and by whom, from the pair ledger: "hunted down by", "grazed
@@ -83,6 +91,10 @@ A story is told only if its score clears the bar and the budget allows (`TUNE` i
   does not flood the log (at Max a real hour still holds at most 120 entries, and in practice far fewer);
 - the same kind at most every 8 min, the same species at most every 15 (5 for a weightier story or a death), and each
   story's own key (this species' crash, this pair's cycle) far less often;
+- the voices' bands and ears (`band`, `ear`, one voice) at most one per `voiceGap` (20 min) all together, counted from any
+  story of the voices; a chorus or a quiet stays on offer up to 20 min while it holds, so a turn lost is not lost. Their
+  state (`S.song`: the chorus's state and height, per band its first singer, height and singers, the marks of the last
+  hour, the last 48 told keys) is bounded and saved with the rest;
 - nothing in a new world's first 8 minutes but a collapse;
 - a story that loses its turn to the gap waits up to 5 min if it scored ≥ 0.6;
 - a species the viewer named, or is looking at, counts a little more.
