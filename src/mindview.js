@@ -7,6 +7,7 @@ import { term, spLink, fmtLen } from './fmt.js';
 import { subHead, ruled } from './ui.js';
 import { setText, setHTML } from './live.js';
 import { tr } from './i18n.js';
+import { SIGNAL_BAND, bandOf } from './fmt.js';
 
 const R = 40; // compass radius, in a -50..50 viewBox
 const NB_ROWS = 4; // other species shown (own kind has its own row)
@@ -60,7 +61,7 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
     // the cell's vitals (energy, age, warmth), filled in by the specimen panel (while a phone's sheet only peeks they ride in its header)
     h += '<div class="vitals mv-vitals"></div>';
     // conditions that shape what it does: a fixed set of lamps, lit or dark, never added or removed
-    h += `<div class="mv-lamps">${['hungry', 'full', 'threat', 'low', 'lean', 'crowd', 'shelter', ...(K.heat ? ['thermal'] : [])].map((k) => `<div class="lamp" data-k="${k}"><i></i><span class="term" data-hint="" tabindex="0"></span></div>`).join('')}</div></div>`;
+    h += `<div class="mv-lamps">${['hungry', 'full', 'threat', 'low', 'lean', 'crowd', 'shelter', ...(K.heat ? ['thermal'] : []), ...(K.signal && K.heat ? ['call'] : [])].map((k) => `<div class="lamp" data-k="${k}"><i></i><span class="term" data-hint="" tabindex="0"></span></div>`).join('')}</div></div>`;
     h += `<div class="blk mv-nb">${subHead(`<i class="corner cell"></i>${term('mind-near', tr('mind.neighbors', 'Neighbors'))}`, tr('mind.neighbors.aside', 'within its reach'))}`;
     // i18n: the Neighbors table's column heads; push and pull label the two ends of its last column
     h += `<div class="nb-row nb-head"><span></span><span>${tr('mind.nb.species', 'Species')}</span><span>${tr('mind.nb.cells', 'Cells')}</span><span>${tr('mind.nb.role', 'Role')}</span><span class="nb-pull term" data-hint="${tr('mind.nb.pull.hint', 'How each species moves this cell: pushes it away (left) or pulls it toward them (right).')}" tabindex="0"><i>${tr('mind.nb.push', 'push')}</i><i>${tr('mind.nb.pull', 'pull')}</i></span></div>`;
@@ -109,7 +110,7 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
     const tdist = q ? len(q.d) : food && head.matter && head.key !== 'forage' ? food.dist : null;
     // i18n: how far the target is: {len} a length (12 µm)
     setText(parts.tdist, tdist != null ? tr('mind.target.away', '{len} away', { len: fmtLen(tdist) }) : '');
-    setText(parts.detail, detail(head, mind));
+    setText(parts.detail, detail(head, mind, genomeFor(kind)));
     // ---- pulls
     const max = Math.max(1e-6, ...mind.groups.map((g) => g.mag));
     if (!ease) ease = { groups: new Map(), hdg: { cur: [0, 0], to: [0, 0] }, tgt: { cur: null, to: null } };
@@ -168,12 +169,18 @@ export function createMindView({ K, genomeFor, nameOf, sigil }) {
   // one line of particulars for the mode shown
   // i18n: the Behavior section's Detail row: {p} and {danger} percentages; {every} and {left} seconds; {net} energy a
   // second, signed (+0.012); {e} and {need} energy to two decimals; {light} a percentage
-  function detail(st, mind) {
+  function detail(st, mind, g) {
     const { net } = mind.budget, m = mind.m;
     const pc = (x) => Math.round(x * 100);
     // i18n: {p} a percentage; {verb}: whether a try is a bite (of a producer) or a kill; {every} seconds, to a decimal
     if (st.odds) return tr('mind.detail.odds', '{p}% per {verb, select, bite {bite} other {kill}} · one try / {every} s', { p: pc(st.odds.p), verb: st.odds.verb, every: st.odds.every.toFixed(1) });
     if (st.key === 'flee' || st.key === 'avoid') { const s = mind.species.find((x) => x.kind === st.target); return s && s.danger > 0 ? tr('mind.detail.danger', 'about {danger}% of their strikes would land', { danger: pc(s.danger) }) : tr('mind.detail.repelled', 'repelled by their surface signature'); }
+    // i18n: the Detail row for a cell calling: {band} the band (Rumble, Song, Click, Flash); {p} its loudness now, a percentage of a full voice (0 between calls)
+    if ((st.key === 'sing' || st.key === 'alarm') && g && g.call) return tr('mind.detail.call', '{band} · {p}% of a full voice now', { band: SIGNAL_BAND[bandOf(st.key === 'sing' ? g.call[1] : g.call[3])], p: pc(st.key === 'sing' ? m.song : m.alarm) });
+    // i18n: the Detail row for a cell steering by a call: {p} the share of what moves it that hearing is, a percentage
+    if (st.key === 'followcall' || st.key === 'fleecall') return tr('mind.detail.hearing', 'hearing is {p}% of what moves it', { p: pc(mind.groups.find((x) => x.key === 'signal')?.share || 0) });
+    // i18n: the Detail row for a hushed cell: {hush} how far its song is hushed, a percentage
+    if (st.key === 'hushed') return tr('mind.detail.hushed', 'song {hush}% hushed', { hush: pc(Math.min(1, (m.shunned || 0) * K.signalHush)) });
     // i18n: {left} seconds; {net} energy a second, signed (+0.012)
     if (st.key === 'starve' || mind.flags.find((x) => x.key === 'low').on) return tr('mind.detail.left', '≈ {left} s of energy left · {net}/s', { left: Math.max(1, Math.round(m.energy / Math.max(1e-6, -net))), net: signed(net) });
     if (st.key === 'divide' || st.key === 'seeksilt') return tr('mind.detail.divide', 'energy {e} of {need} · {silt, select, yes {silt in reach} other {no silt in reach}}', { e: m.energy.toFixed(2), need: mind.need.toFixed(2), silt: m.siltNear ? 'yes' : 'no' });

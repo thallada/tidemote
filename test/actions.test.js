@@ -13,7 +13,7 @@ const key = (k, shiftKey = false) => matchKey({ key: k, code: '', shiftKey });
 const KEYS = {
   Escape: 'back', Backspace: 'lineage-back', ' ': 'pause', ',': 'slower', '.': 'faster', '/': 'realtime', '<': 'realtime', '>': 'max',
   '?': 'help', Enter: 'ride', Tab: 'hop', t: 'trails', T: 'trails', y: 'glow', Y: 'glow', o: 'look', O: 'look', g: 'map-light', G: 'map-light',
-  e: 'map-heat', E: 'map-heat', h: 'map-tide', H: 'map-tide', c: 'currents', C: 'currents', b: 'bench', B: 'bench', v: 'settings', V: 'settings',
+  e: 'map-heat', E: 'map-heat', h: 'map-tide', H: 'map-tide', l: 'map-signal', L: 'map-signal', c: 'currents', C: 'currents', b: 'bench', B: 'bench', v: 'settings', V: 'settings',
   k: 'lab', K: 'lab', '[': 'reach-down', ']': 'reach-up', p: 'auto', P: 'auto', x: 'next-scene', X: 'next-scene', r: 'film',
   m: 'sound', M: 'sound', u: 'interface', U: 'interface', i: 'readouts', I: 'readouts', f: 'fullscreen', F: 'fullscreen', z: 'zoom-reset', Z: 'zoom-reset',
 };

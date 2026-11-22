@@ -3,7 +3,7 @@ import { FIRST_LIFE } from './engine.js';
 import { FRAMBOID, CYST, stoneGrain } from './shaders.js';
 import { tagsOf } from './facets.js';
 import { tideAt, duckShade } from './flow.js';
-import { fmt, fmtClock, fmtDur, esc, cssCol, cssRgb, term, spLink, meter, clamp, ROLE, MATTER, GRAIN, CAUSE, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
+import { fmt, fmtClock, fmtDur, esc, cssCol, cssRgb, term, spLink, meter, clamp, ROLE, MATTER, GRAIN, CAUSE, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT, SIGNAL_BAND, SIGNAL_CSS, bandOf } from './fmt.js';
 import { glyphURL, MATTER_GLYPH } from './glyphs.js';
 import { drawLines, popOf } from './charts.js';
 import { voiceOf } from './audio/mapping.js';
@@ -423,6 +423,7 @@ export function createSpecimen(api) {
     m += trait(tr('spec.move.glide', 'Glide'), g.drag, 0.015, 0.4, tr('spec.move.glide-value', '{ms} ms', { ms: (g.drag * 1000).toFixed(0) }), 'glide');
     m += trait(tr('spec.move.current', 'Current pull'), g.advect, 0.03, 1, `${Math.round(g.advect * 100)}%`, 'currentpull');
     h += blk(tr('spec.move', 'Movement'), m);
+    if (K.signal && K.heat) h += blk(tr('spec.signal', 'Signals'), signalBlock(g), { tip: 'signals' });
     let l = trait(tr('spec.life.lifespan', 'Lifespan'), g.lifespan, 20, 500, fmtDur(g.lifespan), 'lifespan');
     const dv = divEnergy(g, K);
     l += trait(tr('spec.life.divides-at', 'Divides at'), dv, 1, 8, dv.toFixed(2), 'dividesat');
@@ -455,6 +456,24 @@ export function createSpecimen(api) {
     for (const it of rows) t += `<span class="pt-name"><i style="background:${it.css}"></i><span>${it.name}</span></span>${types.map((r) => heat(it.v(r))).join('')}`;
     t += `</div><div class="pulls-key"><span><i class="to"></i>${tr('spec.pulls.toward', 'drawn toward')}</span><span><i class="away"></i>${tr('spec.pulls.away', 'pushed away')}</span></div>`;
     h += blk(tr('spec.pulls', 'How its cells react'), t, { tip: 'affinity' });
+    return h;
+  }
+
+  // A species' signal genes: its song and its alarm (loudness, band), and its ears, one small signed gauge a band
+  // (drawn toward its callers, right; shunning them, left)
+  function signalBlock(g) {
+    const call = g.call || [0, 0, 0, 0], ear = g.ear || [0, 0, 0, 0];
+    // i18n: a call's loudness ({p}, a percentage of a full voice) and its band ({band}: Rumble, Song, Click or Flash)
+    const voice = (a, band) => (a > 0 ? tr('spec.signal.voice', '{p}% {band}', { p: Math.round(a * 100), band: SIGNAL_BAND[bandOf(band)] }) : tr('spec.none', 'none'));
+    let h = trait(tr('spec.signal.song', 'Song'), call[0], 0, 1, voice(call[0], call[1]), 'song-call');
+    h += trait(tr('spec.signal.alarm', 'Alarm call'), call[2], 0, 1, voice(call[2], call[3]), 'alarm-call');
+    const ears = SIGNAL_BAND.map((band, b) => {
+      const e = ear[b], w = Math.min(1, Math.abs(e)) * 50;
+      // i18n: an ear's hint: {band} a band; {v} how strongly, signed to two decimals (+0.62)
+      const hint = e > 0 ? tr('spec.signal.ear-to', 'Drawn to the {band} band ({v})', { band, v: `+${e.toFixed(2)}` }) : e < 0 ? tr('spec.signal.ear-away', 'Shuns the {band} band ({v})', { band, v: `−${(-e).toFixed(2)}` }) : tr('spec.signal.ear-none', 'Deaf to the {band} band', { band });
+      return `<span class="ear term" data-hint="${esc(hint)}" tabindex="0"><em>${band}</em><span class="dbar"><i style="left:${e < 0 ? 50 - w : 50}%;width:${w}%;background:${SIGNAL_CSS[b]}"></i></span></span>`;
+    }).join('');
+    h += `<div class="trait ears"><span>${term('ears', tr('spec.signal.ears', 'Ears'))}</span><span class="ear-row">${ears}</span></div>`;
     return h;
   }
 

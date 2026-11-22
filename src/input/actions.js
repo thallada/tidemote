@@ -24,7 +24,7 @@ const ZOOM_KEYS = { '=': 1, '+': 1, '-': -1, _: -1 };
 const KEYMAP = [
   ['Escape', 'back'], ['Backspace', 'lineage-back'], [' ', 'pause'], [',', 'slower'], ['.', 'faster'], [['/', '<'], 'realtime'], ['>', 'max'], // i18n-ignore (key names, selectors and styles)
   ['?', 'help'], ['Enter', 'ride'], ['Tab', 'hop'], // i18n-ignore (key names, selectors and styles)
-  ['t', 'trails'], ['y', 'glow'], ['o', 'look'], ['g', 'map-light'], ['e', 'map-heat'], ['h', 'map-tide'], ['c', 'currents'],
+  ['t', 'trails'], ['y', 'glow'], ['o', 'look'], ['g', 'map-light'], ['e', 'map-heat'], ['h', 'map-tide'], ['l', 'map-signal'], ['c', 'currents'],
   ['b', 'bench'], ['v', 'settings'], ['k', 'lab'], ['[', 'reach-down'], [']', 'reach-up'],
   ['p', 'auto'], ['x', 'next-scene'], ['r', 'film'], ['m', 'sound'], ['u', 'interface'], ['i', 'readouts'], ['f', 'fullscreen'], ['z', 'zoom-reset'],
 ];
@@ -120,6 +120,8 @@ export function helpRows() {
     ] },
     { group: tr('help.group.view', 'View'), rows: [
       { text: tr('help.k14', 'Light map · heat map · tide map · currents'), keys: [K('G'), K('E'), K('H'), K('C')], pad: [P('RB'), hold] },
+      // (the signal lens, a map too, is not on the view rose's eight points: a controller chooses it in Settings → Display)
+      { text: tr('help.signal-lens', 'Signal lens: the calls in the water'), keys: [K('L')], pad: [inSettings] },
       { text: tr('help.k13', 'Cycle cell trails rendering'), keys: [K('T')], pad: [P('RB'), hold] },
       { text: tr('help.k15', 'Toggle: glow · microscope'), keys: [K('Y'), K('O')], pad: [P('RB'), hold] },
       { text: tr('help.k6', 'Start · stop filming'), keys: [K('R')], pad: [P('RB'), hold] },

@@ -5,6 +5,7 @@
 import { MIND_HEAD, MIND_NBR, MIND_NBR_WORDS } from './shaders.js';
 import { divEnergy } from './genome.js';
 import { tr } from './i18n.js';
+import { SIGNAL_BAND, bandOf } from './fmt.js';
 
 const HUSK = 2;
 
@@ -31,7 +32,12 @@ export function parseMind(u32, f32) {
     drives: {
       space: v2(24), kin: v2(26), other: v2(28), diet: v2(30), matter: v2(32), forage: v2(34),
       align: v2(36), bond: v2(38), stone: v2(40), swim: v2(42), heat: v2(50), flee: v2(60), light: v2(64), will: v2(66),
+      signal: v2(68),
     },
+    // signals (zero without them): what it called in that step, its song's and its alarm's amplitudes (0..1); how loud
+    // what it shuns is (the field's level by how far each ear is negative: hushes its song, relays the alarm); the hunters
+    // it fears (their nearness, summed, as flight weighs it)
+    song: f32[70], alarm: f32[71], shunned: f32[72], threat: f32[73],
     flow: v2(44),
     matterN: [f32[46], f32[47], f32[48], f32[49]],
     // warmth: its own temperature (body warmth included), the water's, how well it works there
@@ -59,6 +65,8 @@ const GROUPS = [
   { key: 'swim', label: tr('mind.pull.swim', 'Swimming'), parts: ['swim'], tip: 'swimming', css: '#e2f1f0', when: (g) => g.swim * (1 - g.photo) > 0.01 },
   { key: 'heat', label: tr('mind.pull.heat', 'Warmth'), parts: ['heat'], tip: 'thermotaxis', css: '#ff8a3a', when: (g, K) => K.heat && g.swim * (1 - g.photo) > 0.01 },
   { key: 'light', label: tr('mind.pull.light', 'Light'), parts: ['light'], tip: 'phototaxis', css: '#ffe27a', when: (g, K) => K.phototaxis > 0 && Math.abs(g.phototaxis || 0) > 0.005 },
+  // hearing (signals): its push up or down the slopes of the bands it answers
+  { key: 'signal', label: tr('mind.pull.signal', 'Hearing'), parts: ['signal'], tip: 'mind-signal', css: '#94ccff', when: (g, K) => !!(K.signal && K.heat) && (g.ear || []).some((e) => e !== 0) },
   // a ridden cell's will (docs/hand.md): the viewer's, one drive among the rest
   { key: 'will', label: tr('mind.pull.will', 'Will'), parts: ['will'], tip: 'will', css: '#f1e3a0', when: (g, K, ridden) => ridden },
 ];
@@ -105,7 +113,33 @@ const MODES = {
   huddle: tr('mind.mode.huddle', 'Keeping warm'),
   seeklight: tr('mind.mode.seeklight', 'Following the light'),
   shunlight: tr('mind.mode.shunlight', 'Seeking shade'),
+  sing: tr('mind.mode.sing', 'Singing'),
+  alarm: tr('mind.mode.alarm', 'Calling the alarm'),
+  hushed: tr('mind.mode.hushed', 'Hushed'),
+  followcall: tr('mind.mode.followcall', 'Following a call'),
+  fleecall: tr('mind.mode.fleecall', 'Fleeing a call'),
 };
+
+/**
+ * What a cell's signals come to in a mind reading (m) for genome g: its song (in voice now, or in a bout between
+ * calls: fed and not hushed), its alarm, how hushed it is (0..1), and the bands it is drawn to and shuns (by ear,
+ * strongest first). Null where the world has no signals.
+ */
+export function signalsOf(m, g, K) {
+  if (!(K.signal && K.heat)) return null;
+  const call = g.call || [0, 0, 0, 0], ear = g.ear || [0, 0, 0, 0];
+  const need = m.divE > 0 ? m.divE : divEnergy(g, K);
+  // (voiceOf: it sings while its energy is over half what it divides at, and falls silent as it hears what it shuns)
+  const fed = m.energy > 0.5 * need;
+  const hush = Math.min(1, Math.max(0, (m.shunned || 0) * K.signalHush));
+  const order = (sign) => [0, 1, 2, 3].filter((b) => Math.sign(ear[b]) === sign).sort((a, b) => Math.abs(ear[b]) - Math.abs(ear[a]));
+  return {
+    singer: call[0] > 0, songBand: bandOf(call[1]), alarmBand: bandOf(call[3]),
+    singing: (m.song || 0) > 0.005, alarming: (m.alarm || 0) > 0.02,
+    bout: call[0] > 0 && fed && hush < 0.5 && !m.torpid && !m.cyst, hushed: call[0] > 0 && fed && hush >= 0.5 && !m.torpid && !m.cyst,
+    hush, drawn: order(1), shuns: order(-1),
+  };
+}
 
 /** How well a hunter's build lets it catch a prey cell (0..1), as lifeMain's catch-skill roll. */
 /** How many degrees below its working range a torpid cell at `warmth` is, as the Behavior headline and the specimen's
@@ -259,6 +293,12 @@ export function interpretMind(m, g, kind, { K, genomeOf, ridden = false }) {
     // i18n: {danger} a percentage, shown when the hunter is also one that could catch it
     st = { key: 'flee', target: chaser.kind, text: tr('mind.state.flee', 'Fleeing {sp}', { sp }), why: tr('mind.state.flee.why-chased', '{sp} is a hunter, and this cell swims away from hunters near it. It swims harder the closer the hunter gets{known, select, yes {: about {danger}% of their strikes would land} other {}}.', { sp, known: threat && threat.kind === chaser.kind ? 'yes' : 'no', danger: threat ? pct(threat.danger) : 0 }) };
   }
+  // signals: the alarm it calls as it fears
+  const sg = signalsOf(m, g, K);
+  if (!st && sg && sg.alarming) {
+    // i18n: {why}: what frightens it (hunters near, a call it shuns heard, or both); {band} the band it calls in; {p} a percentage
+    st = { key: 'alarm', text: tr('mind.state.alarm', 'Calling the alarm'), why: tr('mind.state.alarm.why', 'Afraid ({why, select, hunters {hunters are near} heard {it hears a call it shuns} other {hunters are near, and it hears a call it shuns}}), it calls the alarm in the {band} band at {p}% of its full voice. Cells that shun that band flee it, and may call it on in turn.', { why: m.threat > 0.01 && m.shunned > 0 ? 'both' : m.threat > 0.01 ? 'hunters' : 'heard', band: SIGNAL_BAND[sg.alarmBand], p: pct(m.alarm) }) };
+  }
   // a producer does not swim away: its receptors' push from a grazer is avoidance (below)
   if (!st && threat && g.photo <= 0.4 && -threat.sig > 0.2 * total) {
     // i18n: {sp} is a species' name; {danger} a percentage
@@ -275,6 +315,15 @@ export function interpretMind(m, g, kind, { K, genomeOf, ridden = false }) {
   if (!st && m.hungry && share('forage') >= 0.25) {
     // i18n: {e} its energy and {need} the energy it divides at, to two decimals
     st = { key: 'forage', matter: tr('mind.target.husks', 'Husks'), text: tr('mind.state.forage', 'Foraging for husks'), why: tr('mind.state.forage.why', 'Hungry (energy {e} of the {need} it needs to divide). Its diet draws it toward the husks drifting nearby.', { e, need: needs }) };
+  }
+  if (!st && sg && share('signal') >= 0.25) {
+    // following or fleeing a call: as its ears have it (all one way), else as loud as what it shuns is
+    const away = sg.drawn.length === 0 || (sg.shuns.length > 0 && sg.hush > 0.1);
+    const band = SIGNAL_BAND[(away ? sg.shuns : sg.drawn)[0]];
+    // i18n: {band} the band whose slope it steers by (Rumble, Song, Click, Flash)
+    st = away
+      ? { key: 'fleecall', text: tr('mind.state.fleecall', 'Fleeing a call'), why: tr('mind.state.fleecall.why', 'It shuns the {band} band: it pushes itself down the band’s slope, away from where the callers are loudest.', { band }) }
+      : { key: 'followcall', text: tr('mind.state.followcall', 'Following a call'), why: tr('mind.state.followcall.why', 'It is drawn to the {band} band: it pushes itself up the band’s slope, toward where the callers are loudest.', { band }) };
   }
   if (!st && K.heat && share('heat') >= 0.25) {
     const warmer = g.topt > m.warmth;
@@ -301,6 +350,15 @@ export function interpretMind(m, g, kind, { K, genomeOf, ridden = false }) {
   if (!st && draw && draw.sig > 0.35 * total) {
     // i18n: {sp} is a species' name
     st = { key: 'follow', target: draw.kind, text: tr('mind.state.follow', 'Drawn to {sp}', { sp }), why: tr('mind.state.follow.why', 'Its receptors are attracted to the surface signature of {sp}, so it gathers among them.', { sp }) };
+  }
+  // singing: a fed singer sings in bouts, in voice for a share of each beat of its kind's rhythm; hushed, it would sing
+  // but hears what it shuns
+  if (!st && sg && sg.bout) {
+    // i18n: {band} the band it sings in; {p} its song's loudness, a percentage of a full voice; {duty} a percentage; {cost} energy a second, to three decimals
+    st = { key: 'sing', text: tr('mind.state.sing', 'Singing'), why: tr('mind.state.sing.why', 'Fed, it sings in the {band} band, at {p}% of a full voice, for {duty}% of each beat of its kind’s rhythm. Its song costs it {cost}/s while it is in voice.', { band: SIGNAL_BAND[sg.songBand], p: pct(g.call[0]), duty: pct(K.signalDuty), cost: (K.signalCost * g.call[0]).toFixed(3) }) };
+  } else if (!st && sg && sg.hushed) {
+    // i18n: {band} the band it would sing in; {hush} how far its song is hushed, a percentage
+    st = { key: 'hushed', text: tr('mind.state.hushed', 'Hushed'), why: tr('mind.state.hushed.why', 'Fed, it would sing in the {band} band, but it hears a call it shuns and keeps quiet: its song is {hush}% hushed.', { band: SIGNAL_BAND[sg.songBand], hush: pct(sg.hush) }) };
   }
   if (!st && g.photo > 0.4) {
     // i18n: {gain} and {upkeep} energy a second, to three decimals; {light} and {perf} percentages
@@ -350,6 +408,17 @@ export function interpretMind(m, g, kind, { K, genomeOf, ridden = false }) {
     // i18n: {t} its temperature, {range} its preferred range (20° ± 5°), {perf} how well it works there (a percentage)
     flags.push({ key: 'thermal', tone: cold ? 'cold' : hot ? 'hot' : '', label: cold ? tr('mind.lamp.cold', 'Too cold') : hot ? tr('mind.lamp.hot', 'Too hot') : tr('mind.lamp.comfortable', 'Comfortable'), on: cold || hot,
       hint: tr('mind.lamp.thermal.hint', '{t}°, it prefers {range}: {state, select, cold {{perf}% of its best{torpid, select, yes {; torpid} other {}}.} hot {{perf}% of its best{scald, select, yes {; it may scald} other {}}.} other {comfortable.}}', { t: deg(m.warmth), range, state: cold ? 'cold' : hot ? 'hot' : 'fine', perf: pct(m.perf), torpid: m.torpid ? 'yes' : 'no', scald: m.x > 0.8 ? 'yes' : 'no' }) });
+  }
+  if (sg) {
+    // one lamp for its calls: the alarm, its song (in voice now), hushed, or silent
+    const lamp = sg.alarming ? 'alarm' : sg.singing ? 'sing' : sg.hushed ? 'hushed' : 'silent';
+    // i18n: the calls lamp: its label, and a hint on what the cell calls. {band} a band (Rumble, Song, Click, Flash); {p} a percentage of a full voice
+    flags.push({ key: 'call', label: { alarm: tr('mind.lamp.alarm', 'Calling the alarm'), sing: tr('mind.lamp.sing', 'Singing'), hushed: tr('mind.lamp.hushed', 'Hushed'), silent: tr('mind.lamp.silent', 'Silent') }[lamp], on: sg.alarming || sg.singing,
+      hint: sg.alarming ? tr('mind.lamp.call.alarm', 'Calling the alarm in the {band} band, at {p}% of a full voice.', { band: SIGNAL_BAND[sg.alarmBand], p: pct(m.alarm) })
+        : sg.singing ? tr('mind.lamp.call.sing', 'In voice: singing in the {band} band, at {p}% of a full voice.', { band: SIGNAL_BAND[sg.songBand], p: pct(m.song) })
+          : sg.hushed ? tr('mind.lamp.call.hushed', 'It would sing, but hears a call it shuns.')
+            : sg.singer ? tr('mind.lamp.call.between', 'Between calls: it sings in the {band} band while fed.', { band: SIGNAL_BAND[sg.songBand] })
+              : (g.call || [])[2] > 0 ? tr('mind.lamp.call.quiet', 'Quiet: it calls only the alarm, when afraid.') : tr('mind.lamp.call.none', 'Its kind does not call.') });
   }
   // asleep, none of the awake cell's states hold (nothing can catch a cyst)
   if (m.cyst) for (const f of flags) if (f.key !== 'thermal') { f.on = false; if (f.key === 'threat') f.hint = tr('mind.lamp.threat.cyst', 'Nothing can catch a cyst.'); }

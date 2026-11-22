@@ -44,7 +44,7 @@ import { KNOBS, decide, costOf, adaptation, judge, holdAfter, slowerFirst, faste
 import { trackGlass } from './glass.js';
 import { keyWay, pointerWay, createThrottle, stepThrottle, throttleGrip, createRideCam, stepRideCam, willSpeed } from './ride.js';
 import { createCabinetStore, encodeCard, decodeCard, cardLink, cardFromHash, cardFromPng, cardIntoPng } from './cabinet.js';
-import { fmt, fmtClock, fmtDur, kfmt, when, esc, cssCol, clamp, term, spLink, saveFile, ROLE, MATTER, LIVING_CSS, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT } from './fmt.js';
+import { fmt, fmtClock, fmtDur, kfmt, when, esc, cssCol, clamp, term, spLink, saveFile, ROLE, MATTER, LIVING_CSS, cellRadius, fmtLen, NICE_UM, UM_PER_UNIT, SIGNAL_BAND, SIGNAL_CSS } from './fmt.js';
 import { tr, LOCALE } from './i18n.js';
 import { BTN, matchKey, isMoveKey, zoomKey, ROSE_TOOLS, ROSE_VIEW } from './input/actions.js';
 import { createPads, REPEAT_MS } from './input/pad.js';
@@ -283,6 +283,8 @@ let onDisplayChange = null;
 
 function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   const K = eng.K;
+  // whether this world has signals in the water (signalStep: K.signal, with the heat pass that steps them)
+  const SIGNALS = !!(K.signal && K.heat);
   const prefs = loadPrefs();
   // the display's choices (HDR, its headroom, wide color: applyDisplay)
   const dsp = displayPrefs(prefs);
@@ -330,7 +332,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     grain: prefs.grain ?? 1, // its grain: 0 off, 1 fine, 2 heavy
     focus: prefs.focus ?? 2, // its shallow focus (FOCUS): 0 off, 1 subtle, 2 normal, 3 strong
     haze: prefs.haze ?? true, // the heat haze over warm water (applyMap)
-    map: prefs.map ?? 'off', // the one map over the view (applyMap): 'off', 'light', 'heat' or 'tide'
+    map: prefs.map ?? 'off', // the one map over the view (applyMap): 'off', 'light', 'heat', 'tide' or 'signal'
     // what the page may spend: render scale ('auto' adapts between floor and 1), the most device pixels per CSS
     // pixel, the frame rate aimed for (0: the display's), a fixed particle count and neighbor budget, and whether the
     // tuner may ease what Display shows (adapt; src/tuner.js); Pacing's rows, the work the tuner may do less often or
@@ -398,12 +400,14 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     if (state.look) lookLast = state.look;
   };
   applyLook();
-  // the map (light, the thermal camera or tide) and the heat haze, as the engine's words (the haze beneath a map)
+  // the map (light, the thermal camera, tide or the signal lens) and the heat haze, as the engine's words (the haze
+  // beneath a map)
   const applyMap = () => {
     const s = eng.settings;
-    if (state.map === 'heat' && !K.heat) state.map = 'off';
+    if ((state.map === 'heat' && !K.heat) || (state.map === 'signal' && !SIGNALS)) state.map = 'off';
     s.tide = state.map === 'light' ? 1 : 0;
     s.bands = state.map === 'tide' ? 1 : 0;
+    s.signal = state.map === 'signal' ? 1 : 0;
     s.heat = state.map === 'heat' ? 2 : state.haze ? 1 : 0;
   };
   applyMap();
@@ -1153,8 +1157,15 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     { id: 'light', gauge: 'g-light', name: tr('maps.light', 'Light'), ramp: () => ['', tr('maps.light.lo', 'dark'), tr('maps.light.hi', 'full light')] },
     { id: 'heat', gauge: 'g-heat', name: tr('maps.heat', 'Temperature'), ramp: () => ['heat', tr('maps.heat.deg', '{t}°', { t: Math.round(eng.tbg - 2) }), tr('maps.heat.deg', '{t}°', { t: Math.round(eng.tbg + 10) })] },
     { id: 'tide', gauge: 'g-tide', name: tr('maps.tide', 'Tide'), ramp: () => ['tide', tr('maps.tide.lo', 'dim'), tr('maps.tide.hi', 'bright')] },
+    // the signal lens (signalLens in shaders.js): no gauge reads it; its legend names the four bands in their hues
+    // i18n: the signal lens's name in the map bar
+    { id: 'signal', name: tr('maps.signal', 'Signals'), legend: true },
   ];
-  const rampHtml = (m) => { const [cls, lo, hi] = m.ramp(); return `<div class="ramp ${cls}"><span>${lo}</span><i></i><span>${hi}</span></div>`; };
+  const rampHtml = (m) => {
+    if (m.legend) return `<div class="ramp sig">${SIGNAL_BAND.map((w, b) => `<span><i style="color:${SIGNAL_CSS[b]}"></i>${w}</span>`).join('')}</div>`;
+    const [cls, lo, hi] = m.ramp();
+    return `<div class="ramp ${cls}"><span>${lo}</span><i></i><span>${hi}</span></div>`;
+  };
   const mapOn = () => MAPS.find((m) => m.id === state.map) || null;
   // a map chosen ('off' clears it); its own key or gauge again turns it off
   function setMap(id) { state.map = id; applyMap(); displayChanged(); }
@@ -1165,13 +1176,14 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   // the bar and the gauges' lit state, updated in place
   function renderMaps() {
     const on = mapOn();
-    for (const m of MAPS) $(m.gauge).classList.toggle('on', m === on);
+    for (const m of MAPS) if (m.gauge) $(m.gauge).classList.toggle('on', m === on);
     $('maps').hidden = !on;
     if (!on) return;
     setLive($('maps-label'), on.name);
     setHTML($('maps-ramp'), rampHtml(on));
   }
   for (const m of MAPS) {
+    if (!m.gauge) continue;
     const g = $(m.gauge);
     g.setAttribute('role', 'button');
     g.addEventListener('click', () => toggleMap(m));
@@ -2727,7 +2739,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
         + autoOnOff('specks', NAMES.specks, '', 'specks'))
         + group('cells', tr('settings.display.cells', 'Cells'), autoOnOff('lod', NAMES.interiors, '', 'lod'))
         // i18n: Settings → Display → Map: the one map drawn over the view (light, temperature or the tide), or none
-        + group('overlays', tr('settings.display.overlays', 'Overlays'), choice('map', tr('settings.display.map', 'Map'), K.heat ? 'G E H' : 'G H', [['off', OFF], ['light', tr('settings.display.map-light', 'Light')], ...(K.heat ? [['heat', tr('settings.display.map-heat', 'Heat')]] : []), ['tide', tr('settings.display.map-tide', 'Tide')]], state.map, 'maps')
+        + group('overlays', tr('settings.display.overlays', 'Overlays'), choice('map', tr('settings.display.map', 'Map'), (K.heat ? 'G E H' : 'G H') + (SIGNALS ? ' L' : ''), [['off', OFF], ['light', tr('settings.display.map-light', 'Light')], ...(K.heat ? [['heat', tr('settings.display.map-heat', 'Heat')]] : []), ['tide', tr('settings.display.map-tide', 'Tide')], ...(SIGNALS ? [['signal', tr('settings.display.map-signal', 'Signals')]] : [])], state.map, 'maps')
         + (map ? rampHtml(map) : '')
         + onoff('currents', tr('settings.display.currents', 'Currents'), 'C', state.currents)
         + choice('songmarks', tr('settings.display.song-marks', 'Song marks'), '', [[0, OFF], [1, tr('settings.display.song-marks-picked', 'Picked')], [2, tr('settings.display.song-marks-all', 'All')]], state.songMarks, 'songmarks')
@@ -4138,6 +4150,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       case 'map-light': flashMap(0, tr('flash.light-map-on', 'Light map'), tr('flash.light-map-off', 'Light map off')); return true;
       case 'map-heat': if (!K.heat) return false; flashMap(1, tr('flash.heat-camera', 'Thermal camera'), tr('flash.heat-off', 'Heat map off')); return true;
       case 'map-tide': flashMap(2, tr('flash.tide-map-on', 'Tide map'), tr('flash.tide-map-off', 'Tide map off')); return true;
+      case 'map-signal': if (!SIGNALS) return false; flashMap(3, tr('flash.signal-on', 'Signal lens'), tr('flash.signal-off', 'Signal lens off')); return true;
       case 'currents': state.currents = !state.currents; flash(state.currents ? tr('flash.currents-on', 'Currents shown') : tr('flash.currents-off', 'Currents hidden')); persist(); view.render(); return true;
       case 'bench': bench.toggle(); settle($('bench'), bench.isOpen()); return true;
       case 'settings': view.toggle(); settle($('settings'), view.isOpen(), true); return true;

@@ -610,6 +610,13 @@ struct Genome {
 };
 
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
+// A call's band (call.y or call.w, 0..1 as the genome holds it): 0 rumble, 1 song, 2 click, 3 flash
+fn voiceBand(v: f32) -> u32 { return min(u32(max(v, 0.0) * 4.0), 3u); }
+// What a living cell called in its last step, for the passes that show it (the draw, the listening scan): its song's
+// amplitude (x) and its alarm's (y), 0..1, each in its band (voiceBand of g.call.y, g.call.w). lifeMain keeps them as
+// bytes in intent.y's low 16 bits (see its intent write); none on a birth step (y is the child's energy then), none
+// without signals (lifeMain writes zeros there). Only for a living cell's own intent (not a ghost's, nor matter's).
+fn voiceShown(it: vec4u) -> vec2f { return select(unpack4x8unorm(it.y).xy, vec2f(0.0), (it.x & 3u) == 2u); }
 // the PCG hash (RXS-M-XS), for the observational passes (the simulation's pcg is its own), and as 0..1
 fn pcgHash(v: u32) -> u32 {
   let s = v * 747796405u + 2891336453u;
@@ -3668,7 +3675,11 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   if ((sortedFull[i].info & 15u) == CYST) { cystStep(i); return; }
 ${cellWGSL(K, false, 'act')}
   var E = p.energy + shareE + (photoGain - upkeep) * sim.dt;
-${K.signal && K.heat ? '  callOut(p.pos, g.call.y, voice.x);\n  callOut(p.pos, g.call.w, voice.y);\n' : ''}  let dg = ledgerGuild(*g);
+${K.signal && K.heat ? `  callOut(p.pos, g.call.y, voice.x);
+  callOut(p.pos, g.call.w, voice.y);
+  // (and kept for the passes that show it, as a byte each: intent.y below, voiceShown)
+  let voiceQ = pack4x8unorm(vec4f(voice, 0.0, 0.0));
+` : ''}  let dg = ledgerGuild(*g);
   if (DIAG && torn > 0u) { diagAdd(dg, 24u, torn); }
   // all the energy a cell spends warms its water (every eighth frame, eight frames' worth)
   if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, upkeep * sim.dt * 8.0 * ${f(K.metabHeat)}); }
@@ -3903,8 +3914,11 @@ ${K.signal && K.heat ? '  callOut(p.pos, g.call.y, voice.x);\n  callOut(p.pos, g
   if (tree && budTurn < 3u) { childGen |= (budTurn | (min(orderOf(p.info) + select(1u, 0u, budTurn == 0u), 3u) << 2u)) << 26u; }
   // a tail's base: generation 0, branch order 2 (a tail grows on as a tree's straight daughters do, order kept)
   else if (sprout) { childGen = (2u << 2u) << 26u; }
-  // y: the child's energy on a birth; otherwise how closely packed this cell is, read only by rendering
-  intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(select(${SENSE.pack}, ce, act == 2u)), n1, n2);
+  // y: the child's energy on a birth; otherwise how closely packed this cell is, read only by rendering, its low 16 bits
+  // (the float's least mantissa bits: 7 are left, a share of a percent) holding what it calls this step for the passes
+  // that show it, as unorm bytes: its song's amplitude (bits 0-7), its alarm's (8-15), each in its band (g.call.yw);
+  // zero without signals. Read by voiceShown (VOICE_WGSL); none on a birth step.
+  intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, select((bitcast<u32>(${SENSE.pack}) & 0xffff0000u) | ${K.signal && K.heat ? 'voiceQ' : '0u'}, bitcast<u32>(ce), act == 2u), n1, n2);
   // (a cell that died this step is not bodyTick's to move)
   if (sub && kind != p.kind) { bondsNow[subMark(i)] = 0u; }
   parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), 1.0 - gut / ${f(K.dungE)})), info);
@@ -5860,6 +5874,11 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     let th = ${shownThermal('g', 'warmth')};
     // a torpid cell's pulse stops and it dims, cold blue
     if (!th.torpid) { b *= 1.0 + (1.0 - sleep) * (1.0 - select(0.0, gh.t, dead)) * g.pulse * 0.6 * sin(view.time * (0.8 + g.pulse * 4.0) + f32(p.id % 1024u) * 0.37); }
+    // a cell calling is seen to (voiceShown: what its last step called, in time with its call): in the flash band it
+    // lights up, a flash of its own light; in the sound bands it brightens a little while it calls
+    let vo = select(voiceShown(it), vec2f(0.0), dead);
+    let flash = select(0.0, vo.x, voiceBand(g.call.y) == 3u) + select(0.0, vo.y, voiceBand(g.call.w) == 3u);
+    b *= 1.0 + 0.35 * min(vo.x + vo.y - flash, 1.0);
     // a birth (or a waking) flashes, seen from afar; up close a newborn is seen budding and growing
     // instead, with a soft glow, and a cell waking from a cyst does not flash
     if (!dead && (cause == 9u || cause == WOKE)) { b *= 1.0 + max(0.0, 1.0 - p.age * 2.5) * mix(2.5, select(0.0, 0.35, a.born), select(0.0, close, a.seen)); }
@@ -5885,6 +5904,8 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     // heat stress bleaches a cell toward pale bone; a heat-maker glows faintly warm
     col = mix(col, vec3f(1.0, 0.96, 0.9) * max(0.45, dot(col, vec3f(0.3, 0.5, 0.2))), 0.6 * smoothstep(0.3, 1.0, th.x));
     col = mix(col, col * vec3f(1.25, 0.92, 0.72) + vec3f(0.12, 0.04, 0.0), 0.7 * thermo);
+    // (a flash: its own color brightened and a cold blue-green light, a bioluminescent's, past white at full)
+    col = col * (1.0 + 1.5 * min(flash, 1.0)) + vec3f(0.35, 0.85, 1.0) * min(flash, 1.0);
     col *= b * view.pointGain;
     if (dead) {
       let t = gh.t;
@@ -7788,6 +7809,9 @@ struct Post {
   // y how far the most saturated colors reach toward the wide gamut's edge (0 none), z the canvas's primaries (0 sRGB,
   // 1 Display P3); w unused. All zero (a card's own page) is SDR in sRGB.
   display: vec4f,
+  // the signal lens (signalLens): x 1 shown (0 off, and always 0 without signals), y one over a full caller's own level
+  // (signalGain, in the field's units: the lens's rings are drawn in doublings of it); zw unused
+  sig: vec4f,
 };
 `;
 
@@ -10138,11 +10162,53 @@ fn sunGrade(c: vec3f, l: Lit) -> vec3f {
 // The sea's focusing (surf.light) on what lies beneath, as the light there makes it: a little more in the sun than in
 // the shade.
 fn seaFocus(light: f32, l: Lit) -> f32 { return 1.0 + (light - 1.0) * mix(0.45, 0.825, clamp(l.r, 0.0, 1.0)); }
-// The tide and thermal maps over the tonemapped view at world point wp (pos: the fragment's pixel; water: the
-// water's temperature there), in the main view and the loupe alike.
+// The signals in the water (SIGNAL_AT: rumble, song, click and flash side by side a grid cell) at world point p (within
+// the world), as a cubic B-spline through the grid cells' centers as fieldPost reads a field: smooth, the grid unseen.
+fn sigPost(x: i32, y: i32) -> vec4f {
+  let o = ${SIGNAL_AT}u + 4u * cellIndex(x, y);
+  return vec4f(heatField[o], heatField[o + 1u], heatField[o + 2u], heatField[o + 3u]);
+}
+fn signalsPost(p: vec2f) -> vec4f {
+  let u = p - 0.5;
+  let i = vec2i(floor(u));
+  let t = u - floor(u);
+  let s = 1.0 - t;
+  let wx = vec4f(s.x * s.x * s.x, (3.0 * t.x - 6.0) * t.x * t.x + 4.0, ((-3.0 * t.x + 3.0) * t.x + 3.0) * t.x + 1.0, t.x * t.x * t.x) / 6.0;
+  let wy = vec4f(s.y * s.y * s.y, (3.0 * t.y - 6.0) * t.y * t.y + 4.0, ((-3.0 * t.y + 3.0) * t.y + 3.0) * t.y + 1.0, t.y * t.y * t.y) / 6.0;
+  var v = vec4f(0.0);
+  for (var j = 0; j < 4; j++) {
+    let y = i.y + j - 1;
+    v += wy[j] * (wx.x * sigPost(i.x - 1, y) + wx.y * sigPost(i.x, y) + wx.z * sigPost(i.x + 1, y) + wx.w * sigPost(i.x + 2, y));
+  }
+  return v;
+}
+// Each band's hue in the signal lens (linear; the map bar's legend shows them, .ramp.sig in page.css): rumble rose, song
+// green, click azure, flash gold
+const SIG_HUE = array<vec3f, 4>(vec3f(0.9, 0.25, 0.55), vec3f(0.35, 0.95, 0.4), vec3f(0.3, 0.6, 1.0), vec3f(1.0, 0.8, 0.3));
+// The signal lens over the view at world point wp: the four bands together, each in its hue, as faint rings, contours of
+// its level at every doubling (log-spaced, so a lone caller's farthest ripples and a chorus both read), brighter and
+// with a faint wash the louder it is. A caller's pulses spread as rings running outward and dying away; where rings
+// would crowd closer than a few pixels (far out, or at a steep slope) they fade, leaving the wash.
+fn signalLens(cIn: vec3f, wp: vec2f) -> vec3f {
+  let v = signalsPost(wp - post.world * floor(wp / post.world)) * post.sig.y;
+  // (dimmed a little beneath, so the rings read over a bright crowd)
+  var c = cIn * 0.88;
+  for (var b = 0; b < 4; b++) {
+    // doublings from a full caller's own level; shown from 2^-8 of it (a lone caller's ripples a few reaches out)
+    let l = log2(max(v[b], 1e-6));
+    let a = smoothstep(-8.5, -6.0, l);
+    let w = fwidth(l);
+    let ring = (1.0 - smoothstep(0.0, w * 1.5, min(fract(l), 1.0 - fract(l)))) * (1.0 - smoothstep(0.2, 0.5, w));
+    c += SIG_HUE[b] * a * (0.03 * smoothstep(-3.0, 3.0, l) + ring * (0.06 + 0.16 * smoothstep(-5.0, 1.0, l)));
+  }
+  return c;
+}
+// The tide and thermal maps and the signal lens over the tonemapped view at world point wp (pos: the fragment's pixel;
+// water: the water's temperature there), in the main view and the loupe alike.
 fn mapsOver(cIn: vec3f, wp: vec2f, pos: vec2f, water: f32) -> vec3f {
   if (LEAN) { return cIn; }
   var c = cIn;
+  if (post.sig.x > 0.5) { c = signalLens(c, wp); }
   if (post.tideVis > 0.5) {
     let L = lightPost(wp, tideAt(wp, post.world, post.simTime, post.tide, post.tidePh));
     let ramp = mix(mix(vec3f(0.03, 0.04, 0.16), vec3f(0.0, 0.42, 0.5), smoothstep(0.0, 0.5, L)), vec3f(1.0, 0.86, 0.32), smoothstep(0.45, 1.0, L));

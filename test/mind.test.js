@@ -15,7 +15,7 @@ const G = {
 const genomeOf = (k) => G[k] || null;
 
 /** A mind buffer as mindMain writes it. */
-function buffer({ hungry = false, silt = false, food = null, energy = 0.5, photoGain = 0, upkeep = 0.02, light = 0.5, drives = {}, nbrs = [], stoneN = 0, kinCost = 1, image = 0, flow = [0, 0], vel = [0, 0], divE = 1.2, cyst = false, mature = true, gut = 0, plantN = 0 } = {}) {
+function buffer({ hungry = false, silt = false, food = null, energy = 0.5, photoGain = 0, upkeep = 0.02, light = 0.5, drives = {}, nbrs = [], stoneN = 0, kinCost = 1, image = 0, flow = [0, 0], vel = [0, 0], divE = 1.2, cyst = false, mature = true, gut = 0, plantN = 0, song = 0, alarm = 0, shunned = 0, threat = 0 } = {}) {
   const buf = new ArrayBuffer(MIND_BYTES);
   const u32 = new Uint32Array(buf), f32 = new Float32Array(buf);
   u32[0] = 77; u32[1] = 1;
@@ -29,6 +29,7 @@ function buffer({ hungry = false, silt = false, food = null, energy = 0.5, photo
   order.forEach((k, i) => f32.set(drives[k] || [0, 0], 24 + 2 * i));
   f32.set(flow, 44);
   f32[58] = divE; u32[59] = (cyst ? 1 : 0) | (mature ? 2 : 0); f32.set(drives.flee || [0, 0], 60); f32[62] = gut; f32[63] = plantN;
+  f32.set(drives.signal || [0, 0], 68); f32[70] = song; f32[71] = alarm; f32[72] = shunned; f32[73] = threat;
   nbrs.forEach((q, k) => {
     const o = MIND_HEAD + k * MIND_NBR_WORDS;
     u32[o] = q.kind; u32[o + 1] = q.inside ? 1 : 0;
@@ -219,4 +220,33 @@ test('a torpid cell is so many degrees below its range, rounded and at least one
   assert.equal(belowRange(g, k, 13.6), 1);
   assert.equal(belowRange(g, k, 13.4), 2);
   assert.equal(belowRange(g, k, 8), 7);
+});
+
+test('signals: a fed singer sings, hushed when it hears what it shuns; a frightened caller calls the alarm; ears steer', () => {
+  const SK = { ...K, signal: 1, heat: 1 };
+  const singer = { ...G[ALGA], call: [0.6, 0.3, 0, 0], ear: [0, 0, -0.8, 0] };
+  const sing = interpretMind(buffer({ energy: 1, song: 0.6 }), singer, ALGA, { K: SK, genomeOf });
+  assert.equal(sing.key, 'sing');
+  assert.equal(sing.flags.find((f) => f.key === 'call').on, true);
+  // between calls in a bout it is still singing (the lamp dark)
+  const between = interpretMind(buffer({ energy: 1 }), singer, ALGA, { K: SK, genomeOf });
+  assert.equal(between.key, 'sing');
+  assert.equal(between.flags.find((f) => f.key === 'call').on, false);
+  assert.equal(interpretMind(buffer({ energy: 1, shunned: 2 }), singer, ALGA, { K: SK, genomeOf }).key, 'hushed');
+  // hungry, it does not sing
+  assert.notEqual(interpretMind(buffer({ energy: 0.3 }), singer, ALGA, { K: SK, genomeOf }).key, 'sing');
+  const caller = { ...G[BUG], call: [0, 0, 0.8, 0.6], ear: [0, 0, 0, 0] };
+  const alarm = interpretMind(buffer({ alarm: 0.5, threat: 0.5 }), caller, BUG, { K: SK, genomeOf });
+  assert.equal(alarm.key, 'alarm');
+  assert.match(alarm.why, /Click band at 50%/);
+  const listener = { ...G[BUG], swim: 1, call: [0, 0, 0, 0], ear: [0, 0.9, 0, 0] };
+  const follow = interpretMind(buffer({ drives: { signal: [0.5, 0] } }), listener, BUG, { K: SK, genomeOf });
+  assert.equal(follow.key, 'followcall');
+  assert.ok(follow.groups.some((g) => g.key === 'signal'));
+  const shy = { ...listener, ear: [-0.9, 0, 0, 0] };
+  assert.equal(interpretMind(buffer({ drives: { signal: [0.5, 0] } }), shy, BUG, { K: SK, genomeOf }).key, 'fleecall');
+  // without signals, none of it
+  const off = interpretMind(buffer({ energy: 1, song: 0.6 }), singer, ALGA, { K: { ...K, signal: 0 }, genomeOf });
+  assert.notEqual(off.key, 'sing');
+  assert.ok(!off.flags.some((f) => f.key === 'call'));
 });

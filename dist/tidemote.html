@@ -1038,6 +1038,12 @@ body.ui-off .padbar { display: none; }
 .dbar { position: relative; height: 6px; background: rgba(130, 205, 214, 0.1); }
 .dbar::after { content: ''; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--ink-3); }
 .dbar i { position: absolute; top: 0; bottom: 0; }
+/* the specimen's ears (signalBlock): a small signed gauge a band, its name above */
+.trait.ears { grid-template-columns: var(--lab-w) 1fr; align-items: end; }
+.ear-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.ear { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ear em { font-style: normal; font-size: 11px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ear .dbar { height: 5px; }
 .note.two { min-height: 3.1em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 /* how its cells react: what it meets down the side, its cell types across, warm drawn, cool pushed */
 .pulls-t { display: grid; gap: 3px 4px; align-items: center; font-size: 12.5px; }
@@ -1316,6 +1322,11 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .ramp.heat i { background: linear-gradient(90deg, #050a2e 0%, #006b7a 35%, #ff8520 70%, #ff8520 75%, #fff2d1 100%); }
 /* the tide map's ramp (fsComposite): the light, ink to violet to pale blue */
 .ramp.tide i { background: linear-gradient(90deg, #08051a 0%, #5c3399 45%, #8a8fd6 62%, #b8e6ff 100%); }
+/* the signal lens's legend (signalLens, SIG_HUE in shaders.js; SIGNAL_CSS in fmt.js): the four bands, each named in its hue */
+.ramp.sig { gap: var(--s2) 10px; flex-wrap: wrap; color: var(--ink-2); }
+.ramp.sig span { display: inline-flex; align-items: center; gap: 4px; }
+.ramp.sig span i { flex: none; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.focus.maps .ramp.sig { width: auto; }
 .eras { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
 .eras li { display: grid; grid-template-columns: 4.4ch 1fr auto; gap: 10px; align-items: baseline; }
 .eras time, .eras span { color: var(--ink-3); }
@@ -2900,6 +2911,13 @@ struct Genome {
 };
 
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
+// A call's band (call.y or call.w, 0..1 as the genome holds it): 0 rumble, 1 song, 2 click, 3 flash
+fn voiceBand(v: f32) -> u32 { return min(u32(max(v, 0.0) * 4.0), 3u); }
+// What a living cell called in its last step, for the passes that show it (the draw, the listening scan): its song's
+// amplitude (x) and its alarm's (y), 0..1, each in its band (voiceBand of g.call.y, g.call.w). lifeMain keeps them as
+// bytes in intent.y's low 16 bits (see its intent write); none on a birth step (y is the child's energy then), none
+// without signals (lifeMain writes zeros there). Only for a living cell's own intent (not a ghost's, nor matter's).
+fn voiceShown(it: vec4u) -> vec2f { return select(unpack4x8unorm(it.y).xy, vec2f(0.0), (it.x & 3u) == 2u); }
 // the PCG hash (RXS-M-XS), for the observational passes (the simulation's pcg is its own), and as 0..1
 fn pcgHash(v: u32) -> u32 {
   let s = v * 747796405u + 2891336453u;
@@ -5959,7 +5977,11 @@ fn lifeMain(@builtin(global_invocation_id) gid: vec3u) {
   if ((sortedFull[i].info & 15u) == CYST) { cystStep(i); return; }
 ${cellWGSL(K2, false, "act")}
   var E = p.energy + shareE + (photoGain - upkeep) * sim.dt;
-${K2.signal && K2.heat ? "  callOut(p.pos, g.call.y, voice.x);\n  callOut(p.pos, g.call.w, voice.y);\n" : ""}  let dg = ledgerGuild(*g);
+${K2.signal && K2.heat ? `  callOut(p.pos, g.call.y, voice.x);
+  callOut(p.pos, g.call.w, voice.y);
+  // (and kept for the passes that show it, as a byte each: intent.y below, voiceShown)
+  let voiceQ = pack4x8unorm(vec4f(voice, 0.0, 0.0));
+` : ""}  let dg = ledgerGuild(*g);
   if (DIAG && torn > 0u) { diagAdd(dg, 24u, torn); }
   // all the energy a cell spends warms its water (every eighth frame, eight frames' worth)
   if (((sim.frame + p.id) & 7u) == 0u) { depositHeat(p.pos, upkeep * sim.dt * 8.0 * ${f(K2.metabHeat)}); }
@@ -6194,8 +6216,11 @@ ${K2.signal && K2.heat ? "  callOut(p.pos, g.call.y, voice.x);\n  callOut(p.pos,
   if (tree && budTurn < 3u) { childGen |= (budTurn | (min(orderOf(p.info) + select(1u, 0u, budTurn == 0u), 3u) << 2u)) << 26u; }
   // a tail's base: generation 0, branch order 2 (a tail grows on as a tree's straight daughters do, order kept)
   else if (sprout) { childGen = (2u << 2u) << 26u; }
-  // y: the child's energy on a birth; otherwise how closely packed this cell is, read only by rendering
-  intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(select(${SENSE.pack}, ce, act == 2u)), n1, n2);
+  // y: the child's energy on a birth; otherwise how closely packed this cell is, read only by rendering, its low 16 bits
+  // (the float's least mantissa bits: 7 are left, a share of a percent) holding what it calls this step for the passes
+  // that show it, as unorm bytes: its song's amplitude (bits 0-7), its alarm's (8-15), each in its band (g.call.yw);
+  // zero without signals. Read by voiceShown (VOICE_WGSL); none on a birth step.
+  intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, select((bitcast<u32>(${SENSE.pack}) & 0xffff0000u) | ${K2.signal && K2.heat ? "voiceQ" : "0u"}, bitcast<u32>(ce), act == 2u), n1, n2);
   // (a cell that died this step is not bodyTick's to move)
   if (sub && kind != p.kind) { bondsNow[subMark(i)] = 0u; }
   parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), 1.0 - gut / ${f(K2.dungE)})), info);
@@ -8114,6 +8139,11 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     let th = ${shownThermal("g", "warmth")};
     // a torpid cell's pulse stops and it dims, cold blue
     if (!th.torpid) { b *= 1.0 + (1.0 - sleep) * (1.0 - select(0.0, gh.t, dead)) * g.pulse * 0.6 * sin(view.time * (0.8 + g.pulse * 4.0) + f32(p.id % 1024u) * 0.37); }
+    // a cell calling is seen to (voiceShown: what its last step called, in time with its call): in the flash band it
+    // lights up, a flash of its own light; in the sound bands it brightens a little while it calls
+    let vo = select(voiceShown(it), vec2f(0.0), dead);
+    let flash = select(0.0, vo.x, voiceBand(g.call.y) == 3u) + select(0.0, vo.y, voiceBand(g.call.w) == 3u);
+    b *= 1.0 + 0.35 * min(vo.x + vo.y - flash, 1.0);
     // a birth (or a waking) flashes, seen from afar; up close a newborn is seen budding and growing
     // instead, with a soft glow, and a cell waking from a cyst does not flash
     if (!dead && (cause == 9u || cause == WOKE)) { b *= 1.0 + max(0.0, 1.0 - p.age * 2.5) * mix(2.5, select(0.0, 0.35, a.born), select(0.0, close, a.seen)); }
@@ -8139,6 +8169,8 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     // heat stress bleaches a cell toward pale bone; a heat-maker glows faintly warm
     col = mix(col, vec3f(1.0, 0.96, 0.9) * max(0.45, dot(col, vec3f(0.3, 0.5, 0.2))), 0.6 * smoothstep(0.3, 1.0, th.x));
     col = mix(col, col * vec3f(1.25, 0.92, 0.72) + vec3f(0.12, 0.04, 0.0), 0.7 * thermo);
+    // (a flash: its own color brightened and a cold blue-green light, a bioluminescent's, past white at full)
+    col = col * (1.0 + 1.5 * min(flash, 1.0)) + vec3f(0.35, 0.85, 1.0) * min(flash, 1.0);
     col *= b * view.pointGain;
     if (dead) {
       let t = gh.t;
@@ -10042,6 +10074,9 @@ struct Post {
   // y how far the most saturated colors reach toward the wide gamut's edge (0 none), z the canvas's primaries (0 sRGB,
   // 1 Display P3); w unused. All zero (a card's own page) is SDR in sRGB.
   display: vec4f,
+  // the signal lens (signalLens): x 1 shown (0 off, and always 0 without signals), y one over a full caller's own level
+  // (signalGain, in the field's units: the lens's rings are drawn in doublings of it); zw unused
+  sig: vec4f,
 };
 `
   );
@@ -12393,11 +12428,53 @@ fn sunGrade(c: vec3f, l: Lit) -> vec3f {
 // The sea's focusing (surf.light) on what lies beneath, as the light there makes it: a little more in the sun than in
 // the shade.
 fn seaFocus(light: f32, l: Lit) -> f32 { return 1.0 + (light - 1.0) * mix(0.45, 0.825, clamp(l.r, 0.0, 1.0)); }
-// The tide and thermal maps over the tonemapped view at world point wp (pos: the fragment's pixel; water: the
-// water's temperature there), in the main view and the loupe alike.
+// The signals in the water (SIGNAL_AT: rumble, song, click and flash side by side a grid cell) at world point p (within
+// the world), as a cubic B-spline through the grid cells' centers as fieldPost reads a field: smooth, the grid unseen.
+fn sigPost(x: i32, y: i32) -> vec4f {
+  let o = ${SIGNAL_AT}u + 4u * cellIndex(x, y);
+  return vec4f(heatField[o], heatField[o + 1u], heatField[o + 2u], heatField[o + 3u]);
+}
+fn signalsPost(p: vec2f) -> vec4f {
+  let u = p - 0.5;
+  let i = vec2i(floor(u));
+  let t = u - floor(u);
+  let s = 1.0 - t;
+  let wx = vec4f(s.x * s.x * s.x, (3.0 * t.x - 6.0) * t.x * t.x + 4.0, ((-3.0 * t.x + 3.0) * t.x + 3.0) * t.x + 1.0, t.x * t.x * t.x) / 6.0;
+  let wy = vec4f(s.y * s.y * s.y, (3.0 * t.y - 6.0) * t.y * t.y + 4.0, ((-3.0 * t.y + 3.0) * t.y + 3.0) * t.y + 1.0, t.y * t.y * t.y) / 6.0;
+  var v = vec4f(0.0);
+  for (var j = 0; j < 4; j++) {
+    let y = i.y + j - 1;
+    v += wy[j] * (wx.x * sigPost(i.x - 1, y) + wx.y * sigPost(i.x, y) + wx.z * sigPost(i.x + 1, y) + wx.w * sigPost(i.x + 2, y));
+  }
+  return v;
+}
+// Each band's hue in the signal lens (linear; the map bar's legend shows them, .ramp.sig in page.css): rumble rose, song
+// green, click azure, flash gold
+const SIG_HUE = array<vec3f, 4>(vec3f(0.9, 0.25, 0.55), vec3f(0.35, 0.95, 0.4), vec3f(0.3, 0.6, 1.0), vec3f(1.0, 0.8, 0.3));
+// The signal lens over the view at world point wp: the four bands together, each in its hue, as faint rings, contours of
+// its level at every doubling (log-spaced, so a lone caller's farthest ripples and a chorus both read), brighter and
+// with a faint wash the louder it is. A caller's pulses spread as rings running outward and dying away; where rings
+// would crowd closer than a few pixels (far out, or at a steep slope) they fade, leaving the wash.
+fn signalLens(cIn: vec3f, wp: vec2f) -> vec3f {
+  let v = signalsPost(wp - post.world * floor(wp / post.world)) * post.sig.y;
+  // (dimmed a little beneath, so the rings read over a bright crowd)
+  var c = cIn * 0.8;
+  for (var b = 0; b < 4; b++) {
+    // doublings from a full caller's own level; shown from 2^-8 of it (a lone caller's ripples a few reaches out)
+    let l = log2(max(v[b], 1e-6));
+    let a = smoothstep(-8.5, -6.0, l);
+    let w = fwidth(l);
+    let ring = (1.0 - smoothstep(0.0, w * 1.5, min(fract(l), 1.0 - fract(l)))) * (1.0 - smoothstep(0.2, 0.5, w));
+    c += SIG_HUE[b] * a * (0.03 * smoothstep(-3.0, 3.0, l) + ring * (0.12 + 0.2 * smoothstep(-5.0, 1.0, l)));
+  }
+  return c;
+}
+// The tide and thermal maps and the signal lens over the tonemapped view at world point wp (pos: the fragment's pixel;
+// water: the water's temperature there), in the main view and the loupe alike.
 fn mapsOver(cIn: vec3f, wp: vec2f, pos: vec2f, water: f32) -> vec3f {
   if (LEAN) { return cIn; }
   var c = cIn;
+  if (post.sig.x > 0.5) { c = signalLens(c, wp); }
   if (post.tideVis > 0.5) {
     let L = lightPost(wp, tideAt(wp, post.world, post.simTime, post.tide, post.tidePh));
     let ramp = mix(mix(vec3f(0.03, 0.04, 0.16), vec3f(0.0, 0.42, 0.5), smoothstep(0.0, 0.5, L)), vec3f(1.0, 0.86, 0.32), smoothstep(0.45, 1.0, L));
@@ -18391,7 +18468,8 @@ struct SV {
   var POST_EDGE = POST_MURK + 8;
   var POST_FOCUS = POST_EDGE + 4;
   var POST_DISPLAY = POST_FOCUS + 4;
-  var POST_WORDS = POST_DISPLAY + 4;
+  var POST_SIG = POST_DISPLAY + 4;
+  var POST_WORDS = POST_SIG + 4;
   var MUD_DEPTH = [0.93, 0.85, 0.76];
   var HDR = "rgba16float";
   var BLOOM_LEVELS = 6;
@@ -18509,7 +18587,7 @@ struct SV {
       this.tidePh = Float32Array.from(TIDE_PHASE);
       this.seedValue = 1;
       this.censusEvery = 20;
-      this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1, tide: 0, heat: 1, bands: 0, optics: 1, specks: true, lod: true };
+      this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1, tide: 0, heat: 1, bands: 0, signal: 0, optics: 1, specks: true, lod: true };
       this.fx = { seaEvery: 1, contactsEvery: 2, bloom: true, specks: true, stoneEvery: STONE_EVERY, haze: true, microscope: true, interiors: true, iceScale: 1 };
       this.fxFade = { bloom: 1, sea: 1, look: 1, t: null };
       this.simData = new ArrayBuffer(912);
@@ -21972,7 +22050,10 @@ ${e.message}` : String(e?.message || e));
       pd[POST_DISPLAY] = dsp.peak;
       pd[POST_DISPLAY + 1] = dsp.p3 ? dsp.wide : 0;
       pd[POST_DISPLAY + 2] = dsp.p3 ? 1 : 0;
-      if (specimen && specimen.target && !specimen.live) d.queue.writeBuffer(this.b.postPlain, 0, Float32Array.from(pd).fill(1, 3, 4).fill(0, POST_DISPLAY, POST_DISPLAY + 4));
+      const sigOn = !!(this.K.signal && this.K.heat);
+      pd[POST_SIG] = sigOn && this.settings.signal ? 1 : 0;
+      pd[POST_SIG + 1] = sigOn ? 1 / (this.K.signal * this.K.signalGain) : 0;
+      if (specimen && specimen.target && !specimen.live) d.queue.writeBuffer(this.b.postPlain, 0, Float32Array.from(pd).fill(1, 3, 4).fill(0, POST_DISPLAY, POST_SIG + 4));
       if (this.fxFade.look < 1) pd.set(this.look.map((v) => v * this.fxFade.look), POST_LOOK);
       d.queue.writeBuffer(this.b.post, 0, pd);
       if (specimen && specimen.target && specimen.live) d.queue.writeBuffer(this.b.postPlain, 0, pd);
@@ -22176,7 +22257,7 @@ ${e.message}` : String(e?.message || e));
         pass2.draw(3);
         pass2.end();
       }
-      const lean = this.pCompLean && pd[56] >= 1 && !(this.duck[3] > 0) && !(this.tool[4] > 0) && !(pd[6] > 0.5) && !(pd[55] > 0.5) && !(pd[15] > 1.5) && !(this.lens[3] > 0);
+      const lean = this.pCompLean && pd[56] >= 1 && !(this.duck[3] > 0) && !(this.tool[4] > 0) && !(pd[6] > 0.5) && !(pd[55] > 0.5) && !(pd[15] > 1.5) && !(this.lens[3] > 0) && !(pd[POST_SIG] > 0.5);
       if (this.pCompLean && !this.compLeanBG) this._rebindLate();
       const leanOnly = !(micro ? this.pComp && this.compBG : this.pCompClear && this.compClearBG);
       if (lean && !leanOnly) {
@@ -23545,6 +23626,9 @@ ${e.message}` : String(e?.message || e));
   }
   var meter = (frac, cls = "") => `<span class="meter ${cls}"><i style="width:${(clamp6(frac, 0, 1) * 100).toFixed(1)}%"></i></span>`;
   var ROLE = ["α", "β", "γ"];
+  var SIGNAL_BAND = [tr("signal.band.rumble", "Rumble"), tr("signal.band.song", "Song"), tr("signal.band.click", "Click"), tr("signal.band.flash", "Flash")];
+  var SIGNAL_CSS = ["#f38ac4", "#a1faa8", "#94ccff", "#ffe994"];
+  var bandOf = (v) => Math.min(3, Math.floor(Math.max(0, v) * 4));
   var cellRadius = (p2, g, ppu) => 0.085 * (g ? g.size : 1) * (1 - 0.12 * (p2.role || 0)) * ppu;
   var UM_PER_UNIT = 10 / 0.17;
   var lenParts = (u) => {
@@ -23606,7 +23690,7 @@ ${e.message}` : String(e?.message || e));
     era: tr("gloss.era", "Every 10–18 minutes the climate turns: the baseline light and the water’s temperature change, one tide wave is replaced, and the currents shift. In about one era in six the water stands low and the highest ground shows as islands of dry land."),
     water: tr("gloss.water", "The water’s background temperature, set by the climate: it walks from era to era between 4° and 28°, swings ±2.5° with the season, and now and then a heat wave or cold snap passes. Life warms its own water above the background temperature: every cell’s spent energy becomes heat, so crowds create warm patches."),
     tidemap: tr("gloss.tidemap", "Render the tide bands: violet to pale blue where the bands are brightest. A dashed line shows where the bands will be in 20 seconds."),
-    maps: tr("gloss.maps", "One map over the view at a time. Light colors every point by the light a photosynthesizing cell would get there; Heat is a thermal camera, deep blue to teal to amber to white over a span from 2° below the background water to 10° above it, with a contour line every 2°; Tide shows the light the Tide brings and where its bands are heading. Its key (G, E, H) or gauge opens it, and again closes it."),
+    maps: tr("gloss.maps", "One map over the view at a time. Light colors every point by the light a photosynthesizing cell would get there; Heat is a thermal camera, deep blue to teal to amber to white over a span from 2° below the background water to 10° above it, with a contour line every 2°; Tide shows the light the Tide brings and where its bands are heading; Signals (where cells call) shows the calls in the water, each band in its hue, as rings at every doubling of its loudness. Its key (G, E, H, L) or gauge opens it, and again closes it."),
     haze: tr("gloss.haze", "Warm water bends light like the air over a hot road. Off, the view holds still over warm water (boiling water still roils). Auto draws it, and Adaptation may turn it off while frames run late."),
     thermal: tr("gloss.thermal", "How well a cell works at its temperature: a rate that scales its photosynthesis, digestion, and swimming. It is at its best within a narrow tolerance of the species’ optimum. Away from its optimum a cell also pays extra upkeep for the stress."),
     optimum: tr("gloss.optimum", "The temperature a species works best at (0–45°). It drifts by mutation, so lineages can follow the climate or find a warm or cold refuge. A spark of life creates a species suited to the water it sparked in."),
@@ -23694,6 +23778,11 @@ ${e.message}` : String(e?.message || e));
     "mind-kin": tr("gloss.mind-kin", "The pull or push of its own species’ cells (beyond personal space and bonds). Attraction gathers swarms and packs bodies; repulsion spreads them out."),
     "mind-matter": tr("gloss.mind-matter", "The pull or push of silt, husks, and stone on its receptors (apart from appetite). Stone solidly pushes on any non-calcifying cell."),
     "mind-flee": tr("gloss.mind-flee", "Flight: an animal that is not a hunter swims away from hunters near it. It swims harder the closer they get, up to the limit of its swimming ability."),
+    "mind-signal": tr("gloss.mind-signal", "Hearing: a cell with ears pushes itself up the slope of each band of signals it is drawn to, toward where the callers are loudest, and down the slope of each it shuns, away from them."),
+    signals: tr("gloss.signals", "Cells call into the water in four bands: a low Rumble that carries far and drifts with the currents, Song, Click, and Flash, a flash of light that is gone in a moment. Each call spreads, fades, and is muffled among stone. A species may sing while fed, call the alarm when afraid, and hear: steer toward the bands it is drawn to and away from those it shuns. Calling and hearing both cost energy."),
+    "song-call": tr("gloss.song-call", "How loudly the species sings, and in which band. A cell sings only while fed, in bouts in time with its kind’s rhythm, and falls silent when it hears a call it shuns."),
+    "alarm-call": tr("gloss.alarm-call", "How loudly the species calls the alarm, and in which band. A cell calls it as it fears: when hunters come near, or when it hears a call it shuns, so an alarm passes from cell to cell."),
+    ears: tr("gloss.ears", "How each of the four bands moves the species: drawn toward its callers (right, +) or shunning them (left, −). An ear costs upkeep, either way."),
     "mind-gut": tr("gloss.mind-gut", "What it ate but could not digest. When its gut is full it drops it beside a grain of silt as dung: a husk for scavengers."),
     "mind-net": tr("gloss.mind-net", "Light minus upkeep, per second. Below zero the cell is living on its reserves until it eats."),
     "mind-near": tr("gloss.mind-near", "Every species with cells within this cell’s reach, its own kind first. Cells: how many are in reach. Role: predator, a species built to catch this one; prey, one this cell is built to eat. The last column is how they pull on this cell: left, pushed away; right, drawn toward them."),
@@ -27233,8 +27322,16 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         heat: v2(50),
         flee: v2(60),
         light: v2(64),
-        will: v2(66)
+        will: v2(66),
+        signal: v2(68)
       },
+      // signals (zero without them): what it called in that step, its song's and its alarm's amplitudes (0..1); how loud
+      // what it shuns is (the field's level by how far each ear is negative: hushes its song, relays the alarm); the hunters
+      // it fears (their nearness, summed, as flight weighs it)
+      song: f32[70],
+      alarm: f32[71],
+      shunned: f32[72],
+      threat: f32[73],
       flow: v2(44),
       matterN: [f32[46], f32[47], f32[48], f32[49]],
       // warmth: its own temperature (body warmth included), the water's, how well it works there
@@ -27266,6 +27363,8 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     { key: "swim", label: tr("mind.pull.swim", "Swimming"), parts: ["swim"], tip: "swimming", css: "#e2f1f0", when: (g) => g.swim * (1 - g.photo) > 0.01 },
     { key: "heat", label: tr("mind.pull.heat", "Warmth"), parts: ["heat"], tip: "thermotaxis", css: "#ff8a3a", when: (g, K2) => K2.heat && g.swim * (1 - g.photo) > 0.01 },
     { key: "light", label: tr("mind.pull.light", "Light"), parts: ["light"], tip: "phototaxis", css: "#ffe27a", when: (g, K2) => K2.phototaxis > 0 && Math.abs(g.phototaxis || 0) > 5e-3 },
+    // hearing (signals): its push up or down the slopes of the bands it answers
+    { key: "signal", label: tr("mind.pull.signal", "Hearing"), parts: ["signal"], tip: "mind-signal", css: "#94ccff", when: (g, K2) => !!(K2.signal && K2.heat) && (g.ear || []).some((e) => e !== 0) },
     // a ridden cell's will (docs/hand.md): the viewer's, one drive among the rest
     { key: "will", label: tr("mind.pull.will", "Will"), parts: ["will"], tip: "will", css: "#f1e3a0", when: (g, K2, ridden) => ridden }
   ];
@@ -27309,8 +27408,33 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     seekcool: tr("mind.mode.seekcool", "Seeking cooler water"),
     huddle: tr("mind.mode.huddle", "Keeping warm"),
     seeklight: tr("mind.mode.seeklight", "Following the light"),
-    shunlight: tr("mind.mode.shunlight", "Seeking shade")
+    shunlight: tr("mind.mode.shunlight", "Seeking shade"),
+    sing: tr("mind.mode.sing", "Singing"),
+    alarm: tr("mind.mode.alarm", "Calling the alarm"),
+    hushed: tr("mind.mode.hushed", "Hushed"),
+    followcall: tr("mind.mode.followcall", "Following a call"),
+    fleecall: tr("mind.mode.fleecall", "Fleeing a call")
   };
+  function signalsOf(m, g, K2) {
+    if (!(K2.signal && K2.heat)) return null;
+    const call = g.call || [0, 0, 0, 0], ear = g.ear || [0, 0, 0, 0];
+    const need = m.divE > 0 ? m.divE : divEnergy(g, K2);
+    const fed = m.energy > 0.5 * need;
+    const hush = Math.min(1, Math.max(0, (m.shunned || 0) * K2.signalHush));
+    const order = (sign) => [0, 1, 2, 3].filter((b) => Math.sign(ear[b]) === sign).sort((a, b) => Math.abs(ear[b]) - Math.abs(ear[a]));
+    return {
+      singer: call[0] > 0,
+      songBand: bandOf(call[1]),
+      alarmBand: bandOf(call[3]),
+      singing: (m.song || 0) > 5e-3,
+      alarming: (m.alarm || 0) > 0.02,
+      bout: call[0] > 0 && fed && hush < 0.5 && !m.torpid && !m.cyst,
+      hushed: call[0] > 0 && fed && hush >= 0.5 && !m.torpid && !m.cyst,
+      hush,
+      drawn: order(1),
+      shuns: order(-1)
+    };
+  }
   var belowRange = (g, K2, warmth) => Math.max(1, Math.round(g.topt - g.tol * K2.torporAt - warmth));
   function catchSkill(hunter, prey, K2) {
     if (!hunter || !prey) return 0;
@@ -27423,6 +27547,10 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     if (!st && chaser && share2("flee") >= 0.15) {
       st = { key: "flee", target: chaser.kind, text: tr("mind.state.flee", "Fleeing {sp}", { sp }), why: tr("mind.state.flee.why-chased", "{sp} is a hunter, and this cell swims away from hunters near it. It swims harder the closer the hunter gets{known, select, yes {: about {danger}% of their strikes would land} other {}}.", { sp, known: threat && threat.kind === chaser.kind ? "yes" : "no", danger: threat ? pct(threat.danger) : 0 }) };
     }
+    const sg = signalsOf(m, g, K2);
+    if (!st && sg && sg.alarming) {
+      st = { key: "alarm", text: tr("mind.state.alarm", "Calling the alarm"), why: tr("mind.state.alarm.why", "Afraid ({why, select, hunters {hunters are near} heard {it hears a call it shuns} other {hunters are near, and it hears a call it shuns}}), it calls the alarm in the {band} band at {p}% of its full voice. Cells that shun that band flee it, and may call it on in turn.", { why: m.threat > 0.01 && m.shunned > 0 ? "both" : m.threat > 0.01 ? "hunters" : "heard", band: SIGNAL_BAND[sg.alarmBand], p: pct(m.alarm) }) };
+    }
     if (!st && threat && g.photo <= 0.4 && -threat.sig > 0.2 * total) {
       st = { key: "flee", target: threat.kind, text: tr("mind.state.flee", "Fleeing {sp}", { sp }), why: tr("mind.state.flee.why-repelled", "{sp} hunts cells like this one: about {danger}% of their strikes would land. This cell's receptors are repelled by {sp}'s surface signature, so it is pushed away from them.", { sp, danger: pct(threat.danger) }) };
     }
@@ -27435,6 +27563,11 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     }
     if (!st && m.hungry && share2("forage") >= 0.25) {
       st = { key: "forage", matter: tr("mind.target.husks", "Husks"), text: tr("mind.state.forage", "Foraging for husks"), why: tr("mind.state.forage.why", "Hungry (energy {e} of the {need} it needs to divide). Its diet draws it toward the husks drifting nearby.", { e, need: needs }) };
+    }
+    if (!st && sg && share2("signal") >= 0.25) {
+      const away = sg.drawn.length === 0 || sg.shuns.length > 0 && sg.hush > 0.1;
+      const band = SIGNAL_BAND[(away ? sg.shuns : sg.drawn)[0]];
+      st = away ? { key: "fleecall", text: tr("mind.state.fleecall", "Fleeing a call"), why: tr("mind.state.fleecall.why", "It shuns the {band} band: it pushes itself down the band’s slope, away from where the callers are loudest.", { band }) } : { key: "followcall", text: tr("mind.state.followcall", "Following a call"), why: tr("mind.state.followcall.why", "It is drawn to the {band} band: it pushes itself up the band’s slope, toward where the callers are loudest.", { band }) };
     }
     if (!st && K2.heat && share2("heat") >= 0.25) {
       const warmer = g.topt > m.warmth;
@@ -27452,6 +27585,11 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     }
     if (!st && draw && draw.sig > 0.35 * total) {
       st = { key: "follow", target: draw.kind, text: tr("mind.state.follow", "Drawn to {sp}", { sp }), why: tr("mind.state.follow.why", "Its receptors are attracted to the surface signature of {sp}, so it gathers among them.", { sp }) };
+    }
+    if (!st && sg && sg.bout) {
+      st = { key: "sing", text: tr("mind.state.sing", "Singing"), why: tr("mind.state.sing.why", "Fed, it sings in the {band} band, at {p}% of a full voice, for {duty}% of each beat of its kind’s rhythm. Its song costs it {cost}/s while it is in voice.", { band: SIGNAL_BAND[sg.songBand], p: pct(g.call[0]), duty: pct(K2.signalDuty), cost: (K2.signalCost * g.call[0]).toFixed(3) }) };
+    } else if (!st && sg && sg.hushed) {
+      st = { key: "hushed", text: tr("mind.state.hushed", "Hushed"), why: tr("mind.state.hushed.why", "Fed, it would sing in the {band} band, but it hears a call it shuns and keeps quiet: its song is {hush}% hushed.", { band: SIGNAL_BAND[sg.songBand], hush: pct(sg.hush) }) };
     }
     if (!st && g.photo > 0.4) {
       st = net >= 0 ? { key: "bask", text: tr("mind.state.bask", "Basking"), why: tr("mind.state.bask.why", "Photosynthesizing: {gain}/s from {light}% light{warm, select, yes { in warm water that suits it ({perf}%)} other {}}, more than its {upkeep}/s upkeep.", { gain: m.photoGain.toFixed(3), light: pct(m.light), warm: K2.heat && m.perf > 1.05 ? "yes" : "no", perf: pct(m.perf), upkeep: m.upkeep.toFixed(3) }) } : { key: "dark", text: tr("mind.state.dark", "Waiting out the dark"), why: tr("mind.state.dark.why", "Photosynthesizing {gain}/s from {light}% light{poor, select, yes { with little silt nearby for minerals} other {}}: less than its {upkeep}/s upkeep, so it is living on its reserves.", { gain: m.photoGain.toFixed(3), light: pct(m.light), poor: m.nutr < 3 ? "yes" : "no", upkeep: m.upkeep.toFixed(3) }) };
@@ -27495,6 +27633,15 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         label: cold ? tr("mind.lamp.cold", "Too cold") : hot ? tr("mind.lamp.hot", "Too hot") : tr("mind.lamp.comfortable", "Comfortable"),
         on: cold || hot,
         hint: tr("mind.lamp.thermal.hint", "{t}°, it prefers {range}: {state, select, cold {{perf}% of its best{torpid, select, yes {; torpid} other {}}.} hot {{perf}% of its best{scald, select, yes {; it may scald} other {}}.} other {comfortable.}}", { t: deg(m.warmth), range, state: cold ? "cold" : hot ? "hot" : "fine", perf: pct(m.perf), torpid: m.torpid ? "yes" : "no", scald: m.x > 0.8 ? "yes" : "no" })
+      });
+    }
+    if (sg) {
+      const lamp = sg.alarming ? "alarm" : sg.singing ? "sing" : sg.hushed ? "hushed" : "silent";
+      flags.push({
+        key: "call",
+        label: { alarm: tr("mind.lamp.alarm", "Calling the alarm"), sing: tr("mind.lamp.sing", "Singing"), hushed: tr("mind.lamp.hushed", "Hushed"), silent: tr("mind.lamp.silent", "Silent") }[lamp],
+        on: sg.alarming || sg.singing,
+        hint: sg.alarming ? tr("mind.lamp.call.alarm", "Calling the alarm in the {band} band, at {p}% of a full voice.", { band: SIGNAL_BAND[sg.alarmBand], p: pct(m.alarm) }) : sg.singing ? tr("mind.lamp.call.sing", "In voice: singing in the {band} band, at {p}% of a full voice.", { band: SIGNAL_BAND[sg.songBand], p: pct(m.song) }) : sg.hushed ? tr("mind.lamp.call.hushed", "It would sing, but hears a call it shuns.") : sg.singer ? tr("mind.lamp.call.between", "Between calls: it sings in the {band} band while fed.", { band: SIGNAL_BAND[sg.songBand] }) : (g.call || [])[2] > 0 ? tr("mind.lamp.call.quiet", "Quiet: it calls only the alarm, when afraid.") : tr("mind.lamp.call.none", "Its kind does not call.")
       });
     }
     if (m.cyst) {
@@ -27571,7 +27718,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         [tr("mind.row.detail", "Detail"), '<b class="mv-detail">—</b>', "two"]
       ], "mv-read");
       h += '<div class="vitals mv-vitals"></div>';
-      h += `<div class="mv-lamps">${["hungry", "full", "threat", "low", "lean", "crowd", "shelter", ...K2.heat ? ["thermal"] : []].map((k) => `<div class="lamp" data-k="${k}"><i></i><span class="term" data-hint="" tabindex="0"></span></div>`).join("")}</div></div>`;
+      h += `<div class="mv-lamps">${["hungry", "full", "threat", "low", "lean", "crowd", "shelter", ...K2.heat ? ["thermal"] : [], ...K2.signal && K2.heat ? ["call"] : []].map((k) => `<div class="lamp" data-k="${k}"><i></i><span class="term" data-hint="" tabindex="0"></span></div>`).join("")}</div></div>`;
       h += `<div class="blk mv-nb">${subHead(`<i class="corner cell"></i>${term("mind-near", tr("mind.neighbors", "Neighbors"))}`, tr("mind.neighbors.aside", "within its reach"))}`;
       h += `<div class="nb-row nb-head"><span></span><span>${tr("mind.nb.species", "Species")}</span><span>${tr("mind.nb.cells", "Cells")}</span><span>${tr("mind.nb.role", "Role")}</span><span class="nb-pull term" data-hint="${tr("mind.nb.pull.hint", "How each species moves this cell: pushes it away (left) or pulls it toward them (right).")}" tabindex="0"><i>${tr("mind.nb.push", "push")}</i><i>${tr("mind.nb.pull", "pull")}</i></span></div>`;
       for (let i = 0; i <= NB_ROWS; i++) h += `<div class="nb-row empty" data-i="${i}"><span class="nb-sig"></span><span class="nb-name">—</span><b class="nb-n"></b><em class="nb-role"></em><span class="dbar"><i></i></span></div>`;
@@ -27623,7 +27770,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       const q = tk == null ? null : m.nbrs.find((n) => food && n.j === food.j) || m.nbrs.filter((n) => n.kind === tk).sort((a, b) => len2(a.d) - len2(b.d))[0];
       const tdist = q ? len2(q.d) : food && head.matter && head.key !== "forage" ? food.dist : null;
       setText(parts.tdist, tdist != null ? tr("mind.target.away", "{len} away", { len: fmtLen(tdist) }) : "");
-      setText(parts.detail, detail(head, mind));
+      setText(parts.detail, detail(head, mind, genomeFor(kind)));
       const max = Math.max(1e-6, ...mind.groups.map((g) => g.mag));
       if (!ease4) ease4 = { groups: /* @__PURE__ */ new Map(), hdg: { cur: [0, 0], to: [0, 0] }, tgt: { cur: null, to: null } };
       for (const gr of mind.groups) {
@@ -27678,7 +27825,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         r.bar.style.background = pull >= 0 ? "var(--sun)" : "var(--cyan)";
       });
     }
-    function detail(st, mind) {
+    function detail(st, mind, g) {
       const { net } = mind.budget, m = mind.m;
       const pc = (x) => Math.round(x * 100);
       if (st.odds) return tr("mind.detail.odds", "{p}% per {verb, select, bite {bite} other {kill}} · one try / {every} s", { p: pc(st.odds.p), verb: st.odds.verb, every: st.odds.every.toFixed(1) });
@@ -27686,6 +27833,9 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         const s = mind.species.find((x) => x.kind === st.target);
         return s && s.danger > 0 ? tr("mind.detail.danger", "about {danger}% of their strikes would land", { danger: pc(s.danger) }) : tr("mind.detail.repelled", "repelled by their surface signature");
       }
+      if ((st.key === "sing" || st.key === "alarm") && g && g.call) return tr("mind.detail.call", "{band} · {p}% of a full voice now", { band: SIGNAL_BAND[bandOf(st.key === "sing" ? g.call[1] : g.call[3])], p: pc(st.key === "sing" ? m.song : m.alarm) });
+      if (st.key === "followcall" || st.key === "fleecall") return tr("mind.detail.hearing", "hearing is {p}% of what moves it", { p: pc(mind.groups.find((x) => x.key === "signal")?.share || 0) });
+      if (st.key === "hushed") return tr("mind.detail.hushed", "song {hush}% hushed", { hush: pc(Math.min(1, (m.shunned || 0) * K2.signalHush)) });
       if (st.key === "starve" || mind.flags.find((x) => x.key === "low").on) return tr("mind.detail.left", "≈ {left} s of energy left · {net}/s", { left: Math.max(1, Math.round(m.energy / Math.max(1e-6, -net))), net: signed(net) });
       if (st.key === "divide" || st.key === "seeksilt") return tr("mind.detail.divide", "energy {e} of {need} · {silt, select, yes {silt in reach} other {no silt in reach}}", { e: m.energy.toFixed(2), need: mind.need.toFixed(2), silt: m.siltNear ? "yes" : "no" });
       if (st.key === "bask" || st.key === "dark") return tr("mind.detail.light", "light {light}% · {net}/s net", { light: pc(m.light), net: signed(net) });
@@ -28106,6 +28256,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       m += trait(tr("spec.move.glide", "Glide"), g.drag, 0.015, 0.4, tr("spec.move.glide-value", "{ms} ms", { ms: (g.drag * 1e3).toFixed(0) }), "glide");
       m += trait(tr("spec.move.current", "Current pull"), g.advect, 0.03, 1, `${Math.round(g.advect * 100)}%`, "currentpull");
       h += blk(tr("spec.move", "Movement"), m);
+      if (K2.signal && K2.heat) h += blk(tr("spec.signal", "Signals"), signalBlock(g), { tip: "signals" });
       let l = trait(tr("spec.life.lifespan", "Lifespan"), g.lifespan, 20, 500, fmtDur(g.lifespan), "lifespan");
       const dv = divEnergy(g, K2);
       l += trait(tr("spec.life.divides-at", "Divides at"), dv, 1, 8, dv.toFixed(2), "dividesat");
@@ -28132,6 +28283,19 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       for (const it of rows) t += `<span class="pt-name"><i style="background:${it.css}"></i><span>${it.name}</span></span>${types.map((r) => heat(it.v(r))).join("")}`;
       t += `</div><div class="pulls-key"><span><i class="to"></i>${tr("spec.pulls.toward", "drawn toward")}</span><span><i class="away"></i>${tr("spec.pulls.away", "pushed away")}</span></div>`;
       h += blk(tr("spec.pulls", "How its cells react"), t, { tip: "affinity" });
+      return h;
+    }
+    function signalBlock(g) {
+      const call = g.call || [0, 0, 0, 0], ear = g.ear || [0, 0, 0, 0];
+      const voice = (a, band) => a > 0 ? tr("spec.signal.voice", "{p}% {band}", { p: Math.round(a * 100), band: SIGNAL_BAND[bandOf(band)] }) : tr("spec.none", "none");
+      let h = trait(tr("spec.signal.song", "Song"), call[0], 0, 1, voice(call[0], call[1]), "song-call");
+      h += trait(tr("spec.signal.alarm", "Alarm call"), call[2], 0, 1, voice(call[2], call[3]), "alarm-call");
+      const ears = SIGNAL_BAND.map((band, b) => {
+        const e = ear[b], w = Math.min(1, Math.abs(e)) * 50;
+        const hint = e > 0 ? tr("spec.signal.ear-to", "Drawn to the {band} band ({v})", { band, v: `+${e.toFixed(2)}` }) : e < 0 ? tr("spec.signal.ear-away", "Shuns the {band} band ({v})", { band, v: `−${(-e).toFixed(2)}` }) : tr("spec.signal.ear-none", "Deaf to the {band} band", { band });
+        return `<span class="ear term" data-hint="${esc2(hint)}" tabindex="0"><em>${band}</em><span class="dbar"><i style="left:${e < 0 ? 50 - w : 50}%;width:${w}%;background:${SIGNAL_CSS[b]}"></i></span></span>`;
+      }).join("");
+      h += `<div class="trait ears"><span>${term("ears", tr("spec.signal.ears", "Ears"))}</span><span class="ear-row">${ears}</span></div>`;
       return h;
     }
     function nicheWords(g) {
@@ -28601,6 +28765,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     ["g", "map-light"],
     ["e", "map-heat"],
     ["h", "map-tide"],
+    ["l", "map-signal"],
     ["c", "currents"],
     ["b", "bench"],
     ["v", "settings"],
@@ -28697,6 +28862,8 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       ] },
       { group: tr("help.group.view", "View"), rows: [
         { text: tr("help.k14", "Light map · heat map · tide map · currents"), keys: [K("G"), K("E"), K("H"), K("C")], pad: [P("RB"), hold] },
+        // (the signal lens, a map too, is not on the view rose's eight points: a controller chooses it in Settings → Display)
+        { text: tr("help.signal-lens", "Signal lens: the calls in the water"), keys: [K("L")], pad: [inSettings] },
         { text: tr("help.k13", "Cycle cell trails rendering"), keys: [K("T")], pad: [P("RB"), hold] },
         { text: tr("help.k15", "Toggle: glow · microscope"), keys: [K("Y"), K("O")], pad: [P("RB"), hold] },
         { text: tr("help.k6", "Start · stop filming"), keys: [K("R")], pad: [P("RB"), hold] },
@@ -39621,9 +39788,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "e5bda2ffe4d56e7f") return;
+      if (localStorage.getItem(key) === "49bc8b142f2cb8bf") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "e5bda2ffe4d56e7f");
+      if (res) localStorage.setItem(key, "49bc8b142f2cb8bf");
     } catch {
     }
   }
@@ -39743,6 +39910,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
   var onDisplayChange = null;
   function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     const K2 = eng.K;
+    const SIGNALS = !!(K2.signal && K2.heat);
     const prefs = loadPrefs();
     const dsp = displayPrefs(prefs);
     let lab = null, specimen = null, view = null;
@@ -39820,7 +39988,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       haze: prefs.haze ?? true,
       // the heat haze over warm water (applyMap)
       map: prefs.map ?? "off",
-      // the one map over the view (applyMap): 'off', 'light', 'heat' or 'tide'
+      // the one map over the view (applyMap): 'off', 'light', 'heat', 'tide' or 'signal'
       // what the page may spend: render scale ('auto' adapts between floor and 1), the most device pixels per CSS
       // pixel, the frame rate aimed for (0: the display's), a fixed particle count and neighbor budget, and whether the
       // tuner may ease what Display shows (adapt; src/tuner.js); Pacing's rows, the work the tuner may do less often or
@@ -39888,9 +40056,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     applyLook();
     const applyMap = () => {
       const s = eng.settings;
-      if (state.map === "heat" && !K2.heat) state.map = "off";
+      if (state.map === "heat" && !K2.heat || state.map === "signal" && !SIGNALS) state.map = "off";
       s.tide = state.map === "light" ? 1 : 0;
       s.bands = state.map === "tide" ? 1 : 0;
+      s.signal = state.map === "signal" ? 1 : 0;
       s.heat = state.map === "heat" ? 2 : state.haze ? 1 : 0;
     };
     applyMap();
@@ -40692,9 +40861,13 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const MAPS = [
       { id: "light", gauge: "g-light", name: tr("maps.light", "Light"), ramp: () => ["", tr("maps.light.lo", "dark"), tr("maps.light.hi", "full light")] },
       { id: "heat", gauge: "g-heat", name: tr("maps.heat", "Temperature"), ramp: () => ["heat", tr("maps.heat.deg", "{t}°", { t: Math.round(eng.tbg - 2) }), tr("maps.heat.deg", "{t}°", { t: Math.round(eng.tbg + 10) })] },
-      { id: "tide", gauge: "g-tide", name: tr("maps.tide", "Tide"), ramp: () => ["tide", tr("maps.tide.lo", "dim"), tr("maps.tide.hi", "bright")] }
+      { id: "tide", gauge: "g-tide", name: tr("maps.tide", "Tide"), ramp: () => ["tide", tr("maps.tide.lo", "dim"), tr("maps.tide.hi", "bright")] },
+      // the signal lens (signalLens in shaders.js): no gauge reads it; its legend names the four bands in their hues
+      // i18n: the signal lens's name in the map bar
+      { id: "signal", name: tr("maps.signal", "Signals"), legend: true }
     ];
     const rampHtml = (m) => {
+      if (m.legend) return `<div class="ramp sig">${SIGNAL_BAND.map((w, b) => `<span><i style="color:${SIGNAL_CSS[b]}"></i>${w}</span>`).join("")}</div>`;
       const [cls, lo, hi] = m.ramp();
       return `<div class="ramp ${cls}"><span>${lo}</span><i></i><span>${hi}</span></div>`;
     };
@@ -40714,13 +40887,14 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     }
     function renderMaps() {
       const on = mapOn();
-      for (const m of MAPS) $2(m.gauge).classList.toggle("on", m === on);
+      for (const m of MAPS) if (m.gauge) $2(m.gauge).classList.toggle("on", m === on);
       $2("maps").hidden = !on;
       if (!on) return;
       setText($2("maps-label"), on.name);
       setHTML($2("maps-ramp"), rampHtml(on));
     }
     for (const m of MAPS) {
+      if (!m.gauge) continue;
       const g = $2(m.gauge);
       g.setAttribute("role", "button");
       g.addEventListener("click", () => toggleMap(m));
@@ -42382,7 +42556,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       function display() {
         const map = mapOn();
         const filmL = tr("settings.display.film", "Film");
-        return group("picture", tr("settings.display.picture", "Look"), autoRow("microlook", NAMES.microscope, "O", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], "microlook") + (state.look ? choice("grain", tr("settings.display.grain", "Grain"), "", [[0, OFF], [1, tr("settings.display.grain-fine", "Fine")], [2, tr("settings.display.grain-heavy", "Heavy")]], state.grain, "filmgrain") : "") + (state.look ? choice("focus", tr("settings.display.focus", "Focus blur"), "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], state.focus, "focusblur") : "") + autoOnOff("bloom", NAMES.bloom, "Y", "bloom") + choice("trails", tr("settings.display.trails", "Trails"), "T", trailNames.map((n, i) => [i, n]), trailIdx)) + color_() + group("water", tr("settings.display.water-group", "Water"), autoRow("water", NAMES.sea, "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], "watersurface") + (state.water ? choice("waves", tr("settings.display.waves", "Wave motion"), "", [[0, tr("settings.display.waves-slow", "Slow")], [1, NORMAL], [2, tr("settings.display.waves-lively", "Lively")]], state.waves, "wavemotion") : "") + (K2.heat ? autoOnOff("haze", NAMES.haze, "", "haze") : "") + autoOnOff("specks", NAMES.specks, "", "specks")) + group("cells", tr("settings.display.cells", "Cells"), autoOnOff("lod", NAMES.interiors, "", "lod")) + group("overlays", tr("settings.display.overlays", "Overlays"), choice("map", tr("settings.display.map", "Map"), K2.heat ? "G E H" : "G H", [["off", OFF], ["light", tr("settings.display.map-light", "Light")], ...K2.heat ? [["heat", tr("settings.display.map-heat", "Heat")]] : [], ["tide", tr("settings.display.map-tide", "Tide")]], state.map, "maps") + (map ? rampHtml(map) : "") + onoff("currents", tr("settings.display.currents", "Currents"), "C", state.currents) + choice("songmarks", tr("settings.display.song-marks", "Song marks"), "", [[0, OFF], [1, tr("settings.display.song-marks-picked", "Picked")], [2, tr("settings.display.song-marks-all", "All")]], state.songMarks, "songmarks") + choice("notes", tr("settings.display.annotations", "Annotations"), "", [[1, tr("settings.display.annotations-auto", "Auto camera")], [2, tr("settings.display.annotations-always", "Always")], [0, OFF]], state.notes, "annotations")) + group("view", tr("settings.display.view", "View"), (isCoarse ? "" : onoff("ui", tr("settings.display.interface", "Interface"), "U", state.ui, "interface")) + ($2("fs").hidden ? "" : onoff("fullscreen", tr("settings.display.fullscreen", "Full screen"), "F", $2("fs").getAttribute("aria-pressed") === "true", "fullscreen")) + onoff("closeup", tr("settings.display.closeup", "Live close-up"), "", state.closeup, "closeup") + choice("prompts", tr("settings.display.prompts", "Controller"), "", [["auto", tr("settings.auto", "Auto")], ...FAMILIES.map((f2) => [f2, FAMILY_NAME()[f2]])], state.prompts, "prompts", 2) + onoff("auto", tr("settings.display.auto-idle", "Auto when idle"), "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", filmL)} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="${filmL}">${film.state === "idle" ? `<button type="button" class="chip" data-o="film" data-v="now">${tr("settings.display.film-now", "Start filming")}</button>` : `<button type="button" class="chip" data-o="film" data-v="stop">${tr("settings.display.film-stop", "Stop filming")}</button>`}</div></div>` : ""));
+        return group("picture", tr("settings.display.picture", "Look"), autoRow("microlook", NAMES.microscope, "O", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], "microlook") + (state.look ? choice("grain", tr("settings.display.grain", "Grain"), "", [[0, OFF], [1, tr("settings.display.grain-fine", "Fine")], [2, tr("settings.display.grain-heavy", "Heavy")]], state.grain, "filmgrain") : "") + (state.look ? choice("focus", tr("settings.display.focus", "Focus blur"), "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], state.focus, "focusblur") : "") + autoOnOff("bloom", NAMES.bloom, "Y", "bloom") + choice("trails", tr("settings.display.trails", "Trails"), "T", trailNames.map((n, i) => [i, n]), trailIdx)) + color_() + group("water", tr("settings.display.water-group", "Water"), autoRow("water", NAMES.sea, "", [[0, OFF], [1, SUBTLE], [2, NORMAL], [3, STRONG]], "watersurface") + (state.water ? choice("waves", tr("settings.display.waves", "Wave motion"), "", [[0, tr("settings.display.waves-slow", "Slow")], [1, NORMAL], [2, tr("settings.display.waves-lively", "Lively")]], state.waves, "wavemotion") : "") + (K2.heat ? autoOnOff("haze", NAMES.haze, "", "haze") : "") + autoOnOff("specks", NAMES.specks, "", "specks")) + group("cells", tr("settings.display.cells", "Cells"), autoOnOff("lod", NAMES.interiors, "", "lod")) + group("overlays", tr("settings.display.overlays", "Overlays"), choice("map", tr("settings.display.map", "Map"), (K2.heat ? "G E H" : "G H") + (SIGNALS ? " L" : ""), [["off", OFF], ["light", tr("settings.display.map-light", "Light")], ...K2.heat ? [["heat", tr("settings.display.map-heat", "Heat")]] : [], ["tide", tr("settings.display.map-tide", "Tide")], ...SIGNALS ? [["signal", tr("settings.display.map-signal", "Signals")]] : []], state.map, "maps") + (map ? rampHtml(map) : "") + onoff("currents", tr("settings.display.currents", "Currents"), "C", state.currents) + choice("songmarks", tr("settings.display.song-marks", "Song marks"), "", [[0, OFF], [1, tr("settings.display.song-marks-picked", "Picked")], [2, tr("settings.display.song-marks-all", "All")]], state.songMarks, "songmarks") + choice("notes", tr("settings.display.annotations", "Annotations"), "", [[1, tr("settings.display.annotations-auto", "Auto camera")], [2, tr("settings.display.annotations-always", "Always")], [0, OFF]], state.notes, "annotations")) + group("view", tr("settings.display.view", "View"), (isCoarse ? "" : onoff("ui", tr("settings.display.interface", "Interface"), "U", state.ui, "interface")) + ($2("fs").hidden ? "" : onoff("fullscreen", tr("settings.display.fullscreen", "Full screen"), "F", $2("fs").getAttribute("aria-pressed") === "true", "fullscreen")) + onoff("closeup", tr("settings.display.closeup", "Live close-up"), "", state.closeup, "closeup") + choice("prompts", tr("settings.display.prompts", "Controller"), "", [["auto", tr("settings.auto", "Auto")], ...FAMILIES.map((f2) => [f2, FAMILY_NAME()[f2]])], state.prompts, "prompts", 2) + onoff("auto", tr("settings.display.auto-idle", "Auto when idle"), "", state.auto, "autoidle") + (film.supported ? `<div class="opt"><span class="lbl">${term("film", filmL)} <kbd>R</kbd></span><div class="row segs" role="group" aria-label="${filmL}">${film.state === "idle" ? `<button type="button" class="chip" data-o="film" data-v="now">${tr("settings.display.film-now", "Start filming")}</button>` : `<button type="button" class="chip" data-o="film" data-v="stop">${tr("settings.display.film-stop", "Stop filming")}</button>`}</div></div>` : ""));
       }
       function color_() {
         const plan2 = displayPlan(dsp, caps, { format: eng.format, preferred });
@@ -44050,6 +44224,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           return true;
         case "map-tide":
           flashMap(2, tr("flash.tide-map-on", "Tide map"), tr("flash.tide-map-off", "Tide map off"));
+          return true;
+        case "map-signal":
+          if (!SIGNALS) return false;
+          flashMap(3, tr("flash.signal-on", "Signal lens"), tr("flash.signal-off", "Signal lens off"));
           return true;
         case "currents":
           state.currents = !state.currents;

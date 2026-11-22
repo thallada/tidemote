@@ -31,6 +31,14 @@ export function saveFile(blob, name) {
 }
 export const meter = (frac, cls = '') => `<span class="meter ${cls}"><i style="width:${(clamp(frac, 0, 1) * 100).toFixed(1)}%"></i></span>`;
 export const ROLE = ['α', 'β', 'γ'];
+// The four bands of signals in the water (signalStep in shaders.js), by number (a genome's voiceBand: 0..3), and each
+// one's hue wherever the page shows them (the signal lens draws them so, SIG_HUE in shaders.js, its legend, the specimen's
+// ears)
+// i18n: the four bands cells call in: a low rumble, a song, clicks, and flashes of light
+export const SIGNAL_BAND = [tr('signal.band.rumble', 'Rumble'), tr('signal.band.song', 'Song'), tr('signal.band.click', 'Click'), tr('signal.band.flash', 'Flash')];
+export const SIGNAL_CSS = ['#f38ac4', '#a1faa8', '#94ccff', '#ffe994'];
+/** A call gene's band (0..1 as the genome holds it) as a number, 0..3 (voiceBand in shaders.js). */
+export const bandOf = (v) => Math.min(3, Math.floor(Math.max(0, v) * 4));
 // A living cell's drawn radius at `ppu` pixels per world unit (vsPoint: 0.085 world units per unit of size).
 export const cellRadius = (p, g, ppu) => 0.085 * (g ? g.size : 1) * (1 - 0.12 * (p.role || 0)) * ppu;
 

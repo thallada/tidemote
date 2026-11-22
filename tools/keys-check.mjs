@@ -25,6 +25,8 @@ a = b; await press('o'); b = await S(); check('O toggles the microscope', !!a.lo
 await press('g'); b = await S(); check('G shows the light map', b.map === 'light');
 await press('h'); b = await S(); check('H shows the tide map', b.map === 'tide');
 await press('h'); b = await S(); check('H again clears it', !b.map || b.map === 'off', b.map);
+await press('l'); b = await S(); check('L shows the signal lens', b.map === 'signal', b.map);
+await press('l'); b = await S(); check('L again clears it', !b.map || b.map === 'off', b.map);
 a = b; await press('c'); b = await S(); check('C toggles the currents', a.currents !== b.currents);
 await press('c');
 a = b; await press('i'); b = await S(); check('I toggles the readouts', a.hud !== b.hud);

@@ -25,8 +25,10 @@ const POST_EDGE = POST_MURK + 8;
 const POST_FOCUS = POST_EDGE + 4;
 // then the display (Post.display: Engine.display, docs/hdr.md)
 export const POST_DISPLAY = POST_FOCUS + 4;
+// then the signal lens (Post.sig)
+const POST_SIG = POST_DISPLAY + 4;
 // the post uniforms' floats (struct Post)
-export const POST_WORDS = POST_DISPLAY + 4;
+export const POST_WORDS = POST_SIG + 4;
 // how much slower than the focal plane each of the murk's layers pans (MUD_DEPTH in POST_WGSL)
 const MUD_DEPTH = [0.93, 0.85, 0.76];
 
@@ -176,7 +178,7 @@ class Engine {
     this.tidePh = Float32Array.from(TIDE_PHASE);
     this.seedValue = 1;
     this.censusEvery = 20;
-    this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 0, heat: 1, bands: 0, optics: 1, specks: true, lod: true };
+    this.settings = { trails: 0.45, links: true, nodes: true, bloom: 0.012, exposure: 1.0, tide: 0, heat: 1, bands: 0, signal: 0, optics: 1, specks: true, lod: true };
     // The dressing the page's tuner picks (src/tuner.js; Settings → Performance), on top of the viewer's settings,
     // never saved into them: how often the sea is turned (frames between, 0: no sea), how often a grid cell searches for
     // its cells' contacts (frames between: contactGather), bloom and specks allowed, and how often the stone is lit again while the world runs (seconds).
@@ -3261,9 +3263,13 @@ class Engine {
     pd.set(this.look, POST_LOOK);
     const dsp = this.display;
     pd[POST_DISPLAY] = dsp.peak; pd[POST_DISPLAY + 1] = dsp.p3 ? dsp.wide : 0; pd[POST_DISPLAY + 2] = dsp.p3 ? 1 : 0;
+    // the signal lens (signalLens in POST_WGSL), only where there are signals; its rings in doublings of a full caller's
+    // own level (signalGain, scaled by K.signal as signalConsts scales the calls)
+    const sigOn = !!(this.K.signal && this.K.heat);
+    pd[POST_SIG] = sigOn && this.settings.signal ? 1 : 0; pd[POST_SIG + 1] = sigOn ? 1 / (this.K.signal * this.K.signalGain) : 0;
     // (a card's portrait, the close-up not live, reads its own copy: the look whole, the suspension shown, in SDR's
     // sRGB whatever the display, as a PNG holds it; the live close-up the main view's)
-    if (specimen && specimen.target && !specimen.live) d.queue.writeBuffer(this.b.postPlain, 0, Float32Array.from(pd).fill(1, 3, 4).fill(0, POST_DISPLAY, POST_DISPLAY + 4));
+    if (specimen && specimen.target && !specimen.live) d.queue.writeBuffer(this.b.postPlain, 0, Float32Array.from(pd).fill(1, 3, 4).fill(0, POST_DISPLAY, POST_SIG + 4));
     if (this.fxFade.look < 1) pd.set(this.look.map((v) => v * this.fxFade.look), POST_LOOK);
     d.queue.writeBuffer(this.b.post, 0, pd);
     if (specimen && specimen.target && specimen.live) d.queue.writeBuffer(this.b.postPlain, 0, pd);
@@ -3472,9 +3478,9 @@ class Engine {
 
     // The lean composite where nothing it leaves out is there: the pool full, no duckweed, no instrument in the
     // water, no map (as fsComposite tests them: post.pond.x, post.duck.w, post.toolB.x; mapsOver's post.tideVis,
-    // post.heat.w, post.heatVis and post.lens.w), and no ice (compPick asks the GPU)
+    // post.heat.w, post.heatVis, post.lens.w and post.sig.x), and no ice (compPick asks the GPU)
     const lean = this.pCompLean && pd[56] >= 1 && !(this.duck[3] > 0) && !(this.tool[4] > 0)
-      && !(pd[6] > 0.5) && !(pd[55] > 0.5) && !(pd[15] > 1.5) && !(this.lens[3] > 0);
+      && !(pd[6] > 0.5) && !(pd[55] > 0.5) && !(pd[15] > 1.5) && !(this.lens[3] > 0) && !(pd[POST_SIG] > 0.5);
     // (the page's full composite in its second wave: until it lands the lean one draws alone, whatever is there)
     if (this.pCompLean && !this.compLeanBG) this._rebindLate();
     const leanOnly = !(micro ? this.pComp && this.compBG : this.pCompClear && this.compClearBG);
