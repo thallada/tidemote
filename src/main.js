@@ -1406,7 +1406,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   eng.onListen = (d) => {
     if (state.phase !== 'running') return;
     const selSlot = pickedSlot();
-    const keep = sound.listen(d, { selSlot, lit: litSlots });
+    const keep = sound.listen(d, { selSlot, lit: litSlots, signals: SIGNALS });
     if (keep && eng.listen) { eng.listen.keep = keep; eng.listen.selKind = selSlot >= 0 ? selSlot : 0xffffffff; }
   };
   function toggleSound() {

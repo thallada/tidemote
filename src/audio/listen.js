@@ -4,14 +4,29 @@
 export const LISTEN_REC = 6;
 
 export const LISTEN = {
-  stride: 9, // floats per decoded event (decodeRecords)
-  // ('woke': a cell woken from a cyst, in the place of 'charged', which the tide's glint used to fill)
-  types: ['birth', 'mutation', 'spark', 'starved', 'old', 'killed', 'eaten', 'woke', 'alive'],
-  index: { birth: 0, mutation: 1, spark: 2, starved: 3, old: 4, killed: 5, eaten: 6, woke: 7, alive: 8 },
+  stride: 11, // floats per decoded event (decodeRecords)
+  // ('woke': a cell woken from a cyst, in the place of 'charged', which the tide's glint used to fill; 'alarm': a cell
+  // calling its alarm now, a state sampled like the events)
+  types: ['birth', 'mutation', 'spark', 'starved', 'old', 'killed', 'eaten', 'woke', 'alive', 'alarm'],
+  index: { birth: 0, mutation: 1, spark: 2, starved: 3, old: 4, killed: 5, eaten: 6, woke: 7, alive: 8, alarm: 9 },
   // how many of each type per second the scan reports at most (it samples down to this); 'alive'
-  // is a sample of the living cells in view
-  target: [14, 1e3, 1e3, 4, 4, 6, 12, 6, 60],
+  // is a sample of the living cells in view, 'alarm' of those calling their alarm
+  target: [14, 1e3, 1e3, 4, 4, 6, 12, 6, 60, 10],
 };
+const NT = LISTEN.types.length;
+
+// A call's band (call[1] or call[3], 0..1 as the genome holds it): 0 rumble, 1 song, 2 click, 3 flash (voiceBand in
+// shaders.js)
+export const bandOf = (v) => Math.min(3, Math.floor(Math.max(0, v || 0) * 4));
+// The band a species sings in shifts its voice: rumble an octave down and darker, ringing longer; song as it is;
+// click an octave up, brighter and shorter; flash (light) an octave up as glass, a high shimmer. oct is added,
+// bright and dec multiplied; mat replaces the instrument.
+export const BAND_VOICE = [
+  { oct: -1, bright: 0.6, dec: 1.3 },
+  { oct: 0, bright: 1, dec: 1 },
+  { oct: 1, bright: 1.35, dec: 0.55 },
+  { oct: 1, bright: 1.2, dec: 1.2, mat: 'glass' },
+];
 
 const hueOf = (col) => {
   const r = (col & 255) / 255, g = ((col >>> 8) & 255) / 255, b = ((col >>> 16) & 255) / 255;
@@ -23,19 +38,25 @@ const hueOf = (col) => {
 
 /**
  * Records (LISTEN_REC words each) → Float32Array, LISTEN.stride per event: type, slot, x, y (0..1
- * across the view), age (sim seconds; for 'alive', energy toward division 0..1.5), speed (0..1 of
- * vscale), hue, a per-particle byte, cell type (0 α, 1 β, 2 γ).
+ * across the view), age (sim seconds; for 'alive' and 'alarm', energy toward division 0..1.5), speed
+ * (0..1 of vscale), hue, a per-particle byte, cell type (0 α, 1 β, 2 γ), and for 'alive' and 'alarm'
+ * the call it makes now (0..1: 'alive' its song, 'alarm' its alarm; 0 for the events) and that call's
+ * band (0 rumble, 1 song, 2 click, 3 flash).
  * Also returns how many of each type were recorded.
  */
 export function decodeRecords(u32, f32) {
-  const R = LISTEN_REC, S = LISTEN.stride, n = Math.floor(u32.length / R), out = new Float32Array(n * S), recorded = new Uint32Array(9);
+  const R = LISTEN_REC, S = LISTEN.stride, n = Math.floor(u32.length / R), out = new Float32Array(n * S), recorded = new Uint32Array(NT);
   for (let i = 0; i < n; i++) {
     const w = u32[i * R], uv = u32[i * R + 1], o = i * S, t = w & 15;
     out[o] = t; out[o + 1] = (w >>> 4) & 1023;
     out[o + 2] = (uv & 0xffff) / 65535; out[o + 3] = (uv >>> 16) / 65535;
-    out[o + 4] = f32[i * R + 2]; out[o + 5] = (w >>> 24) / 255;
+    out[o + 5] = (w >>> 24) / 255;
     out[o + 6] = hueOf(u32[i * R + 3]); out[o + 7] = (w >>> 16) & 255; out[o + 8] = (w >>> 14) & 3;
-    if (t < 9) recorded[t]++;
+    if (t >= 8) { // a living cell: its energy and its call (see callWord in LISTEN_WGSL)
+      const c = u32[i * R + 2];
+      out[o + 4] = ((c & 0xffff) / 65535) * 1.5; out[o + 9] = ((c >>> 16) & 255) / 255; out[o + 10] = (c >>> 24) & 3;
+    } else out[o + 4] = f32[i * R + 2];
+    if (t < NT) recorded[t]++;
   }
   return { ev: out, recorded };
 }
@@ -65,8 +86,8 @@ export function recordCells(u32, view) {
 
 /** Per-type keep probabilities for the next scan, from this scan's counts. */
 export function keepFor(inView, wallWindow, target = LISTEN.target) {
-  const keep = new Array(9);
-  for (let t = 0; t < 9; t++) keep[t] = Math.min(1, (target[t] * wallWindow) / Math.max(1, inView[t]));
+  const keep = new Array(NT);
+  for (let t = 0; t < NT; t++) keep[t] = Math.min(1, (target[t] * wallWindow) / Math.max(1, inView[t]));
   return keep;
 }
 
@@ -86,17 +107,20 @@ const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 
 /**
  * One scan (engine.onListen data) → the message for the audio thread, and keep probabilities
- * for the next scan. speed: sim seconds per wall second; selSlot/lit: selection and highlight.
+ * for the next scan. speed: sim seconds per wall second; selSlot/lit: selection and highlight;
+ * signals: whether this world has signals in the water (K.signal with heat): cells sing when they
+ * really call, rather than by chance.
  */
-export function digest(data, { speed = 1, selSlot = -1, lit = null, vscale = V_SCALE, seq = -1 } = {}) {
+export function digest(data, { speed = 1, selSlot = -1, lit = null, vscale = V_SCALE, seq = -1, signals = false } = {}) {
   const { ev, recorded } = decodeRecords(data.records, data.f32);
   const { gd, z } = hearing(data.view.hx, data.view.hy);
   const wall = data.window / Math.max(speed, 1e-6);
-  const inView = [...data.inView, data.living]; // events per type, then living cells in view
+  // events per type, then living cells in view, then those calling their alarm
+  const inView = [...data.inView, data.living, data.alarm ?? 0];
   return {
     msg: {
-      type: 'listen', window: data.window, speed, z, gd, seq,
-      inView, outView: [...data.outView, Math.max(0, data.livingAll - data.living)], recorded: Array.from(recorded),
+      type: 'listen', window: data.window, speed, z, gd, seq, signals: !!signals,
+      inView, outView: [...data.outView, Math.max(0, data.livingAll - data.living), 0], recorded: Array.from(recorded),
       living: data.living, act: Math.min(1.5, data.speed / vscale), ev, selSlot, lit,
     },
     keep: keepFor(inView, wall),

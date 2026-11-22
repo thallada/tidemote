@@ -337,7 +337,7 @@ class Engine {
     b.listenU = d.createBuffer({ size: 112, usage: U.UNIFORM | U.COPY_DST });
     b.listen = d.createBuffer({ size: LISTEN_BYTES, usage: U.STORAGE | U.COPY_SRC | U.COPY_DST });
     this.listenStage = [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: LISTEN_BYTES, usage: U.COPY_DST | U.MAP_READ }), busy: false }));
-    // The soundtrack's ears (see LISTEN_WGSL). Off until the page sets { every, keep[8], vscale }.
+    // The soundtrack's ears (see LISTEN_WGSL). Off until the page sets { every, keep[10], vscale }.
     this.listen = null;
     this.onListen = null;
     this._listenFrames = 0;
@@ -2936,7 +2936,7 @@ class Engine {
     f[0] = view.x; f[1] = view.y; f[2] = view.hx; f[3] = view.hy; f[4] = this.grid[0]; f[5] = this.grid[1];
     w[6] = this.count; w[7] = (Math.random() * 4294967295) >>> 0;
     f[8] = this._clock().t; f[9] = window; f[10] = L.vscale || 1; w[11] = L.selKind ?? 0xffffffff;
-    for (let t = 0; t < 9; t++) f[12 + t] = L.keep ? L.keep[t] : t === 8 ? 0.05 : 1;
+    for (let t = 0; t < 10; t++) f[12 + t] = L.keep ? L.keep[t] ?? 1 : t >= 8 ? 0.05 : 1;
     f[24] = 0.5 * this._listenDt;
     this._listenDt = this.dt;
     this.device.queue.writeBuffer(b.listenU, 0, u);
@@ -2962,6 +2962,8 @@ class Engine {
         simTime: job.simTime, window: job.window, view: job.view,
         inView: u.subarray(0, 8), outView: u.subarray(8, 16),
         living: u[16], speed: u[17] / 1000 / Math.max(1, u[16]), livingAll: u[18], speedAll: u[19] / 1000 / Math.max(1, u[18]),
+        // cells in view calling their alarm now (sampled as the 'alarm' records)
+        alarm: u[22],
         particles: u[20], found: u[21],
         records: u.subarray(LISTEN_HEAD, LISTEN_HEAD + LISTEN_REC * n), f32: new Float32Array(u.buffer, LISTEN_HEAD * 4, LISTEN_REC * n),
       });

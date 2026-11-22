@@ -171,7 +171,8 @@ export function createSound({ onChange = () => {}, onError = () => {}, onSang = 
   }
 
   // Called on every listening scan (engine.onListen). Returns keep probabilities for the next scan.
-  function listen(data, { selSlot = -1, lit = null } = {}) {
+  // signals: the world has signals in the water (its cells sing when they really call)
+  function listen(data, { selSlot = -1, lit = null, signals = false } = {}) {
     if (!st.node || !st.on) return null;
     const seq = ++st.seq;
     if (onSang) {
@@ -182,7 +183,7 @@ export function createSound({ onChange = () => {}, onError = () => {}, onSang = 
     st.lastScan = now;
     // the simulation's real speed (sim seconds per second), measured, not the setting
     if (dt > 0.01 && dt < 1) st.speed += (Math.min(500, data.window / dt) - st.speed) * 0.3;
-    const { msg, keep } = digest(data, { speed: st.speed, selSlot, lit, seq });
+    const { msg, keep } = digest(data, { speed: st.speed, selSlot, lit, seq, signals });
     // This scan sampled the picked species' cells in full and the rest at the keep it was given
     // (the last one returned); the audio thread weights them back to their real share.
     msg.sampled = { sel: st.lastSel ?? -1, keep: st.lastKeep ?? 0.05 };

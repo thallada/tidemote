@@ -45,8 +45,8 @@ for (let b = 0; b < nb; b++) {
     if (m.type === 'listen') {
       m.ev = Float32Array.from(m.ev); m.speed = speed;
       if (e.stats) m.act = Math.min(1.5, e.stats.speed / V_SCALE);
-      const P = (perPhase[e.phase] ||= { t0: tAudio, t1: tAudio, events: 0, inView: new Array(8).fill(0), scans: 0, living: 0, act: 0 });
-      P.t1 = tAudio; P.scans++; P.agc = (P.agc || 0) + cond.field.agc; P.pow = (P.pow || 0) + Math.log10(cond.field.power + 1e-9); P.events += m.ev.length / LISTEN.stride; P.living += m.living; P.act += m.act; m.inView.forEach((v, i) => (P.inView[i] += v));
+      const P = (perPhase[e.phase] ||= { t0: tAudio, t1: tAudio, events: 0, inView: new Array(LISTEN.types.length).fill(0), scans: 0, living: 0, act: 0 });
+      P.t1 = tAudio; P.scans++; P.agc = (P.agc || 0) + cond.field.agc; P.pow = (P.pow || 0) + Math.log10(cond.field.power + 1e-9); P.events += m.ev.length / LISTEN.stride; P.living += m.living; P.act += m.act; m.inView.forEach((v, i) => (P.inView[i] += v || 0));
     }
     if (m.type === 'slots') m.slots = m.slots.map((x) => (x.genome ? { ...x, voice: voiceOf(x.genome) } : x));
     if (m.type === 'world' && season) { const sn = 0.55 + 0.45 * Math.sin((tAudio / season) * Math.PI * 2); m.world = { ...m.world, tide: 0.9 * sn, light: Math.min(1.2, 0.3 + 0.85 * 0.9 * sn) }; }
@@ -74,7 +74,7 @@ for (const [name, P] of Object.entries(perPhase)) {
   const s = lufs(outPath, P.t0 + 1.5, P.t1 + 0.5), sum = s.slice(s.lastIndexOf('Summary'));
   const I = (sum.match(/I:\s+(-?[\d.]+)/) || [])[1], pk = (sum.match(/Peak:\s+(-?[\d.]+)/) || [])[1];
   const dur = P.t1 - P.t0;
-  console.log(`${name.padEnd(5)} ${dur.toFixed(0)} s  ${I} LUFS  true peak ${pk}  | events/s in view: ${P.inView.slice(0, 8).map((v) => (v / dur).toFixed(0)).join(' ')}  living in view ${(P.living / P.scans).toFixed(0)}  activity ${(P.act / P.scans).toFixed(2)}  power ${(10 ** (P.pow / P.scans)).toFixed(3)} agc ${(P.agc / P.scans).toFixed(2)}`);
+  console.log(`${name.padEnd(5)} ${dur.toFixed(0)} s  ${I} LUFS  true peak ${pk}  | events/s in view: ${P.inView.slice(0, 8).map((v) => (v / dur).toFixed(0)).join(' ')}  living in view ${(P.living / P.scans).toFixed(0)}  calling an alarm ${(P.inView[9] / P.scans).toFixed(1)}  activity ${(P.act / P.scans).toFixed(2)}  power ${(10 ** (P.pow / P.scans)).toFixed(3)} agc ${(P.agc / P.scans).toFixed(2)}`);
   const S = spawns[name] || {};
   console.log('      notes/s: ' + Object.entries(S).sort((a, b) => b[1] - a[1]).map(([d, c]) => `${d} ${(c / dur).toFixed(1)}`).join(', '));
 }

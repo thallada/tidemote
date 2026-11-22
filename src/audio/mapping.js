@@ -4,6 +4,9 @@
 
 import { dietGuild, mobilityGuild } from '../genome.js';
 import { motifOf } from './motif.js';
+import { BAND_VOICE, bandOf } from './listen.js';
+
+export { BAND_VOICE, bandOf };
 
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const fract = (x) => x - Math.floor(x);
@@ -41,16 +44,20 @@ export function voiceOf(g) {
   const A = ARCH[arch];
   const span = clamp((g.lifespan - 60) / 400, 0, 1);
   const motif = motifOf(g, arch);
+  // its song gene (none without signals: the genome's calls are zero then) and its band
+  const call = g.call || [0, 0, 0, 0], song = Math.max(0, call[0] || 0), band = song > 0 ? bandOf(call[1]) : 1, B = BAND_VOICE[band];
   return {
     arch, motif,
     seq: motif.seq, // the line's degrees (the score develops these)
     rate: motif.rate, // steps a note lasts on average
-    oct: A.oct + (arch === 'grazer' && g.size < 0.85 ? 1 : 0),
-    mat: pick(A.mats, g.hue),
+    oct: A.oct + (arch === 'grazer' && g.size < 0.85 ? 1 : 0) + B.oct,
+    mat: B.mat || pick(A.mats, g.hue),
     ratio: pick([1, 1.5, 2, 2, 3], fract(g.hue * 7.3)),
     index: 0.4 + 1.6 * clamp((g.sat - 0.6) / 0.4, 0, 1),
     fold: 0.9 + 1.7 * clamp((g.lum - 0.52) / 0.2, 0, 1),
-    dec: 0.8 + 0.5 * span,
-    bright: 0.3 + 0.6 * clamp((g.sat - 0.6) / 0.4, 0, 1),
+    dec: (0.8 + 0.5 * span) * B.dec,
+    bright: Math.min(1, (0.3 + 0.6 * clamp((g.sat - 0.6) / 0.4, 0, 1)) * B.bright),
+    song, band, // how loudly it sings (0: a mute) and in which band
+    alarm: Math.max(0, call[2] || 0), alarmBand: bandOf(call[3]),
   };
 }

@@ -1,6 +1,7 @@
 // Run the ecology headlessly in Chromium and record what the soundtrack would hear from several
 // fixed camera views: the same 'listen' and 'slots' messages the page posts to the audio thread.
-// usage: node tools/listen-capture.mjs --out capture.json [--n 4096] [--warm 40] [--each 25] [--seed 7] [--chrome PATH]
+// usage: node tools/listen-capture.mjs --out capture.json [--n 4096] [--warm 40] [--each 25] [--seed 7] [--k '{"signal":0}'] [--chrome PATH]
+// (TIDEMOTE_VK=1 on Linux runs it on the GPU; otherwise Playwright's Chromium on SwiftShader)
 // (under WSL: node tools/listen-capture.mjs --bundle-out cap.js, then
 //  tools/gpu-node.sh tools/listen-capture.mjs --bundle cap.js --chrome 'C:\Program Files\Google\Chrome\Application\chrome.exe' ...)
 // Render with tools/listen-render.mjs.
@@ -12,7 +13,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { arg } from './lib/args.mjs';
-const out = arg('out', 'capture.json'), N = Number(arg('n', 4096)), WARM = Number(arg('warm', 40)), EACH = Number(arg('each', 25)), SEED = Number(arg('seed', 7));
+const out = arg('out', 'capture.json'), N = Number(arg('n', 4096)), WARM = Number(arg('warm', 40)), EACH = Number(arg('each', 25)), SEED = Number(arg('seed', 7)), KO = JSON.parse(arg('k', '{}'));
 const root = fileURLToPath(new URL('..', import.meta.url));
 const entry = `
 import { createEngine, MAXK, FIRST_LIFE } from './src/engine.js';
@@ -21,11 +22,11 @@ import { readGenome, genomeSerial } from './src/genome.js';
 import { voiceOf } from './src/audio/mapping.js';
 import { digest, D_REF } from './src/audio/listen.js';
 import { createClimate, abioRate } from './src/climate.js';
-window.capture = async ({ N, WARM, EACH, SEED }) => {
+window.capture = async ({ N, WARM, EACH, SEED, KO }) => {
   let s = SEED >>> 0; const rng = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
   Math.random = rng;
   const device = await (await navigator.gpu.requestAdapter()).requestDevice({ requiredLimits: { maxStorageBuffersPerShaderStage: 10 } });
-  const eng = await createEngine(device, 'rgba8unorm', {});
+  const eng = await createEngine(device, 'rgba8unorm', { K: KO });
   await eng.allocate(N); eng.resize(1280, 720); eng.seed(N, { aspect: 16 / 9, rng }); eng.censusEvery = 30;
   const climate = createClimate(eng, rng);
   const [GW, GH] = eng.grid;
@@ -49,7 +50,7 @@ window.capture = async ({ N, WARM, EACH, SEED }) => {
   };
   eng.onListen = (d) => {
     if (phase === 'warm') return;
-    const r = digest(d, { speed: 1, vscale: 1 });
+    const r = digest(d, { speed: 1, vscale: 1, signals: !!(eng.K.signal && eng.K.heat) });
     keep = r.keep; eng.listen.keep = keep;
     log.push({ t: d.simTime, phase, msg: r.msg, stats: { living: d.living, speed: d.speed, speedAll: d.speedAll, found: d.found, particles: d.particles } });
   };
@@ -117,7 +118,7 @@ const code = arg('bundle', null) ? fs.readFileSync(arg('bundle'), 'utf8')
 if (arg('bundle-out', null)) { fs.writeFileSync(arg('bundle-out'), code); process.exit(0); }
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tidemote-cap-'));
 fs.writeFileSync(path.join(dir, 'i.html'), '<!doctype html><meta charset="utf-8"><title>capture</title>');
-const browser = await chromium.launch(launchOptions({ browser: 'chromium', vk: false, executablePath: arg('chrome', null), args: ['--enable-unsafe-webgpu'] }));
+const browser = await chromium.launch(launchOptions({ browser: 'chromium', executablePath: arg('chrome', null), args: ['--enable-unsafe-webgpu'] }));
 try {
   const page = await browser.newPage();
   page.setDefaultTimeout(0);
@@ -131,7 +132,7 @@ try {
     // typed arrays → plain arrays for JSON
     for (const e of r.log) if (e.msg.ev) e.msg.ev = Array.from(e.msg.ev);
     return r;
-  }, { N, WARM, EACH, SEED });
+  }, { N, WARM, EACH, SEED, KO });
   fs.writeFileSync(out, JSON.stringify(res));
   console.log(`captured ${res.log.length} messages in ${((Date.now() - t0) / 1000).toFixed(0)} s → ${out}`);
   console.log(JSON.stringify(res.info));

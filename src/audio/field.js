@@ -4,8 +4,13 @@
 // position and exact time; this turns them into notes. Runs inside the AudioWorklet next to the
 // conductor, whose harmony (era mode, root, pivot), sea and drone it shares.
 //
-// Every living cell sings: now and then it comes in on its species' motif (from its genome, see
-// motif.js), more often when it moves. A species keeps time by its motif: a cell that sings joins
+// The cells sing when they really call. With signals in the water (K.signal) a cell sings its song in bursts, in
+// time with its species' cadence, while it is fed, and hushes when it hears a band it shuns: the scan reports each
+// sampled cell's song now, and a cell comes in on its species' motif (from its genome, see motif.js) as often as
+// it is singing, its notes held to the next second, so a reef that falls silent is heard thinning at once. A
+// species with no song keeps the old way at a quarter (MUTE_FLOOR): now and then, more often when it moves; without
+// signals every cell sings that way. A cell calling its alarm ticks, dry and close, from where it is (alarmCall).
+// A species keeps time by its motif: a cell that sings joins
 // at the motif's next note, in its rhythm, so a crowd assembles the phrase between them. A
 // schooling species keeps one clock and sings in unison; the others each keep their own and
 // the phrase goes round in canon. Where only a few cells are heard each sings a longer stretch,
@@ -29,18 +34,21 @@
 // so diving in brings the place forward without a jump in level.
 
 import { d2m, STEP, noteParams } from './conductor.js';
-import { LISTEN } from './listen.js';
+import { LISTEN, BAND_VOICE } from './listen.js';
 import { midicps } from './ugens.js';
+
+// (a voice's octave less its song band's shift: where its species would sing in the song band)
+const BAND_OCT = BAND_VOICE.map((b) => b.oct);
 
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 
 const T = LISTEN.index;
 // base amplitude of one sound heard from the reference distance
-const AMP = { alive: 0.13, birth: 0.19, mutation: 0.09, spark: 0.045, starved: 0.13, old: 0.11, killed: 0.2, eaten: 0.075, woke: 0.05, rustle: 0.035 };
+const AMP = { alive: 0.13, birth: 0.19, mutation: 0.09, spark: 0.045, starved: 0.13, old: 0.11, killed: 0.2, eaten: 0.075, woke: 0.05, rustle: 0.035, alarm: 0.1 };
 // playing grid (in steps) and how many notes of a type may share one grid point (calm water and
 // far views adjust these, see snap)
-const GRID = { starved: 2, old: 4, killed: 1, eaten: 0.5, woke: 1 };
-const PER_SLOT = { starved: 1, old: 1, killed: 1, eaten: 2, woke: 1 };
+const GRID = { starved: 2, old: 4, killed: 1, eaten: 0.5, woke: 1, alarm: 0.5 };
+const PER_SLOT = { starved: 1, old: 1, killed: 1, eaten: 2, woke: 1, alarm: 2 };
 const LATENCY = 0.22; // seconds: one scan interval plus scheduling headroom
 const BG_GAIN = 0.05; // the world outside the view, relative to a sound at the reference distance
 // Level riding: the field knows each scan's notes before it plays them, so it compresses their
@@ -61,6 +69,12 @@ const SHOWERS = 0.4, GRAINS = 2.5, RINGS = 1.5;
 // stand for (its loudness, as sqrt of that), and their share of the swarm's grains from afar (a stir is
 // fainter than a birth)
 const STIRS = 1.6, STIR_FOR = 2, STIR_SWARM = 0.3;
+// how far above its species' voice (semitones, the song band's register) each band's alarm ticks: rumble, song,
+// click, flash
+const ALARM_UP = [0, 36, 43, 43];
+// how loud one alarm tick may stand for (as sqrt of the callers it stands for): a shoal in alarm is a denser run, not
+// a crack
+const ALARM_FOR = 3;
 const SHAPES = [(i) => i, (i, n) => n - 1 - i, (i, n) => Math.min(i, n - 1 - i) * 2, (i) => [0, 2, 1, 3, 2, 4][i]];
 // level of the single voices fully zoomed in, relative to afar
 const CLOSE = 0.9;
@@ -76,7 +90,22 @@ export function tempoFor(speed) {
 }
 
 // how often (per second of music) one living cell sings: its species' pace, quicker when it moves
-const singRate = (v, spd, step) => (v ? 1 / (Math.max(1, v.rate) * step * 4) : 0.15) * (0.55 + 0.9 * Math.min(1, spd / 0.6));
+const pace = (v, step) => (v ? 1 / (Math.max(1, v.rate) * step * 4) : 0.15);
+const singRate = (v, spd, step) => pace(v, step) * (0.55 + 0.9 * Math.min(1, spd / 0.6));
+// With signals, a singer comes in at its species' pace × SONG_RATE × its song's amplitude now: it is in voice for
+// about a third of its cadence (K.signalDuty 0.3), so about 1/duty keeps a fed species about as busy as before, in
+// bursts. A species with no song gene sings the old way at MUTE_FLOOR: a quarter is present without standing level
+// with the singers (two in three of a fed singing species' cells are quiet at any moment, so its own pace is about
+// a third), and a world of mutes is a quiet chorus rather than dead air. A singer's notes are held to SING_HOLD
+// seconds after it was heard, so when it hushes the music thins within about a second.
+export const SONG_RATE = 2.5, MUTE_FLOOR = 0.25, SING_HOLD = 0.8;
+/** How often a sampled living cell sings (per second of music): v its species' voice (or none yet), spd its speed
+ * (0..1), song its song's amplitude now (0..1), signals whether the world has them. */
+export function cellRate(v, spd, song, step, signals) {
+  if (!signals) return singRate(v, spd, step);
+  const singer = v ? v.song > 0 : song > 0;
+  return singer ? pace(v, step) * SONG_RATE * song : singRate(v, spd, step) * MUTE_FLOOR;
+}
 
 export class Field {
   constructor(cond) {
@@ -138,6 +167,8 @@ export class Field {
       if (!v) continue;
       const line = o.role === 1 && v.motif.voice2 ? v.motif.voice2 : v.motif.notes;
       o.on = this.onset(v.motif, line, n[1], o.idb);
+      // (a singer's motif note further off than it was heard singing for: it may have hushed by then)
+      if (o.until && o.on.t > o.until) { n[2] = 0; continue; }
       n[1] = o.on.t;
       if (n[0] !== 'alive') continue;
       const key = `${o.slot}:${line === v.motif.notes ? 0 : 1}:${o.on.beat}`, u = unison.get(key);
@@ -171,8 +202,8 @@ export class Field {
     c.setTempo(tempoFor(m.speed) * (1 + 0.06 * c.warm));
     const wall = Math.max(1e-3, m.window / Math.max(m.speed, 1e-6));
     const S = LISTEN.stride, ev = m.ev, n = ev.length / S;
-    const comp = new Float32Array(8);
-    for (let t = 0; t < 8; t++) comp[t] = Math.min(12, Math.sqrt(m.inView[t] / Math.max(1, m.recorded[t])));
+    const comp = new Float32Array(10);
+    for (let t = 0; t < 10; t++) if (t !== 8) comp[t] = Math.min(12, Math.sqrt((m.inView[t] || 0) / Math.max(1, m.recorded[t] || 0)));
     const W = c.world, light = clamp(W.light, 0, 1.2), td = clamp(W.tide, 0, 1);
     const far = 1 - this.z;
     const dim = 0.4 + 0.6 * this.z;
@@ -206,11 +237,12 @@ export class Field {
     let rSum = 0, wSum = 0; // wSum: the sample's size counted at the others' sampling rate
     for (let i = 0; i < n; i++) if (ev[i * S] === 8) {
       const o = i * S, e = this.slots.get(ev[o + 1]), w = sampled && ev[o + 1] === sampled.sel ? Math.min(1, sampled.keep) : 1;
-      const r = singRate(e && e.v, ev[o + 5], c.step) * (ev[o + 1] === sel ? 1 + 0.6 * F : 1) * w;
+      const r = cellRate(e && e.v, ev[o + 5], ev[o + 9], c.step, m.signals) * (ev[o + 1] === sel ? 1 + 0.6 * F : 1) * w;
       alive.push([o, r, i]); rSum += r; wSum += w;
       perSp.set(ev[o + 1], (perSp.get(ev[o + 1]) || 0) + r);
     }
-    if (alive.length) {
+    // (none of them may be singing: a reef gone quiet)
+    if (alive.length && rSum > 0) {
       const nView = m.inView[8], want = (nView / Math.max(wSum, 1e-6)) * rSum * wall; // notes the whole view would sing
       for (const [o, r] of alive) crowd(ev[o + 1], ((want * r) / rSum) * toSwarm * focusGain(ev[o + 1]) ** 2);
       const cap = (4 + 4 * Math.min(1, this.act) + 10 * Math.min(1, want / (30 * wall))) * wall; // notes we play: more where more is going on
@@ -227,9 +259,11 @@ export class Field {
       for (const [o, r, i] of alive) {
         const slot = ev[o + 1], F = frag.get(slot) || 1;
         if (this.rnd() >= (play * r) / rSum / F) continue;
-        const energy = ev[o + 4];
+        const energy = ev[o + 4], t0 = now + LATENCY + this.rnd() * wall;
         const g = g0 * (0.6 + 0.4 * Math.min(1, energy)) * focusGain(slot);
-        this.play('alive', now + LATENCY + this.rnd() * wall, g, { slot, ...space(slot, ev[o + 2]), hue: ev[o + 6], idb: ev[o + 7], spd: ev[o + 5], role: ev[o + 8], frag: F, rec: [m.seq, i] });
+        // (a cell really singing: its notes only while it may still be)
+        const until = m.signals && ev[o + 9] > 0 ? t0 + SING_HOLD : 0;
+        this.play('alive', t0, g, { slot, ...space(slot, ev[o + 2]), hue: ev[o + 6], idb: ev[o + 7], spd: ev[o + 5], role: ev[o + 8], frag: F, until, rec: [m.seq, i] });
       }
     }
     // events
@@ -238,6 +272,11 @@ export class Field {
       if (ti === 8) continue;
       const type = LISTEN.types[ti], slot = ev[o + 1];
       if (AMP[type] == null) continue;
+      if (type === 'alarm') { // calling now: no age, and percussion, no grain of the swarm (heard a little from afar)
+        this.play(type, now + LATENCY + this.rnd() * wall, AMP.alarm * this.gd * Math.min(comp[ti], ALARM_FOR) * focusGain(slot) * Math.sqrt(0.3 + 0.7 * solo),
+          { slot, ...space(slot, ev[o + 2]), hue: ev[o + 6], idb: ev[o + 7], band: ev[o + 10] });
+        continue;
+      }
       let t = now + LATENCY - ev[o + 4] / Math.max(m.speed, 1e-6);
       if (t < now + 0.01) t = now + 0.01 + 0.03 * this.rnd();
       // from afar, every event joins the grains of its species; only life sparking from silt
@@ -306,6 +345,7 @@ export class Field {
       const k = (on.j + i) % line.length;
       const dt = (((line[k].at - line[on.j].at) % m.cycle) + m.cycle) % m.cycle;
       const ts = on.t + dt * c.step;
+      if (i && o.until && ts > o.until) break; // (a singer's stretch: only while it may still be singing)
       const midi = this.motifNote(v, line[k], ts, g * (second ? 0.6 : 1) * (i ? 0.85 : 1), o, k);
       if (first == null) first = midi;
       if (o.rec) this.sang.push([slot, ts - c.time, k, second ? 1 : 0, o.rec[0], o.rec[1], Math.min(10, line[k].dur * line[k].leg) * c.step, c.step]);
@@ -408,6 +448,7 @@ export class Field {
         c.at(t, 'bite', { freq: midicps(d2m((o.idb % 3) * 2 + piv, root, scale) - 12), amp: g, dec: 0.3, bright: (0.4 + 0.5 * o.hue) * o.dim, pan: o.pan, rev: o.wet(0.15) });
         c.at(t, 'tick', { freq: 2600 + 1400 * o.hue, amp: g * 0.5, dec: 0.025, pan: o.pan, rev: o.wet(0.2), dly: 0.05 });
         return;
+      case 'alarm': this.alarmCall(t, g, o); return;
       case 'eaten': // grazing and scavenging: water drops
         c.at(t, 'drop', { freq: midicps(d2m(7 + (o.idb % 8), root, scale)) * 2, amp: g, dec: this.rr(0.035, 0.08), rise: this.rr(1.3, 2.1), pan: o.pan, rev: o.wet(0.3), dly: 0.12 });
         return;
@@ -454,6 +495,21 @@ export class Field {
     const atk = this.rr(0.28, 0.45) / Math.sqrt(c.tempo);
     c.at(t, 'breath', { freq: midicps(Math.min(midi, 88)), amp: g, atk, sus: atk * 0.35, rel: atk * 2.4, glide: -this.rr(0.08, 0.12),
       bright: 0.3 * o.dim, pan: o.pan, rev: o.wet(0.45), dly: 0.1 });
+  }
+
+  // A cell calling its alarm: a dry double tick from where it is, on its species' note in the register of its alarm's
+  // band (ALARM_UP above its voice): a rumble's a low wooden knock, a song's or a click's a snapping tick, higher for
+  // a click, a flash's a glassy glint. A shoal taking up the alarm is heard as a run of them.
+  alarmCall(t, g, o) {
+    const c = this.c, { root, scale } = c, piv = c.pivot, v = this.slots.get(o.slot)?.v, band = o.band | 0;
+    const base = v ? d2m(v.motif.notes[0].deg + piv, root, scale) + 12 * (v.oct - BAND_OCT[v.band ?? 1]) : d2m(Math.floor(o.hue * 7) + piv, root, scale) + 12;
+    const midi = base + ALARM_UP[band], pan = o.pan, rev = o.wet(0.08);
+    for (let i = 0; i < 2; i++) {
+      const ti = t + i * 0.065, a = g * (i ? 0.6 : 1), f = midicps(midi - (i ? 2 : 0));
+      if (band === 0) c.at(ti, 'wood', { freq: clamp(f, 60, 400), amp: a * 1.2, dec: 0.09, bright: 0.25 * o.dim, pan, rev });
+      else if (band === 3) c.at(ti, 'glint', { freq: clamp(f, 1500, 7000), amp: a * 0.6, dec: 0.05, pan, rev, dly: 0.05 });
+      else c.at(ti, 'tick', { freq: clamp(f, 900, 6500), amp: a, dec: band === 2 ? 0.012 : 0.022, pan, rev, dly: 0.03 });
+    }
   }
 
   // A few of a kind of sound per second at most: one is spent if the budget, refilled at `rate` a

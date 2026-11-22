@@ -7,7 +7,8 @@ import { Conductor } from '../src/audio/conductor.js';
 import { LISTEN, LISTEN_REC as REC, decodeRecords, recordCells, keepFor, hearing, D_REF, digest } from '../src/audio/listen.js';
 import { LISTEN_TYPES, LISTEN_REC } from '../src/shaders.js';
 import { d2m } from '../src/audio/conductor.js';
-import { tempoFor } from '../src/audio/field.js';
+import { tempoFor, cellRate, SONG_RATE, MUTE_FLOOR } from '../src/audio/field.js';
+import { BAND_VOICE } from '../src/audio/listen.js';
 import { palette, ENSEMBLE, OVERTURES, THEMES } from '../src/audio/score.js';
 import { eraMusic, worldHash, STEP } from '../src/audio/conductor.js';
 
@@ -411,4 +412,99 @@ test('the hand is heard: each act its sound, held sounds one voice each, the ice
   // riding: the rest of the field steps back; steered, the water rushes past
   hand({ ev: 'state', tool: 'none', ride: true, will: 1 }); run(2);
   assert.ok(cond.hand.duck < 0.6 && eng.nodes.get(cond.hand.held.rush.id).p.amp > 0.08);
+});
+
+// a living cell's third word as LISTEN_WGSL's callWord packs it: energy toward division (0..1.5), a call (0..1), its band
+const callWord = (energy, a, band) => (Math.round((energy / 1.5) * 65535) | (Math.round(a * 255) << 16) | (band << 24)) >>> 0;
+
+test('a living cell\'s record carries its song now, an alarm record its alarm, each with its band', () => {
+  const u = new Uint32Array(3 * REC), f = new Float32Array(u.buffer);
+  u[0] = 8 | (12 << 4); u[2] = callWord(0.75, 0.6, 2);
+  u[REC] = 9 | (12 << 4); u[REC + 2] = callWord(1.5, 1, 0);
+  u[2 * REC] = 3; f[2 * REC + 2] = 0.04; // an event keeps its age
+  const { ev, recorded } = decodeRecords(u, f), S = LISTEN.stride;
+  assert.ok(Math.abs(ev[4] - 0.75) < 1e-4 && Math.abs(ev[9] - 0.6) < 3e-3 && ev[10] === 2);
+  assert.equal(ev[S], 9); assert.ok(Math.abs(ev[S + 4] - 1.5) < 1e-4 && ev[S + 9] === 1 && ev[S + 10] === 0);
+  assert.ok(Math.abs(ev[2 * S + 4] - 0.04) < 1e-7 && ev[2 * S + 9] === 0);
+  assert.equal(recorded[8], 1); assert.equal(recorded[9], 1); assert.equal(recorded[3], 1);
+  // the scan's count of alarm callers rides as the last of inView, and is sampled to its target
+  const m = digest({ records: u, f32: f, window: 0.1, view: { hx: 1, hy: 1 }, inView: [0, 0, 0, 0, 0, 0, 0, 0], outView: [0, 0, 0, 0, 0, 0, 0, 0], living: 50, livingAll: 50, speed: 0.1, alarm: 500 }, { signals: true });
+  assert.equal(m.msg.inView.length, LISTEN.types.length); assert.equal(m.msg.inView[9], 500); assert.equal(m.msg.signals, true);
+  assert.ok(Math.abs(m.keep[9] - (LISTEN.target[9] * 0.1) / 500) < 1e-12);
+});
+
+test('who sings: with signals, singers as loud as they sing now, mutes faintly; without, everyone as before', () => {
+  const v = { rate: 2, song: 0.7 }, mute = { rate: 2, song: 0 }, step = STEP;
+  const old = cellRate(v, 0.5, 0, step, false);
+  assert.equal(cellRate(v, 0.5, 0.9, step, false), old, 'without signals the song changes nothing');
+  assert.equal(cellRate(v, 0.5, 0, step, true), 0, 'a hushed singer is silent');
+  assert.ok(Math.abs(cellRate(v, 0.5, 1, step, true) - SONG_RATE / (2 * step * 4)) < 1e-9, 'in full voice, at its pace times SONG_RATE');
+  assert.equal(cellRate(v, 0.9, 0.5, step, true), cellRate(v, 0, 0.5, step, true), 'a singer sings by its song, not by how it moves');
+  assert.ok(Math.abs(cellRate(mute, 0.5, 0, step, true) - MUTE_FLOOR * cellRate(mute, 0.5, 0, step, false)) < 1e-12, 'a mute at the floor');
+  assert.equal(cellRate(null, 0.5, 0, step, true), MUTE_FLOOR * cellRate(null, 0.5, 0, step, false), 'unknown and silent: a mute');
+  assert.ok(cellRate(null, 0.5, 0.8, step, true) > 0, 'unknown but singing: a singer');
+});
+
+test('a silent reef: singers that hush stop coming in, and come back when they sing', () => {
+  const eng = new Engine(48000, { seed: 4 }), cond = new Conductor(eng, { seed: 4 }), f = cond.field;
+  const ga = finalizeGenome(archetypeGenome('grazer', rng(41))), gb = finalizeGenome(archetypeGenome('grazer', rng(42)));
+  ga.call = [0.8, 0.3, 0, 0]; gb.call = [0, 0, 0, 0]; // a singer (in the song band) and a mute
+  cond.message({ type: 'slots', all: true, slots: [{ slot: 9, serial: 90, voice: voiceOf(ga), pop: 30 }, { slot: 10, serial: 100, voice: voiceOf(gb), pop: 30 }] });
+  const msg = (song) => {
+    const n = 40, u = new Uint32Array(REC * n), fl = new Float32Array(u.buffer);
+    for (let i = 0; i < n; i++) { u[i * REC] = 8 | ((i < 20 ? 9 : 10) << 4) | (i << 16) | (128 << 24); u[i * REC + 1] = (i * 1500) | (30000 << 16); u[i * REC + 2] = callWord(0.8, i < 20 ? song : 0, 1); u[i * REC + 3] = 0xff3080ff; }
+    return digest({ records: u, f32: fl, window: 0.1, view: { hx: 0.6, hy: 0.6 }, inView: [0, 0, 0, 0, 0, 0, 0, 0], outView: [0, 0, 0, 0, 0, 0, 0, 0], living: 40, livingAll: 40, speed: 0.3 }, { speed: 1, signals: true }).msg;
+  };
+  const sung = (song) => {
+    const count = { 9: 0, 10: 0 };
+    for (let k = 0; k < 200; k++) { f.plan = []; f.collect(msg(song)); for (const n of f.plan) if (n[0] === 'alive') count[n[3].slot]++; f.plan = null; }
+    return count;
+  };
+  const singing = sung(0.8), hushed = sung(0), again = sung(0.8);
+  assert.ok(singing[9] > 4 * singing[10], `singers lead: ${singing[9]} vs mutes ${singing[10]}`);
+  assert.equal(hushed[9], 0, 'hushed singers are not heard');
+  assert.ok(hushed[10] > 0, 'the mutes are still faintly there');
+  assert.ok(again[9] > 0.5 * singing[9], 'singing again, heard again');
+  // a view of singers only, every one hushed: silence, and the level riding unharmed
+  const quiet = () => { const u = new Uint32Array(REC * 5), fl = new Float32Array(u.buffer); for (let i = 0; i < 5; i++) { u[i * REC] = 8 | (9 << 4); u[i * REC + 2] = callWord(0.8, 0, 1); } return digest({ records: u, f32: fl, window: 0.1, view: { hx: 0.6, hy: 0.6 }, inView: [0, 0, 0, 0, 0, 0, 0, 0], outView: [0, 0, 0, 0, 0, 0, 0, 0], living: 5, livingAll: 5, speed: 0.3 }, { speed: 1, signals: true }).msg; };
+  for (let k = 0; k < 5; k++) cond.message(quiet());
+  assert.ok(Number.isFinite(f.agc) && Number.isFinite(f.power), `agc ${f.agc} power ${f.power}`);
+  // a singer's notes are held to about a second after it was heard
+  f.plan = []; f.collect(msg(0.8));
+  for (const n of f.plan) if (n[0] === 'alive' && n[3].slot === 9) assert.ok(n[3].until > 0 && n[3].until - n[1] <= 0.8 + 1e-9);
+  f.plan = null;
+});
+
+test('an alarm call ticks from where the cell is, in its band\'s register', () => {
+  const eng = new Engine(48000, { seed: 3 }), cond = new Conductor(eng, { seed: 3 });
+  const g = finalizeGenome(archetypeGenome('grazer', rng(5)));
+  cond.message({ type: 'slots', all: true, slots: [{ slot: 9, serial: 90, voice: voiceOf(g), pop: 30 }] });
+  const heard = [];
+  const spawn0 = eng.spawn.bind(eng);
+  eng.spawn = (d, p, id) => { if (id == null) heard.push([d, p]); return spawn0(d, p, id); };
+  const scan = (band) => {
+    const u = new Uint32Array(REC), fl = new Float32Array(u.buffer);
+    u[0] = 9 | (9 << 4); u[1] = 60000 | (30000 << 16); u[2] = callWord(1, 1, band); u[3] = 0xff3080ff;
+    return digest({ records: u, f32: fl, window: 0.1, view: { hx: 0.6, hy: 0.6 }, inView: [0, 0, 0, 0, 0, 0, 0, 0], outView: [0, 0, 0, 0, 0, 0, 0, 0], living: 1, livingAll: 1, speed: 0, alarm: 1 }, { speed: 1, signals: true }).msg;
+  };
+  const kinds = [];
+  for (const band of [0, 1, 2, 3]) {
+    heard.length = 0; cond.message(scan(band)); renderBars(cond, 0.25);
+    const a = heard.filter(([d]) => d === 'tick' || d === 'wood' || d === 'glint');
+    assert.equal(a.length, 2, `band ${band}: a double tick`);
+    assert.ok(a.every(([, p]) => p.pan > 0.5), 'from the right, where the cell is');
+    kinds.push(a[0][0]);
+  }
+  assert.deepEqual(kinds, ['wood', 'tick', 'tick', 'glint']);
+});
+
+test('a species\' song band shifts its register: rumble down and darker, click and flash up', () => {
+  const g = finalizeGenome(archetypeGenome('grazer', rng(77)));
+  const at = (band) => voiceOf({ ...g, call: [0.6, (band + 0.5) / 4, 0, 0] });
+  const base = voiceOf({ ...g, call: [0, 0, 0, 0] }), song = at(1);
+  assert.equal(song.oct, base.oct); assert.equal(song.mat, base.mat); assert.equal(song.bright, base.bright);
+  assert.equal(at(0).oct, base.oct - 1); assert.ok(at(0).bright < base.bright && at(0).dec > base.dec);
+  assert.equal(at(2).oct, base.oct + 1); assert.ok(at(2).dec < base.dec);
+  assert.equal(at(3).mat, 'glass'); assert.equal(at(3).oct, base.oct + BAND_VOICE[3].oct);
+  assert.equal(voiceOf({ ...g, call: [0, 0.9, 0, 0] }).oct, base.oct, 'a mute sings as it did, whatever its band gene');
 });

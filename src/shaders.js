@@ -4369,9 +4369,11 @@ fn watchArgs() {
 // exact, in and out of the view; in-view events are kept with a per-type probability (set from the
 // previous scan's counts) so the sample is unbiased when there are more than the audio can play.
 // Nothing here is written back to the simulation.
-// 'alive' is not an event: a fair sample of the living cells in view, so each one can sing. 'woke' is a cell
-// woken from a cyst (cystStep: cause WOKE, its age restarted).
-export const LISTEN_TYPES = ['birth', 'mutation', 'spark', 'starved', 'old', 'killed', 'eaten', 'woke', 'alive'];
+// 'alive' is not an event: a fair sample of the living cells in view, so each one can sing, with what it sings
+// now (voiceShown: its song's amplitude and band). 'woke' is a cell woken from a cyst (cystStep: cause WOKE, its
+// age restarted). 'alarm' is a cell calling its alarm now (voiceShown's y), a state rather than a moment, sampled
+// like the events (a cell may be recorded both alive and alarmed).
+export const LISTEN_TYPES = ['birth', 'mutation', 'spark', 'starved', 'old', 'killed', 'eaten', 'woke', 'alive', 'alarm'];
 export const LISTEN_CAP = 512;
 export const LISTEN_HEAD = 32; // u32 words before the records
 export const LISTEN_REC = 6; // u32 words per record
@@ -4452,13 +4454,35 @@ struct ListenU {
 @group(0) @binding(5) var<storage, read> intent: array<vec4u>;
 ${shownWater('lu.world')}// layout: [0,8) in-view events per type, [8,16) out of view, 16 living in view, 17 their summed
 // speed (x1000), 18 living everywhere, 19 their summed speed (x1000), 20 particles in view,
-// 21 records written, then records of ${LISTEN_REC} words from word 32.
-var<workgroup> wc: array<atomic<u32>, 21>;
+// 21 records written, 22 cells in view calling their alarm, then records of ${LISTEN_REC} words from word 32.
+var<workgroup> wc: array<atomic<u32>, 23>;
 
+// A record (word 21 counts them): type | slot << 4 | cell type << 14 | id byte << 16 | speed << 24; where in
+// the view (unorm pairs); w2 (events: their age, when they happened; 'alive' and 'alarm': energy toward their
+// next division over 1.5 as unorm16 | the call's amplitude as a byte << 16 | its band << 24); color; velocity
+// (half floats); particle id (the page marks the cells that sing)
+fn record(t: u32, p: Particle, d: vec2f, speed: f32, w2: u32) {
+  let r = atomicAdd(&lout[21], 1u);
+  if (r >= ${LISTEN_CAP}u) { return; }
+  let o = ${LISTEN_HEAD}u + r * ${LISTEN_REC}u;
+  let uv = clamp(d / lu.half * 0.5 + 0.5, vec2f(0.0), vec2f(1.0));
+  atomicStore(&lout[o], t | ((p.kind & 1023u) << 4u) | (((p.info >> 4u) & 3u) << 14u) | ((p.id & 255u) << 16u)
+    | (u32(clamp(speed / lu.vscale, 0.0, 1.0) * 255.0) << 24u));
+  atomicStore(&lout[o + 1u], pack2x16unorm(uv));
+  atomicStore(&lout[o + 2u], w2);
+  atomicStore(&lout[o + 3u], p.col);
+  atomicStore(&lout[o + 4u], pack2x16float(p.vel));
+  atomicStore(&lout[o + 5u], p.id);
+}
+fn kept(p: Particle, t: u32, keep: f32) -> bool { return f32(pcgHash(p.id ^ pcgHash(lu.seed + t)) >> 8u) / 16777216.0 < keep; }
+// a living cell's w2: its energy toward division, and a call (amplitude 0..1, its band as the genome holds it)
+fn callWord(p: Particle, g: Genome, a: f32, band: f32) -> u32 {
+  return u32(clamp(p.energy / g.reproE / 1.5, 0.0, 1.0) * 65535.0) | (u32(saturate(a) * 255.0 + 0.5) << 16u) | (voiceBand(band) << 24u);
+}
 
 @compute @workgroup_size(256)
 fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation_index) l: u32) {
-  if (l < 21u) { atomicStore(&wc[l], 0u); }
+  if (l < 23u) { atomicStore(&wc[l], 0u); }
   workgroupBarrier();
   let i = gid.x;
   if (i < lu.count) {
@@ -4477,11 +4501,13 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
       if (life) { atomicAdd(&wc[16], 1u); atomicAdd(&wc[17], u32(min(speed, 50.0) * 1000.0)); }
     }
     var t = NONE;
+    // what a living cell in view calls now (zero without signals, and while torpid: lifeMain calls nothing then)
+    var voice = vec2f(0.0);
     if (life && inView) {
       let g = genomes[p.kind];
       let it = intent[i];
       let warmth = ${shownWarmth('waterTempAt(p.pos)', 'g', 'it')};
-      if (!${shownThermal('g', 'warmth')}.torpid) { t = 8u; }
+      if (!${shownThermal('g', 'warmth')}.torpid) { t = 8u; voice = voiceShown(it); }
     }
     let code = p.info & 15u;
     if (eventIn(p, code, lu.window, lu.slack)) {
@@ -4501,26 +4527,21 @@ fn listenMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocati
       if (t < 8u) { atomicAdd(&wc[select(8u + t, t, inView)], 1u); }
       var keep = lu.keep[t / 4u][t % 4u];
       if (t == 8u && p.kind == lu.selKind) { keep = 1.0; }
-      if (inView && f32(pcgHash(p.id ^ pcgHash(lu.seed + t)) >> 8u) / 16777216.0 < keep) {
-        let r = atomicAdd(&lout[21], 1u);
-        if (r < ${LISTEN_CAP}u) {
-          let o = ${LISTEN_HEAD}u + r * ${LISTEN_REC}u;
-          let uv = clamp(d / lu.half * 0.5 + 0.5, vec2f(0.0), vec2f(1.0));
-          atomicStore(&lout[o], t | ((p.kind & 1023u) << 4u) | (((p.info >> 4u) & 3u) << 14u) | ((p.id & 255u) << 16u)
-            | (u32(clamp(speed / lu.vscale, 0.0, 1.0) * 255.0) << 24u));
-          atomicStore(&lout[o + 1u], pack2x16unorm(uv));
-          // events: their age (when they happened); living cells: energy toward their next division
-          atomicStore(&lout[o + 2u], bitcast<u32>(select(p.age, clamp(p.energy / genomes[p.kind].reproE, 0.0, 1.5), t == 8u)));
-          atomicStore(&lout[o + 3u], p.col);
-          // where it is going and which particle it is (the page marks the cells that sing)
-          atomicStore(&lout[o + 4u], pack2x16float(p.vel));
-          atomicStore(&lout[o + 5u], p.id);
-        }
+      if (inView && kept(p, t, keep)) {
+        if (t == 8u) {
+          let g = genomes[p.kind];
+          record(t, p, d, speed, callWord(p, g, voice.x, g.call.y));
+        } else { record(t, p, d, speed, bitcast<u32>(p.age)); }
       }
+    }
+    // a cell calling its alarm now (in view only): counted, and sampled down to what the audio plays
+    if (voice.y > 0.02) {
+      atomicAdd(&wc[22], 1u);
+      if (kept(p, 9u, lu.keep[2][1])) { let g = genomes[p.kind]; record(9u, p, d, speed, callWord(p, g, voice.y, g.call.w)); }
     }
   }
   workgroupBarrier();
-  if (l < 21u) {
+  if (l < 23u && l != 21u) {
     let v = atomicLoad(&wc[l]);
     if (v > 0u) { atomicAdd(&lout[l], v); }
   }

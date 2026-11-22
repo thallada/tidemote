@@ -84,8 +84,14 @@ until one (Begin, or a click or key anywhere): its first moments are seen and he
 Every few frames a read-only GPU pass (`LISTEN_WGSL`) looks at the camera's rectangle. A
 particle's age restarts at each change of state and its info bits say why, so the pass finds every birth, mutation, spark of abiogenesis, death (starved, old age or
 killed), grazing or scavenging bite and cell waking from a cyst since the last scan, with its exact time and
-place, and it samples the living cells in view. Each living cell sings: now and then it comes in on
-its species' song, more often when it moves. Events are accents: a birth rings, a kill bites,
+place, and it samples the living cells in view with what each is calling now. The cells sing when
+they really call: with signals in the water a cell comes in on its species' song as often as it is
+singing (in bursts with its species' cadence, while fed, hushed when it hears a band it shuns), so a
+reef that falls silent is heard thinning within a second; a species with no song comes in now and
+then, more often when it moves, at a quarter of that, and without signals every cell sings that way.
+The band a species sings in sets its register (rumble an octave down and darker, click an octave up
+and shorter, flash a glassy shimmer). A cell calling its alarm ticks, dry and close, from where it
+is, so an alarm passing through a shoal is a run of clicks. Events are accents: a birth rings, a kill bites,
 grazing drips, a dying cell falls, a waking cell stirs (a soft breath rising onto its species' note,
 a few a second at most when rain wakes the resting bank), and movement rustles.
 
