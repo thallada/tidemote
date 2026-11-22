@@ -43,7 +43,52 @@ export const TUNE = {
   sample: 10, // simulated seconds between samples of a species
   short: 20 * MIN, // how far back the fine samples reach
   long: 4 * 3600, // and the coarse ones (one a minute)
+  voiceGap: 20 * MIN, // the world's voices (ears, bands) at most this often, all of them together
 };
+
+// The world's voices (detectVoices, detectEars): when enough of the living sing for a chorus, and how far it must fall
+// for a quiet (founders sing at a third: a chorus is half, and the quiet a tenth, each held a while)
+export const VOICE = {
+  chorus: 0.5, // the share of the living that carry a song for a chorus
+  arm: 0.4, // and under which it must have been before (a world that starts in chorus has not found its voice)
+  hold: 3 * MIN, // how long a chorus or a quiet must hold before it is so
+  quiet: 0.1, // the share of the living that sing, after a chorus, for a great quiet
+  choir: 4, // the established species that must sing for a chorus, or for one voice to be told
+  many: 0.15, // a band holding this share of the singers is one of the voices
+  one: 0.92, // and one band holding this share of them, after two or more voices, is one voice
+  band: 0.03, // a band's singers, of the living, for a band that is used (first used, or that falls silent after)
+  offer: 20 * MIN, // how long a moment of the voices stays on offer while it holds
+  ear: 0.3, // an ear's pull (or push, negative) for an ear drawn to (or shunning) a band
+  meals: 40, // the meals between eater and eaten (the last 20 minutes, the watched pairs) to know who eats whom
+};
+const bandOf = (x) => Math.min(3, Math.max(0, Math.floor((x || 0) * 4)));
+const BANDS = ['rumble', 'song', 'click', 'flash'];
+// i18n: a signal band, inside a sentence ("sings in the Click band"); the four bands, low to high: rumble, song, click, flash
+const bandWords = (b) => tr('chron.word.band', '{band, select, rumble {the Rumble band} song {the Song band} click {the Click band} other {the Flash band}}', { band: BANDS[b] });
+// i18n: the same, beginning a sentence ("The Click band has fallen silent")
+const bandWordsStart = (b) => tr('chron.word.band-start', '{band, select, rumble {The Rumble band} song {The Song band} click {The Click band} other {The Flash band}}', { band: BANDS[b] });
+// a genome's song: [loudness, band] (loudness 0 when it does not sing); its alarm; its ear on a band
+const songOf = (g) => [g.call?.[0] > 0 ? g.call[0] : 0, bandOf(g.call?.[1])];
+const alarmOf = (g) => [g.call?.[2] > 0 ? g.call[2] : 0, bandOf(g.call?.[3])];
+const earOf = (g, b) => g.ear?.[b] || 0;
+const freshVoices = () => ({
+  state: 'new', // new (not yet sampled), unarmed (in chorus from the start), armed, chorus, quiet
+  hi: null, lo: null, // since when the singing share has been at a chorus's height, or down to a quiet's (null: it is not)
+  again: false, // a chorus after a great quiet
+  peak: null, // the chorus at its height: [t, share, living]
+  singers: [], // the chorus's greatest singers (serials, at most 16)
+  offers: [], // moments on offer: { what, t, ... } (at most one of each what and band)
+  // per band: when its first established singer arose (-1: in the world's first minutes; null: none yet), whether its
+  // first use is past (told, or there from the start), its singers' greatest share of the living since it was last
+  // silent, and the most numerous singer then
+  bandFirst: [null, null, null, null], bandDone: [false, false, false, false], bandPeak: [0, 0, 0, 0], bandTop: [0, 0, 0, 0],
+  bandKinds: [0, 0, 0, 0], // and the most established species that sang in it at once since it was last silent
+  oneAt: null, // since when one band has held nearly all the singers (null: it does not)
+  many: 0, // the most voices (bands with VOICE.many of the singers) heard since one voice was last told
+  marks: [], // every 5 minutes, the singers of weight: { t, sp: [[serial, band, pop]] } (the last hour)
+  said: [], // [key, t] of the voices' stories told (the last 48)
+  lastTold: -1e9,
+});
 
 // The stories are whole messages (docs/i18n.md): names, numbers and durations come in as arguments, the
 // variants (guilds, causes, directions, turns of phrase) as selects on keys, and the logic reads only keys
@@ -164,6 +209,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       hand: null, handTold: [], wry: -1e9, // the hand's act waiting to be told; those told, [t, tool, wry]; its last wry line
       ext: [], // [t, serial] of established species lost, for waves of extinction
       voice: {}, // per kind, how many times it has spoken (vary: its turns of phrase take turns)
+      song: freshVoices(), // the world's voices: chorus and quiet, its bands, the stories of them told
     };
   }
   reset();
@@ -1037,8 +1083,249 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     }
   }
 
-  const FAST = [detectCollapse, detectGuilds, detectExtinctions, detectReign, detectSwings, detectFirsts];
-  const SLOW = [detectArms, detectDiets, detectCycles, detectRanges, detectRadiation, detectTrends, detectMisc];
+  // ------------------------------------------------------------------ the world's voices
+  // From the census alone: each species' song (call: its loudness and band), its alarm, and its ear (drawn up or
+  // pushed down each band's slope), weighed by its cells; who eats whom from the watched pairs. A species "sings" if it
+  // carries a song at all (it sings while fed, on its cadence). Nothing here with signals off (K.signal 0, or no heat),
+  // where every one of these genes is zero.
+  const signals = !!(K.signal && K.heat);
+  const saidAt = (key) => { const s = S.song.said; for (let i = s.length - 1; i >= 0; i--) if (s[i][0] === key) return s[i][1]; return -1e9; };
+  // a story of the voices told: the family's gap begins, and its key (kept apart from S.told, bounded) is remembered
+  const said = (key, t, also) => () => {
+    const V = S.song;
+    V.lastTold = t;
+    if (key) { V.said.push([key, t]); if (V.said.length > 48) V.said.shift(); }
+    also?.();
+  };
+  // who sings, and in which band: { sing (cells), band: [cells ×4], top: [the most numerous established singer ×4], lead,
+  // kinds: established singing species, and bandKinds of them in each band }
+  function tally(reg) {
+    const band = [0, 0, 0, 0], top = [null, null, null, null], bandKinds = [0, 0, 0, 0];
+    let sing = 0, lead = null, kinds = 0;
+    for (const sp of reg.values()) {
+      if (!sp.alive || !sp.pop) continue;
+      const [a, b] = songOf(sp.genome);
+      if (!a) continue;
+      sing += sp.pop; band[b] += sp.pop;
+      if (!sp.established) continue;
+      kinds++; bandKinds[b]++;
+      if (!top[b] || sp.pop > top[b].pop) top[b] = sp;
+      if (!lead || sp.pop > lead.pop) lead = sp;
+    }
+    return { sing, band, top, lead, kinds, bandKinds };
+  }
+  // a moment of the voices, offered while it holds (VOICE.offer at most), so a story that loses its turn is not lost
+  const offer = (o) => { const V = S.song; if (!V.offers.some((x) => x.what === o.what && x.b === o.b)) V.offers.push(o); };
+  const unoffer = (what, b) => { const V = S.song; V.offers = V.offers.filter((x) => !(x.what === what && x.b === b)); };
+
+  // The first chorus and the great quiet, one voice left, a band first sung in and a band fallen silent.
+  function detectVoices(ctx, add) {
+    if (!signals) return;
+    const { reg, t, living } = ctx;
+    if (living < 500) return;
+    const V = S.song, v = tally(reg), share = v.sing / living;
+    // a chorus: half the living singing for three minutes, from under two fifths; a quiet: a tenth, after a chorus
+    if (V.state === 'new') V.state = share < VOICE.arm ? 'armed' : 'unarmed';
+    if (V.state === 'unarmed' && share < VOICE.arm) V.state = 'armed';
+    V.hi = share >= VOICE.chorus && v.kinds >= VOICE.choir ? (V.hi ?? t) : null;
+    V.lo = share <= VOICE.quiet ? (V.lo ?? t) : null;
+    if ((V.state === 'armed' || V.state === 'quiet') && V.hi != null && t - V.hi >= VOICE.hold) {
+      unoffer('quiet');
+      offer({ what: 'chorus', t, again: V.state === 'quiet' });
+      V.state = 'chorus'; V.peak = null;
+    }
+    if (V.state === 'chorus') {
+      if (!V.peak || share > V.peak[1]) {
+        V.peak = [t, share, living];
+        V.singers = [...reg.values()].filter((sp) => sp.alive && sp.established && songOf(sp.genome)[0]).sort((a, b) => b.pop - a.pop).slice(0, 16).map((sp) => sp.serial);
+      }
+      if (V.lo != null && t - V.lo >= VOICE.hold) {
+        // why: life itself crashed, or the singers were hunted out, or the silent simply outlasted them
+        let eaten = 0, deaths = 0;
+        for (const s of V.singers) {
+          const st = S.sp.get(s);
+          if (!st) continue;
+          const c = causesIn(st, t - 20 * MIN, t);
+          eaten += c[C.eaten]; deaths += c[C.starved] + c[C.old] + c[C.eaten] + c[C.scalded] + c[C.stranded];
+        }
+        const why = living < 0.4 * V.peak[2] ? 'crash' : deaths >= 20 && eaten >= 0.45 * deaths ? 'hunted' : 'outlasted';
+        unoffer('chorus');
+        offer({ what: 'quiet', t, why, at: V.peak[0], was: V.peak[1] });
+        V.state = 'quiet';
+      }
+    }
+    // the bands: first sung in (an established singer, after the world's first minutes), used, fallen silent
+    for (let b = 0; b < 4; b++) {
+      const f = v.band[b] / living;
+      if (v.top[b] && V.bandFirst[b] == null) V.bandFirst[b] = t < 3 * MIN ? -1 : t;
+      if (f >= VOICE.band && V.bandFirst[b] > 0 && !V.bandDone[b]) { V.bandDone[b] = true; offer({ what: 'first', t, b, at: V.bandFirst[b] }); }
+      if (f >= VOICE.band || V.bandFirst[b] === -1) V.bandDone[b] = true;
+      if (f > V.bandPeak[b]) { V.bandPeak[b] = f; if (v.top[b]) V.bandTop[b] = v.top[b].serial; }
+      V.bandKinds[b] = Math.max(V.bandKinds[b], v.bandKinds[b]);
+      // (a band one species held falls silent with it: its death is the story, not the band's)
+      if (V.bandPeak[b] >= VOICE.band && f < 0.002 && !v.top[b]) {
+        if (V.bandKinds[b] >= 3) offer({ what: 'silent', t, b, who: V.bandTop[b], peak: V.bandPeak[b] });
+        V.bandPeak[b] = 0; V.bandTop[b] = 0; V.bandKinds[b] = 0;
+      }
+    }
+    // one voice: a band holding nearly all the singers of a choir for three minutes, where two or more were heard
+    const b1 = v.band.indexOf(Math.max(...v.band));
+    const one = share >= 0.2 && v.kinds >= VOICE.choir && v.band[b1] >= VOICE.one * v.sing;
+    if (share >= 0.2 && v.kinds >= VOICE.choir) V.many = Math.max(V.many, v.band.filter((x) => x >= VOICE.many * v.sing).length);
+    V.oneAt = one ? (V.oneAt ?? t) : null;
+    if (one && V.many >= 2 && t - V.oneAt >= VOICE.hold && t >= T.warm) { offer({ what: 'one', t, b: b1, many: V.many }); V.many = 1; }
+    // what is on offer, while it holds
+    const holds = (o) => (o.what === 'chorus' ? V.state === 'chorus' && share >= 0.45
+      : o.what === 'quiet' ? V.state === 'quiet' && share <= 0.15
+        : o.what === 'first' ? v.band[o.b] >= 0.02 * living && v.top[o.b]
+          : o.what === 'silent' ? !v.top[o.b]
+            : v.band[o.b] >= 0.85 * v.sing);
+    V.offers = V.offers.filter((o) => t - o.t < VOICE.offer && holds(o));
+    for (const o of V.offers) add(voiceStory(o, ctx, v, share));
+  }
+  function voiceStory(o, ctx, v, share) {
+    const { reg, t } = ctx;
+    const V = S.song;
+    const done = said(o.what === 'chorus' || o.what === 'quiet' ? null : `${o.what}:${o.b}`, t, () => unoffer(o.what, o.b));
+    const band = o.b != null ? o.b : 0;
+    // (the bands' stories keep to the family's gap; the chorus and the quiet do not)
+    if ((o.what === 'first' || o.what === 'silent' || o.what === 'one') && t - V.lastTold < T.voiceGap) return null;
+    if (o.what === 'chorus') {
+      const lead = v.lead;
+      return { kind: 'chorus', score: o.again ? 0.65 : 0.7, col: lead?.genome.col ?? 0xffa0e3f1, subjects: lead ? [lead.serial] : [], key: 'voice:chorus', keyGap: 20 * MIN, onTold: done,
+        // i18n: the first chorus: {again}, yes after a great quiet; {part}: the share of the living that sing (chron.word.share);
+        // i18n: {name}: the most numerous singing species (a link) and {band} the band it sings in (chron.word.band), when {lead} is yes
+        html: tr('chron.voice.chorus', '<b>{again, select, yes {The pool has found its voice again.} other {The pool has found its voice.}}</b> Now {part} of its cells sing{lead, select, yes {, {name} the greatest of the choir, singing in {band}} other {}}.',
+          { again: o.again ? 'yes' : 'no', part: shareWords(share), lead: lead ? 'yes' : 'no', name: lead ? L(reg, lead.serial) : '', band: bandWords(songOf(lead?.genome ?? {})[1]) }) };
+    }
+    if (o.what === 'quiet') {
+      const n = share > 0 ? Math.max(2, Math.round(1 / share)) : 0;
+      return { kind: 'chorus', score: o.why === 'crash' ? (S.collapsed ? 0.45 : 0.62) : 0.75, col: 0xffa0e3f1, subjects: [], key: 'voice:quiet', keyGap: 20 * MIN, onTold: done,
+        // i18n: a great quiet after a chorus: {at}, when the most sang, on the world's clock (1:23:45), and {part} how many (chron.word.share); {none}: yes when none sing now,
+        // i18n: else one cell in {n} sings; {why}: crash (life itself fell), hunted (the singers were eaten), other (the silent outlasted them)
+        html: tr('chron.voice.quiet', '<b>A great quiet has fallen on the pool.</b> At {at}, {part} of its cells sang; now {none, select, yes {none sing} other {scarcely one in {n, number} sings}}{why, select, crash {, for the singers went down with the rest of life} hunted {, for the singers were hunted out and only the silent remain} other {, and the silent have outlasted the singers}}.',
+          { at: fmtClock(o.at), part: shareWords(o.was), none: n ? 'no' : 'yes', n, why: o.why }) };
+    }
+    if (o.what === 'one') {
+      const lead = v.top[band];
+      return { kind: 'chorus', score: 0.62, col: lead?.genome.col ?? 0xffa0e3f1, subjects: lead ? [lead.serial] : [], onTold: done,
+        // i18n: the singers thinned to one band: {part}, the share of the singers in it (chron.word.share); {band}: which (chron.word.band); {count}: how many bands were heard before, in words ({n} as a number);
+        // i18n: {name}: the most numerous species singing in it (a link), when {lead} is yes
+        html: tr('chron.voice.one', '<b>One voice now fills the water.</b> Of all that sing in the pool, {part} sing in {band}, where lately {count} bands were heard{lead, select, yes {; {name} is the greatest of the choir} other {}}.',
+          { part: shareWords(v.band[band] / Math.max(1, v.sing)), band: bandWords(band), count: numWord(o.many), n: o.many, lead: lead ? 'yes' : 'no', name: lead ? L(reg, lead.serial) : '' }) };
+    }
+    if (o.what === 'first') {
+      const lead = v.top[band];
+      return { kind: 'band', score: 0.62, col: lead.genome.col, subjects: [lead.serial], onTold: done,
+        // i18n: a band sung in for the first time: {band} (chron.word.band-start, beginning the sentence); {at}: when its first established singer arose, on the world's clock; {name}: its most numerous singer now (a link)
+        html: tr('chron.voice.first', '<b>A new voice in the water.</b> {band} had no singers of its own until {at}; now {name} and its kind fill it.',
+          { band: bandWordsStart(band), at: fmtClock(o.at), name: L(reg, lead.serial) }) };
+    }
+    // a band fallen silent
+    const who = o.who && reg.get(o.who) ? o.who : 0;
+    return { kind: 'band', score: o.peak >= 0.08 ? 0.64 : 0.6, col: 0xffa0e3f1, subjects: who && reg.get(who).alive ? [who] : [], onTold: done,
+      // i18n: a band no one sings in any longer: {band} (chron.word.band-start, beginning the sentence); {name}: the species that sang in it most at its height (a link), when {who} is yes
+      html: tr('chron.voice.silent', '{band} has fallen silent: no species in the pool sings in it now{who, select, yes {, where once {name} and its kind filled it} other {}}.',
+        { band: bandWordsStart(band), who: who ? 'yes' : 'no', name: who ? L(reg, who) : '' }) };
+  }
+
+  // Eavesdroppers (eaters drawn to the band their food sings in), prey that shun the band their hunters call in, and
+  // two singers that shared a band parting (one's descendants moved to another).
+  function detectEars(ctx, add) {
+    if (!signals) return;
+    const { reg, t, living, est } = ctx;
+    const V = S.song;
+    // every five minutes, the singers of weight (a fiftieth of the living), for the partings
+    if (t - (V.marks.at(-1)?.t ?? -1e9) >= 5 * MIN) {
+      const sp = [];
+      for (const s of reg.values()) {
+        if (!s.alive || !s.established || s.pop < 0.02 * living) continue;
+        const [a, b] = songOf(s.genome);
+        if (a) sp.push([s.serial, b, s.pop]);
+      }
+      V.marks.push({ t, living, sp: sp.sort((x, y) => y[2] - x[2]).slice(0, 40) });
+      while (V.marks.length && V.marks[0].t < t - 60 * MIN) V.marks.shift();
+    }
+    if (t < 20 * MIN || t - V.lastTold < T.voiceGap) return;
+    // who ate whom over the last twenty minutes, among the watched
+    const diet = new Map(), eaters = new Map();
+    const into = (m, a, b, n) => { let x = m.get(a); if (!x) m.set(a, (x = new Map())); x.set(b, n); };
+    for (const p of S.pairs.values()) {
+      const [, m] = pairSum(p, t - 20 * MIN, t);
+      if (m) { into(diet, p.h, p.q, m); into(eaters, p.q, p.h, m); }
+    }
+    const weighty = (sp) => sp.pop >= Math.max(3 * est, 0.01 * living);
+    const eater = (sp) => { const g = guildOf(sp); return g === 'predator' || g === 'grazer'; };
+    for (const [h, m] of diet) {
+      const [q, qm, sum] = topBy(m);
+      const hsp = reg.get(h), qsp = reg.get(q);
+      if (!hsp?.alive || !qsp?.alive || sum < VOICE.meals || qm < 0.4 * sum || !eater(hsp) || !weighty(hsp) || qsp.pop < 3 * est) continue;
+      const [qa, qb] = songOf(qsp.genome), [ha, hb] = songOf(hsp.genome);
+      // drawn to its food's band (and not to its own kind's: one that sings there too may only be gathering)
+      if (!qa || earOf(hsp.genome, qb) < VOICE.ear || (ha && hb === qb)) continue;
+      const key = `ear:${hsp.genus}:${qb}`;
+      if (t - saidAt(key) < 3 * 3600) continue;
+      const silent = !ha && !alarmOf(hsp.genome)[0];
+      add({ kind: 'ear', score: 0.6 + 0.08 * Math.min(1, hsp.pop / living / 0.05) + (silent ? 0.03 : 0), col: hsp.genome.col, subjects: [h, q], onTold: said(key, t),
+        // i18n: an eater drawn to the band its food sings in: {name} (a link); {guild}: grazer, or other (a predator); {silent}: yes when it makes no call of its own;
+        // i18n: {band}: the band (chron.word.band); {food}: what it eats most (a link), {share} of what it eats (chron.word.share)
+        html: tr('chron.voice.ear', '{guild, select, grazer {{name} finds its meadows by ear} other {{silent, select, yes {{name} hunts in silence, by ear} other {{name} hunts by ear}}}}: it is drawn to {band}, in which {food}, {share} of what it eats, sings. {guild, select, grazer {The song that keeps its food together gives it away.} other {The song that gathers its quarry’s kind now calls their hunters too.}}',
+          { guild: guildOf(hsp) === 'grazer' ? 'grazer' : 'predator', silent: silent ? 'yes' : 'no', name: L(reg, h), band: bandWords(qb), food: L(reg, q), share: shareWords(qm / sum) }) });
+    }
+    for (const [q, m] of eaters) {
+      const [h, hm, sum] = topBy(m);
+      const qsp = reg.get(q), hsp = reg.get(h);
+      if (!qsp?.alive || !hsp?.alive || sum < VOICE.meals || hm < 0.4 * sum || !eater(hsp) || !weighty(qsp)) continue;
+      // the band its eater calls in (its song, else its alarm), which it shuns
+      const [sa, sb] = songOf(hsp.genome), [aa, ab] = alarmOf(hsp.genome);
+      const calls = sa && earOf(qsp.genome, sb) <= -VOICE.ear ? 'song' : aa && earOf(qsp.genome, ab) <= -VOICE.ear ? 'alarm' : null;
+      if (!calls) continue;
+      const b = calls === 'song' ? sb : ab;
+      const key = `shun:${qsp.genus}:${b}`;
+      if (t - saidAt(key) < 3 * 3600) continue;
+      add({ kind: 'ear', score: 0.6 + 0.06 * Math.min(1, qsp.pop / living / 0.1), col: qsp.genome.col, subjects: [q, h], onTold: said(key, t),
+        // i18n: prey that shun the band their eater calls in: {name} (a link); {band}: the band (chron.word.band); {eater}: what eats it most (a link), {guild}: grazer, or other (a predator);
+        // i18n: {calls}: alarm when the eater's call there is its alarm, other its song; {sings}: yes when the prey sings itself (and so falls silent)
+        html: tr('chron.voice.shun', '{name} shuns {band}, in which {eater}, the {guild, select, grazer {grazer} other {hunter}} that takes it most, {calls, select, alarm {cries its alarm} other {sings}}: at the sound of it, its cells {sings, select, yes {fall silent and draw away} other {draw away}}.',
+          { name: L(reg, q), band: bandWords(b), eater: L(reg, h), guild: guildOf(hsp) === 'grazer' ? 'grazer' : 'predator', calls, sings: songOf(qsp.genome)[0] ? 'yes' : 'no' }) });
+    }
+    // partings: two species of weight that shared a band 30 to 50 minutes ago; now a descendant of one sings in another
+    // (its forebear fallen to half or less), and the other or its line still holds the band
+    const then = V.marks.find((x) => x.t >= t - 50 * MIN && x.t <= t - 30 * MIN);
+    if (!then) return;
+    const was = new Map(then.sp.map((x) => [x[0], x]));
+    const big = (x) => x[2] >= 0.03 * then.living;
+    for (const d of reg.values()) {
+      if (!d.alive || !d.established || d.pop < 0.02 * living || was.has(d.serial)) continue;
+      const [da, db] = songOf(d.genome);
+      if (!da) continue;
+      const line = new Set();
+      let a = d.ancestor, n = 0, A = null;
+      while (a && n++ < 200) { line.add(a); if (!A && was.has(a)) A = was.get(a); a = reg.get(a)?.ancestor; }
+      if (!A || A[1] === db || !big(A)) continue;
+      const asp = reg.get(A[0]);
+      if (asp?.alive && asp.pop > 0.5 * A[2]) continue;
+      for (const B of then.sp) {
+        if (B[0] === A[0] || B[1] !== A[1] || !big(B) || line.has(B[0])) continue;
+        const key = `part:${A[0]}:${B[0]}`;
+        if (saidAt(key) > -1e9) continue;
+        // who holds the band now: the other itself, or the most numerous of its line still singing there
+        const inBand = (sp) => sp?.alive && sp.pop >= 0.01 * living && songOf(sp.genome)[0] && songOf(sp.genome)[1] === B[1];
+        const bsp = reg.get(B[0]);
+        const holder = inBand(bsp) ? bsp : descendants(reg, B[0]).find(inBand);
+        if (!holder || line.has(holder.serial) || holder.serial === d.serial) continue;
+        add({ kind: 'band', score: 0.65, col: d.genome.col, subjects: [d.serial, holder.serial], onTold: said(key, t),
+          // i18n: two singers parting: {name} (a link), descended from {forebear} (a link), now sings in {to} (chron.word.band), leaving {from} (the band its forebear sang in) to {holder} (a link),
+          // i18n: the species (or a descendant of the one) that shared it with the forebear
+          html: tr('chron.voice.part', '{name}, descended from {forebear}, now sings in {to}, leaving {from} to {holder}, with whose line its forebears once shared it. Where two voices sang over one another, each now has a band of its own.',
+            { name: L(reg, d.serial), forebear: L(reg, A[0]), to: bandWords(db), from: bandWords(A[1]), holder: L(reg, holder.serial) }) });
+        break;
+      }
+    }
+  }
+
+  const FAST = [detectCollapse, detectGuilds, detectExtinctions, detectReign, detectSwings, detectFirsts, detectVoices];
+  const SLOW = [detectArms, detectDiets, detectCycles, detectRanges, detectRadiation, detectTrends, detectMisc, detectEars];
 
   // ------------------------------------------------------------------ the climate's news
   function snapshot(reg, living) {
@@ -1272,6 +1559,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       if (!o) return;
       Object.assign(S, o, { firsts: new Set(o.firsts || []), versions: new Map(), watch: { version: (o.watch?.version || 0) + 1, serials: new Array(SPL_WATCH).fill(0) }, lastReal: -1e9 });
       if (S.eraMark && !S.eraMark.snap) S.eraMark = null;
+      S.song = { ...freshVoices(), ...(o.song || {}) }; // (a save from before the voices, or with fewer of their fields)
     },
   };
 }

@@ -341,3 +341,145 @@ test('the hand is told as weather: what it did, where, and who came of it; a wry
   ch.note('hand', { t: 5900, act: { ...act, tool: 'needle', n: 7, at: 5800, end: 5810 }, before: new Map(), after: new Map(), world: [100, 60] });
   assert.match(ch.observe({ t: 5920, reg, now: 5e7 }).find((x) => x.kind === 'hand').html, /^A needle went through the western waters, and seven cells burst\.$/);
 });
+
+// ------------------------------------------------------------------ the world's voices
+// a species' signal genes: its song in band b (-1: none), its alarm in band a (-1: none), its ear (four values)
+const voiced = (b, { ear = [0, 0, 0, 0], a = -1, hunter = false } = {}) => (g) => {
+  g.call = [b >= 0 ? 0.8 : 0, (Math.max(b, 0) + 0.5) / 4, a >= 0 ? 0.8 : 0, (Math.max(a, 0) + 0.5) / 4];
+  g.ear = ear.slice();
+  if (hunter) { g.photo = 0; g.dFlesh = 1; g.dHusk = 0; g.dGlint = 0; }
+};
+const VOICE_KINDS = new Set(['chorus', 'band', 'ear']);
+const loose = { link: (s, n) => n, tune: { warm: 0, gapReal: 0, gapSim: 0, kindGap: 0, subjectGap: 0, storyEvery: 1 } };
+// ramp a species' cells from `from` to `to` over the steps i0 to i1
+const ramp = (w, sp, i, i0, i1, from, to) => { if (i >= i0 && i <= i1) w.set(sp, Math.round(from + (to - from) * (i - i0) / Math.max(1, i1 - i0))); };
+
+// four singers among the silent: a third of the living sing, then the silent dwindle (a chorus), then the singers are
+// hunted out (a great quiet), then the singers return (a chorus again)
+function chorusWorld(seed, gene = voiced) {
+  const w = world(seed);
+  const singers = [0, 1, 2, 3].map((i) => w.add('grazer', { genus: `S${i}`, pop: 300, mut: gene(i % 2) }));
+  const silent = [0, 1].map((i) => w.add('plankton', { genus: `Q${i}`, pop: 1400, mut: gene(-1) }));
+  const step = (w2, i) => {
+    for (const s of silent) { ramp(w2, s, i, 60, 180, 1400, 400); ramp(w2, s, i, 300, 420, 400, 2000); ramp(w2, s, i, 540, 660, 2000, 400); }
+    for (const s of singers) {
+      ramp(w2, s, i, 300, 420, 300, 30);
+      if (i >= 300 && i <= 420) w2.cause(s, 'eaten', 5);
+      ramp(w2, s, i, 540, 660, 30, 300);
+      w2.cause(s, 'born', 2);
+    }
+  };
+  return { w, step };
+}
+
+test('the first chorus, the great quiet, and the chorus again', () => {
+  const ch = createChronicler(loose);
+  const { w, step } = chorusWorld(31);
+  const told = run(ch, w, 800, 10, step).filter((s) => VOICE_KINDS.has(s.kind));
+  const texts = told.map((s) => `${(s.t / 60).toFixed(0)}m ${s.text}`).join(' | ');
+  const chorus = told.filter((s) => s.kind === 'chorus' && /found its voice/.test(s.text));
+  assert.equal(chorus.length, 2, texts);
+  assert.match(chorus[0].text, /^The pool has found its voice\. Now (half|two thirds) of its cells sing, S\d grazer\d+ the greatest of the choir, singing in the (Rumble|Song) band\.$/);
+  assert.ok(chorus[0].t >= 20 * 60 && chorus[0].t < 50 * 60, texts);
+  const quiet = told.find((s) => /great quiet/.test(s.text));
+  assert.ok(quiet && quiet.t > chorus[0].t && quiet.t < chorus[1].t, texts);
+  assert.match(quiet.text, /^A great quiet has fallen on the pool\. At [\d:]+, (half|two thirds) of its cells sang; now scarcely one in \d+ sings, for the singers were hunted out and only the silent remain\.$/);
+  assert.match(chorus[1].text, /^The pool has found its voice again\./);
+});
+
+test('no voices are told with signals off, or where no species carries a song or an ear', () => {
+  for (const [K, gene] of [[{ ...DEFAULT_K, signal: 0 }, voiced], [DEFAULT_K, () => voiced(-1)]]) {
+    const ch = createChronicler({ ...loose, K });
+    const { w, step } = chorusWorld(32, gene);
+    const told = run(ch, w, 800, 10, step);
+    assert.deepEqual(told.filter((s) => VOICE_KINDS.has(s.kind)).map((s) => s.text), []);
+  }
+});
+
+test('a world that starts in chorus has not found its voice', () => {
+  const ch = createChronicler(loose);
+  const w = world(33);
+  [0, 1, 2, 3].map((i) => w.add('grazer', { genus: `S${i}`, pop: 500, mut: voiced(i % 4) }));
+  w.add('plankton', { genus: 'Q', pop: 1000, mut: voiced(-1) });
+  const told = run(ch, w, 300, 10);
+  assert.ok(!told.some((s) => s.kind === 'chorus'), told.map((s) => s.text).join(' | '));
+});
+
+test('one voice: a choir that sang in two bands narrowed to one', () => {
+  const ch = createChronicler(loose);
+  const w = world(34);
+  [0, 1, 2, 3].map((i) => w.add('grazer', { genus: `S${i}`, pop: 400, mut: voiced(2) }));
+  const others = [0, 1].map((i) => w.add('grazer', { genus: `R${i}`, pop: 500, mut: voiced(0) }));
+  w.add('plankton', { genus: 'Q', pop: 4000, mut: voiced(-1) });
+  const told = run(ch, w, 300, 10, (w2, i) => { for (const s of others) ramp(w2, s, i, 60, 120, 500, 40); });
+  const one = told.filter((s) => s.kind === 'chorus');
+  assert.equal(one.length, 1, told.map((s) => s.text).join(' | '));
+  assert.match(one[0].text, /^One voice now fills the water\. Of all that sing in the pool, nearly all sing in the Click band, where lately two bands were heard; S\d grazer\d+ is the greatest of the choir\.$/);
+});
+
+test('a band first sung in, and a band of many singers fallen silent', () => {
+  const ch = createChronicler(loose);
+  const w = world(35);
+  const rumble = [0, 1, 2].map((i) => w.add('grazer', { genus: `R${i}`, pop: 300, mut: voiced(0) }));
+  [1, 2].map((b) => w.add('grazer', { genus: `S${b}`, pop: 800, mut: voiced(b) }));
+  w.add('plankton', { genus: 'Q', pop: 5000, mut: voiced(-1) });
+  let flash = null;
+  const told = run(ch, w, 400, 10, (w2, i) => {
+    if (i === 60) flash = w2.add('grazer', { genus: 'F', pop: 40, born: w2.t, mut: voiced(3) });
+    if (flash) ramp(w2, flash, i, 61, 120, 40, 900);
+    for (const s of rumble) ramp(w2, s, i, 200, 260, 300, 0);
+  }).filter((s) => VOICE_KINDS.has(s.kind));
+  const texts = told.map((s) => s.text).join(' | ');
+  assert.ok(told.some((s) => s.text === `A new voice in the water. The Flash band had no singers of its own until 10:10; now ${flash.name} and its kind fill it.`), texts);
+  assert.ok(told.some((s) => /^The Rumble band has fallen silent: no species in the pool sings in it now, where once R\d grazer\d+ and its kind filled it\.$/.test(s.text)), texts);
+});
+
+test('a hunter drawn to the band its prey sings in; prey that shun the band their hunter calls in', () => {
+  const ch = createChronicler(loose);
+  const w = world(36);
+  const prey = w.add('grazer', { genus: 'Thax', pop: 2000, mut: voiced(2, { ear: [0, -0.8, 0, 0] }) });
+  const hunter = w.add('hunter', { genus: 'Vorath', pop: 400, mut: voiced(1, { ear: [0, 0, 0.7, 0], hunter: true }) });
+  // a hunter drawn to its own kind's band, where its prey sings too, is only gathering: untold
+  const prey2 = w.add('grazer', { genus: 'Dru', pop: 2000, mut: voiced(3) });
+  const kin = w.add('hunter', { genus: 'Kel', pop: 400, mut: voiced(3, { ear: [0, 0, 0, 0.9], hunter: true }) });
+  w.add('plankton', { genus: 'Mo', pop: 4000, mut: voiced(-1) });
+  assert.equal(dietGuild(hunter.genome), 'predator');
+  const told = run(ch, w, 400, 10, (w2) => { w2.meal(ch, hunter, prey, 30, 10); w2.meal(ch, kin, prey2, 30, 10); }).filter((s) => s.kind === 'ear');
+  const texts = told.map((s) => s.text).join(' | ');
+  assert.ok(told.some((s) => s.text.startsWith(`${hunter.name} hunts by ear: it is drawn to the Click band, in which ${prey.name}, nearly all of what it eats, sings.`)), texts);
+  assert.ok(told.some((s) => s.text === `${prey.name} shuns the Song band, in which ${hunter.name}, the hunter that takes it most, sings: at the sound of it, its cells fall silent and draw away.`), texts);
+  assert.ok(!told.some((s) => s.text.includes(kin.name)), texts);
+  assert.ok(told.every((s) => s.t >= 20 * 60), 'not before the meals are known');
+  for (let i = 1; i < told.length; i++) assert.ok(told[i].t - told[i - 1].t >= TUNE.voiceGap, `the voices keep their gap: ${texts}`);
+});
+
+test('two singers part: one’s descendant moves to another band, leaving the old one to the other', () => {
+  const ch = createChronicler(loose);
+  const w = world(37);
+  const a = w.add('grazer', { genus: 'Thax', pop: 1500, mut: voiced(1) });
+  const b = w.add('grazer', { genus: 'Dru', pop: 1500, mut: voiced(1) });
+  w.add('plankton', { genus: 'Mo', pop: 5000, mut: voiced(-1) });
+  let d = null;
+  const told = run(ch, w, 400, 10, (w2, i) => {
+    if (i === 150) d = w2.add('grazer', { genus: 'Thax', pop: 50, born: w2.t, ancestor: a.serial, mut: voiced(3) });
+    if (d) { ramp(w2, d, i, 151, 210, 50, 1400); ramp(w2, a, i, 151, 210, 1500, 200); }
+  }).filter((s) => s.kind === 'band');
+  const texts = told.map((s) => s.text).join(' | ');
+  const part = told.filter((s) => /now sings in/.test(s.text));
+  assert.equal(part.length, 1, texts);
+  assert.equal(part[0].text, `${d.name}, descended from ${a.name}, now sings in the Flash band, leaving the Song band to ${b.name}, with whose line its forebears once shared it. Where two voices sang over one another, each now has a band of its own.`);
+});
+
+test('the voices keep to the budget, and their memory survives a save', () => {
+  const ch = createChronicler();
+  const { w, step } = chorusWorld(38);
+  const told = run(ch, w, 400, 10, step);
+  for (let i = 1; i < told.length; i++) assert.ok(told[i].t - told[i - 1].t >= TUNE.gapSim && told[i].now - told[i - 1].now >= TUNE.gapReal);
+  assert.ok(told.length <= (400 * 10) / TUNE.storyEvery + TUNE.storyCap);
+  assert.equal(told.filter((s) => /found its voice/.test(s.text)).length, 1, told.map((s) => s.text).join(' | '));
+  const ch2 = createChronicler();
+  ch2.load(unpack(pack(ch.save())));
+  assert.deepEqual(ch2.save().song, ch.save().song);
+  const again = run(ch2, w, 60, 10, (w2, i) => step(w2, 400 + i));
+  assert.equal(again.filter((s) => /found its voice/.test(s.text)).length, 0, 'told once');
+});
