@@ -38,7 +38,9 @@ const server = http.createServer((req, res) => {
   let file = url === '/tidemote.html' && args.page ? path.resolve(args.page) : path.join(dist, url === '/' ? 'tidemote.html' : url);
   if (!fs.existsSync(file)) file = path.join(path.resolve('site'), url);
   if (!fs.existsSync(file)) { res.writeHead(404); res.end(); return; }
-  res.writeHead(200, { 'content-type': 'text/html' });
+  // (as the site types them: the service worker registers only as script, src/pwa.js)
+  const type = { '.js': 'text/javascript', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.txt': 'text/plain' }[path.extname(file)] || 'text/html';
+  res.writeHead(200, { 'content-type': type });
   fs.createReadStream(file).pipe(res);
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));

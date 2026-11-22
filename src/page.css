@@ -738,6 +738,8 @@ body.set-grabbing, body.set-grabbing * { cursor: var(--grab-cursor) !important; 
 .about { user-select: text; -webkit-user-select: text; }
 .about p { margin: 0 0 var(--s3); color: var(--ink-2); line-height: 1.6; font-size: 13.5px; }
 .about p:last-child { margin-bottom: 0; }
+/* an icon within the words (the menu's Install page: the Share button) */
+.about .gm-ico { width: 1.15em; height: 1.15em; vertical-align: -0.2em; color: var(--ink); }
 .about button.link { font: inherit; font-weight: 500; letter-spacing: inherit; text-transform: none; padding: 0; min-height: 0; }
 .set-foot { display: flex; justify-content: space-between; align-items: center; gap: var(--s3); min-height: 34px; margin-top: var(--s4); padding-top: var(--s2); border-top: 1px solid var(--line); }
 .set-reset { margin-left: auto; }

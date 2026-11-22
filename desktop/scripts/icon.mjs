@@ -12,6 +12,16 @@ const png = (size) => new Resvg(svg, { fitTo: { mode: 'width', value: size } }).
 
 writeFileSync(new URL('icon.png', dir), png(512));
 
+// The web app's icons (site/manifest.webmanifest): the same icon at 192 and 512, and a maskable one with the tile to
+// the edges (a launcher cuts its own shape) and the waves within the central circle every shape keeps (80% across)
+const site = new URL('../../site/', import.meta.url);
+for (const s of [192, 512]) writeFileSync(new URL(`icon-${s}.png`, site), png(s));
+const bleed = String(svg)
+  .replace(/<rect x="80"[^>]*\/>\s*<rect x="86"[^>]*\/>/, '<rect width="1024" height="1024" fill="url(#tile)"/>')
+  .replace('<g transform="translate(80 71) scale(36)"', '<g transform="translate(512 512) scale(.82) translate(-512 -512) translate(80 71) scale(36)"');
+if (!bleed.includes('width="1024" height="1024"') || !bleed.includes('scale(.82)')) throw new Error('icon.svg changed: update the maskable icon\'s rewrite');
+writeFileSync(new URL('icon-maskable-512.png', site), new Resvg(bleed, { fitTo: { mode: 'width', value: 512 } }).render().asPng());
+
 // ICO: a 6-byte header, a 16-byte entry per image (256 written as 0), then the images
 const icoSizes = [16, 20, 24, 32, 40, 48, 64, 128, 256];
 const icoImages = icoSizes.map(png);

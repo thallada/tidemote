@@ -17,6 +17,9 @@
 <link rel="canonical" href="https://tidemote.com/">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%2306090a'/%3E%3Cpath d='M3 15c3-5 6-5 9 0s6 5 9 0' fill='none' stroke='%237fd6df' stroke-width='2'/%3E%3Cpath d='M3 9.5c3-5 6-5 9 0s6 5 9 0' fill='none' stroke='%237fd6df' stroke-width='2' opacity='.45'/%3E%3C/svg%3E">
 <link rel="apple-touch-icon" href="https://tidemote.com/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="Tidemote">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Tidemote">
 <meta property="og:url" content="https://tidemote.com/">
@@ -794,6 +797,8 @@ body.set-grabbing, body.set-grabbing * { cursor: var(--grab-cursor) !important; 
 .about { user-select: text; -webkit-user-select: text; }
 .about p { margin: 0 0 var(--s3); color: var(--ink-2); line-height: 1.6; font-size: 13.5px; }
 .about p:last-child { margin-bottom: 0; }
+/* an icon within the words (the menu's Install page: the Share button) */
+.about .gm-ico { width: 1.15em; height: 1.15em; vertical-align: -0.2em; color: var(--ink); }
 .about button.link { font: inherit; font-weight: 500; letter-spacing: inherit; text-transform: none; padding: 0; min-height: 0; }
 .set-foot { display: flex; justify-content: space-between; align-items: center; gap: var(--s3); min-height: 34px; margin-top: var(--s4); padding-top: var(--s2); border-top: 1px solid var(--line); }
 .set-reset { margin-left: auto; }
@@ -17479,9 +17484,9 @@ struct SV {
     if (!a.dev.grace && b.dev.grace) out.push(tr("song.diff.grace", "a grace note"));
     if (!out.length) {
       const k = Math.min(a.seq.length, b.seq.length);
-      let changed = Math.abs(a.seq.length - b.seq.length);
-      for (let i = 0; i < k; i++) if (a.seq[i] !== b.seq[i]) changed++;
-      if (changed) out.push(tr("song.diff.notes", "{n, plural, =1 {one note changed} =2 {two notes changed} =3 {three notes changed} =4 {four notes changed} =5 {five notes changed} =6 {six notes changed} =7 {seven notes changed} =8 {eight notes changed} =9 {nine notes changed} =10 {ten notes changed} =11 {eleven notes changed} =12 {twelve notes changed} =13 {thirteen notes changed} =14 {fourteen notes changed} other {# notes changed}}", { n: changed }));
+      let changed2 = Math.abs(a.seq.length - b.seq.length);
+      for (let i = 0; i < k; i++) if (a.seq[i] !== b.seq[i]) changed2++;
+      if (changed2) out.push(tr("song.diff.notes", "{n, plural, =1 {one note changed} =2 {two notes changed} =3 {three notes changed} =4 {four notes changed} =5 {five notes changed} =6 {six notes changed} =7 {seven notes changed} =8 {eight notes changed} =9 {nine notes changed} =10 {ten notes changed} =11 {eleven notes changed} =12 {twelve notes changed} =13 {thirteen notes changed} =14 {fourteen notes changed} other {# notes changed}}", { n: changed2 }));
     }
     return out;
   }
@@ -18807,12 +18812,12 @@ struct SV {
     // objects one or two deep that hold a promise), then makes the bind groups that need their layouts.
     async pipelinesReady(onProgress) {
       const total = this._pipes.reduce((a, p2) => a + p2.w, 0);
-      let done = 0;
+      let done2 = 0;
       onProgress?.(0);
       try {
         await Promise.all(this._pipes.map((p2) => p2.pr.then(() => {
-          done += p2.w;
-          onProgress?.(done / total);
+          done2 += p2.w;
+          onProgress?.(done2 / total);
         })));
       } catch (e) {
         throw new Error(e?.reason === "validation" ? `Shader compile failed:
@@ -20670,16 +20675,16 @@ ${e.message}` : String(e?.message || e));
       job.sent = true;
       return { n, m, job };
     }
-    _setDownRead(done, generation) {
+    _setDownRead(done2, generation) {
       const end = (v) => {
-        if (this.setDownJob === done.job) this.setDownJob = null;
-        done.job.resolve(v);
+        if (this.setDownJob === done2.job) this.setDownJob = null;
+        done2.job.resolve(v);
       };
       this.setDownStage.mapAsync(GPUMapMode.READ).then(() => {
         const u = new Uint32Array(this.setDownStage.getMappedRange().slice(0));
         this.setDownStage.unmap();
-        const placed = Math.min(u[0], done.n), at = 1 + PIPE_SP;
-        end(generation === this.worldGeneration ? { placed, slots: [...u.subarray(1, 1 + done.m)], ids: [...u.subarray(at, at + placed)] } : null);
+        const placed = Math.min(u[0], done2.n), at = 1 + PIPE_SP;
+        end(generation === this.worldGeneration ? { placed, slots: [...u.subarray(1, 1 + done2.m)], ids: [...u.subarray(at, at + placed)] } : null);
       }).catch(() => end(null));
     }
     // the cells taken at the pipette's tip since the last copy (read back: onTaken), and the bonds the needle cut
@@ -20798,7 +20803,7 @@ ${e.message}` : String(e?.message || e));
         simDt /= coarse2;
       }
       const nSteps = stepping ? Math.min(MAX_STEPS, Math.max(1, steps2 | 0)) : 0;
-      const finishing = !!this.halfOwed, half2 = split && nSteps === 1, pre = half2 ? 0 : nSteps, done = pre + finishing;
+      const finishing = !!this.halfOwed, half2 = split && nSteps === 1, pre = half2 ? 0 : nSteps, done2 = pre + finishing;
       const nRep = pre + (finishing + half2) / 2;
       const tm = this.timing;
       const slot = tm && !this.passProfile ? tm.reads.find((r) => !r.busy) : null;
@@ -20855,10 +20860,10 @@ ${e.message}` : String(e?.message || e));
         if (job) censusJobs.push(job);
       }
       if (pre > 1) d.queue.writeBuffer(b.simRing, 0, this.ringData, 0, pre * SIM_STRIDE);
-      const takeJob = done > 0 && (this.hand[26] > 0 || this.hand[17] > 0) ? this._takenCopy(enc) : null;
-      const listenJob = done > 0 ? this._listenCopy(enc, cam) : null;
+      const takeJob = done2 > 0 && (this.hand[26] > 0 || this.hand[17] > 0) ? this._takenCopy(enc) : null;
+      const listenJob = done2 > 0 ? this._listenCopy(enc, cam) : null;
       const mindJob = this._mindCopy(enc);
-      const surveyJob = done > 0 ? this._surveyCopy(enc) : null;
+      const surveyJob = done2 > 0 ? this._surveyCopy(enc) : null;
       if (lerpN) {
         const pass = enc.beginComputePass();
         pass.setPipeline(this.cpLerp);
@@ -21047,7 +21052,7 @@ ${e.message}` : String(e?.message || e));
         slot.buf.mapAsync(GPUMapMode.READ).then(() => {
           const t = new BigUint64Array(slot.buf.getMappedRange()), at = (i) => Number(t[i] - t[0]) / 1e6;
           const ms = at(half2 ? 3 : 1);
-          const simMs = !nRep ? 0 : !target2 ? ms : (done ? at(2) : 0) + (half2 ? at(3) - at(1) : 0);
+          const simMs = !nRep ? 0 : !target2 ? ms : (done2 ? at(2) : 0) + (half2 ? at(3) - at(1) : 0);
           slot.buf.unmap();
           slot.busy = false;
           if (generation === this.worldGeneration && ms > 0 && ms < 5e3 && this.onGpuTime) this.onGpuTime(ms, N, nRep, simMs > 0 && simMs <= ms ? simMs : null, drew);
@@ -23935,14 +23940,14 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       return !g || Math.abs(g.at - nt.at) > 1e-6 || Math.abs(g.deg - nt.deg) > 1e-6;
     }) : [];
     const riff = moved.filter(Boolean).length <= Math.max(1, m.notes.length * 0.6);
-    const changed = (nt, k) => riff && moved[k];
+    const changed2 = (nt, k) => riff && moved[k];
     s += `<path class="contour" style="stroke:${col}" d="${m.notes.slice(1).map((nt, k) => {
       const a = m.notes[k];
       return `M${r1(x(a.at) + barLen(a))} ${r1(y(a.deg))}L${r1(x(nt.at))} ${r1(y(nt.deg))}`;
     }).join("")}"/>`;
     m.notes.forEach((nt, k) => {
       if (nt.grace != null) s += `<circle class="grace" cx="${r1(x(nt.at) - 2.5)}" cy="${r1(y(nt.grace))}" r="1.3" style="fill:${col}"/>`;
-      s += bar(nt, `nt${changed(nt, k) ? " changed" : ""}`, ` data-k="${k}" data-l="0" data-at="${nt.at}" style="fill:${col};fill-opacity:${(0.35 + 0.55 * nt.acc).toFixed(2)}"`);
+      s += bar(nt, `nt${changed2(nt, k) ? " changed" : ""}`, ` data-k="${k}" data-l="0" data-at="${nt.at}" style="fill:${col};fill-opacity:${(0.35 + 0.55 * nt.acc).toFixed(2)}"`);
       s += `<path class="on" d="M${r1(x(nt.at))} ${r1(y(nt.deg) - bh / 2 - 2)}v${r1(bh + 4)}" style="stroke:${col}"/>`;
       if (Math.round(nt.deg) !== nt.deg) s += `<path class="chrom" d="M${r1(x(nt.at))} ${r1(y(nt.deg) - bh / 2 - 2.5)}h3"/>`;
     });
@@ -24505,8 +24510,8 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     const nodes = [], bySerial = /* @__PURE__ */ new Map();
     for (const s of life.reg.values()) {
       if (!s.established) continue;
-      const done = !s.alive && settled.get(s);
-      const n = done && done.end === s.extinct ? { serial: s.serial, s, name: s.name, rgb: done.rgb, born: s.born, end: done.end, alive: false, pop: 0, parent: null, kids: [], t: done.t, v: done.v, w: done.w, cw: 0, heir: null, strand: null } : {
+      const done2 = !s.alive && settled.get(s);
+      const n = done2 && done2.end === s.extinct ? { serial: s.serial, s, name: s.name, rgb: done2.rgb, born: s.born, end: done2.end, alive: false, pop: 0, parent: null, kids: [], t: done2.t, v: done2.v, w: done2.w, cw: 0, heir: null, strand: null } : {
         serial: s.serial,
         s,
         name: s.name,
@@ -39032,14 +39037,14 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       el2.addEventListener("transitionrun", (e) => {
         if (e.target === el2) moving++;
       });
-      const done = (e) => {
+      const done2 = (e) => {
         if (e.target === el2) {
           moving = Math.max(0, moving - 1);
           dirty = true;
         }
       };
-      el2.addEventListener("transitionend", done);
-      el2.addEventListener("transitioncancel", done);
+      el2.addEventListener("transitionend", done2);
+      el2.addEventListener("transitioncancel", done2);
     }
     addEventListener("resize", mark2);
     return {
@@ -39321,6 +39326,61 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     }).join("");
   }
 
+  // src/pwa.js
+  var openedAt = location.href;
+  function installed() {
+    return matchMedia("(display-mode: fullscreen), (display-mode: standalone)").matches || navigator.standalone === true;
+  }
+  function appleTouch() {
+    const ua = navigator.userAgent;
+    return /iPhone|iPad|iPod/.test(ua) || /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
+  }
+  var offer = null;
+  var changed = () => {
+  };
+  var done = () => {
+  };
+  addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    offer = e;
+    changed();
+  });
+  addEventListener("appinstalled", () => {
+    offer = null;
+    changed();
+    done();
+  });
+  function createPwa({ onChange = () => {
+  }, onInstalled = () => {
+  } } = {}) {
+    const served = !globalThis.tidemoteDesktop && /^https?:$/.test(location.protocol) && globalThis.isSecureContext;
+    changed = onChange;
+    done = onInstalled;
+    if (served && "serviceWorker" in navigator) {
+      const register = () => navigator.serviceWorker.register("sw.js").catch((e) => console.warn("[tidemote] service worker:", e));
+      if (document.readyState === "complete") register();
+      else addEventListener("load", register, { once: true });
+    }
+    return {
+      /** How this browser installs it: 'prompt' (its own dialog), 'share' (Share → Add to Home Screen), or null (it
+       *  cannot, or it already runs installed). */
+      can() {
+        if (!served || installed()) return null;
+        return offer ? "prompt" : appleTouch() ? "share" : null;
+      },
+      /** The browser's install dialog; whether it was accepted. */
+      async prompt() {
+        const e = offer;
+        if (!e) return false;
+        offer = null;
+        await e.prompt();
+        const { outcome } = await e.userChoice;
+        onChange();
+        return outcome === "accepted";
+      }
+    };
+  }
+
   // src/main.js
   var $2 = (id) => document.getElementById(id);
   var canvas = $2("stage");
@@ -39541,10 +39601,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const box = $2("compiling"), seg = $2("cmp-seg"), num = $2("cmp-n"), total = eng.late.total;
       seg.replaceChildren(...Array.from({ length: total }, () => document.createElement("i")));
       seg.style.setProperty("--w", `${total * 4}px`);
-      const show = ({ done }) => {
-        for (let i = 0; i < total; i++) seg.children[i].classList.toggle("on", i < done);
-        num.textContent = `${String(done).padStart(String(total).length, "0")}/${total}`;
-        if (done >= total) {
+      const show = ({ done: done2 }) => {
+        for (let i = 0; i < total; i++) seg.children[i].classList.toggle("on", i < done2);
+        num.textContent = `${String(done2).padStart(String(total).length, "0")}/${total}`;
+        if (done2 >= total) {
           eng.onLate = null;
           box.classList.add("gone");
           setTimeout(() => {
@@ -40308,6 +40368,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       gameMenu?.render();
     }).catch(() => {
     });
+    const pwa = createPwa({ onChange: () => gameMenu?.render(), onInstalled: () => flash(tr("flash.installed", "Tidemote is installed: open it from its icon")) });
     const unlocked = /* @__PURE__ */ new Set();
     function unlock(ids) {
       if (!desk) return;
@@ -41899,6 +41960,14 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       history.replaceState(null, "", location.pathname + location.search);
       setTimeout(() => receiveCard(hashCard, linkedPng), 0);
     }
+    let launchSeen = false;
+    globalThis.launchQueue?.setConsumer((p2) => {
+      const first = !launchSeen;
+      launchSeen = true;
+      if (!p2.targetURL || first && p2.targetURL === openedAt) return;
+      const bytes = cardFromHash(new URL(p2.targetURL).hash);
+      if (bytes) receiveCard(bytes);
+    });
     addEventListener("dragover", (e) => {
       if ([...e.dataTransfer?.items || []].some((i) => i.type === "image/png")) e.preventDefault();
     });
@@ -42756,6 +42825,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
 <p>${tr("settings.about.p2", "No hand steers any of this: every ecological rule is local. The complex interacting colonies emerge from simple rules acting on the mutating genome each cell carries. The Field Lab's <guide>Guide</guide> explains how it works.", { guide: (c) => `<button type="button" class="link" data-o="guide" data-v="0">${c.join("")}</button>` })}</p></div>`) + group("made", tr("settings.about.made-by", "Made by"), `<div class="about"><p>${tr("settings.about.credits", "Developed by <a1>Tyler Hallada</a1> with AI coding tools (<a2>Claude Code</a2> and <a4>Codex</a4>), which wrote most of the code. Graphics and sounds in this game are procedurally generated from code. No generative image, video, or sound AI model content is used in this game. The soundtrack is composed live from the simulation and the cells in view, played in a custom browser port of <a3>SuperCollider</a3>. Every line of text in the interface was reviewed and edited by hand.", { a1: link("https://www.hallada.net"), a2: link("https://claude.com/claude-code"), a3: link("https://supercollider.github.io/"), a4: link("https://openai.com/codex/") })}</p></div>`) + group("src", tr("settings.about.source", "Source"), `<div class="about"><p>${tr("settings.about.license", "Free software under the <a1>GPL-3.0</a1>: the code, design notes, and tools used in development are on <a2>GitHub</a2>. Feedback, bug reports, and ideas are welcome as issues.", { a1: link("https://www.gnu.org/licenses/gpl-3.0.html"), a2: link("https://github.com/thallada/tidemote") })}</p>
 <p>${privacy}</p></div>`) + (globalThis.tidemoteDesktop ? "" : group("desktop", tr("settings.about.desktop", "Desktop"), `<div class="about"><p>${tr("settings.about.desktop-p", "Tidemote is also a desktop app, at its best on a computer with a dedicated graphics card.")}</p><div class="stores">${storeLinks()}</div></div>`));
       }
+      function install_() {
+        return group("install", "", `<div class="about"><p>${tr("gamemenu.install-how", "Tap Share <share></share>, then Add to Home Screen. Tidemote then opens from its icon in full screen, even offline.", { share: () => '<svg class="gm-ico" aria-hidden="true"><use href="#i-share"/></svg>' })}</p><p>${tr("gamemenu.install-saves", "The installed app keeps its own saved worlds, apart from this browser's. To bring a world along, download it from Save and load, then open the file in the app.")}</p></div>`);
+      }
       function worldsFoot() {
         const kept = !desk ? tr("settings.worlds.kept-browser", "Kept in this browser.") : steamOn.cloud ? tr("settings.worlds.kept-cloud", "Kept on this computer and in Steam Cloud.") : tr("settings.worlds.kept-computer", "Kept on this computer.");
         return `<div class="set-foot"><span class="keys-note">${kept}</span><button type="button" class="link set-reset" data-o="w-open" data-v="0"${wBusy ? " disabled" : ""}>${tr("settings.worlds.open-file", "Open a file")}</button></div>`;
@@ -42795,9 +42867,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const item = (g, text2, key = "", dis = false) => `<button type="button" class="gm-item" data-g="${g}"${dis ? " disabled" : ""}><span>${text2}</span>${key ? `<kbd>${key}</kbd>` : ""}</button>`;
       function root_() {
         const running = state.phase === "running";
-        return `<nav class="gm-list" aria-label="${tr("gamemenu.list", "Menu")}">` + item("world", tr("gamemenu.back", "Back to the world"), tr("key.esc", "Esc")) + item("save", tr("gamemenu.save", "Save this world"), "", !running) + item("load", tr("gamemenu.load", "Load a world")) + item("new", tr("gamemenu.new", "New world"), "", !running) + item("events", tr("gamemenu.events", "Pool events")) + "<hr>" + item("settings", tr("gamemenu.settings", "Settings"), "V") + item("controls", tr("gamemenu.controls", "Controls"), "?") + item("about", tr("gamemenu.about", "About Tidemote")) + (desk ? `<hr>${quitRow()}` : "") + "</nav>";
+        return `<nav class="gm-list" aria-label="${tr("gamemenu.list", "Menu")}">` + item("world", tr("gamemenu.back", "Back to the world"), tr("key.esc", "Esc")) + item("save", tr("gamemenu.save", "Save this world"), "", !running) + item("load", tr("gamemenu.load", "Load a world")) + item("new", tr("gamemenu.new", "New world"), "", !running) + item("events", tr("gamemenu.events", "Pool events")) + "<hr>" + item("settings", tr("gamemenu.settings", "Settings"), "V") + item("controls", tr("gamemenu.controls", "Controls"), "?") + item("about", tr("gamemenu.about", "About Tidemote")) + (pwa.can() ? item("install", tr("gamemenu.install", "Install Tidemote")) : "") + (desk ? `<hr>${quitRow()}` : "") + "</nav>";
       }
-      const TITLE = () => ({ worlds: tr("gamemenu.worlds-title", "Save and load"), new: tr("gamemenu.new-title", "New world"), events: tr("gamemenu.events-title", "Pool events"), about: tr("gamemenu.about-title", "About Tidemote") });
+      const TITLE = () => ({ worlds: tr("gamemenu.worlds-title", "Save and load"), new: tr("gamemenu.new-title", "New world"), events: tr("gamemenu.events-title", "Pool events"), about: tr("gamemenu.about-title", "About Tidemote"), install: tr("gamemenu.install-title", "Install Tidemote") });
       function header() {
         const x = `<button type="button" class="ghost" data-g="close" aria-label="${tr("gamemenu.close", "Close the menu")}"><svg><use href="#i-close"/></svg></button>`;
         if (page === "root") {
@@ -42812,7 +42884,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         const typing = a?.id === "w-name" ? [a.selectionStart, a.selectionEnd] : null;
         el2.dataset.page = page;
         head.innerHTML = header();
-        setHTML(body, page === "root" ? root_() : `<div class="opts">${page === "worlds" ? worlds_() + worldsFoot() : page === "new" ? new_() : page === "events" ? climate_() : about_()}</div>`);
+        setHTML(body, page === "root" ? root_() : `<div class="opts">${page === "worlds" ? worlds_() + worldsFoot() : page === "new" ? new_() : page === "events" ? climate_() : page === "install" ? install_() : about_()}</div>`);
         if (at) {
           const sel2 = at.id ? `#${CSS.escape(at.id)}` : at.g ? `[data-g="${at.g}"]` : at.o ? `[data-o="${at.o}"][data-v="${CSS.escape(at.v ?? "")}"]` : null;
           const b = sel2 && el2.querySelector(sel2);
@@ -42933,7 +43005,11 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         else if (g === "root") back2();
         else if (g === "save" || g === "load") show("worlds", g);
         else if (g === "new" || g === "events" || g === "about") show(g);
-        else if (g === "settings" || g === "controls") away(g);
+        else if (g === "install") {
+          if (pwa.can() === "prompt") pwa.prompt().catch(() => {
+          }).then(() => render());
+          else show("install");
+        } else if (g === "settings" || g === "controls") away(g);
         else if (g === "quit") {
           if (unsaved()) {
             quitAsk = true;
@@ -43061,6 +43137,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     }
     const deskFs = desk?.fullscreen || null;
     function toggleFullscreen() {
+      if (fsBtn.hidden) return;
       if (deskFs) deskFs.toggle().catch(() => {
       });
       else if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {
@@ -43068,7 +43145,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       else document.exitFullscreen?.();
     }
     const fsBtn = $2("fs");
-    fsBtn.hidden = !deskFs && !document.fullscreenEnabled;
+    fsBtn.hidden = !deskFs && (!document.fullscreenEnabled || matchMedia("(display-mode: fullscreen)").matches);
     fsBtn.addEventListener("click", toggleFullscreen);
     function showFullscreen(on) {
       fsBtn.setAttribute("aria-pressed", String(on));

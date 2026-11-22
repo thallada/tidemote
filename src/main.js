@@ -54,6 +54,7 @@ import { createFocus, canFocus, adjust, isAdjustable } from './input/focus.js';
 import { controlsTable } from './input/controls.js';
 import { createRose } from './rose.js';
 import { storeLinks } from './stores.js';
+import { createPwa, openedAt } from './pwa.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('stage');
@@ -990,6 +991,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   const desk = globalThis.tidemoteDesktop || null;
   let steamOn = { on: false };
   desk?.steam().then((x) => { steamOn = x; gameMenu?.render(); }).catch(() => {});
+  // in a browser, the page as an installable app (src/pwa.js): the menu's Install row follows what the browser offers
+  const pwa = createPwa({ onChange: () => gameMenu?.render(), onInstalled: () => flash(tr('flash.installed', 'Tidemote is installed: open it from its icon')) });
   // achievements earned (each asked of Steam once a session), and the stories read in all
   const unlocked = new Set();
   function unlock(ids) {
@@ -2485,6 +2488,17 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   }
   const hashCard = cardFromHash(location.hash);
   if (hashCard) { history.replaceState(null, '', location.pathname + location.search); setTimeout(() => receiveCard(hashCard, linkedPng), 0); }
+  // a card's link opened while the installed app runs: the manifest's launch_handler brings this window forward rather
+  // than load the page anew over this world, and the card arrives here (the launch that opened the page, read above, is
+  // passed over)
+  let launchSeen = false;
+  globalThis.launchQueue?.setConsumer((p) => {
+    const first = !launchSeen;
+    launchSeen = true;
+    if (!p.targetURL || (first && p.targetURL === openedAt)) return;
+    const bytes = cardFromHash(new URL(p.targetURL).hash);
+    if (bytes) receiveCard(bytes);
+  });
   addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.items || [])].some((i) => i.type === 'image/png')) e.preventDefault(); });
   addEventListener('drop', async (e) => {
     const f = [...(e.dataTransfer?.files || [])].find((x) => x.type === 'image/png');
@@ -3260,6 +3274,12 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
         // (where to get the desktop app, except in it)
         + (globalThis.tidemoteDesktop ? '' : group('desktop', tr('settings.about.desktop', 'Desktop'), `<div class="about"><p>${tr('settings.about.desktop-p', 'Tidemote is also a desktop app, at its best on a computer with a dedicated graphics card.')}</p><div class="stores">${storeLinks()}</div></div>`));
     }
+    // Installing on an iPhone or iPad, which offers no dialog of its own: how, and that the app's saves are its own
+    function install_() {
+      // i18n: the menu's Install page on an iPhone or iPad: <share> is the Share button's icon
+      return group('install', '', `<div class="about"><p>${tr('gamemenu.install-how', 'Tap Share <share></share>, then Add to Home Screen. Tidemote then opens from its icon in full screen, even offline.', { share: () => '<svg class="gm-ico" aria-hidden="true"><use href="#i-share"/></svg>' })}</p>`
+        + `<p>${tr('gamemenu.install-saves', 'The installed app keeps its own saved worlds, apart from this browser\'s. To bring a world along, download it from Save and load, then open the file in the app.')}</p></div>`);
+    }
     // the saves list's foot: where they are kept, and a file opened
     function worldsFoot() {
       // i18n: where saved worlds are kept (the menu's saves, at the foot)
@@ -3318,10 +3338,11 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
         + item('settings', tr('gamemenu.settings', 'Settings'), 'V')
         + item('controls', tr('gamemenu.controls', 'Controls'), '?')
         + item('about', tr('gamemenu.about', 'About Tidemote'))
+        + (pwa.can() ? item('install', tr('gamemenu.install', 'Install Tidemote')) : '')
         + (desk ? `<hr>${quitRow()}` : '') + '</nav>';
     }
     // i18n: the menu's pages, their headings
-    const TITLE = () => ({ worlds: tr('gamemenu.worlds-title', 'Save and load'), new: tr('gamemenu.new-title', 'New world'), events: tr('gamemenu.events-title', 'Pool events'), about: tr('gamemenu.about-title', 'About Tidemote') });
+    const TITLE = () => ({ worlds: tr('gamemenu.worlds-title', 'Save and load'), new: tr('gamemenu.new-title', 'New world'), events: tr('gamemenu.events-title', 'Pool events'), about: tr('gamemenu.about-title', 'About Tidemote'), install: tr('gamemenu.install-title', 'Install Tidemote') });
     function header() {
       const x = `<button type="button" class="ghost" data-g="close" aria-label="${tr('gamemenu.close', 'Close the menu')}"><svg><use href="#i-close"/></svg></button>`;
       if (page === 'root') {
@@ -3339,7 +3360,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       const typing = a?.id === 'w-name' ? [a.selectionStart, a.selectionEnd] : null;
       el.dataset.page = page;
       head.innerHTML = header();
-      setHTML(body, page === 'root' ? root_() : `<div class="opts">${page === 'worlds' ? worlds_() + worldsFoot() : page === 'new' ? new_() : page === 'events' ? climate_() : about_()}</div>`);
+      setHTML(body, page === 'root' ? root_() : `<div class="opts">${page === 'worlds' ? worlds_() + worldsFoot() : page === 'new' ? new_() : page === 'events' ? climate_() : page === 'install' ? install_() : about_()}</div>`);
       if (at) {
         const sel = at.id ? `#${CSS.escape(at.id)}` : at.g ? `[data-g="${at.g}"]` : at.o ? `[data-o="${at.o}"][data-v="${CSS.escape(at.v ?? '')}"]` : null;
         const b = sel && el.querySelector(sel);
@@ -3427,6 +3448,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       else if (g === 'root') back();
       else if (g === 'save' || g === 'load') show('worlds', g);
       else if (g === 'new' || g === 'events' || g === 'about') show(g);
+      else if (g === 'install') { if (pwa.can() === 'prompt') pwa.prompt().catch(() => {}).then(() => render()); else show('install'); }
       else if (g === 'settings' || g === 'controls') away(g);
       else if (g === 'quit') { if (unsaved()) { quitAsk = true; render(); el.querySelector('[data-g="quit-save"]')?.focus({ preventScroll: true }); } else quit(false); }
       else if (g === 'quit-no') back();
@@ -3482,13 +3504,15 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   // In the desktop app full screen is the window's (F11's too), so the button toggles and follows it.
   const deskFs = desk?.fullscreen || null;
   function toggleFullscreen() {
+    if (fsBtn.hidden) return;
     if (deskFs) deskFs.toggle().catch(() => {});
     else if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
     else document.exitFullscreen?.();
   }
   // full screen from the rail, where the browser allows it (not on iPhone)
   const fsBtn = $('fs');
-  fsBtn.hidden = !deskFs && !document.fullscreenEnabled;
+  // (an app installed in full screen, src/pwa.js, has no window to leave)
+  fsBtn.hidden = !deskFs && (!document.fullscreenEnabled || matchMedia('(display-mode: fullscreen)').matches);
   fsBtn.addEventListener('click', toggleFullscreen);
   function showFullscreen(on) {
     fsBtn.setAttribute('aria-pressed', String(on));
