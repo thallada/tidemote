@@ -59,6 +59,21 @@ channel, built on the heat field's machinery.
 "same" (persisted 94% vs 100%, p = 0.25; food web 91% both; effective species 100 vs 105). Calling costs each guild
 about 1% of its upkeep.
 
+The same gate at 6-tick steps (`gate-on6`) and with `signal: 0` (`gate-off`), each against the same baseline:
+
+| | persisted | food web | not monoculture | effective species |
+| --- | --- | --- | --- | --- |
+| baseline | 100% | 91% | 100% | 105 |
+| signals, 1 tick | 94% | 91% | 100% | 100 |
+| signals, 6 ticks | 91% | 91% | 97% | 106 |
+| signals off | 100% | 94% | 100% | 105 |
+
+Every gated metric is "same" in all three (persisted at 6 ticks: p = 0.11). Signals off is the old ecology. With
+signals on, 2 of 32 worlds collapsed at 1 tick and 3 at 6, against none in the baseline or with signals off: within
+the gate's noise each time, but the same direction twice. The 6-tick run is measured against a 1-tick baseline (there
+is no 6-tick run with signals off to set beside it). All three ran the step as first committed (22becb1); what came
+after it is observational or the hand, which is idle headless.
+
 What evolved, as the mean over worlds of `ear · (who sings in each band)` (zero at minute 1 in every pair):
 
 | ear of | song of | minute 20 | worlds + / - |
@@ -74,6 +89,9 @@ drift.
 
 ## Open
 
+- Collapses: 5 of 64 worlds with signals on against 0 of 64 without. Not significant in either gate alone, borderline pooled (Fisher, p = 0.06); run
+  signals on and off side by side at 6 ticks (128 worlds) before release, and look at what the collapsed worlds'
+  singers and ears were doing.
 - The rumble band stands near 1.7 everywhere (17 × a lone caller: long reach, long life), so it gives little direction
   and saturates hush and relay for whatever shuns it. Screen shorter reaches and lives, or scale each band to its
   standing level in a crowd rather than a lone caller's.
