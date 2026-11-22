@@ -1192,7 +1192,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     if ((o.what === 'first' || o.what === 'silent' || o.what === 'one') && t - V.lastTold < T.voiceGap) return null;
     if (o.what === 'chorus') {
       const lead = v.lead;
-      return { kind: 'chorus', score: o.again ? 0.65 : 0.7, col: lead?.genome.col ?? 0xffa0e3f1, subjects: lead ? [lead.serial] : [], key: 'voice:chorus', keyGap: 20 * MIN, onTold: done,
+      return { kind: 'chorus', score: o.again ? 0.7 : 0.8, col: lead?.genome.col ?? 0xffa0e3f1, subjects: lead ? [lead.serial] : [], key: 'voice:chorus', keyGap: 20 * MIN, onTold: done,
         // i18n: the first chorus: {again}, yes after a great quiet; {part}: the share of the living that sing (chron.word.share);
         // i18n: {name}: the most numerous singing species (a link) and {band} the band it sings in (chron.word.band), when {lead} is yes
         html: tr('chron.voice.chorus', '<b>{again, select, yes {The pool has found its voice again.} other {The pool has found its voice.}}</b> Now {part} of its cells sing{lead, select, yes {, {name} the greatest of the choir, singing in {band}} other {}}.',
