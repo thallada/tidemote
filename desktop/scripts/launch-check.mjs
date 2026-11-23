@@ -147,8 +147,10 @@ async function quitCheck() {
     const closed = app.waitForEvent('close', { timeout: 120000 }).then(() => true, () => false);
     await page.click('#gmenu [data-g="quit"]');
     r.asked = await page.locator('#gmenu [data-g="quit-save"]').count() > 0;
+    const t0 = Date.now();
     if (r.asked) await page.click('#gmenu [data-g="quit-save"]');
     r.exited = await closed;
+    r.quitMs = Date.now() - t0;
     r.code = proc.exitCode;
     const meta = existsSync(join(worlds, 'w-last.json')) ? JSON.parse(await readFile(join(worlds, 'w-last.json'), 'utf8')) : null;
     r.last = meta && { last: meta.last, name: meta.name, simTime: meta.simTime, bytes: meta.bytes, file: existsSync(join(worlds, 'w-last.tidemote')) };
@@ -157,14 +159,21 @@ async function quitCheck() {
     if (meta) {
       app = await launch();
       const page2 = await app.firstWindow();
+      // (the page's errors and its own log lines as it closes: why closing kept nothing)
+      r.log2 = [];
+      page2.on('console', (m) => { if ((m.type() === 'error' || m.text().includes('[tidemote]')) && r.log2.length < 10) r.log2.push(m.text().split('\n')[0].slice(0, 300)); });
       await page2.waitForFunction(() => !document.getElementById('menu-c')?.hidden || document.body.classList.contains('live'), null, { timeout: 180000 });
       r.continue = await page2.evaluate(() => !document.getElementById('menu-c').hidden && document.getElementById('menu-c-v').textContent);
       await begin(page2, meta.simTime ?? 0);
+      r.sim2 = await page2.evaluate(() => globalThis.__tidemote.eng.simTime);
       const closed2 = app.waitForEvent('close', { timeout: 120000 }).then(() => true, () => false);
+      const t1 = Date.now();
       await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
       r.closeExited = await closed2;
+      r.closeMs = Date.now() - t1;
       const again = JSON.parse(await readFile(join(worlds, 'w-last.json'), 'utf8'));
       r.closeKept = again.savedAt > meta.savedAt;
+      r.again = { name: again.name, simTime: again.simTime };
     }
   } catch (e) {
     r.exception = String(e?.message || e).split('\n')[0];
