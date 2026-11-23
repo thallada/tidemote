@@ -2517,7 +2517,7 @@ fn swaySlot2(id: u32, n: u32) -> u32 {
     beatEat: 0.25,
     // what is left of a hungry cell's urge with food in reach (it stops to eat)
     beatDark: 0.3,
-    // a producer beats with the light, fading to nothing as its light falls below this
+    // a producer beats with the light, fully this far above the open water's ambient, resting at it
     beatShare: 0.6,
     // how much of a cell's will is its bond partners' (a body beats as one)
     beatRamp: 2,
@@ -3889,9 +3889,9 @@ ${scan ? `  if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K2.colorMix)}); }`
     let fill = E / divE;
     var want = smoothstep(${f(K2.beatRest)}, ${f(2 * K2.beatRest)}, fill);
     // why it would: an eater short of sated forages; a producer moves with the light (sated or not: the light fills it)
-    // and rests in the dark
+    // and rests in the dark, the open water's ambient light between the tide's bright bands or less
     let need = smoothstep(${f(K2.sated)}, ${f(0.5 * K2.sated)}, fill);
-    var urge = select(need * select(1.0, ${f(K2.beatEat)}, ${SENSE.food} != NONE), smoothstep(0.0, ${f(K2.beatDark)}, light), g.photo > 0.4);
+    var urge = select(need * select(1.0, ${f(K2.beatEat)}, ${SENSE.food} != NONE), smoothstep(sim.ambient, sim.ambient + ${f(K2.beatDark)}, light), g.photo > 0.4);
     // a hunter near: it flees as hard as it can; ridden (the hand's will), it works to go where it is steered
     if (threat || willOn) { urge = 1.0; }
     // (beatAim: heading toward what pulls it, or the urge waits; nothing pulling, it roams)
@@ -39648,9 +39648,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "ab534f1f5f797662") return;
+      if (localStorage.getItem(key) === "5a549581188f4ddf") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "ab534f1f5f797662");
+      if (res) localStorage.setItem(key, "5a549581188f4ddf");
     } catch {
     }
   }

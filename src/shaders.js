@@ -245,7 +245,7 @@ export const DEFAULT_K = {
   beatWill: 1,
   beatRest: 0.15,   // the share of its division energy below which a cell's will fades to rest (over as much again)
   beatEat: 0.25,    // what is left of a hungry cell's urge with food in reach (it stops to eat)
-  beatDark: 0.3,    // a producer beats with the light, fading to nothing as its light falls below this
+  beatDark: 0.3,    // a producer beats with the light, fully this far above the open water's ambient, resting at it
   beatShare: 0.6,   // how much of a cell's will is its bond partners' (a body beats as one)
   beatRamp: 2,      // the will's whole range a second, at most
   beatAim: 0,       // how much a body's will waits on heading toward what pulls it (food, away from hunters): 0 none
@@ -1518,9 +1518,9 @@ function willWGSL(K) {
     let fill = E / divE;
     var want = smoothstep(${f(K.beatRest)}, ${f(2 * K.beatRest)}, fill);
     // why it would: an eater short of sated forages; a producer moves with the light (sated or not: the light fills it)
-    // and rests in the dark
+    // and rests in the dark, the open water's ambient light between the tide's bright bands or less
     let need = smoothstep(${f(K.sated)}, ${f(0.5 * K.sated)}, fill);
-    var urge = select(need * select(1.0, ${f(K.beatEat)}, ${SENSE.food} != NONE), smoothstep(0.0, ${f(K.beatDark)}, light), g.photo > 0.4);
+    var urge = select(need * select(1.0, ${f(K.beatEat)}, ${SENSE.food} != NONE), smoothstep(sim.ambient, sim.ambient + ${f(K.beatDark)}, light), g.photo > 0.4);
     // a hunter near: it flees as hard as it can; ridden (the hand's will), it works to go where it is steered
     if (threat || willOn) { urge = 1.0; }
     // (beatAim: heading toward what pulls it, or the urge waits; nothing pulling, it roams)

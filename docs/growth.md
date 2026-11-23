@@ -190,10 +190,12 @@ paid cell by cell as hard as it beats now. At the end of each step (`willWGSL` i
 - **What it can spend:** nothing below `beatRest` (0.15) of the energy it divides at, all from twice that.
   A starving body stops and waits.
 - **Why it would beat:** an eater short of sated forages (fully at half of sated), a quarter as hard with
-  food in reach (`beatEat`: it stops to eat); a producer beats with the light, sated or not (fading to
-  nothing below `beatDark`), so producers move through the day and rest through the dark. (At first a
+  food in reach (`beatEat`: it stops to eat); a producer beats with the light, sated or not: fully where
+  a tide band lifts it `beatDark` (0.3) over the open water's ambient light, not at all at the ambient or
+  below, so producers move in the bands and rest between them, in dim seasons and dark eras. (At first a
   producer beat only short of sated, as an eater does, but the light keeps a producer sated: producer
-  filaments lay still day and night.) A hunter in reach (the flee
+  filaments lay still day and night. Then with the light measured from 0, the ambient light, 0.12-0.3,
+  kept them beating at about 60% in the dark: 6% rested.) A hunter in reach (the flee
   rule's hunters) makes it beat as hard as it can afford, and so does being ridden.
 - **Heading** (`beatAim`, 0 by default): optionally the urge waits on the body heading toward what pulls
   it (its scan's summed force: food, away from hunters); with nothing pulling it roams.
