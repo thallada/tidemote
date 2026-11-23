@@ -17449,16 +17449,16 @@ struct SV {
       "{n, plural, =0 {No notes} =1 {One note} =2 {Two notes} =3 {Three notes} =4 {Four notes} =5 {Five notes} =6 {Six notes} =7 {Seven notes} =8 {Eight notes} =9 {Nine notes} =10 {Ten notes} =11 {Eleven notes} =12 {Twelve notes} =13 {Thirteen notes} =14 {Fourteen notes} other {# notes}}, {contour, select, rising {rising} falling {falling} arching {rising then falling} dipping {falling then rising} zigzag {zigzagging up and down} leaping {leaping widely} hovering {staying around one pitch} wavering {wavering} level {mostly level} other {one pitch}}, {rhythm, select, burst {a held note, then a quick burst} triplets {in triplets} rests {broken up by rests} offbeat {off the beat} long {each note held long} even_quick {in even quick notes} even {in even notes} long_short {long-short, long-short} long_short_short {long-short-short} short_short_long {short-short-long} slowing {slowing into a long last note} other {in uneven notes}}.",
       { n: first.length, contour: contourWord(first.map((nt) => nt.deg)), rhythm: RHYTHM(m) }
     )];
-    const bits = [];
-    const pos = () => bits.length ? "next" : "first";
-    if (m.dev.answer) bits.push(tr("song.line.answer", "{answer, select, sequence {Then played again a step higher or lower} mirror {Then played again upside down} echo {Its end repeats an octave higher} other {Then played again with the last note held}}", { answer: m.dev.answer }));
-    if (m.swing > 0.05) bits.push(tr("song.line.swung", "{pos, select, first {Swung (every second note a little late)} other {swung (every second note a little late)}}", { pos: pos() }));
-    if (m.notes.some((nt) => nt.grace != null)) bits.push(tr("song.line.grace", "{pos, select, first {One quick grace note} other {one quick grace note}}", { pos: pos() }));
-    if (m.notes.some((nt) => Math.round(nt.deg) !== nt.deg)) bits.push(tr("song.line.outside", "{pos, select, first {One note outside the key} other {one note outside the key}}", { pos: pos() }));
+    const bits2 = [];
+    const pos = () => bits2.length ? "next" : "first";
+    if (m.dev.answer) bits2.push(tr("song.line.answer", "{answer, select, sequence {Then played again a step higher or lower} mirror {Then played again upside down} echo {Its end repeats an octave higher} other {Then played again with the last note held}}", { answer: m.dev.answer }));
+    if (m.swing > 0.05) bits2.push(tr("song.line.swung", "{pos, select, first {Swung (every second note a little late)} other {swung (every second note a little late)}}", { pos: pos() }));
+    if (m.notes.some((nt) => nt.grace != null)) bits2.push(tr("song.line.grace", "{pos, select, first {One quick grace note} other {one quick grace note}}", { pos: pos() }));
+    if (m.notes.some((nt) => Math.round(nt.deg) !== nt.deg)) bits2.push(tr("song.line.outside", "{pos, select, first {One note outside the key} other {one note outside the key}}", { pos: pos() }));
     const lastDeg = m.notes[m.notes.length - 1].deg;
-    if ([0, 7, -7].includes(lastDeg)) bits.push(tr("song.line.home", "{pos, select, first {Ends on the home note} other {ends on the home note}}", { pos: pos() }));
-    else if (![4, -3].includes(lastDeg) && m.char.prey > 0.5) bits.push(tr("song.line.unresolved", "{pos, select, first {Ends unresolved} other {ends unresolved}}", { pos: pos() }));
-    if (bits.length) out.push(tr("song.line.clauses", "{clauses}.", { clauses: CLAUSES.format(bits) }));
+    if ([0, 7, -7].includes(lastDeg)) bits2.push(tr("song.line.home", "{pos, select, first {Ends on the home note} other {ends on the home note}}", { pos: pos() }));
+    else if (![4, -3].includes(lastDeg) && m.char.prey > 0.5) bits2.push(tr("song.line.unresolved", "{pos, select, first {Ends unresolved} other {ends unresolved}}", { pos: pos() }));
+    if (bits2.length) out.push(tr("song.line.clauses", "{clauses}.", { clauses: CLAUSES.format(bits2) }));
     out.push(tr(
       "song.line.sync",
       "{sync, select, school {Its cells school, so they sing it in step.} alone {Its cells don’t school, so each starts the phrase on its own beat and the copies overlap.} other {Its cells school loosely: some sing it in step, others on their own beat.}}",
@@ -17969,8 +17969,8 @@ struct SV {
     return t * t * (3 - 2 * t);
   };
   var TIDE_PHASE = [0, 1.7, 3.4, 5.1];
-  function tideAt(x, y, W3, H2, t, w, ph = TIDE_PHASE) {
-    const ux = x / W3 * TAU, uy = y / H2 * TAU;
+  function tideAt(x, y, W3, H3, t, w, ph = TIDE_PHASE) {
+    const ux = x / W3 * TAU, uy = y / H3 * TAU;
     let s = 0, n = 0;
     for (let k = 0; k < 4; k++) {
       s += w[k * 4 + 3] * Math.sin(w[k * 4] * ux + w[k * 4 + 1] * uy + w[k * 4 + 2] * t + ph[k]);
@@ -18008,14 +18008,14 @@ struct SV {
     const L = L0 * (k === 3 ? mix2(0.25, 0.4, duckHash(seed + 9.3)) : mix2(0.45, 0.85, duckHash(seed + k * 5.7)));
     return { c: [node[0] + dax[0] * 0.72 * L, node[1] + dax[1] * 0.72 * L], ax: dax, L, W: L * width * mix2(0.9, 1.05, duckHash(seed + k * 7.9)) };
   }
-  function duckShade(x, y, d, W3, H2) {
+  function duckShade(x, y, d, W3, H3) {
     if (!(d[3] > 0)) return 0;
     let sh = 0;
     for (let k = 0; k <= d[7]; k++) {
       const f2 = frondOf(d, k);
       let dx = x - f2.c[0], dy = y - f2.c[1];
       dx -= W3 * Math.round(dx / W3);
-      dy -= H2 * Math.round(dy / H2);
+      dy -= H3 * Math.round(dy / H3);
       const u = (dx * f2.ax[0] + dy * f2.ax[1]) / f2.L, v = (f2.ax[0] * dy - f2.ax[1] * dx) / f2.L;
       const r = Math.hypot(u, v * f2.L / (f2.W * (1 + 0.12 * clamp5(u, -1, 1))));
       sh = Math.max(sh, 1 - smoothstep(-1.2, 1.2, (r - 1) * f2.W));
@@ -18093,7 +18093,7 @@ struct SV {
       const len2 = Math.hypot(kx / gw, ky / gh);
       return { ax: 2 * Math.PI * kx / gw, ay: 2 * Math.PI * ky / gh, ph: rng() * Math.PI * 2, amp: len2 ** -pow };
     });
-    const H2 = waves(modes2, minL, Math.min(maxL, Math.max(gw, gh)), 1.1);
+    const H3 = waves(modes2, minL, Math.min(maxL, Math.max(gw, gh)), 1.1);
     const WX = waves(6, minL * 1.5, maxL, 0.5), WY = waves(6, minL * 1.5, maxL, 0.5);
     const field = function* (ws) {
       const out = new Float32Array(gw * gh), norm = ws.reduce((a, w) => a + w.amp, 0);
@@ -18115,7 +18115,7 @@ struct SV {
       }
       return out;
     };
-    const base = yield* field(H2), wx = yield* field(WX), wy = yield* field(WY);
+    const base = yield* field(H3), wx = yield* field(WX), wy = yield* field(WY);
     const at = (x, y) => {
       const fx = Math.floor(x), fy = Math.floor(y), tx = x - fx, ty = y - fy;
       const x0 = (fx % gw + gw) % gw, y0 = (fy % gh + gh) % gh, x1 = (x0 + 1) % gw, y1 = (y0 + 1) % gh;
@@ -18247,7 +18247,7 @@ struct SV {
   var SEA_U_BYTES = 16 * (SEA_CASCADES + SEA.systems.length + 4 + SEA_LAYERS);
   var FLOOR_MS = 2;
   var REAL_WRAP = 4096;
-  function viewWords(data, K2, { cam, W: W3, H: H2, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false, split = false, crumble = null }, w) {
+  function viewWords(data, K2, { cam, W: W3, H: H3, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false, split = false, crumble = null }, w) {
     const ppu = cam.ppu;
     const pointSize = Math.max(1.1 * dpr, 0.085 * ppu);
     const perArea = K2.density / (ppu * ppu);
@@ -18260,7 +18260,7 @@ struct SV {
     v[2] = w.grid[0];
     v[3] = w.grid[1];
     v[4] = W3;
-    v[5] = H2;
+    v[5] = H3;
     v[6] = ppu;
     v[7] = pointSize;
     v[8] = 0.95 * w.exposure;
@@ -19256,11 +19256,11 @@ ${e.message}` : String(e?.message || e));
     // each panel's strip of the view (with the blur's reach about it) copied out, blurred across into glassTex[1] (the
     // rows the blur down will read), then down into the view under the panel
     _glass(enc, tex, view) {
-      const d = this.device, W3 = tex.width, H2 = tex.height;
-      if (!this.glassTex || this.glassTex[0].width !== W3 || this.glassTex[0].height !== H2) {
+      const d = this.device, W3 = tex.width, H3 = tex.height;
+      if (!this.glassTex || this.glassTex[0].width !== W3 || this.glassTex[0].height !== H3) {
         this.glassTex?.forEach((t) => t.destroy());
         const U2 = GPUTextureUsage;
-        this.glassTex = [U2.COPY_DST, U2.RENDER_ATTACHMENT].map((u) => d.createTexture({ size: [W3, H2], format: this.format, usage: U2.TEXTURE_BINDING | u }));
+        this.glassTex = [U2.COPY_DST, U2.RENDER_ATTACHMENT].map((u) => d.createTexture({ size: [W3, H3], format: this.format, usage: U2.TEXTURE_BINDING | u }));
         this.glassBG = [0, 1].map((k) => d.createBindGroup({ layout: this.pGlass[k].getBindGroupLayout(0), entries: [
           { binding: 0, resource: this.glassTex[k].createView() },
           { binding: 1, resource: this.sampler },
@@ -19273,9 +19273,9 @@ ${e.message}` : String(e?.message || e));
       const rects = [];
       for (const g of this.glass) {
         const x = Math.max(0, Math.floor(g.x)), y = Math.max(0, Math.floor(g.y));
-        const x1 = Math.min(W3, Math.ceil(g.x + g.w)), y1 = Math.min(H2, Math.ceil(g.y + g.h));
+        const x1 = Math.min(W3, Math.ceil(g.x + g.w)), y1 = Math.min(H3, Math.ceil(g.y + g.h));
         if (x1 <= x || y1 <= y || !(g.o > 0)) continue;
-        const r = { x, y, x1, y1, o: Math.min(1, g.o), ox: Math.max(0, x - m), oy: Math.max(0, y - m), ox1: Math.min(W3, x1 + m), oy1: Math.min(H2, y1 + m) };
+        const r = { x, y, x1, y1, o: Math.min(1, g.o), ox: Math.max(0, x - m), oy: Math.max(0, y - m), ox1: Math.min(W3, x1 + m), oy1: Math.min(H3, y1 + m) };
         enc.copyTextureToTexture({ texture: tex, origin: [r.ox, r.oy] }, { texture: this.glassTex[0], origin: [r.ox, r.oy] }, [r.ox1 - r.ox, r.oy1 - r.oy]);
         rects.push(r);
       }
@@ -19516,14 +19516,14 @@ ${e.message}` : String(e?.message || e));
     // STONE_ZOOM from where it was drawn, or what it shows may have changed (a new world, the selected grain, the focus,
     // the exposure or detail settings; and, while the world runs, at most every STONE_EVERY seconds, as grains wear,
     // settle and grow).
-    _stoneStale(cam, W3, H2, selId, realT) {
+    _stoneStale(cam, W3, H3, selId, realT) {
       const c = this.stoneCam, [cw, ch] = this.stoneSize;
       const key = [selId >>> 0, this.focusVer, this.settings.exposure, this.settings.lod, this.worldGeneration].join();
       let stale = !c || key !== this.stoneKey;
       if (!stale) {
         const r = cam.ppu / c.ppu, [dx, dy] = this._fromStone(cam), [gx, gy] = this.grid, px = 1 / cam.ppu;
         const hx = Math.min(cw / (2 * c.ppu), gx / 2) + px, hy = Math.min(ch / (2 * c.ppu), gy / 2) + px;
-        stale = r > STONE_ZOOM || r < 1 / STONE_ZOOM || Math.abs(dx) + W3 / (2 * cam.ppu) > hx || Math.abs(dy) + H2 / (2 * cam.ppu) > hy;
+        stale = r > STONE_ZOOM || r < 1 / STONE_ZOOM || Math.abs(dx) + W3 / (2 * cam.ppu) > hx || Math.abs(dy) + H3 / (2 * cam.ppu) > hy;
       }
       if (stale) {
         Object.assign(this, { stoneCam: { x: cam.x, y: cam.y, ppu: cam.ppu }, stoneKey: key, stoneTick: this.tick, stoneT: realT });
@@ -19803,15 +19803,15 @@ ${e.message}` : String(e?.message || e));
     }
     /** Divergence-free, torus-periodic currents. Returns the new wave table. */
     randomizeCurrents(rng = Math.random, into = this.waves) {
-      const [W3, H2] = this.grid;
+      const [W3, H3] = this.grid;
       for (let k = 0; k < 4; k++) {
         const L = mix3(14, 34, rng());
         const th = rng() * Math.PI * 2;
         let kx = Math.round(W3 / L * Math.cos(th));
-        const ky = Math.round(H2 / L * Math.sin(th));
+        const ky = Math.round(H3 / L * Math.sin(th));
         if (kx === 0 && ky === 0) kx = 1;
         into[k * 4] = Math.PI * 2 * kx / W3;
-        into[k * 4 + 1] = Math.PI * 2 * ky / H2;
+        into[k * 4 + 1] = Math.PI * 2 * ky / H3;
         into[k * 4 + 2] = (rng() < 0.5 ? -1 : 1) * mix3(0.04, 0.12, rng());
         into[k * 4 + 3] = mix3(0.08, 0.16, rng());
       }
@@ -19858,12 +19858,12 @@ ${e.message}` : String(e?.message || e));
     seaShift(wx, wy, cam) {
       const S = this.seaShifts;
       if (!S.length) return [0, 0];
-      const [W3, H2] = this.grid;
+      const [W3, H3] = this.grid;
       const at = (m, ox, oy) => {
         const c = m.cam;
         let dx = wx - c.x, dy = wy - c.y;
         dx -= W3 * Math.round(dx / W3);
-        dy -= H2 * Math.round(dy / H2);
+        dy -= H3 * Math.round(dy / H3);
         const gx = (dx * c.ppu + c.w / 2 + ox * (c.ppu / cam.ppu)) / c.w * SHIFT_W - 0.5, gy = (dy * c.ppu + c.h / 2 + oy * (c.ppu / cam.ppu)) / c.h * SHIFT_H - 0.5;
         const x0 = Math.max(0, Math.min(SHIFT_W - 1, Math.floor(gx))), y0 = Math.max(0, Math.min(SHIFT_H - 1, Math.floor(gy)));
         const x1 = Math.min(SHIFT_W - 1, x0 + 1), y1 = Math.min(SHIFT_H - 1, y0 + 1), fx = Math.max(0, Math.min(1, gx - x0)), fy = Math.max(0, Math.min(1, gy - y0));
@@ -20240,8 +20240,8 @@ ${e.message}` : String(e?.message || e));
     // ground (sim.pond.x); no raindrop's ring alive (sim.drops, with a margin around its life for the clock's rounding);
     // no duckweed (sim.duck.w).
     _stepLean() {
-      const f2 = this.simF, u = this.simU, H2 = 96;
-      if (f2[H2 + 3] !== 0 || f2[H2 + 16] > 0 || f2[H2 + 17] > 0 || u[H2 + 21] !== 4294967295 || f2[H2 + 26] > 0 || f2[H2 + 30] !== 0 || f2[H2 + 31] !== 0 || f2[H2 + 32] > 0) return false;
+      const f2 = this.simF, u = this.simU, H3 = 96;
+      if (f2[H3 + 3] !== 0 || f2[H3 + 16] > 0 || f2[H3 + 17] > 0 || u[H3 + 21] !== 4294967295 || f2[H3 + 26] > 0 || f2[H3 + 30] !== 0 || f2[H3 + 31] !== 0 || f2[H3 + 32] > 0) return false;
       if (f2[64] < 1) return false;
       for (let k = 0; k < 4; k++) {
         const age = f2[7] - f2[82 + 4 * k];
@@ -20483,12 +20483,12 @@ ${e.message}` : String(e?.message || e));
      */
     tempsAt(points) {
       if (this.tempBusy || !points.length) return Promise.resolve(null);
-      const d = this.device, [W3, H2] = this.grid, n = Math.min(16, points.length);
+      const d = this.device, [W3, H3] = this.grid, n = Math.min(16, points.length);
       this.tempStage ||= d.createBuffer({ size: 16 * 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
       this.tempBusy = true;
       const enc = d.createCommandEncoder();
       for (let k = 0; k < n; k++) {
-        const [x, y] = points[k], cx = (Math.floor(x) % W3 + W3) % W3, cy = (Math.floor(y) % H2 + H2) % H2;
+        const [x, y] = points[k], cx = (Math.floor(x) % W3 + W3) % W3, cy = (Math.floor(y) % H3 + H3) % H3;
         enc.copyBufferToBuffer(this.b.thermal, (cy * W3 + cx) * 4, this.tempStage, k * 4, 4);
       }
       d.queue.submit([enc.finish()]);
@@ -20990,10 +20990,10 @@ ${e.message}` : String(e?.message || e));
           this._render(enc, { target: this.holdView, cam, time, dpr, selId, loupe, specimen, tsBegin, tsEnd: tsEndAt1 });
           this.holdCam = { x: cam.x, y: cam.y, ppu: cam.ppu };
         }
-        const [W3, H2] = this.size, lc = this.holdCam;
+        const [W3, H3] = this.size, lc = this.holdCam;
         const dx = cam.x - lc.x, dy = cam.y - lc.y, gx = this.grid[0], gy = this.grid[1];
         const wx = dx - gx * Math.round(dx / gx), wy = dy - gy * Math.round(dy / gy), ratio = lc.ppu / cam.ppu;
-        d.queue.writeBuffer(b.holdU, 0, new Float32Array([ratio, ratio, wx * lc.ppu / W3, wy * lc.ppu / H2, 1, 0, 0, 0]));
+        d.queue.writeBuffer(b.holdU, 0, new Float32Array([ratio, ratio, wx * lc.ppu / W3, wy * lc.ppu / H3, 1, 0, 0, 0]));
         const begin = tsBegin();
         const tw = drew ? void 0 : begin || tsEndAt1 ? { ...begin || {}, ...tsEndAt1 || {} } : void 0;
         const pass = enc.beginRenderPass({ colorAttachments: [{ view: target2, loadOp: "clear", clearValue: [0, 0, 0, 1], storeOp: "store" }], timestampWrites: tw });
@@ -21368,8 +21368,8 @@ ${e.message}` : String(e?.message || e));
       this._listenFrames = 0;
       st.busy = true;
       const b = this.b;
-      const [W3, H2] = this.size, ppu = Math.max(cam.ppu, 1e-6);
-      const view = { x: cam.x, y: cam.y, hx: W3 > 0 ? W3 / (2 * ppu) : this.grid[0], hy: H2 > 0 ? H2 / (2 * ppu) : this.grid[1] };
+      const [W3, H3] = this.size, ppu = Math.max(cam.ppu, 1e-6);
+      const view = { x: cam.x, y: cam.y, hx: W3 > 0 ? W3 / (2 * ppu) : this.grid[0], hy: H3 > 0 ? H3 / (2 * ppu) : this.grid[1] };
       const window2 = this.simTime - this._listenSim;
       this._listenSim = this.simTime;
       const u = new ArrayBuffer(112), f2 = new Float32Array(u), w = new Uint32Array(u);
@@ -21455,9 +21455,9 @@ ${e.message}` : String(e?.message || e));
       pass.end();
     }
     // detail: resolve cells as they grow on screen (false keeps the distant sprite at every zoom)
-    _writeView(buf, data, cam, W3, H2, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false, split = false, crumble) {
+    _writeView(buf, data, cam, W3, H3, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false, split = false, crumble) {
       const clk = this._clock();
-      viewWords(data, this.K, { cam, W: W3, H: H2, dpr, time, selId, detail, culled, splat, lit, split, crumble }, {
+      viewWords(data, this.K, { cam, W: W3, H: H3, dpr, time, selId, detail, culled, splat, lit, split, crumble }, {
         grid: this.grid,
         exposure: this.settings.exposure,
         focus: this.focus,
@@ -21552,13 +21552,13 @@ ${e.message}` : String(e?.message || e));
     }
     // The micro-suspension's specks for the main view (MICRO_WGSL): for each phase and resolved octave
     // of pondMicro, the block of lattice slots whose objects can land in view.
-    _drawSpecks(enc, cam, W3, H2) {
+    _drawSpecks(enc, cam, W3, H3) {
       const d = this.device;
       const [gw, gh] = this.grid;
       const ppu = cam.ppu, t = this.simTime;
       let vmax = 0;
       for (let k = 0; k < 4; k++) vmax += Math.abs(this.waves[k * 4 + 3]);
-      const hw = W3 / (2 * ppu), hh = H2 / (2 * ppu);
+      const hw = W3 / (2 * ppu), hh = H3 / (2 * ppu);
       const iv = new Int32Array(this.microData), fv = new Float32Array(this.microData), uv = new Uint32Array(this.microData);
       let n = 0, total = 0;
       for (let phase = 0; phase < 2; phase++) {
@@ -21600,7 +21600,7 @@ ${e.message}` : String(e?.message || e));
       fv[58] = ppu;
       uv[59] = MICRO_SPECKS;
       fv[60] = W3;
-      fv[61] = H2;
+      fv[61] = H3;
       fv[62] = cam.x;
       fv[63] = cam.y;
       d.queue.writeBuffer(this.b.microU, 0, this.microData);
@@ -21639,14 +21639,14 @@ ${e.message}` : String(e?.message || e));
     // frame that a zoom about a point on the screen explains (the point a wheel or pinch holds still, s pixels from the
     // center, moves the camera s (1/ppu0 - 1/ppu1)) moves them with the world, and only the rest pans them. Kept as
     // offsets from the camera, modulo the world (a layer tiles it at its MUD_DEPTH).
-    _murkCam(cam, W3, H2) {
+    _murkCam(cam, W3, H3) {
       const [gw, gh] = this.grid, m = this._murk;
       const wrap2 = (x, n) => x - n * Math.floor(x / n), near = (x, n) => x - n * Math.round(x / n);
       if (!m || m.gen !== this.worldGeneration) this._murk = { o: MUD_DEPTH.map(() => [0, 0]), x: cam.x, y: cam.y, ppu: cam.ppu, gen: this.worldGeneration };
       else {
         const dx = near(cam.x - m.x, gw), dy = near(cam.y - m.y, gh), dz = 1 / m.ppu - 1 / cam.ppu;
         if (Math.abs(dz) > 1e-9) {
-          const zx = Math.min(W3 / 2, Math.max(-W3 / 2, dx / dz)) * dz, zy = Math.min(H2 / 2, Math.max(-H2 / 2, dy / dz)) * dz;
+          const zx = Math.min(W3 / 2, Math.max(-W3 / 2, dx / dz)) * dz, zy = Math.min(H3 / 2, Math.max(-H3 / 2, dy / dz)) * dz;
           MUD_DEPTH.forEach((D, i) => {
             const o = m.o[i];
             o[0] = wrap2(o[0] + zx * (1 / D - 1), gw);
@@ -21662,10 +21662,10 @@ ${e.message}` : String(e?.message || e));
       this._fadeFx(realT);
       this._iceShow(enc, realT);
       const time = realT % REAL_WRAP;
-      const [W3, H2] = this.size;
+      const [W3, H3] = this.size;
       const plain = !!this.plainDraw;
       const culled = [
-        !plain && this._cullView(0, cam.x, cam.y, W3 / (2 * cam.ppu), H2 / (2 * cam.ppu)),
+        !plain && this._cullView(0, cam.x, cam.y, W3 / (2 * cam.ppu), H3 / (2 * cam.ppu)),
         !!loupe && this._cullView(1, loupe.cx, loupe.cy, LOUPE_FIELD * loupe.r / loupe.ppu, LOUPE_FIELD * loupe.r / loupe.ppu),
         !!(specimen && specimen.target && !specimen.studio) && this._cullView(2, specimen.cx, specimen.cy, specimen.w / (2 * specimen.ppu), specimen.h / (2 * specimen.ppu))
       ];
@@ -21682,9 +21682,9 @@ ${e.message}` : String(e?.message || e));
       this._shapes(enc);
       const lod = this.settings.lod, loupeLod = !!loupe && lod, specLod = !!specimen && (lod || !specimen.live);
       const ps = Math.max(1.1 * dpr, 0.085 * cam.ppu);
-      const splat = !plain && !culled[0] && this.settings.nodes && ps <= SPLAT_PX && this.count >= W3 * H2 / 4 ? SPLAT_PX : 0;
+      const splat = !plain && !culled[0] && this.settings.nodes && ps <= SPLAT_PX && this.count >= W3 * H3 / 4 ? SPLAT_PX : 0;
       const listed = !plain && !splat && this.settings.nodes && !!this.sceneBG[0].point && !!this.sceneBG[0].pointBare;
-      const stale = this._stoneStale(cam, W3, H2, selId, realT);
+      const stale = this._stoneStale(cam, W3, H3, selId, realT);
       if (stale === 2) this._stonePart = 0;
       else if (stale === 1 && !this._stonePart) this._stonePart = 1;
       const stonePart = stale === 2 ? 0 : this._stonePart || -1;
@@ -21696,7 +21696,7 @@ ${e.message}` : String(e?.message || e));
         lit.length = Math.min(lit.length, 8);
       }
       const crumble = lit.flatMap((c) => [this.simTime - c.drawn, this.simTime - c.lit]);
-      this._writeView(this.b.view, this.viewData, cam, W3, H2, dpr, time, selId, lod, culled[0], listed ? -1 : splat, true, false, crumble);
+      this._writeView(this.b.view, this.viewData, cam, W3, H3, dpr, time, selId, lod, culled[0], listed ? -1 : splat, true, false, crumble);
       if (listed) {
         d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0]));
         d.queue.writeBuffer(this.b.smallArgs, 0, new Uint32Array([4, 0, 0, 0]));
@@ -21709,7 +21709,7 @@ ${e.message}` : String(e?.message || e));
       }
       if (splat) {
         d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0, 4, 0, 0, 0]));
-        this._clear(enc, this.b.splat, 0, W3 * H2 * 20);
+        this._clear(enc, this.b.splat, 0, W3 * H3 * 20);
         const pass2 = enc.beginComputePass({ timestampWrites: tsBegin() });
         pass2.setPipeline(this.cpSplat);
         pass2.setBindGroup(0, this.splatBG);
@@ -21721,7 +21721,7 @@ ${e.message}` : String(e?.message || e));
       }
       const pd = this.postData;
       pd[0] = W3;
-      pd[1] = H2;
+      pd[1] = H3;
       pd[2] = this._bloom();
       pd[3] = this.settings.specks && this.fx.specks ? 1 : 0;
       pd[4] = time;
@@ -21757,7 +21757,7 @@ ${e.message}` : String(e?.message || e));
       pd.set(this.hand.subarray(0, 4), POST_LAMP);
       pd.set(this.lens, POST_LAMP + 4);
       pd.set(this.tool, POST_LAMP + 8);
-      pd.set(this._murkCam(cam, W3, H2), POST_MURK);
+      pd.set(this._murkCam(cam, W3, H3), POST_MURK);
       pd.set(clk.edgePh, POST_EDGE);
       pd.set(this.focusAt, POST_FOCUS);
       pd.set(this.look, POST_LOOK);
@@ -21779,7 +21779,7 @@ ${e.message}` : String(e?.message || e));
           pass2.dispatchWorkgroups(Math.ceil(SHIFT_W / 8), Math.ceil(SHIFT_H / 8));
           pass2.end();
           enc.copyBufferToBuffer(this.b.shiftMap, 0, slot.buf, 0, SHIFT_W * SHIFT_H * 8);
-          this._shiftPending = { slot, cam: { x: cam.x, y: cam.y, ppu: cam.ppu, w: W3, h: H2 }, at: performance.now(), gen: this.worldGeneration };
+          this._shiftPending = { slot, cam: { x: cam.x, y: cam.y, ppu: cam.ppu, w: W3, h: H3 }, at: performance.now(), gen: this.worldGeneration };
         }
       } else if (!(pd[94] > 0)) this.seaShifts.length = 0;
       const mainDetail = lod && new Float32Array(this.viewData)[7] > 2.8;
@@ -21793,7 +21793,7 @@ ${e.message}` : String(e?.message || e));
           u[8 + v * 4] = Math.min(gw, Math.floor(cx + hw) + 2 - x0);
           u[8 + v * 4 + 1] = Math.min(gh, Math.floor(cy + hh) + 2 - y0);
         };
-        if (mainDetail) rect(0, cam.x, cam.y, W3 / (2 * cam.ppu), H2 / (2 * cam.ppu));
+        if (mainDetail) rect(0, cam.x, cam.y, W3 / (2 * cam.ppu), H3 / (2 * cam.ppu));
         else if (loupeLod) rect(0, loupe.cx, loupe.cy, LOUPE_FIELD * loupe.r / loupe.ppu, LOUPE_FIELD * loupe.r / loupe.ppu);
         if (specLod) rect(1, specimen.cx, specimen.cy, specimen.w / (2 * specimen.ppu), specimen.h / (2 * specimen.ppu));
         u[16] = gw;
@@ -21843,7 +21843,7 @@ ${e.message}` : String(e?.message || e));
           const dx = cam.x - lc.x, dy = cam.y - lc.y;
           const gx = this.grid[0], gy = this.grid[1];
           const wx = dx - gx * Math.round(dx / gx), wy = dy - gy * Math.round(dy / gy);
-          const sx = lc.ppu * W3 / (cam.ppu * lc.w), sy = lc.ppu * H2 / (cam.ppu * lc.h);
+          const sx = lc.ppu * W3 / (cam.ppu * lc.w), sy = lc.ppu * H3 / (cam.ppu * lc.h);
           const t = this.settings.trails;
           let keep = Math.pow(t, 60 * (realT > lc.t ? Math.min(0.5, realT - lc.t) : 1 / 60));
           if (!carry && (sx !== 1 || sy !== 1 || wx || wy)) {
@@ -21881,13 +21881,13 @@ ${e.message}` : String(e?.message || e));
         if (stonePart === 0 || stonePart === 3) this._lightStone(enc, this.stoneCacheView, this.pStoneCache, this.cacheBG);
         this._stonePart = stonePart === 0 || stonePart === 3 ? 0 : stonePart + 1;
       }
-      this.lastCam = { x: cam.x, y: cam.y, ppu: cam.ppu, w: W3, h: H2, t: realT };
+      this.lastCam = { x: cam.x, y: cam.y, ppu: cam.ppu, w: W3, h: H3, t: realT };
       const cur = this.accIdx;
       {
         const c = this.stoneCam, [cw, ch] = this.stoneSize, [dx, dy] = this._fromStone(cam);
-        const sx = W3 * c.ppu / (cam.ppu * cw), sy = H2 * c.ppu / (cam.ppu * ch);
+        const sx = W3 * c.ppu / (cam.ppu * cw), sy = H3 * c.ppu / (cam.ppu * ch);
         d.queue.writeBuffer(this.b.stoneXf, 0, new Float32Array([sx, sy, 0.5 - 0.5 * sx + dx * c.ppu / cw, 0.5 - 0.5 * sy + dy * c.ppu / ch]));
-        const pile = cam.ppu > 0.9 * Math.max(80, 2 * Math.max(W3 / this.grid[0], H2 / this.grid[1]));
+        const pile = cam.ppu > 0.9 * Math.max(80, 2 * Math.max(W3 / this.grid[0], H3 / this.grid[1]));
         const pass2 = enc.beginRenderPass({ colorAttachments: (pile ? [this.sceneView, this.orderView] : [this.sceneView]).map((view) => ({ view, loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" })) });
         pass2.setPipeline(pile ? this.pStoneLit : this.pStoneLitScene);
         pass2.setBindGroup(0, (pile ? this.litBG : this.litSceneBG)[cur]);
@@ -21907,7 +21907,7 @@ ${e.message}` : String(e?.message || e));
         this._ensureLoupeTex(L);
         const lppu = loupe.ppu * (L / span2);
         this._writeView(this.b.viewL, this.viewDataL, { x: loupe.cx, y: loupe.cy, ppu: lppu }, L, L, dpr * (L / span2), time, selId, lod, culled[1], 0, true, bare);
-        d.queue.writeBuffer(this.b.loupeU, 0, new Float32Array([loupe.x, loupe.y, loupe.r, 1, W3, H2, loupe.ppu, 0]));
+        d.queue.writeBuffer(this.b.loupeU, 0, new Float32Array([loupe.x, loupe.y, loupe.r, 1, W3, H3, loupe.ppu, 0]));
         const pass2 = scenePass(this.loupeView);
         this._drawScene(pass2, this.viewDataL, 1);
         pass2.end();
@@ -21944,9 +21944,9 @@ ${e.message}` : String(e?.message || e));
         pass2.draw(3);
         pass2.end();
       }
-      const micro = this.settings.specks && this.fx.specks && this.cpMicroBG && this.speckBG && cam.ppu > Math.max(80, 2 * Math.max(W3 / this.grid[0], H2 / this.grid[1]));
-      if (micro) this._drawSpecks(enc, cam, W3, H2);
-      const opticsKey = [W3, H2, pd[14], pd[POST_LOOK + 13]].join();
+      const micro = this.settings.specks && this.fx.specks && this.cpMicroBG && this.speckBG && cam.ppu > Math.max(80, 2 * Math.max(W3 / this.grid[0], H3 / this.grid[1]));
+      if (micro) this._drawSpecks(enc, cam, W3, H3);
+      const opticsKey = [W3, H3, pd[14], pd[POST_LOOK + 13]].join();
       if (opticsKey !== this.opticsKey) {
         this.opticsKey = opticsKey;
         const cp = enc.beginComputePass();
@@ -21980,7 +21980,7 @@ ${e.message}` : String(e?.message || e));
         cp.end();
       }
       if (!leanOnly) {
-        if (this._iceTarget(W3, H2)) {
+        if (this._iceTarget(W3, H3)) {
           this.compBG = this.compClearBG = this.compLeanBG = this.compClearLeanBG = null;
           for (const q of this.compParts) q.bg = [null, null];
           this._rebindLate();
@@ -24863,10 +24863,10 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     const labels = ax.ticks.map((v) => shortNum(v));
     const box = plotBox(g, w, h, labels);
     box.l = Math.max(box.l, opts.minLeft || 0);
-    const H2 = box.b - box.t;
-    grid(g, box, ax.ticks.map((v, k) => ({ y: box.b - v / ax.top * H2, label: labels[k] })));
+    const H3 = box.b - box.t;
+    grid(g, box, ax.ticks.map((v, k) => ({ y: box.b - v / ax.top * H3, label: labels[k] })));
     const X = (i) => box.l + i / (n - 1) * (box.r - box.l);
-    const perCell = H2 / ax.top;
+    const perCell = H3 / ax.top;
     const Y = /* @__PURE__ */ new Map();
     for (const u of C3.keys()) Y.set(u, new Float32Array(n));
     for (let i = 0; i < n; i++) {
@@ -25531,23 +25531,23 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     return dec(JSON.parse(s));
   }
   var pipe = async (blob, stream) => new Uint8Array(await new Response(blob.stream().pipeThrough(stream)).arrayBuffer());
-  function toCells(u, words, { grid: [gw, gh], bits }) {
-    const f2 = new Float32Array(u.buffer), n = u.length / words, s = 1 << bits, X = gw * s, Y = gh * s;
-    if (bits > 16 || Math.max(X, Y) > 2 ** 24) throw new Error(`positions of a ${gw} x ${gh} grid do not fit ${bits} bits`);
+  function toCells(u, words, { grid: [gw, gh], bits: bits2 }) {
+    const f2 = new Float32Array(u.buffer), n = u.length / words, s = 1 << bits2, X = gw * s, Y = gh * s;
+    if (bits2 > 16 || Math.max(X, Y) > 2 ** 24) throw new Error(`positions of a ${gw} x ${gh} grid do not fit ${bits2} bits`);
     let prev = 0;
     for (let i = 0; i < n; i++) {
       const o = i * words;
       let x = Math.round(f2[o] * s) % X, y = Math.round(f2[o + 1] * s) % Y;
       if (!(x >= 0)) x = x < 0 ? x + X : 0;
       if (!(y >= 0)) y = y < 0 ? y + Y : 0;
-      const c = (y >> bits) * gw + (x >> bits);
+      const c = (y >> bits2) * gw + (x >> bits2);
       u[o] = c - prev >>> 0;
       u[o + 1] = (x & s - 1 | (y & s - 1) << 16) >>> 0;
       prev = c;
     }
   }
-  function fromCells(u, words, { grid: [gw], bits }) {
-    const f2 = new Float32Array(u.buffer), n = u.length / words, s = 1 << bits;
+  function fromCells(u, words, { grid: [gw], bits: bits2 }) {
+    const f2 = new Float32Array(u.buffer), n = u.length / words, s = 1 << bits2;
     let c = 0;
     for (let i = 0; i < n; i++) {
       const o = i * words, at = u[o + 1];
@@ -25683,17 +25683,17 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
   };
   var IX = Math.log2(BODY_MAX);
   function packBody(body) {
-    const bits = [], put = (v, n) => {
-      for (let i = n - 1; i >= 0; i--) bits.push(v >> i & 1);
+    const bits2 = [], put = (v, n) => {
+      for (let i = n - 1; i >= 0; i--) bits2.push(v >> i & 1);
     };
     for (const c of body || []) {
       put(c.role, 2);
       put(c.bonds.length, 2);
       for (const j of c.bonds) put(j, IX);
     }
-    const out = new Uint8Array(1 + Math.ceil(bits.length / 8));
+    const out = new Uint8Array(1 + Math.ceil(bits2.length / 8));
     out[0] = body ? body.length : 0;
-    bits.forEach((v, i) => {
+    bits2.forEach((v, i) => {
       out[1 + (i >> 3)] |= v << 7 - (i & 7);
     });
     return out;
@@ -27713,8 +27713,8 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       return `<div class="vital"><span>${term("thermal", tr("spec.vital.warmth", "Warmth"))}</span><span class="tgauge${m.x > 0.8 || m.torpid ? " alarm" : ""}"><em style="left:${lo}%;width:${(hi - lo).toFixed(1)}%"></em><i style="left:${at(m.warmth)}%"></i></span><b>${text2}</b></div>`;
     };
     const lightAt = (p2) => {
-      const [W3, H2] = eng.grid;
-      return Math.round((eng.ambient + (1 - eng.ambient) * tideAt(p2.x, p2.y, W3, H2, eng.simTime, eng.tide, eng.tidePh) * eng.season) * eng.sky * (1 - duckShade(p2.x, p2.y, eng.duck, W3, H2)) * 100);
+      const [W3, H3] = eng.grid;
+      return Math.round((eng.ambient + (1 - eng.ambient) * tideAt(p2.x, p2.y, W3, H3, eng.simTime, eng.tide, eng.tidePh) * eng.season) * eng.sky * (1 - duckShade(p2.x, p2.y, eng.duck, W3, H3)) * 100);
     };
     function spName(kind) {
       const g = api.genomeFor(kind);
@@ -27939,11 +27939,11 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       let h = trait(tr("spec.temp.optimum", "Optimum"), g.topt, 0, 45, `${g.topt.toFixed(1)}°`, "optimum");
       h += trait(tr("spec.temp.tolerance", "Tolerance"), g.tol, 2, 15, `±${g.tol.toFixed(1)}°`, "tolerance");
       h += trait(tr("spec.temp.heat-output", "Heat output"), g.thermo || 0, 0, 1, (g.thermo || 0) > 5e-3 ? `${Math.round(g.thermo * 100)}% · +${(K2.thermoCost * g.thermo).toFixed(3)}/s` : tr("spec.none", "none"), "heatmaker");
-      const W3 = 300, H2 = 60, X = (t) => t / 45 * W3, Y = (v) => H2 - 4 - v / 1.45 * (H2 - 10);
+      const W3 = 300, H3 = 60, X = (t) => t / 45 * W3, Y = (v) => H3 - 4 - v / 1.45 * (H3 - 10);
       let d = "";
       for (let t = 0; t <= 45; t += 0.5) d += `${t ? "L" : "M"}${X(t).toFixed(1)},${Y(thermalPerf(g, t, K2).perf).toFixed(1)}`;
       const water = Math.round(eng.tbg * 2) / 2, live = thermalPerf(g, water, K2);
-      h += `<svg class="niche" viewBox="0 0 ${W3} ${H2}" preserveAspectRatio="none" aria-label="${tr("spec.temp.curve.aria", "How well it works from 0 to 45°")}"><line x1="0" x2="${W3}" y1="${Y(1)}" y2="${Y(1)}" class="n-one"/><path d="${d}" class="n-curve"/><line x1="${X(water)}" x2="${X(water)}" y1="0" y2="${H2}" class="n-water"/><circle cx="${X(water)}" cy="${Y(live.perf)}" r="2.5" class="n-dot"/></svg><div class="legend-note"><span>0°</span><span>${tr("spec.temp.water", "open water {t}° · {perf}%", { t: water, perf: Math.round(live.perf * 100) })}</span><span>45°</span></div>`;
+      h += `<svg class="niche" viewBox="0 0 ${W3} ${H3}" preserveAspectRatio="none" aria-label="${tr("spec.temp.curve.aria", "How well it works from 0 to 45°")}"><line x1="0" x2="${W3}" y1="${Y(1)}" y2="${Y(1)}" class="n-one"/><path d="${d}" class="n-curve"/><line x1="${X(water)}" x2="${X(water)}" y1="0" y2="${H3}" class="n-water"/><circle cx="${X(water)}" cy="${Y(live.perf)}" r="2.5" class="n-dot"/></svg><div class="legend-note"><span>0°</span><span>${tr("spec.temp.water", "open water {t}° · {perf}%", { t: water, perf: Math.round(live.perf * 100) })}</span><span>45°</span></div>`;
       return h;
     }
     function setTabs(list) {
@@ -28230,10 +28230,10 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       g.fillText(fmtClock(eng.simTime), 14, 20);
       g.fillStyle = "rgba(163,189,190,0.9)";
       if (sel) {
-        const [W3, H2] = eng.grid;
+        const [W3, H3] = eng.grid;
         g.textAlign = "right";
         const mm = (v, n) => ((v % n + n) % n * UM_PER_UNIT / 1e3).toFixed(2);
-        g.fillText(tr("spec.view.xy", "X {x}  Y {y} MM", { x: mm(sel.disp[0], W3), y: mm(sel.disp[1], H2) }), w - 14, 20);
+        g.fillText(tr("spec.view.xy", "X {x}  Y {y} MM", { x: mm(sel.disp[0], W3), y: mm(sel.disp[1], H3) }), w - 14, 20);
         g.textAlign = "left";
       }
     }
@@ -28806,10 +28806,10 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     }
     return best && { body: best, X, Y, index };
   }
-  function nearBody(X, Y, body, candidates, r, W3, H2) {
+  function nearBody(X, Y, body, candidates, r, W3, H3) {
     const out = /* @__PURE__ */ new Set();
-    const gw = Math.max(1, Math.floor(W3 / r)), gh = Math.max(1, Math.floor(H2 / r));
-    const cw = W3 / gw, ch = H2 / gh;
+    const gw = Math.max(1, Math.floor(W3 / r)), gh = Math.max(1, Math.floor(H3 / r));
+    const cw = W3 / gw, ch = H3 / gh;
     const key = (x, y) => (Math.floor(y / ch) % gh + gh) % gh * gw + (Math.floor(x / cw) % gw + gw) % gw;
     const wrap2 = (d, w) => d - w * Math.round(d / w);
     const pending = /* @__PURE__ */ new Map();
@@ -28830,7 +28830,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
           if (!l) continue;
           for (let n = l.length - 1; n >= 0; n--) {
             const c = l[n];
-            if (Math.hypot(wrap2(X[i] - X[c], W3), wrap2(Y[i] - Y[c], H2)) >= r) continue;
+            if (Math.hypot(wrap2(X[i] - X[c], W3), wrap2(Y[i] - Y[c], H3)) >= r) continue;
             out.add(c);
             queue.push(c);
             l[n] = l[l.length - 1];
@@ -28934,13 +28934,13 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     }
     ctx.stroke();
   }
-  function reticle2(W3, H2, ctx) {
-    const wide = W3 >= 2 * (H2 / 2 - 16) + 220;
+  function reticle2(W3, H3, ctx) {
+    const wide = W3 >= 2 * (H3 / 2 - 16) + 220;
     font(ctx);
     const colW = Math.max(...[WORDS2.acquiring, WORDS2.specimen, WORDS2.cells("00"), KINDS[1][2], WORDS2.size("000"), WORDS2.field, WORDS2.lux("00"), WORDS2.temp("00.0")].map((x) => ctx.measureText(x).width));
     const gap = 16;
-    const R2 = wide ? H2 / 2 - 16 : Math.max(36, Math.min(H2 / 2 - 16, W3 / 2 - gap - colW - 4));
-    const cx = W3 / 2, cy = H2 / 2;
+    const R2 = wide ? H3 / 2 - 16 : Math.max(36, Math.min(H3 / 2 - 16, W3 / 2 - gap - colW - 4));
+    const cx = W3 / 2, cy = H3 / 2;
     const rnd = Math.random;
     const T2 = KINDS.length;
     const KIN3 = [0.5, 1], OTHER2 = [-0.6, 0.2];
@@ -29123,18 +29123,18 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     const ctx = canvas2?.getContext("2d", { willReadFrequently: true });
     if (!ctx) return () => {
     };
-    let W3 = 0, H2 = 0, draw = null, raf = 0, last = 0, prev = 0, t0 = null;
+    let W3 = 0, H3 = 0, draw = null, raf = 0, last = 0, prev = 0, t0 = null;
     const fit3 = () => {
       const r = canvas2.getBoundingClientRect();
-      if (Math.round(r.width) === W3 && Math.round(r.height) === H2 && draw) return true;
+      if (Math.round(r.width) === W3 && Math.round(r.height) === H3 && draw) return true;
       W3 = Math.round(r.width);
-      H2 = Math.round(r.height);
-      if (W3 < 120 || H2 < 80) return false;
+      H3 = Math.round(r.height);
+      if (W3 < 120 || H3 < 80) return false;
       const dpr = Math.min(devicePixelRatio || 1, 2);
       canvas2.width = Math.max(1, Math.round(W3 * dpr));
-      canvas2.height = Math.max(1, Math.round(H2 * dpr));
+      canvas2.height = Math.max(1, Math.round(H3 * dpr));
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      draw = reticle2(W3, H2, ctx);
+      draw = reticle2(W3, H3, ctx);
       return true;
     };
     const frame = (now) => {
@@ -29145,12 +29145,12 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       const t = (now - t0) / 1e3, dt = Math.min(0.1, t - prev);
       prev = t;
       if (!fit3()) return;
-      ctx.clearRect(0, 0, W3, H2);
+      ctx.clearRect(0, 0, W3, H3);
       draw(t, dt);
     };
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
       if (fit3()) for (let i = 0; i <= 150; i++) {
-        ctx.clearRect(0, 0, W3, H2);
+        ctx.clearRect(0, 0, W3, H3);
         draw(i / 30, 1 / 30);
       }
       return () => {
@@ -29395,11 +29395,11 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       this.trackId = NONE;
       const old = sh.subject.p;
       const [x, y] = this.io.predict(old, sh.subject.t);
-      const [W3, H2] = this.io.world();
+      const [W3, H3] = this.io.world();
       this.io.pick([x, y], 3, { kind: old.kind, maxOut: 4096, raw: true }).then((res) => {
         if (this.shot !== sh) return;
         sh.rehoming = false;
-        const best = res && res.raw ? this.bodyCell(res.raw, x, y, W3, H2, old.id, sh.why.cells > 1) : -1;
+        const best = res && res.raw ? this.bodyCell(res.raw, x, y, W3, H3, old.id, sh.why.cells > 1) : -1;
         if (best < 0) {
           this.lose(fate);
           return;
@@ -29417,12 +29417,12 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       });
     }
     // The cell near (x, y) most worth watching (bonded, for a body): close, and young enough to last.
-    bodyCell({ u32, f32, count }, x, y, W3, H2, skip, bonded = true) {
+    bodyCell({ u32, f32, count }, x, y, W3, H3, skip, bonded = true) {
       let best = -1, bs = Infinity;
       for (let i = 0; i < count; i++) {
         const o = i * PICK_WORDS;
         if (u32[o + 7] === skip || bonded && u32[o + 10] === NONE && u32[o + 11] === NONE) continue;
-        const d = Math.hypot(wrapD(f32[o] - x, W3), wrapD(f32[o + 1] - y, H2));
+        const d = Math.hypot(wrapD(f32[o] - x, W3), wrapD(f32[o + 1] - y, H3));
         const s = d + 2 * f32[o + 6] / (this.io.lifespan(u32[o + 4]) || 100);
         if (s < bs) {
           bs = s;
@@ -29464,8 +29464,8 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     makeShot(type, to, { hold = 25, drift = 0.01, zr = 0, subject = null, fly = true, why = { kind: type } } = {}) {
       const from = this.lastRig || this.view();
       const [wMin, wMax] = this.io.widths();
-      const [W3, H2] = this.io.world();
-      const target2 = { x: from.x + wrapD(to.x - from.x, W3), y: from.y + wrapD(to.y - from.y, H2), w: clamp8(to.w, wMin, wMax) };
+      const [W3, H3] = this.io.world();
+      const target2 = { x: from.x + wrapD(to.x - from.x, W3), y: from.y + wrapD(to.y - from.y, H3), w: clamp8(to.w, wMin, wMax) };
       const path = zoomPath(from, target2);
       const flight = fly ? flightTime(path.S) : 0;
       const a = this.rng() * Math.PI * 2;
@@ -29513,14 +29513,14 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     }
     // Where the shot wants the view now.
     rig(sh, dt) {
-      const [W3, H2] = this.io.world();
+      const [W3, H3] = this.io.world();
       const [wMin, wMax] = this.io.widths();
       let base;
       if (sh.subject) {
         const s = sh.subject;
         const [px, py] = this.io.predict(s.p, s.t);
         const ref = sh.last || sh.target;
-        const ux = ref.x + wrapD(px - ref.x, W3), uy = ref.y + wrapD(py - ref.y, H2);
+        const ux = ref.x + wrapD(px - ref.x, W3), uy = ref.y + wrapD(py - ref.y, H3);
         if (sh.last && dt > 0) {
           const k = 1 - Math.exp(-dt / 2.5);
           sh.vel.x += ((ux - sh.last.x) / dt - sh.vel.x) * k;
@@ -29633,8 +29633,8 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     // A hotspot: high interest, away from where the camera has lately been.
     hotspot() {
       const I = this.interest;
-      const [W3, H2] = this.io.world();
-      if (!I.n) return { x: this.rng() * W3, y: this.rng() * H2, tile: 8, reasons: [], div: 0 };
+      const [W3, H3] = this.io.world();
+      if (!I.n) return { x: this.rng() * W3, y: this.rng() * H3, tile: 8, reasons: [], div: 0 };
       const parts = I.parts(), sc = I.scores(parts);
       const now = this.io.now(), R2 = I.tile * 2.5;
       let total = 0;
@@ -29644,13 +29644,13 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         const [x2, y2] = I.center(i);
         let pen = 1;
         for (const v of this.visited) {
-          const d2 = wrapD(x2 - v.x, W3) ** 2 + wrapD(y2 - v.y, H2) ** 2;
+          const d2 = wrapD(x2 - v.x, W3) ** 2 + wrapD(y2 - v.y, H3) ** 2;
           pen *= 1 - 0.85 * Math.exp(-(now - v.t) / 150) * Math.exp(-d2 / (2 * R2 * R2));
         }
         wts[i] = sc[i] ** 4 * pen * (0.7 + 0.6 * this.rng());
         total += wts[i];
       }
-      if (!(total > 0)) return { x: this.rng() * W3, y: this.rng() * H2, tile: I.tile, reasons: [], div: 0 };
+      if (!(total > 0)) return { x: this.rng() * W3, y: this.rng() * H3, tile: I.tile, reasons: [], div: 0 };
       let u = this.rng() * total, pick4 = -1;
       for (let i = 0; i < wts.length; i++) {
         if (!(wts[i] > 0)) continue;
@@ -29719,8 +29719,8 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     async spotlightShot(spot) {
       const sp = this.io.species(spot.slot);
       if (!sp) return null;
-      const [W3, H2] = this.io.world();
-      const res = await this.io.pick([W3 / 2, H2 / 2], Math.hypot(W3, H2), { kind: spot.slot, maxOut: Math.min(131072, sp.pop * 1.25 + 2048), raw: true });
+      const [W3, H3] = this.io.world();
+      const res = await this.io.pick([W3 / 2, H3 / 2], Math.hypot(W3, H3), { kind: spot.slot, maxOut: Math.min(131072, sp.pop * 1.25 + 2048), raw: true });
       if (!res || !res.raw || !res.raw.count) return null;
       const { f32, count } = res.raw;
       const step = Math.max(1, Math.floor(count / 200));
@@ -29728,7 +29728,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       for (let i = 0; i < count; i += step) {
         let c = 0;
         for (let j = 0; j < count; j += step) {
-          if (Math.hypot(wrapD(f32[j * PICK_WORDS] - f32[i * PICK_WORDS], W3), wrapD(f32[j * PICK_WORDS + 1] - f32[i * PICK_WORDS + 1], H2)) < 2.5) c++;
+          if (Math.hypot(wrapD(f32[j * PICK_WORDS] - f32[i * PICK_WORDS], W3), wrapD(f32[j * PICK_WORDS + 1] - f32[i * PICK_WORDS + 1], H3)) < 2.5) c++;
         }
         if (c > bn) {
           bn = c;
@@ -29740,7 +29740,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       let pick4 = best, ps = -Infinity;
       for (let i = 0; i < count; i++) {
         const o = i * PICK_WORDS;
-        if (Math.hypot(wrapD(f32[o] - cx, W3), wrapD(f32[o + 1] - cy, H2)) > 2.5) continue;
+        if (Math.hypot(wrapD(f32[o] - cx, W3), wrapD(f32[o + 1] - cy, H3)) > 2.5) continue;
         const bonded = u32[o + 10] !== NONE || u32[o + 11] !== NONE;
         const s = (bonded ? 1 : 0) - f32[o + 6] / (this.io.lifespan(u32[o + 4]) || 100);
         if (s > ps) {
@@ -29888,7 +29888,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
   ];
   function readView(scan, world) {
     const { n, u32, f32, rect } = scan;
-    const [W3, H2] = world, G = NOTE_TG * NOTE_TG;
+    const [W3, H3] = world, G = NOTE_TG * NOTE_TG;
     const grid2 = scan.grid && scan.grid[2] > 0 ? scan.grid : [rect[0], rect[1], Math.max(rect[2], rect[3]) / NOTE_TG];
     const P2 = POOL[poolAt++ % POOL.length];
     if (!(P2.cap >= n)) {
@@ -29919,8 +29919,8 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       v.ice[k] = f32[NOTE_TEMPS + G + k];
       v.stone[k] = u32[NOTE_STONE + k];
       const dx = grid2[0] + (k % NOTE_TG + 0.5) * s - cx, dy = grid2[1] + (Math.floor(k / NOTE_TG) + 0.5) * s - cy;
-      v.sqIn[k] = Math.abs(dx) < Math.min((rect[2] + s) / 2, W3 / 2) && Math.abs(dy) < Math.min((rect[3] + s) / 2, H2 / 2) ? 1 : 0;
-      v.sqOnce[k] = Math.abs(dx) < W3 / 2 && Math.abs(dy) < H2 / 2 ? 1 : 0;
+      v.sqIn[k] = Math.abs(dx) < Math.min((rect[2] + s) / 2, W3 / 2) && Math.abs(dy) < Math.min((rect[3] + s) / 2, H3 / 2) ? 1 : 0;
+      v.sqOnce[k] = Math.abs(dx) < W3 / 2 && Math.abs(dy) < H3 / 2 ? 1 : 0;
     }
     for (let i = 0; i < n; i++) {
       const o = NOTE_HEAD + i * NOTE_REC, w = u32[o + 3];
@@ -29945,8 +29945,8 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     return v;
   }
   function squareOf(v, x, y, world) {
-    const [W3, H2] = world, [ox, oy, s] = v.grid, cx = v.rect[0] + v.rect[2] / 2, cy = v.rect[1] + v.rect[3] / 2;
-    const i = Math.floor((cx + x - cx - W3 * Math.round((x - cx) / W3) - ox) / s), j = Math.floor((cy + y - cy - H2 * Math.round((y - cy) / H2) - oy) / s);
+    const [W3, H3] = world, [ox, oy, s] = v.grid, cx = v.rect[0] + v.rect[2] / 2, cy = v.rect[1] + v.rect[3] / 2;
+    const i = Math.floor((cx + x - cx - W3 * Math.round((x - cx) / W3) - ox) / s), j = Math.floor((cy + y - cy - H3 * Math.round((y - cy) / H3) - oy) / s);
     return i >= 0 && j >= 0 && i < NOTE_TG && j < NOTE_TG ? j * NOTE_TG + i : -1;
   }
   function readRing(ring2, last, tick, stepTime) {
@@ -30857,7 +30857,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     // (a body keeps its key while it keeps any of its cells). Once a look.
     _bodies(v = this.view) {
       if (this._bodyView === v) return this._bodyList;
-      const [W3, H2] = this.world(), parent = new Int32Array(v.n).fill(-1);
+      const [W3, H3] = this.world(), parent = new Int32Array(v.n).fill(-1);
       const find = (i) => {
         while (parent[i] >= 0 && parent[parent[i]] >= 0) i = parent[i] = parent[parent[i]];
         return parent[i] >= 0 ? parent[i] : i;
@@ -30898,7 +30898,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
           return d - W3 * Math.round(d / W3);
         }), dy = rows.map((i) => {
           const d = v.y[i] - y0;
-          return d - H2 * Math.round(d / H2);
+          return d - H3 * Math.round(d / H3);
         });
         for (let k = 0; k < rows.length; k++) {
           mx += dx[k];
@@ -30977,13 +30977,13 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     // bodies, grazers biting its producers there, hunters among them, births there, the current gathering water in, its
     // cells holding still). Kept by key from look to look while it keeps any of its squares.
     _clump(ctx, band, v = this.view, S = this.stats) {
-      const [W3, H2] = this.world(), r = v.rect, cx = r[0] + r[2] / 2, cy = r[1] + r[3] / 2;
+      const [W3, H3] = this.world(), r = v.rect, cx = r[0] + r[2] / 2, cy = r[1] + r[3] / 2;
       const b = 2 ** Math.round(Math.log2(Math.max(r[2], r[3]) / 24));
       const bins = /* @__PURE__ */ new Map(), near = (x, c, L) => c + (x - c) - L * Math.round((x - c) / L);
       let living = 0, speed = 0;
       for (let i = 0; i < v.n; i++) {
         if (!isLiving(v.kind[i])) continue;
-        const x = near(v.x[i], cx, W3), y = near(v.y[i], cy, H2), key = (Math.floor(x / b) + 32768) * 65536 + (Math.floor(y / b) + 32768);
+        const x = near(v.x[i], cx, W3), y = near(v.y[i], cy, H3), key = (Math.floor(x / b) + 32768) * 65536 + (Math.floor(y / b) + 32768);
         let c = bins.get(key);
         if (!c) bins.set(key, c = []);
         c.push(i);
@@ -31063,7 +31063,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       let mx = 0, my = 0, bonded = 0, cs = 0;
       for (const i of rows) {
         mx += near(v.x[i], cx, W3);
-        my += near(v.y[i], cy, H2);
+        my += near(v.y[i], cy, H3);
         if (v.p1[i] !== NONE2 || v.p2[i] !== NONE2) bonded++;
         cs += Math.hypot(v.vx[i], v.vy[i]);
       }
@@ -31072,7 +31072,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       cs /= rows.length;
       let anchor = rows[0], nd = Infinity, far = 0;
       for (const i of rows) {
-        const d = Math.hypot(near(v.x[i], cx, W3) - mx, near(v.y[i], cy, H2) - my);
+        const d = Math.hypot(near(v.x[i], cx, W3) - mx, near(v.y[i], cy, H3) - my);
         if (d < nd && v.cause[i] !== CYST) {
           nd = d;
           anchor = i;
@@ -31081,7 +31081,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       }
       if (!ctx.inner(v.x[anchor], v.y[anchor])) return null;
       const guild = (k) => this.sp(k)?.guild, share2 = (gd) => shares.reduce((a, x) => a + (guild(x.kind) === gd ? x.share : 0), 0);
-      const inIt = (e) => set.has((Math.floor(near(e.x, cx, W3) / b) + 32768) * 65536 + (Math.floor(near(e.y, cy, H2) / b) + 32768));
+      const inIt = (e) => set.has((Math.floor(near(e.x, cx, W3) / b) + 32768) * 65536 + (Math.floor(near(e.y, cy, H3) / b) + 32768));
       let bites = 0, births = 0;
       for (let k = this.events.length - 1; k >= 0; k--) {
         const e = this.events[k];
@@ -31120,7 +31120,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     }
     // the nearest hunter closing on a cell of the species it last ate: within reach, moving toward it
     _stalk(ctx, v = this.view) {
-      const [W3, H2] = this.world(), grid2 = /* @__PURE__ */ new Map(), R2 = 1.5;
+      const [W3, H3] = this.world(), grid2 = /* @__PURE__ */ new Map(), R2 = 1.5;
       const wanted = /* @__PURE__ */ new Set();
       for (let i = 0; i < v.n; i++) {
         const img = v.img[i];
@@ -31144,12 +31144,12 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         if (!ctx.inner(v.x[i], v.y[i])) continue;
         const cx = Math.floor(v.x[i] / R2), cy = Math.floor(v.y[i] / R2);
         for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
-          const gx = ((cx + a) % Math.ceil(W3 / R2) + Math.ceil(W3 / R2)) % Math.ceil(W3 / R2), gy = ((cy + b) % Math.ceil(H2 / R2) + Math.ceil(H2 / R2)) % Math.ceil(H2 / R2);
+          const gx = ((cx + a) % Math.ceil(W3 / R2) + Math.ceil(W3 / R2)) % Math.ceil(W3 / R2), gy = ((cy + b) % Math.ceil(H3 / R2) + Math.ceil(H3 / R2)) % Math.ceil(H3 / R2);
           for (const j of grid2.get(gx * 65536 + gy) || []) {
             if (v.kind[j] !== img) continue;
             let dx = v.x[j] - v.x[i], dy = v.y[j] - v.y[i];
             dx -= W3 * Math.round(dx / W3);
-            dy -= H2 * Math.round(dy / H2);
+            dy -= H3 * Math.round(dy / H3);
             const d = Math.hypot(dx, dy);
             if (d > R2 || d < 1e-4 || (v.vx[i] * dx + v.vy[i] * dy) / (sp * d) < 0.7) continue;
             if (!best || d < best.dist) best = { actor: v.id[i], target: v.id[j], akind: k, kind: img, dist: d, speed: sp };
@@ -31168,7 +31168,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     // a coarse step's bite names no grazer: the nearest living cell in reach whose last meal (its search image) was the
     // bitten one's species, found through a grid of the view's eaters by whole world units (built once a look)
     _grazerOf(e) {
-      const v = this.view, [W3, H2] = this.world();
+      const v = this.view, [W3, H3] = this.world();
       if (!this._eaters || this._eaters.view !== v) {
         const grid2 = /* @__PURE__ */ new Map();
         for (let i = 0; i < v.n; i++) {
@@ -31183,12 +31183,12 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       let best = null, bd = 1.2 * 1.2;
       const cx = Math.floor(e.x), cy = Math.floor(e.y);
       for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
-        const gx = ((cx + a) % W3 + W3) % W3, gy = ((cy + b) % H2 + H2) % H2;
+        const gx = ((cx + a) % W3 + W3) % W3, gy = ((cy + b) % H3 + H3) % H3;
         for (const i of this._eaters.grid.get(gx * 65536 + gy) || []) {
           if (v.img[i] !== e.kind) continue;
           let dx = v.x[i] - e.x, dy = v.y[i] - e.y;
           dx -= W3 * Math.round(dx / W3);
-          dy -= H2 * Math.round(dy / H2);
+          dy -= H3 * Math.round(dy / H3);
           const d = dx * dx + dy * dy;
           if (d < bd) {
             bd = d;
@@ -31278,13 +31278,13 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       if (!D) return false;
       const ids = [d.actor, d.target, d.anchor, ...n.track || d.track || [], ...n.pins || []].filter((id) => id != null && id !== NONE2);
       if (!ids.length) return false;
-      const [W3, H2] = this.world();
+      const [W3, H3] = this.world();
       for (const id of ids) {
         const c = this.cell(id);
         if (!c) return false;
         let dx = c.x - D.x, dy = c.y - D.y;
         dx -= W3 * Math.round(dx / W3);
-        dy -= H2 * Math.round(dy / H2);
+        dy -= H3 * Math.round(dy / H3);
         if (Math.abs(dx) > D.w * 0.38 || Math.abs(dy) > D.h * 0.38) return false;
       }
       return true;
@@ -31441,7 +31441,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
 
   // src/contour.js
   function contours(f2, nx, ny, level) {
-    const W3 = nx + 2, H2 = ny + 2, at = (i, j) => i < 1 || j < 1 || i > nx || j > ny ? -Infinity : f2[(j - 1) * nx + (i - 1)];
+    const W3 = nx + 2, H3 = ny + 2, at = (i, j) => i < 1 || j < 1 || i > nx || j > ny ? -Infinity : f2[(j - 1) * nx + (i - 1)];
     const point = /* @__PURE__ */ new Map();
     const cross = (id) => {
       let p2 = point.get(id);
@@ -31455,7 +31455,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     };
     const next = /* @__PURE__ */ new Map();
     const seg = (a, b) => next.set(a, b);
-    for (let j = 0; j < H2 - 1; j++) for (let i = 0; i < W3 - 1; i++) {
+    for (let j = 0; j < H3 - 1; j++) for (let i = 0; i < W3 - 1; i++) {
       const v0 = at(i, j), v1 = at(i + 1, j), v2 = at(i + 1, j + 1), v32 = at(i, j + 1);
       const c = (v0 >= level ? 1 : 0) | (v1 >= level ? 2 : 0) | (v2 >= level ? 4 : 0) | (v32 >= level ? 8 : 0);
       if (c === 0 || c === 15) continue;
@@ -32204,14 +32204,14 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     }
     const ROSTER_W = 216;
     function roster(rows, x, y, t) {
-      const W3 = ROSTER_W, H2 = 24 + rows.length * 19 + 4;
+      const W3 = ROSTER_W, H3 = 24 + rows.length * 19 + 4;
       const a = g.globalAlpha;
       g.globalAlpha = a * (reduced ? 1 : clamp9(t / 0.4, 0, 1));
       g.fillStyle = "rgba(6,9,10,0.62)";
-      g.fillRect(x - W3, y, W3, H2);
+      g.fillRect(x - W3, y, W3, H3);
       g.strokeStyle = rgba2(LINE, 0.28);
       g.lineWidth = 1;
-      g.strokeRect(x - W3 + 0.5, y + 0.5, W3 - 1, H2 - 1);
+      g.strokeRect(x - W3 + 0.5, y + 0.5, W3 - 1, H3 - 1);
       const head = tr("notes.roster.head", "CELLS IN VIEW"), hw = width("head", head) + 14;
       g.fillStyle = "rgba(6,9,10,0.9)";
       g.fillRect(x - W3 + 8, y - 7, hw, 15);
@@ -32233,7 +32233,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         g.fillRect(x - W3 + 46, yy + 4, Math.max(1, (W3 - 56) * r.bar), 1);
       });
       g.globalAlpha = a;
-      return { l: x - W3, t: y - 8, r: x, b: y + H2, hard: true };
+      return { l: x - W3, t: y - 8, r: x, b: y + H3, hard: true };
     }
     let curF = null, rideTag = "";
     function spGlyph(kind, x, y, r = 3.6) {
@@ -32560,19 +32560,19 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       return p2 ? curF.toWorld(p2) : st.o;
     }
     function nearView(F, x, y) {
-      const [W3, H2] = F.world, r = F.model.view.rect, cx = r[0] + r[2] / 2, cy = r[1] + r[3] / 2;
+      const [W3, H3] = F.world, r = F.model.view.rect, cx = r[0] + r[2] / 2, cy = r[1] + r[3] / 2;
       let dx = x - cx, dy = y - cy;
       dx -= W3 * Math.round(dx / W3);
-      dy -= H2 * Math.round(dy / H2);
+      dy -= H3 * Math.round(dy / H3);
       return [cx + dx, cy + dy];
     }
     function blob(loops, tone, t, F, o = {}) {
       if (!loops.length) return null;
       const P2 = g.newPath(), a = g.globalAlpha;
       let top = null, n = 0;
-      const [W3, H2] = F.world, c0 = F.toWorld([(F.open.l + F.open.r) / 2, (F.open.t + F.open.b) / 2]), o0 = o.at ? o.at() : [0, 0];
+      const [W3, H3] = F.world, c0 = F.toWorld([(F.open.l + F.open.r) / 2, (F.open.t + F.open.b) / 2]), o0 = o.at ? o.at() : [0, 0];
       for (const L of loops) {
-        const sx = o0[0] - W3 * Math.round((L[0][0] + o0[0] - c0[0]) / W3), sy = o0[1] - H2 * Math.round((L[0][1] + o0[1] - c0[1]) / H2);
+        const sx = o0[0] - W3 * Math.round((L[0][0] + o0[0] - c0[0]) / W3), sy = o0[1] - H3 * Math.round((L[0][1] + o0[1] - c0[1]) / H3);
         L.forEach((w, i) => {
           const p2 = F.toScreen([w[0] + sx, w[1] + sy]);
           if (i) P2.lineTo(p2[0], p2[1]);
@@ -32707,13 +32707,13 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       return rows.map((r, lv) => ({ lv, row: r.sort((p2, q) => q.vol - p2.vol).slice(0, 3) })).filter((T2) => T2.row.length);
     }
     function web(W22, x, y, t, F) {
-      const a = g.globalAlpha, tiers = webTiers(W22, F), H2 = webH(W22, F);
+      const a = g.globalAlpha, tiers = webTiers(W22, F), H3 = webH(W22, F);
       g.globalAlpha = a * (reduced ? 1 : clamp9(t / 0.4, 0, 1));
       g.fillStyle = PLATE;
-      g.fillRect(x, y, WEB_W, H2);
+      g.fillRect(x, y, WEB_W, H3);
       g.strokeStyle = rgba2(LINE, 0.28);
       g.lineWidth = 1;
-      g.strokeRect(x + 0.5, y + 0.5, WEB_W - 1, H2 - 1);
+      g.strokeRect(x + 0.5, y + 0.5, WEB_W - 1, H3 - 1);
       const head = tr("notes.web.head", "FOOD WEB · WHO EATS WHOM HERE"), hw = width("head", head) + 14;
       g.fillStyle = "rgba(6,9,10,0.9)";
       g.fillRect(x + 8, y - 7, hw, 15);
@@ -32792,7 +32792,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         const nd = b2.nd, flow = tr("notes.web.flow", "{has, select, both {ATE {ate} · EATEN {eaten}} ate {ATE {ate}} eaten {EATEN {eaten}} other {}}", { has: nd.ate && nd.eaten ? "both" : nd.ate ? "ate" : nd.eaten ? "eaten" : "none", ate: Math.round(nd.ate || 0), eaten: Math.round(nd.eaten || 0) });
         text2("data", fit3("data", flow, NODE_W - 12), b2.l + 6, b2.t + 41, rgba2(INK32, 1));
       }
-      text2("micro", tr("notes.web.key", "ARROWS RUN FROM THE EATEN UP TO THE EATER"), x + 12, y + H2 - 9, rgba2(INK32, 1));
+      text2("micro", tr("notes.web.key", "ARROWS RUN FROM THE EATEN UP TO THE EATER"), x + 12, y + H3 - 9, rgba2(INK32, 1));
       g.globalAlpha = a;
     }
     let isActive = () => false;
@@ -35081,6 +35081,7 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
           if (sp && sp.given) c.rank += 0.15;
           if (obs.focus === s) c.rank += 0.05;
         }
+        if (T2.worthy?.(c)) c.rank = Math.max(c.rank, T2.borrow + 0.05);
       }
       const subjectGap = (c) => c.final ? T2.subjectGap / 3 : c.rank >= 0.7 ? T2.subjectGap / 3 : T2.subjectGap;
       const ok = (c) => (c.force || t - toldAt(c.kind) >= T2.kindGap) && (c.force || !(c.subjects || []).some((s) => t - toldAt(`sp:${s}`) < subjectGap(c))) && (!c.key || t - toldAt(c.key) >= (c.keyGap ?? 30 * MIN));
@@ -35110,7 +35111,7 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
       const text2 = best.html.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"');
       for (const s of best.subjects || []) S.latest.set(s, { t, text: text2, html: best.html });
       best.onTold?.();
-      return [{ html: best.html, text: text2, col: best.col, kind: best.kind, key: best.key, moment: best.moment, subjects: best.subjects || [], score: best.score }];
+      return [{ html: best.html, text: text2, col: best.col, kind: best.kind, key: best.key, moment: best.moment, subjects: best.subjects || [], score: best.score, low: best.low, span: best.span }];
     }
     const vary = (kind, n) => (S.voice[kind] || 0) % n;
     const L = (reg, serial) => {
@@ -35330,18 +35331,18 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
         const pk = peakIn(st, t - 20 * MIN);
         const t0 = Math.min(pk ? pk[0] : t - 10 * MIN, t - 3 * MIN);
         const why = whyDeclined(ctx, sp, st, t0);
-        const bits = [];
-        if (why) bits.push(tr("chron.obit.why", "It {why}.", { why: whyText(why) }));
+        const bits2 = [];
+        if (why) bits2.push(tr("chron.obit.why", "It {why}.", { why: whyText(why) }));
         const [hunter, hm, hsum] = topBy(st.eaters);
         const hsp = hunter && reg.get(hunter);
         if (hsp && !hsp.alive && hm >= 0.25 * hsum && hsp.extinct && hsp.extinct < t - MIN && why?.by !== hunter) {
-          bits.push(tr("chron.obit.hunter-gone", "{name} had hunted it, and went before it to the grave.", { name: L(reg, hunter) }));
+          bits2.push(tr("chron.obit.hunter-gone", "{name} had hunted it, and went before it to the grave.", { name: L(reg, hunter) }));
         }
         const kids = descendants(reg, serial);
         if (genusEnds) {
           const n = genusCount(reg, sp.genus);
-          bits.push(tr("chron.obit.genus-end", "With it the genus <b>{genus}</b> comes to an end, after {count} species.", { genus: esc2(sp.genus), count: numWord(n), n }));
-        } else if (kids.length) bits.push(tr("chron.obit.line", "Yet its line endures in {name}{others, plural, =0 {} one { and {count} other} other { and {count} others}}.", { name: L(reg, kids[0].serial), others: kids.length - 1, count: numWord(kids.length - 1) }));
+          bits2.push(tr("chron.obit.genus-end", "With it the genus <b>{genus}</b> comes to an end, after {count} species.", { genus: esc2(sp.genus), count: numWord(n), n }));
+        } else if (kids.length) bits2.push(tr("chron.obit.line", "Yet its line endures in {name}{others, plural, =0 {} one { and {count} other} other { and {count} others}}.", { name: L(reg, kids[0].serial), others: kids.length - 1, count: numWord(kids.length - 1) }));
         const head = tr(
           "chron.obit.head",
           "{name} is no more, after {life} of life{reigned, select,yes {, {reign} of that as the most numerous species in the pool}other {}}.",
@@ -35356,7 +35357,7 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
           subjects: [serial],
           key: `obit:${serial}`,
           final: true,
-          html: sentences([head, ...bits]).trim()
+          html: sentences([head, ...bits2]).trim()
         });
       }
       S.ext = S.ext.filter(([x]) => x > t - 70 * MIN);
@@ -35406,6 +35407,7 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
             score: 0.55 + Math.min(0.3, was.len / 7200),
             col: best.genome.col,
             subjects: [was.serial, best.serial],
+            span: was.len,
             // i18n: the most numerous species overtaken: {dur}, how long it was; {name}: it (a link); {why}: what befell it (chron.why), when {fell} is yes;
             // i18n: {next}: the new most numerous (a link); {kind}: what that is (chron.word.kind)
             html: tr(
@@ -35488,6 +35490,7 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
             subjects: [sp.serial],
             key: `back:${sp.serial}`,
             keyGap: 40 * MIN,
+            low: st.low.n,
             // i18n: a species nearly gone has recovered: {name} (a link); {low}: its fewest cells, at {at} on the world's clock; {now}: its cells now; {woke}: yes when cysts woke to save it; {turn}: the closing line (they take turns)
             html: tr(
               "chron.comeback",
@@ -36033,8 +36036,8 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
         S.hand = null;
         return null;
       }
-      const [W3, H2] = h.world;
-      const place = tr("chron.hand.place", "{q, select, north {the northern waters} south {the southern waters} east {the eastern waters} west {the western waters} north_east {the north-eastern waters} north_west {the north-western waters} south_east {the south-eastern waters} south_west {the south-western waters} other {the middle of the pool}}", { q: compass(a.x / W3, a.y / H2) });
+      const [W3, H3] = h.world;
+      const place = tr("chron.hand.place", "{q, select, north {the northern waters} south {the southern waters} east {the eastern waters} west {the western waters} north_east {the north-eastern waters} north_west {the north-western waters} south_east {the south-eastern waters} south_west {the south-western waters} other {the middle of the pool}}", { q: compass(a.x / W3, a.y / H3) });
       const dur = a.end - a.at;
       const how = tool === "needle" ? "burst" : tool === "touch" && a.n ? "drops" : dur >= 20 ? "long" : "once";
       let up = null, down = null;
@@ -36047,15 +36050,15 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
         if (n0 >= 8 && n1 <= 0.3 * n0 && reg.get(serial) && (!down || n0 - n1 > down[1] - down[2])) down = [serial, n0, n1];
       }
       S.hand = null;
-      const bits = [];
-      if (up) bits.push(tr(
+      const bits2 = [];
+      if (up) bits2.push(tr(
         "chron.hand.rose",
         "{name} {tool, select, lamp {bloomed under it} shade {thrived in the dark} warm {took to the warmth} cold {took to the cold} touch {gathered there after} needle {moved in after} ride {gathered where it went} pipette {took the room they left} other {took hold there}}, from {from, plural, =0 {none} other {#}} to {to, plural, other {# cells}}",
         { name: L(reg, up[0]), tool, from: up[1] || 0, to: up[2] }
       ));
-      if (down && down[0] !== up?.[0]) bits.push(tr("chron.hand.fell", "{name} {gone, select, yes {was gone from it} other {fell from {from, number} to {to, number}}}", { name: L(reg, down[0]), gone: down[2] ? "no" : "yes", from: down[1], to: down[2] }));
+      if (down && down[0] !== up?.[0]) bits2.push(tr("chron.hand.fell", "{name} {gone, select, yes {was gone from it} other {fell from {from, number} to {to, number}}}", { name: L(reg, down[0]), gone: down[2] ? "no" : "yes", from: down[1], to: down[2] }));
       const pricks = a.tool === "needle" && a.n >= 3 || (a.tool === "pipette" || a.tool === "setdown") && a.n >= 10;
-      if (!bits.length && !pricks) return null;
+      if (!bits2.length && !pricks) return null;
       const again = S.handTold.some(([t0, tool2]) => tool2 === a.tool && t - t0 < 2 * 3600);
       const wry = again && t - S.wry >= 3600 && !S.handTold.at(-1)?.[2];
       const act = tr(
@@ -36063,11 +36066,11 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
         "{tool, select, lamp {A light fell on {place}{how, select, long { for {dur}} other {}}} shade {A shadow lay over {place}{how, select, long { for {dur}} other {}}} warm {Warmth was laid on {place}{how, select, long { for {dur}} other {}}} cold {A chill was laid on {place}{how, select, long { for {dur}} other {}}} touch {Something stirred {place}{how, select, drops { with {count} {n, plural, one {drop} other {drops}}} long { for {dur}} other {}}} needle {A needle went through {place}, and {count} {n, plural, one {cell} other {cells}} burst} ride {A cell was steered to {place}{how, select, long { for {dur}} other {}}} pipette {Something drew up {count} {n, plural, one {cell} other {cells}} from {place}{how, select, long { for {dur}} other {}}} other {{countStart} {n, plural, one {cell from elsewhere was} other {cells from elsewhere were}} set down in {place}{how, select, long { for {dur}} other {}}}}",
         { tool, place, how, dur: durWords(dur), count: numWord(a.n), n: a.n, countStart: numWordStart(a.n) }
       );
-      const told = tr("chron.hand.told", "{act}{some, select, yes {; {after}} other {}}.", { act, some: bits.length ? "yes" : "no", after: andList(bits) });
+      const told = tr("chron.hand.told", "{act}{some, select, yes {; {after}} other {}}.", { act, some: bits2.length ? "yes" : "no", after: andList(bits2) });
       const sameAgain = wry ? tr("chron.hand.again", "Someone has been at {tool, select, lamp {the lamp} shade {the shade} warm {the stage} cold {the cold probe} touch {the water} needle {the needle} ride {the reins} other {the pipette}} again.", { tool }) : null;
       return {
         kind: "hand",
-        score: 0.48 + 0.14 * bits.length + (pricks ? 0.14 : 0),
+        score: 0.48 + 0.14 * bits2.length + (pricks ? 0.14 : 0),
         col: 4288734193,
         subjects: [up?.[0], down?.[0]].filter(Boolean),
         html: sameAgain ? sentences([sameAgain, told]) : told,
@@ -36106,14 +36109,14 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
         }
       }
       const character2 = bd >= 0.1 ? best : lost >= 8 ? "losses" : born >= 10 ? "new" : living >= 1.5 * from.living ? "flourishing" : living <= 0.5 * from.living ? "lean" : null;
-      const bits = [];
-      if (rise && reg.get(rise[0])) bits.push(tr("chron.era.rose", "{name} rose to {n, plural, other {# cells}}", { name: L(reg, rise[0]), n: to.pops.get(rise[0]) }));
-      if (fall && reg.get(fall[0])) bits.push(tr("chron.era.fell", "{name} {lost, select, yes {was lost} other {fell from {from, number} to {to, number}}}", { name: L(reg, fall[0]), lost: fall[3] ? "no" : "yes", from: fall[1], to: fall[3] }));
+      const bits2 = [];
+      if (rise && reg.get(rise[0])) bits2.push(tr("chron.era.rose", "{name} rose to {n, plural, other {# cells}}", { name: L(reg, rise[0]), n: to.pops.get(rise[0]) }));
+      if (fall && reg.get(fall[0])) bits2.push(tr("chron.era.fell", "{name} {lost, select, yes {was lost} other {fell from {from, number} to {to, number}}}", { name: L(reg, fall[0]), lost: fall[3] ? "no" : "yes", from: fall[1], to: fall[3] }));
       if (lostGenera.length) {
-        bits.push(lostGenera.length <= 2 ? tr("chron.era.genera-lost", "{n, plural, one {the genus {genera} died out} other {the genera {genera} died out}}", { n: lostGenera.length, genera: andList(lostGenera.map((g) => `<b>${esc2(g)}</b>`)) }) : tr("chron.era.genera-many", "{count} genera of note died out", { count: numWord(lostGenera.length), n: lostGenera.length }));
+        bits2.push(lostGenera.length <= 2 ? tr("chron.era.genera-lost", "{n, plural, one {the genus {genera} died out} other {the genera {genera} died out}}", { n: lostGenera.length, genera: andList(lostGenera.map((g) => `<b>${esc2(g)}</b>`)) }) : tr("chron.era.genera-many", "{count} genera of note died out", { count: numWord(lostGenera.length), n: lostGenera.length }));
       }
       const score = 0.2 + (rise ? 0.12 : 0) + (fall ? 0.15 : 0) + (lostGenera.length ? 0.08 : 0) + (bd >= 0.1 ? 0.2 : character2 ? 0.05 : 0);
-      if (!bits.length) return null;
+      if (!bits2.length) return null;
       const subj = [rise?.[0], fall?.[0]].filter((s) => s && reg.get(s));
       return {
         kind: "era",
@@ -36127,7 +36130,7 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
         html: tr(
           "chron.era.passed",
           "<b>{era}</b> has passed into history{character, select,producer {, a producers’ era}grazer {, a grazers’ era}scavenger {, a scavengers’ era}predator {, a predators’ era}losses {, an era of losses}new {, an era of new species}flourishing {, a flourishing era}lean {, a lean era}other {}}: {what}.",
-          { era: esc2(eraName(pend.name)), character: character2 || "none", what: andList(bits) }
+          { era: esc2(eraName(pend.name)), character: character2 || "none", what: andList(bits2) }
         )
       };
     }
@@ -36149,17 +36152,17 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
           if (p0 >= 0.03 * from.living && sp.pop <= 0.3 * p0 && (!sank || p0 - sp.pop > sank[1])) sank = [serial, p0 - sp.pop, p0];
         }
       }
-      const bits = [];
-      const named = (serial) => bits.length ? L(reg, serial) : Lstart(reg, serial);
-      if (slept) bits.push(tr("chron.event.slept", "{name} {event, select, drought {lay sleeping as cysts upon the mud and woke with the rain} frost {slept in the ice as cysts and woke with the thaw} other {withdrew into cysts and waited for better days}}", { name: named(slept[0]), event: ev.type }));
-      if (win) bits.push(tr("chron.event.flourished", "{name} flourished, from {from, plural, other {# cells}} to {to, number}", { name: named(win[0]), from: win[2], to: reg.get(win[0]).pop }));
-      if (sank && sank[0] !== slept?.[0]) bits.push(tr("chron.event.sank", "{name} lost {share} of its cells", { name: named(sank[0]), share: shareWords(sank[1] / sank[2]) }));
+      const bits2 = [];
+      const named = (serial) => bits2.length ? L(reg, serial) : Lstart(reg, serial);
+      if (slept) bits2.push(tr("chron.event.slept", "{name} {event, select, drought {lay sleeping as cysts upon the mud and woke with the rain} frost {slept in the ice as cysts and woke with the thaw} other {withdrew into cysts and waited for better days}}", { name: named(slept[0]), event: ev.type }));
+      if (win) bits2.push(tr("chron.event.flourished", "{name} flourished, from {from, plural, other {# cells}} to {to, number}", { name: named(win[0]), from: win[2], to: reg.get(win[0]).pop }));
+      if (sank && sank[0] !== slept?.[0]) bits2.push(tr("chron.event.sank", "{name} lost {share} of its cells", { name: named(sank[0]), share: shareWords(sank[1] / sank[2]) }));
       if (lost.length) {
-        const first = !bits.length;
-        bits.push(lost.length <= 2 ? tr("chron.event.lost", "{names} did not live to see it end", { names: andList(lost.map((sp, i) => i || !first ? L(reg, sp.serial) : Lstart(reg, sp.serial))), n: lost.length }) : tr("chron.event.lost-many", "{count} species did not live to see it end, {name} the greatest of them", { count: first ? numWordStart(lost.length) : numWord(lost.length), n: lost.length, name: L(reg, lost[0].serial) }));
+        const first = !bits2.length;
+        bits2.push(lost.length <= 2 ? tr("chron.event.lost", "{names} did not live to see it end", { names: andList(lost.map((sp, i) => i || !first ? L(reg, sp.serial) : Lstart(reg, sp.serial))), n: lost.length }) : tr("chron.event.lost-many", "{count} species did not live to see it end, {name} the greatest of them", { count: first ? numWordStart(lost.length) : numWord(lost.length), n: lost.length, name: L(reg, lost[0].serial) }));
       }
-      if (!bits.length) return null;
-      const score = 0.45 + 0.1 * bits.length + (lost.length >= 3 ? 0.1 : 0);
+      if (!bits2.length) return null;
+      const score = 0.45 + 0.1 * bits2.length + (lost.length >= 3 ? 0.1 : 0);
       return {
         kind: "aftermath",
         score,
@@ -36167,7 +36170,7 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
         subjects: [slept?.[0], win?.[0], sank?.[0], lost[0]?.serial].filter(Boolean).slice(0, 3),
         force: true,
         // i18n: an event's aftermath: {event}, which is over (other: one without a name); {what}: what it did, clauses (chron.event.*) joined by chron.list.clauses
-        html: tr("chron.event.over", "{event, select, drought {The drought is past} storm {The storm is spent} frost {The frost has lifted} duckweed {The duckweed has drifted on} other {It is over}}. {what}.", { event: ev.type, what: clauses(bits) })
+        html: tr("chron.event.over", "{event, select, drought {The drought is past} storm {The storm is spent} frost {The frost has lifted} duckweed {The duckweed has drifted on} other {It is over}}. {what}.", { event: ev.type, what: clauses(bits2) })
       };
     }
     function excursionStory(ctx) {
@@ -36251,37 +36254,99 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
   }
 
   // src/achievements.js
+  var H = 3600;
   var ACHIEVEMENTS = [
-    // the chronicler's firsts (detectFirsts: told at most once a world, after its first minutes)
-    { id: "FIRST_MULTI", name: tr("ach.first-multi.name", "Many Hands"), desc: tr("ach.first-multi.desc", "Witness the first multicellular organism in a world."), story: (s) => s.key === "first:multi" },
-    { id: "FIRST_TREE", name: tr("ach.first-tree.name", "Branching Out"), desc: tr("ach.first-tree.desc", "Witness the first species to grow as a branching tree."), story: (s) => s.key === "first:tree" },
-    { id: "FIRST_SWIMMER", name: tr("ach.first-swimmer.name", "Open Water"), desc: tr("ach.first-swimmer.desc", "Witness the first multicellular body that swims."), story: (s) => s.key === "first:swimbody" },
-    { id: "FIRST_HUNTER", name: tr("ach.first-hunter.name", "Tooth and Claw"), desc: tr("ach.first-hunter.desc", "Witness the first species to hunt living prey."), story: (s) => s.key === "first:guild:predator" },
-    { id: "FIRST_THREE_TYPES", name: tr("ach.first-three-types.name", "Division of Labor"), desc: tr("ach.first-three-types.desc", "Witness the first species to grow three kinds of cell."), story: (s) => s.key === "first:types3" },
-    { id: "FIRST_THERMOPHILE", name: tr("ach.first-thermophile.name", "Hot Springs"), desc: tr("ach.first-thermophile.desc", "Witness the first thermophile, at home in water above 38°."), story: (s) => s.key === "first:thermophile" },
-    { id: "FIRST_COLD", name: tr("ach.first-cold.name", "Cold Blood"), desc: tr("ach.first-cold.desc", "Witness the first cold-lover, at home in water below 10°."), story: (s) => s.key === "first:cold" },
-    { id: "REEF", name: tr("ach.reef.name", "Reef Builders"), desc: tr("ach.reef.desc", "Witness the first reef stone laid, or a reef rising."), story: (s) => s.key === "first:calcify" || s.kind === "reef" },
-    // the pool's dramas
-    { id: "ARMS_RACE", name: tr("ach.arms-race.name", "Red Queen"), desc: tr("ach.arms-race.desc", "Witness an arms race between hunter and prey."), story: (s) => s.kind === "arms" },
-    { id: "CYCLE", name: tr("ach.cycle.name", "Boom and Bust"), desc: tr("ach.cycle.desc", "Witness hunter and hunted rise and fall in turn."), story: (s) => s.kind === "cycle" },
-    { id: "RADIATION", name: tr("ach.radiation.name", "Adaptive Radiation"), desc: tr("ach.radiation.desc", "Witness a genus burst into many species."), story: (s) => s.kind === "radiation" },
-    { id: "REIGN", name: tr("ach.reign.name", "Long Live the King"), desc: tr("ach.reign.desc", "Witness a reign end, or one held for a long time."), story: (s) => s.kind === "reign" },
-    { id: "COMEBACK", name: tr("ach.comeback.name", "Lazarus"), desc: tr("ach.comeback.desc", "Witness a species come back from the brink."), story: (s) => s.kind === "comeback" },
-    { id: "SPARK", name: tr("ach.spark.name", "From the Silt"), desc: tr("ach.spark.desc", "Witness life sparked from silt take a tenth of the pool."), story: (s) => s.kind === "spark" },
-    { id: "ELDER", name: tr("ach.elder.name", "Old Growth"), desc: tr("ach.elder.desc", "Witness a species hold on for hours."), story: (s) => s.kind === "elder" },
-    { id: "MASS_EXTINCTION", name: tr("ach.mass-extinction.name", "The Great Dying"), desc: tr("ach.mass-extinction.desc", "Witness a mass extinction."), story: (s) => s.kind === "mass" },
-    { id: "GUILD_LOST", name: tr("ach.guild-lost.name", "The Last of Its Kind"), desc: tr("ach.guild-lost.desc", "Witness the last of a guild perish."), story: (s) => s.kind === "guild" && s.moment !== "back" },
-    { id: "COLLAPSE", name: tr("ach.collapse.name", "Near Silence"), desc: tr("ach.collapse.desc", "Witness life all but fail."), story: (s) => s.kind === "collapse" && s.moment !== "back" },
-    { id: "RETURN", name: tr("ach.return.name", "Life Finds a Way"), desc: tr("ach.return.desc", "Witness life return after it all but failed."), story: (s) => s.kind === "collapse" && s.moment === "back" },
-    { id: "AFTERMATH", name: tr("ach.aftermath.name", "Weathered"), desc: tr("ach.aftermath.desc", "Witness the aftermath of one of the pool’s events."), story: (s) => s.kind === "aftermath" },
-    { id: "ERA", name: tr("ach.era.name", "Turning of the Ages"), desc: tr("ach.era.desc", "Witness the chronicler tell what an era did."), story: (s) => s.kind === "era" },
-    // the viewer's own
-    { id: "STORIES_50", name: tr("ach.stories-50.name", "Natural Historian"), desc: tr("ach.stories-50.desc", "Read fifty of the chronicler’s stories."), stories: 50 },
-    { id: "NAMED", name: tr("ach.named.name", "Taxonomist"), desc: tr("ach.named.desc", "Give a species a name of your own.") },
-    { id: "SHARED", name: tr("ach.shared.name", "Show and Tell"), desc: tr("ach.shared.desc", "Share a world on the Steam Workshop.") }
+    // ---- core
+    { id: "FIRST_STORY", tier: "core", name: tr("ach.first-story.name", "Once Upon a Tide"), desc: tr("ach.first-story.desc", "Read the chronicler’s first story of a world."), story: () => true },
+    { id: "CYCLE", tier: "core", name: tr("ach.cycle.name", "Boom and Bust"), desc: tr("ach.cycle.desc", "Witness hunter and hunted rise and fall in turn."), story: (s) => s.kind === "cycle" },
+    { id: "DROUGHT", tier: "core", name: tr("ach.drought.name", "Dry Spell"), desc: tr("ach.drought.desc", "See a world through a drought."), world: (w) => w.weathered.drought > 0 },
+    { id: "STORM", tier: "core", name: tr("ach.storm.name", "Weathered the Storm"), desc: tr("ach.storm.desc", "See a world through a storm."), world: (w) => w.weathered.storm > 0 },
+    { id: "FROST", tier: "core", name: tr("ach.frost.name", "The Thaw"), desc: tr("ach.frost.desc", "See a world through a frost."), world: (w) => w.weathered.frost > 0 },
+    { id: "DUCKWEED", tier: "core", name: tr("ach.duckweed.name", "Green Ceiling"), desc: tr("ach.duckweed.desc", "See a world through a duckweed bloom."), world: (w) => w.weathered.duckweed > 0 },
+    { id: "RADIATION", tier: "core", name: tr("ach.radiation.name", "Adaptive Radiation"), desc: tr("ach.radiation.desc", "Witness a genus burst into many species."), story: (s) => s.kind === "radiation" },
+    { id: "COMEBACK", tier: "core", name: tr("ach.comeback.name", "Lazarus"), desc: tr("ach.comeback.desc", "Witness a species come back after falling to ten cells or fewer."), story: (s) => s.kind === "comeback" && s.low <= 10 },
+    { id: "ARMS_RACE", tier: "core", name: tr("ach.arms-race.name", "Red Queen"), desc: tr("ach.arms-race.desc", "Witness an arms race between hunter and prey."), story: (s) => s.kind === "arms" },
+    { id: "MASS_EXTINCTION", tier: "core", name: tr("ach.mass-extinction.name", "Extinction Event"), desc: tr("ach.mass-extinction.desc", "Witness a wave of extinctions."), story: (s) => s.kind === "mass" },
+    { id: "REIGN", tier: "core", name: tr("ach.reign.name", "Long Live the King"), desc: tr("ach.reign.desc", "Witness the end of a reign that lasted half an hour or more."), story: (s) => s.kind === "reign" && s.span >= H / 2 },
+    { id: "GUILD_LOST", tier: "core", name: tr("ach.guild-lost.name", "The Last of Its Kind"), desc: tr("ach.guild-lost.desc", "Witness the last of a guild perish."), story: (s) => s.kind === "guild" && s.moment !== "back" },
+    { id: "STORIES_50", tier: "core", name: tr("ach.stories-50.name", "Natural Historian"), desc: tr("ach.stories-50.desc", "Read fifty of the chronicler’s stories."), stories: 50 },
+    { id: "DAY", tier: "core", name: tr("ach.day.name", "A Day in the Life"), desc: tr("ach.day.desc", "Keep one world going for a simulated day."), world: (w) => w.t >= 24 * H },
+    // ---- rare
+    { id: "COLLAPSE", tier: "rare", name: tr("ach.collapse.name", "Near Silence"), desc: tr("ach.collapse.desc", "Witness life all but fail."), story: (s) => s.kind === "collapse" && s.moment !== "back" },
+    { id: "RETURN", tier: "rare", name: tr("ach.return.name", "Life Finds a Way"), desc: tr("ach.return.desc", "Witness life return after it all but failed."), story: (s) => s.kind === "collapse" && s.moment === "back" },
+    { id: "LAST_FEW", tier: "rare", name: tr("ach.last-few.name", "The Last Few"), desc: tr("ach.last-few.desc", "Witness life dwindle to a last few cells, one in five thousand of its height."), world: (w) => w.lowest <= 1 / 5e3 },
+    { id: "SIGNAL", tier: "rare", name: tr("ach.signal.name", "First Contact"), desc: tr("ach.signal.desc", "Witness a species that seems to be trying to communicate take hold in the pool."), world: (w) => w.signal > 0 },
+    { id: "MONOCULTURE", tier: "rare", name: tr("ach.monoculture.name", "Monoculture"), desc: tr("ach.monoculture.desc", "See one species make up nine tenths of all life in a world."), world: (w) => w.topShare >= 0.9 },
+    { id: "DYNASTY", tier: "rare", name: tr("ach.dynasty.name", "Dynasty"), desc: tr("ach.dynasty.desc", "See one species stay the most numerous for six hours straight."), world: (w) => w.reign >= 6 * H },
+    { id: "APEX", tier: "rare", name: tr("ach.apex.name", "Apex"), desc: tr("ach.apex.desc", "See a hunter stay the most numerous species in a world for an hour."), world: (w) => w.topGuild === "predator" && w.reign >= H },
+    { id: "SURVIVOR", tier: "rare", name: tr("ach.survivor.name", "Survivor"), desc: tr("ach.survivor.desc", "See one species live through a drought, a storm, a frost and a duckweed bloom."), world: (w) => w.endured >= 4 },
+    { id: "SPARK", tier: "rare", name: tr("ach.spark.name", "From the Silt"), desc: tr("ach.spark.desc", "See life sparked from the silt grow to three quarters of the pool."), world: (w) => w.sparkShare >= 0.75 },
+    { id: "LIVING_FOSSIL", tier: "rare", name: tr("ach.living-fossil.name", "Living Fossil"), desc: tr("ach.living-fossil.desc", "See one species live for a simulated day."), world: (w) => w.oldest >= 24 * H },
+    // ---- the viewer's own
+    { id: "NAMED", tier: "viewer", name: tr("ach.named.name", "Taxonomist"), desc: tr("ach.named.desc", "Give a species a name of your own.") },
+    { id: "CARD", tier: "viewer", name: tr("ach.card.name", "Collector"), desc: tr("ach.card.desc", "Save a species’ card to your cabinet.") },
+    { id: "FILM", tier: "viewer", name: tr("ach.film.name", "Documentarian"), desc: tr("ach.film.desc", "Film a minute of the pool.") },
+    { id: "RIDE", tier: "viewer", name: tr("ach.ride.name", "Along for the Ride"), desc: tr("ach.ride.desc", "Ride a cell and steer it through the water.") },
+    { id: "STRANGER", tier: "viewer", name: tr("ach.stranger.name", "Stowaway"), desc: tr("ach.stranger.desc", "Carry a species from one world into another.") },
+    { id: "SHARED", tier: "viewer", name: tr("ach.shared.name", "Show and Tell"), desc: tr("ach.shared.desc", "Share a world on the Steam Workshop.") }
   ];
   function earned(story, told = 0) {
     return ACHIEVEMENTS.filter((a) => a.story ? a.story(story) : a.stories ? told >= a.stories : false).map((a) => a.id);
+  }
+  function reached(w) {
+    return ACHIEVEMENTS.filter((a) => a.world?.(w)).map((a) => a.id);
+  }
+  var worthy = (story, have) => ACHIEVEMENTS.some((a) => a.story && !have.has(a.id) && a.story(story));
+  var PACE = { sim: 20 * 60, real: 18e4 };
+  var TIER = Object.fromEntries(ACHIEVEMENTS.map((a) => [a.id, a.tier]));
+  function createPacer(P2 = PACE) {
+    let sim = -Infinity, real = -Infinity;
+    const ready2 = (t, now) => t < sim || t - sim >= P2.sim && now - real >= P2.real;
+    return {
+      ready: ready2,
+      take(ids, have, t, now) {
+        const fresh = ids.filter((id) => !have.has(id));
+        const out = fresh.filter((id) => TIER[id] !== "core");
+        const core = fresh.filter((id) => TIER[id] === "core");
+        if (core.length && ready2(t, now)) out.push(core[0]);
+        if (out.length) {
+          sim = t;
+          real = now;
+        }
+        return out;
+      }
+    };
+  }
+  var EVENT_BITS = { drought: 1, storm: 2, frost: 4, duckweed: 8 };
+  var bits = (m) => {
+    let n = 0;
+    for (; m; m &= m - 1) n++;
+    return n;
+  };
+  function worldFacts({ t, living, count, species, guildOf, events, top, topSince, peak = 0, low = Infinity, signal = 0, founders = Infinity }) {
+    const weathered = { drought: 0, storm: 0, frost: 0, duckweed: 0 };
+    for (const e of events) if (e.end <= t && e.type in weathered) weathered[e.type]++;
+    let oldest = 0, endured = 0, best = null, spark = 0;
+    for (const sp of species) {
+      if (!sp.alive || !sp.established) continue;
+      if (sp.founder && sp.serial > founders) spark = Math.max(spark, sp.pop);
+      oldest = Math.max(oldest, t - (sp.establishedAt ?? t));
+      endured = Math.max(endured, bits(sp.weathered || 0));
+      if (sp.serial === top) best = sp;
+    }
+    const full = living >= 0.1 * count;
+    return {
+      t,
+      weathered,
+      oldest,
+      endured,
+      signal,
+      lowest: peak >= 2e3 ? low / peak : 1,
+      topShare: full && best ? best.pop / living : 0,
+      topGuild: full && best ? guildOf(best) : null,
+      reign: best ? t - (topSince ?? t) : 0,
+      sparkShare: full ? spark / living : 0
+    };
   }
 
   // src/input/focus.js
@@ -36484,9 +36549,9 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
     const need = (ver) => segs.reduce((n, sg) => n + 4 + countBits(sg, ver) + dataBits(sg), 0);
     while (v < ECC.length - 1 && need(v) > dataCodewords(v) * 8) v++;
     if (need(v) > dataCodewords(v) * 8) throw new Error("Too much for a QR code");
-    const bits = [];
+    const bits2 = [];
     const put = (val, n) => {
-      for (let i2 = n - 1; i2 >= 0; i2--) bits.push(val >>> i2 & 1);
+      for (let i2 = n - 1; i2 >= 0; i2--) bits2.push(val >>> i2 & 1);
     };
     for (const sg of segs) {
       if (sg.digits) {
@@ -36503,11 +36568,11 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
       }
     }
     const cap2 = dataCodewords(v) * 8;
-    put(0, Math.min(4, cap2 - bits.length));
-    put(0, (8 - bits.length % 8) % 8);
-    for (let pad3 = 236; bits.length < cap2; pad3 ^= 236 ^ 17) put(pad3, 8);
+    put(0, Math.min(4, cap2 - bits2.length));
+    put(0, (8 - bits2.length % 8) % 8);
+    for (let pad3 = 236; bits2.length < cap2; pad3 ^= 236 ^ 17) put(pad3, 8);
     const data = [];
-    for (let i2 = 0; i2 < bits.length; i2 += 8) data.push(bits.slice(i2, i2 + 8).reduce((a, b) => a << 1 | b, 0));
+    for (let i2 = 0; i2 < bits2.length; i2 += 8) data.push(bits2.slice(i2, i2 + 8).reduce((a, b) => a << 1 | b, 0));
     const nb = BLOCKS[v], ecl = ECC[v], raw = Math.floor(rawModules(v) / 8), short = nb - raw % nb, shortLen = Math.floor(raw / nb);
     const div = rsDivisor(ecl), blocks = [];
     for (let i2 = 0, k = 0; i2 < nb; i2++) {
@@ -36755,7 +36820,7 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
     return `${s.trimEnd()}…`;
   };
   function drawCard(ctx, d, art = {}) {
-    const W3 = CARD_W, H2 = CARD_H, F = 'Saira, Bahnschrift, "Segoe UI", system-ui, sans-serif';
+    const W3 = CARD_W, H3 = CARD_H, F = 'Saira, Bahnschrift, "Segoe UI", system-ui, sans-serif';
     const M = 30, R2 = W3 - M, w = R2 - M;
     const INK5 = "#e2f1f0", INK23 = "#a3bdbe", INK33 = "#7d999b", LINE2 = "rgba(130,205,214,0.22)";
     const label3 = (t, x, y2, col = INK33, size2 = 17) => {
@@ -36772,14 +36837,14 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
     };
     ctx.save();
     ctx.fillStyle = "#06090a";
-    ctx.fillRect(0, 0, W3, H2);
+    ctx.fillRect(0, 0, W3, H3);
     ctx.strokeStyle = d.col;
     ctx.globalAlpha = 0.45;
     ctx.lineWidth = 2;
-    ctx.strokeRect(12, 12, W3 - 24, H2 - 24);
+    ctx.strokeRect(12, 12, W3 - 24, H3 - 24);
     ctx.globalAlpha = 1;
     ctx.lineWidth = 3;
-    corners(ctx, 12, 12, W3 - 12, H2 - 12, 34);
+    corners(ctx, 12, 12, W3 - 12, H3 - 12, 34);
     const SG = 90;
     if (art.sigil) ctx.drawImage(art.sigil, R2 - SG + 6, 18, SG, SG);
     const nameW = w - SG - 16;
@@ -36910,7 +36975,7 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
       ctx.textAlign = "left";
       y += 34;
     }
-    const Q2 = 150, fw = w - Q2 - 24, qx = R2 - Q2, qy = H2 - 20 - Q2, FY = qy - 12;
+    const Q2 = 150, fw = w - Q2 - 24, qx = R2 - Q2, qy = H3 - 20 - Q2, FY = qy - 12;
     ctx.fillStyle = LINE2;
     ctx.fillRect(M, FY, w, 1);
     const ties = tr(
@@ -36927,7 +36992,7 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
     const line2 = d.story ? tr("card.story", "“{story}”", { story: d.story }) : d.lineage.length > 1 ? tr("card.descends", "Descends from {line}", { line: d.lineage.slice(0, 3).join(" ← ") + (d.lineage.length > 3 ? " ← …" : "") }) : "";
     const lines = line2 ? wrap(ctx, line2, fw) : [], room = ties ? 2 : 3;
     lines.slice(0, room).forEach((l, i) => text2(i === room - 1 && lines.length > room ? `${l} …` : l, M, ly + i * 26, 18, d.story ? "#e8dcc0" : INK33, d.story ? "italic 400" : 400, fw));
-    text2(eraName(d.home), M, H2 - 30, 17, INK33, 600, fw - 20);
+    text2(eraName(d.home), M, H3 - 30, 17, INK33, 600, fw - 20);
     if (d.qr) {
       const k = Math.max(1, Math.floor(Q2 * CARD_SCALE / (d.qr.size + 6))) / CARD_SCALE, side = d.qr.size * k;
       const ox = Math.round((qx + (Q2 - side) / 2) * CARD_SCALE) / CARD_SCALE, oy = Math.round((qy + (Q2 - side) / 2) * CARD_SCALE) / CARD_SCALE;
@@ -37809,11 +37874,11 @@ struct TO { @builtin(position) pos: vec4f, @location(0) p: vec2f, @location(1) @
       cv.height = Math.ceil(r.height * k);
       const c = cv.getContext("2d");
       c.scale(k, k);
-      const W3 = r.width, H2 = r.height;
+      const W3 = r.width, H3 = r.height;
       c.fillStyle = cs.backgroundColor;
-      c.fillRect(0, 0, W3, H2);
+      c.fillRect(0, 0, W3, H3);
       c.fillStyle = cs.getPropertyValue("--tick");
-      for (const [x, y, sx, sy] of [[0, 0, 1, 1], [W3, 0, -1, 1], [0, H2, 1, -1], [W3, H2, -1, -1]]) {
+      for (const [x, y, sx, sy] of [[0, 0, 1, 1], [W3, 0, -1, 1], [0, H3, 1, -1], [W3, H3, -1, -1]]) {
         c.fillRect(x, y, 5 * sx, sy);
         c.fillRect(x, y, sx, 5 * sy);
       }
@@ -39563,7 +39628,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
   var MAX_STEP_MS = 40;
   var MAX_TICKS = 6;
   var SIGNAL_AFTER = 60;
-  var H = 1 / 60;
+  var H2 = 1 / 60;
   var fastMode = false;
   var fmtStop = (v) => v === "fast" ? tr("speed.fast", "Fast") : v === Infinity ? tr("speed.max", "Max") : tr("speed.times", "×{v}", { v });
   var WARM_UNTIL = 120;
@@ -39842,9 +39907,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       return toWorld(sx - dx / dpr, sy - dy / dpr);
     }
     function wrapCam() {
-      const [W3, H2] = eng.grid;
+      const [W3, H3] = eng.grid;
       cam.x = (cam.x % W3 + W3) % W3;
-      cam.y = (cam.y % H2 + H2) % H2;
+      cam.y = (cam.y % H3 + H3) % H3;
     }
     function zoomAt(factor, sx, sy) {
       cam.zoomTarget = clamp6(cam.zoomTarget * factor, 1, maxZoom());
@@ -40104,6 +40169,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         sound.era(climate.name);
       };
       climate.onEvent = (ev, phase) => {
+        if (!phase) {
+          for (const sp of life.reg.values()) if (sp.alive && sp.established && (sp.born ?? Infinity) <= ev.t) sp.weathered = (sp.weathered || 0) | (EVENT_BITS[ev.type] || 0);
+        }
         chron.note("event", { t: eng.simTime, type: ev.type, phase, reg: life.reg, living: life.counts[3] });
         const tally = () => {
           const was = ev.before;
@@ -40164,7 +40232,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       };
     }
     let life;
-    const chron = createChronicler({ K: K2, link: spLink, tune: { debug: (t, all, live) => all.length && globalThis.__tidemote?.chronDebug?.push({ t, all: all.map((c) => [c.kind, +c.rank.toFixed(2), c.html.replace(/<[^>]+>/g, "").slice(0, 90)]), live: live.length }) } });
+    const chron = createChronicler({ K: K2, link: spLink, tune: { worthy: (c) => achOn() && pacer.ready(eng.simTime, performance.now()) && worthy(c, asked), debug: (t, all, live) => all.length && globalThis.__tidemote?.chronDebug?.push({ t, all: all.map((c) => [c.kind, +c.rank.toFixed(2), c.html.replace(/<[^>]+>/g, "").slice(0, 90), c.key, c.moment, c.low, c.span]), live: live.length }), ...globalThis.__chronTune } });
     let watchVer = -1;
     const watchSlots = new Uint32Array(MAXK);
     const censusQueue = [];
@@ -40200,6 +40268,12 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         pipette: { species: [] },
         rode: [],
         // (rode: the species ridden, marked in the lineage view)
+        // (achievements) when the most numerous species became so; the most cells ever living at once and the fewest since;
+        // species singing the five tones that took hold
+        topSince: 0,
+        peakLiving: 0,
+        lowLiving: Infinity,
+        signals: 0,
         carried: {}
         // slot -> { name, home }: a stranger set down, its name and home water for when the census meets it
       };
@@ -40368,14 +40442,58 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     }).catch(() => {
     });
     const pwa = createPwa({ onChange: () => gameMenu?.render(), onInstalled: () => flash(tr("flash.installed", "Tidemote is installed: open it from its icon")) });
-    const unlocked = /* @__PURE__ */ new Set();
-    function unlock(ids) {
-      if (!desk) return;
-      for (const id of ids) if (!unlocked.has(id)) {
-        unlocked.add(id);
-        desk.achieve(id).catch(() => {
-        });
+    const ACHIEVED = "tidemote.achieved";
+    const achieved = new Set((() => {
+      try {
+        return JSON.parse(localStorage.getItem(ACHIEVED) || "[]");
+      } catch {
+        return [];
       }
+    })());
+    const achOn = () => !!desk || !!globalThis.__tidemote?.achLog;
+    const asked = new Set(achieved);
+    const pacer = createPacer({ ...PACE, ...globalThis.__achPace });
+    function unlock(ids) {
+      if (!achOn()) return;
+      for (const id of pacer.take(ids, asked, eng.simTime, performance.now())) {
+        asked.add(id);
+        globalThis.__tidemote?.achLog?.push({ id, t: eng.simTime });
+        const keep = () => {
+          achieved.add(id);
+          try {
+            localStorage.setItem(ACHIEVED, JSON.stringify([...achieved]));
+          } catch {
+          }
+        };
+        if (desk) desk.achieve(id).then((ok) => {
+          if (ok) keep();
+        }).catch(() => {
+        });
+        else keep();
+      }
+    }
+    let factsAt = -1e9;
+    function achieveWorld() {
+      const t = eng.simTime;
+      if (!achOn() || Math.abs(t - factsAt) < 10) return;
+      factsAt = t;
+      const events = climate.events.map((e) => ({ type: e.type, end: e.t + eventSpan(e) }));
+      const f2 = worldFacts({
+        t,
+        living: life.counts[3],
+        count: eng.count,
+        species: life.reg.values(),
+        guildOf: (sp) => dietGuild(sp.genome),
+        events,
+        top: life.top,
+        topSince: life.topSince,
+        peak: life.peakLiving,
+        low: life.lowLiving,
+        signal: life.signals,
+        founders: eng.founders
+      });
+      if (globalThis.__tidemote?.achLog) globalThis.__tidemote.achFacts = f2;
+      unlock(reached(f2));
     }
     function storiesRead() {
       let n = 0;
@@ -40703,6 +40821,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       if (c) {
         delete life.carried[g.slot];
         Object.assign(sp, { name: c.name, given: true, home: c.home, carried: true });
+        unlock(["STRANGER"]);
         for (const ps of pipette.species) if (ps.pending === g.slot) {
           ps.words = [...ps.words];
           ps.words[41] = g.serial;
@@ -40893,6 +41012,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         if (g.depth > life.maxDepth) life.maxDepth = g.depth;
         if (!sp.established && sp.peak >= life.estThreshold) {
           sp.established = true;
+          if (sp.signal) life.signals = (life.signals || 0) + 1;
           sp.establishedAt = t;
           const gen = life.genera.get(sp.genus);
           if (t > 20) {
@@ -40912,6 +41032,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       }
       life.counts[3] = living;
       life.alive = alive;
+      if (living > (life.peakLiving || 0)) {
+        life.peakLiving = living;
+        life.lowLiving = living;
+      } else life.lowLiving = Math.min(life.lowLiving ?? living, living);
       for (const sp of life.reg.values()) {
         if (sp.alive && !seen.has(sp.serial)) {
           sp.alive = false;
@@ -40931,17 +41055,18 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       }
       pruneRecords(t);
       let thriving = 0;
-      let H2 = 0;
+      let H3 = 0;
       for (const sp of life.reg.values()) {
         if (!sp.alive) continue;
         if (sp.established) thriving++;
         const q = sp.pop / Math.max(1, living);
-        if (q > 0) H2 -= q * Math.log(q);
+        if (q > 0) H3 -= q * Math.log(q);
       }
       life.thriving = thriving;
       if (best && best.serial !== life.top) {
         const prev = life.reg.get(life.top);
         if (!prev || !prev.alive || best.pop > prev.pop * 1.25) {
+          life.topSince = t;
           if (prev && t > 30) pushEvent(tr("log.top", "{name} is now the most numerous · {n, plural, other {# cells}}", { name: spLink(best.serial, best.name), n: best.pop }), best.genome.col, "top");
           life.top = best.serial;
         }
@@ -40960,7 +41085,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           sp,
           alive,
           thriving,
-          diversity: Math.exp(H2),
+          diversity: Math.exp(H3),
           // (eaten: the kills, globals[7]: deaths in one chart, meals in another)
           births: rate2(2),
           starve: rate2(5),
@@ -41018,10 +41143,12 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       });
       for (const s of told) {
         pushEvent(s.html, s.col, "story");
-        if (desk) unlock(earned(s, storiesRead()));
+        globalThis.__tidemote?.chronTold?.push({ t: c.simTime, kind: s.kind, key: s.key, moment: s.moment, low: s.low, span: s.span });
+        if (achOn()) unlock(earned(s, storiesRead()));
         const sp = s.subjects.map((k) => life.reg.get(k)).find((k) => k && k.alive);
         if (sp) director.spotlight(sp.slot, sp.serial, { story: s.text });
       }
+      achieveWorld();
       const w = chron.watch();
       if (w.version !== watchVer) {
         watchVer = w.version;
@@ -41153,8 +41280,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         return;
       }
       const fast = state.speed > 2, live = !fast && !state.paused;
-      const [px, py] = predicted(), [W3, H2] = eng.grid;
-      const way = ride.at ? pointerWay(wrapD2(ride.at[0] - px, W3), wrapD2(ride.at[1] - py, H2)) : input.way;
+      const [px, py] = predicted(), [W3, H3] = eng.grid;
+      const way = ride.at ? pointerWay(wrapD2(ride.at[0] - px, W3), wrapD2(ride.at[1] - py, H3)) : input.way;
       const held = way[0] !== 0 || way[1] !== 0;
       if (fast && held && !ride.warned) {
         ride.warned = true;
@@ -41171,6 +41298,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       if (!cyst) ride.slept = false;
       const g = genomeFor(sel.particle.kind), v = ride.top = willSpeed(g, K2);
       if (s > 0 && g?.serial && !life.rode.includes(g.serial)) life.rode.push(g.serial);
+      if (s > 0) unlock(["RIDE"]);
       hand.steer(sel.id, u[0] * v, u[1] * v, s, eng.simTime, [px, py]);
       rideBody(members);
     }
@@ -41184,8 +41312,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     };
     async function nearestKin(kind, at, not) {
       const res = await eng.requestPick(at, 4, NONE6, { kind });
-      const [W3, H2] = eng.grid;
-      const kin = (res?.entries || []).filter((c) => c.id !== not && c.kind === kind).map((c) => ({ c, d: Math.hypot(wrapD2(c.x - at[0], W3), wrapD2(c.y - at[1], H2)) }));
+      const [W3, H3] = eng.grid;
+      const kin = (res?.entries || []).filter((c) => c.id !== not && c.kind === kind).map((c) => ({ c, d: Math.hypot(wrapD2(c.x - at[0], W3), wrapD2(c.y - at[1], H3)) }));
       const young = kin.filter((k) => k.d < 1.2).sort((a, b) => a.c.age - b.c.age)[0];
       return { res, young: !!young, next: (young || kin.sort((a, b) => a.d - b.d)[0])?.c };
     }
@@ -41234,10 +41362,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const radius = Math.max(3, 40 / p2);
       const res = await eng.requestPick([wx, wy], radius, NONE6);
       if (!res) return;
-      const [W3, H2] = eng.grid;
+      const [W3, H3] = eng.grid;
       let bestLife = null, bl = Infinity, bestAny = null, ba = Infinity;
       for (const e of res.entries) {
-        const d = Math.hypot(wrapD2(e.x - wx, W3) * p2, wrapD2(e.y - wy, H2) * p2);
+        const d = Math.hypot(wrapD2(e.x - wx, W3) * p2, wrapD2(e.y - wy, H3) * p2);
         if (e.kind >= FIRST_LIFE && d < bl) {
           bl = d;
           bestLife = e;
@@ -41297,12 +41425,12 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     }
     function followRelative() {
       if (!sel || !sel.nbr || !sel.memory) return;
-      const [W3, H2] = eng.grid;
+      const [W3, H3] = eng.grid;
       const me = sel.particle;
       let best = null, bd = Infinity;
       for (const e of sel.nbr.entries) {
         if (e.kind !== sel.memory.kind || e.id === sel.id) continue;
-        const d = Math.hypot(wrapD2(e.x - me.x, W3), wrapD2(e.y - me.y, H2));
+        const d = Math.hypot(wrapD2(e.x - me.x, W3), wrapD2(e.y - me.y, H3));
         if (d < bd) {
           bd = d;
           best = e;
@@ -41402,11 +41530,11 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         gatherBusy = true;
         sel.lastOrg = now;
         const pop = life.lastCensus && life.lastCensus.pop[p2.kind] || 4096;
-        const [W3, H2] = eng.grid;
-        let center = [W3 / 2, H2 / 2], radius = Math.hypot(W3, H2);
+        const [W3, H3] = eng.grid;
+        let center = [W3 / 2, H3 / 2], radius = Math.hypot(W3, H3);
         if (o && o.mid) {
           const r = o.span * 0.75 + 6 + o.speed * orgEvery * 3e-3;
-          if (r * 2 < Math.min(W3, H2)) {
+          if (r * 2 < Math.min(W3, H3)) {
             center = o.mid;
             radius = r;
           }
@@ -41436,14 +41564,14 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     }
     function touchingCount(cells) {
       if (!sel.nbr || !cells.length) return 0;
-      const [W3, H2] = eng.grid;
+      const [W3, H3] = eng.grid;
       const LR = K2.linkR;
       const kind = sel.particle.kind;
       const others = /* @__PURE__ */ new Set();
       const near = sel.nbr.entries.filter((e) => e.kind >= FIRST_LIFE && e.kind !== kind);
       for (const o of near) {
         for (const c of cells) {
-          if (Math.hypot(wrapD2(o.x - c.x, W3), wrapD2(o.y - c.y, H2)) < LR) {
+          if (Math.hypot(wrapD2(o.x - c.x, W3), wrapD2(o.y - c.y, H3)) < LR) {
             others.add(o.kind);
             break;
           }
@@ -41454,7 +41582,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const ORG_GRACE = 3;
     function traceOrganism(res) {
       const t0 = performance.now();
-      const [W3, H2] = eng.grid;
+      const [W3, H3] = eng.grid;
       const { u32, f32, count: n } = res.raw;
       const tb = retraceBody(u32, f32, n, sel.members, sel.id);
       if (!tb) {
@@ -41472,7 +41600,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         const i = index.get(id);
         if (i !== void 0) loose.push(i);
       }
-      const touching = new Set([...nearBody(X, Y, body, loose, K2.linkR * K2.bondBreak, W3, H2)].map(idAt));
+      const touching = new Set([...nearBody(X, Y, body, loose, K2.linkR * K2.bondBreak, W3, H3)].map(idAt));
       const members2 = settleMembers(sel.members || /* @__PURE__ */ new Map(), body.map(idAt), res.truncated ? null : index, ORG_GRACE, touching);
       sel.members = members2;
       const cells = [];
@@ -41486,7 +41614,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const roles = [0, 0, 0];
       const rel = new Float32Array(cells.length * 2);
       cells.forEach((i, k) => {
-        const dx = wrapD2(X[i] - rx, W3), dy = wrapD2(Y[i] - ry, H2);
+        const dx = wrapD2(X[i] - rx, W3), dy = wrapD2(Y[i] - ry, H3);
         rel[k * 2] = dx;
         rel[k * 2 + 1] = dy;
         cx += dx;
@@ -41507,7 +41635,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         let best = -1, bs = Infinity;
         for (const i of body) {
           if (idAt(i) === sel.id) continue;
-          const d = Math.hypot(wrapD2(X[i] - rx, W3) - cx, wrapD2(Y[i] - ry, H2) - cy);
+          const d = Math.hypot(wrapD2(X[i] - rx, W3) - cx, wrapD2(Y[i] - ry, H3) - cy);
           const s = d / Math.max(1, span2) + f32[i * PICK_WORDS + 6] / lifespan;
           if (s < bs) {
             bs = s;
@@ -41533,7 +41661,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const box = [0, 0, 0, 0];
       for (let k = 0; k < cells.length; k++) {
         const i = cells[k];
-        const dx = wrapD2(X[i] - sel.particle.x, W3), dy = wrapD2(Y[i] - sel.particle.y, H2);
+        const dx = wrapD2(X[i] - sel.particle.x, W3), dy = wrapD2(Y[i] - sel.particle.y, H3);
         if (near.length < 400 && Math.hypot(dx, dy) < 2) near.push({ x: X[i], y: Y[i] });
         box[0] = Math.min(box[0], dx);
         box[1] = Math.min(box[1], dy);
@@ -41543,7 +41671,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       sel.orgNear = near;
       sel.box = members2.size > 1 ? box : null;
       const prev = sel.org;
-      const mid = [((rx + cx) % W3 + W3) % W3, ((ry + cy) % H2 + H2) % H2];
+      const mid = [((rx + cx) % W3 + W3) % W3, ((ry + cy) % H3 + H3) % H3];
       sel.org = { cells: members2.size, roles, span: span2 * 2, mid, speed: Math.hypot(vx / m, vy / m), meanE: eSum / m, partial: res.truncated, touching: prev ? prev.touching : 0, at: res.simTime, ms: performance.now() - t0 };
       if (sel.orgFirst == null) {
         sel.orgFirst = members2.size;
@@ -41614,11 +41742,11 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     let portraitJob = null;
     const PORTRAIT = 1280, THUMB = 192;
     function takeStudio(words, cells) {
-      const [W3, H2] = eng.grid, { parts, ppu: ppu2 } = stage(genomeOfWords(words), cells, PORTRAIT, [W3 / 2, H2 / 2]);
+      const [W3, H3] = eng.grid, { parts, ppu: ppu2 } = stage(genomeOfWords(words), cells, PORTRAIT, [W3 / 2, H3 / 2]);
       eng.setStudio(parts, cells.length, Uint32Array.from(words));
       if (portraitJob) portraitJob.resolve(null);
       return new Promise((resolve) => {
-        portraitJob = { studio: true, cx: W3 / 2, cy: H2 / 2, size: PORTRAIT, ppu: ppu2, resolve, at: performance.now() };
+        portraitJob = { studio: true, cx: W3 / 2, cy: H3 / 2, size: PORTRAIT, ppu: ppu2, resolve, at: performance.now() };
       });
     }
     function takeView() {
@@ -41762,7 +41890,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       if (!sp?.alive || !c || genomeSerial(c.genomeU32, sp.slot) !== serial) return null;
       const m = await bestMember(sp, Math.min(4096, sp.pop * 1.25 + 256));
       if (!m) return null;
-      const { u32, f32, mid, dist } = m, [W3, H2] = eng.grid;
+      const { u32, f32, mid, dist } = m, [W3, H3] = eng.grid;
       const set = m.body ? bodyPatch(m.edges, mid, STUDIO_N) : Array.from({ length: m.n }, (_, j) => j).filter((j) => dist(mid, j) < 0.8).sort((a, b) => dist(mid, a) - dist(mid, b)).slice(0, 5);
       const local = new Map(set.map((k, i) => [k, i])), at = (k, w, D) => wrapD2(f32[k * PICK_WORDS + w] - f32[mid * PICK_WORDS + w], D);
       return set.map((k) => ({
@@ -41771,7 +41899,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         col: u32[k * PICK_WORDS + 8],
         info: u32[k * PICK_WORDS + 9],
         partners: m.body ? m.edges[k].filter((j) => local.has(j)).map((j) => local.get(j)) : [],
-        at: [at(k, 0, W3), at(k, 1, H2)]
+        at: [at(k, 0, W3), at(k, 1, H3)]
       }));
     }
     function heldCells(words, serial, body = null) {
@@ -41869,6 +41997,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         thumb: p2?.thumb ?? null,
         portrait: p2?.full ?? null
       }, quiet);
+      unlock(["CARD"]);
       if (quiet) return;
       flyCard(cv);
       flash(tr("flash.card-kept", "{name} is in the cabinet", { name: sp.name }));
@@ -42062,11 +42191,11 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       renderSpecimen(true);
     }
     async function bestMember(sp, maxOut = sp.pop * 1.25 + 2048) {
-      const [W3, H2] = eng.grid;
-      const res = await eng.requestPick([W3 / 2, H2 / 2], Math.hypot(W3, H2), NONE6, { kind: sp.slot, maxOut, raw: true });
+      const [W3, H3] = eng.grid;
+      const res = await eng.requestPick([W3 / 2, H3 / 2], Math.hypot(W3, H3), NONE6, { kind: sp.slot, maxOut, raw: true });
       if (!res || !res.raw.count) return null;
       const { u32, f32, count: n } = res.raw, x = (k) => f32[k * PICK_WORDS], y = (k) => f32[k * PICK_WORDS + 1];
-      const dist = (i, j) => Math.hypot(wrapD2(x(j) - x(i), W3), wrapD2(y(j) - y(i), H2));
+      const dist = (i, j) => Math.hypot(wrapD2(x(j) - x(i), W3), wrapD2(y(j) - y(i), H3));
       const lb = largestBody(u32, f32, n), body = lb && lb.body.length > 1 ? lb.body : null;
       let mid, cx, cy;
       if (body) {
@@ -42074,11 +42203,11 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         let mx = 0, my = 0;
         for (const k of body) {
           mx += wrapD2(x(k) - x(o), W3);
-          my += wrapD2(y(k) - y(o), H2);
+          my += wrapD2(y(k) - y(o), H3);
         }
         cx = x(o) + mx / body.length;
         cy = y(o) + my / body.length;
-        const off = (k) => Math.hypot(wrapD2(x(k) - cx, W3), wrapD2(y(k) - cy, H2));
+        const off = (k) => Math.hypot(wrapD2(x(k) - cx, W3), wrapD2(y(k) - cy, H3));
         mid = body.reduce((m, k) => off(k) < off(m) ? k : m, o);
       } else {
         const step = Math.max(1, Math.floor(n / 200));
@@ -42590,11 +42719,11 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const MIN_W = 260, MIN_H = 180;
       let placed = null;
       function place(x, y, w, h) {
-        const W3 = el2.offsetParent.clientWidth, H2 = el2.offsetParent.clientHeight;
+        const W3 = el2.offsetParent.clientWidth, H3 = el2.offsetParent.clientHeight;
         w = Math.max(MIN_W, Math.min(w, W3));
-        if (h != null) h = Math.max(MIN_H, Math.min(h, H2));
+        if (h != null) h = Math.max(MIN_H, Math.min(h, H3));
         x = Math.max(0, Math.min(x, W3 - w));
-        y = Math.max(0, Math.min(y, H2 - (h ?? el2.offsetHeight)));
+        y = Math.max(0, Math.min(y, H3 - (h ?? el2.offsetHeight)));
         placed = { x, y, w, h };
         el2.classList.add("placed");
         Object.assign(el2.style, {
@@ -42602,7 +42731,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           top: `${y}px`,
           width: `${w}px`,
           height: h == null ? "" : `${h}px`,
-          maxHeight: h == null ? `min(calc(100% - var(--top) - var(--bot) - 20px), ${H2 - y}px)` : "none"
+          maxHeight: h == null ? `min(calc(100% - var(--top) - var(--bot) - 20px), ${H3 - y}px)` : "none"
         });
       }
       function unplace() {
@@ -43680,10 +43809,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       } else if (hand.tool === "needle") {
         const p2 = cssPPU(), res = await eng.requestPick([wx, wy], Math.max(0.5, 30 / p2), NONE6);
         if (!res) return;
-        const [W3, H2] = eng.grid;
+        const [W3, H3] = eng.grid;
         let best = null, bd = Math.max(isCoarse ? 36 : 14, 0.12 * p2);
         for (const c of res.entries) {
-          const d = Math.hypot(wrapD2(c.x - wx, W3), wrapD2(c.y - wy, H2)) * p2;
+          const d = Math.hypot(wrapD2(c.x - wx, W3), wrapD2(c.y - wy, H3)) * p2;
           if (c.kind >= FIRST_LIFE && d < bd) {
             bd = d;
             best = c;
@@ -45096,7 +45225,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     }
     function splitTicks() {
       const T2 = frameTarget();
-      if (state.perf.split === "off" || T2 < 900 * H || ticksFor(T2) !== 1 || !perf.simS || !perf.renderR || splitPer() === 1 || !eng.coarseReady) return false;
+      if (state.perf.split === "off" || T2 < 900 * H2 || ticksFor(T2) !== 1 || !perf.simS || !perf.renderR || splitPer() === 1 || !eng.coarseReady) return false;
       const S1 = perf.split ? perf.simS / tickCost(2) : perf.simS;
       return perf.renderR + S1 > T2 * (perf.split ? 0.75 : 0.85);
     }
@@ -45444,13 +45573,13 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       filmMarked = false;
       plateRect = null;
       if (sel && sel.particle) {
-        const [W3, H2] = eng.grid;
+        const [W3, H3] = eng.grid;
         const [px, py] = predicted();
         if (sel.dispT !== sel.sampleT) {
           if (sel.dispT != null && sel.shown) {
             const [ox, oy] = predictAt(sel.shown.p, sel.shown.t);
             sel.err[0] = wrapD2(ox + sel.err[0] - px, W3);
-            sel.err[1] = wrapD2(oy + sel.err[1] - py, H2);
+            sel.err[1] = wrapD2(oy + sel.err[1] - py, H3);
           }
           sel.dispT = sel.sampleT;
           sel.shown = { p: sel.particle, t: sel.sampleT };
@@ -45465,7 +45594,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         if (L && Math.hypot(sx - L.sx, sy - L.sy) < L.R) {
           const [lx, ly] = lensShift(sel.disp[0], sel.disp[1], L);
           sx = L.sx + wrapD2(sel.disp[0] - L.cx, W3) * L.cssPPU + lx;
-          sy = L.sy + wrapD2(sel.disp[1] - L.cy, H2) * L.cssPPU + ly;
+          sy = L.sy + wrapD2(sel.disp[1] - L.cy, H3) * L.cssPPU + ly;
           inLens = true;
         }
         const visible = !inLens || Math.hypot(sx - L.sx, sy - L.sy) < L.R - 8;
@@ -45687,7 +45816,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       while (songEvents.length && songEvents[0].at < now - 8e3) songEvents.shift();
       const only = markSlot();
       if (only === -2 || !songEvents.length) return;
-      const p2 = cssPPU(), simNow = viewSimTime || eng.simTime, [W3, H2] = eng.grid;
+      const p2 = cssPPU(), simNow = viewSimTime || eng.simTime, [W3, H3] = eng.grid;
       const fade = Math.exp(-Math.max(0, now - (marksAt || now)) / 45);
       marksAt = now;
       const placed = /* @__PURE__ */ new Map();
@@ -45701,7 +45830,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         const [px, py] = carry2(w);
         if (w.fresh && w.disp && w.shown) {
           const [ox, oy] = carry2(w.shown);
-          w.err = [wrapD2(ox + w.err[0] - px, W3), wrapD2(oy + w.err[1] - py, H2)];
+          w.err = [wrapD2(ox + w.err[0] - px, W3), wrapD2(oy + w.err[1] - py, H3)];
         }
         if (w.fresh) w.shown = { x: w.x, y: w.y, vx: w.vx, vy: w.vy, t: w.t };
         w.fresh = false;
@@ -45729,12 +45858,12 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           y = c.y + (c.vy + fy * g.advect) * dts;
         }
         x = (x % W3 + W3) % W3;
-        y = (y % H2 + H2) % H2;
+        y = (y % H3 + H3) % H3;
         let [sx, sy] = toShown(x, y), scale = p2;
         if (L && Math.hypot(sx - L.sx, sy - L.sy) < L.R) {
           const [lx, ly] = lensShift(x, y, L);
           sx = L.sx + wrapD2(x - L.cx, W3) * L.cssPPU + lx;
-          sy = L.sy + wrapD2(y - L.cy, H2) * L.cssPPU + ly;
+          sy = L.sy + wrapD2(y - L.cy, H3) * L.cssPPU + ly;
           scale = L.cssPPU;
           if (Math.hypot(sx - L.sx, sy - L.sy) > L.R - 8) continue;
         }
@@ -45873,22 +46002,22 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       event: () => {
         const ev = climate && climate.event, ph = climate && climate.phase;
         if (!ev || !ph || ph === "after") return null;
-        const [W3, H2] = eng.grid;
+        const [W3, H3] = eng.grid;
         if (ev.type === "duckweed") return { type: "duckweed", phase: ph, x: eng.duck[0], y: eng.duck[1], w: eng.duck[2] * (Math.random() < 0.5 ? 3.2 : 1.5) };
         if (ev.type === "storm" || ph === "rain") {
           const k = climate.dropSlot ?? 0;
           if (eng.drops[k * 4 + 3] > 0 && Math.random() < 0.5) return { type: ev.type, phase: ph, x: eng.drops[k * 4], y: eng.drops[k * 4 + 1], w: 40 };
         }
         if (ev.type === "frost" && ph !== "cooling" && eng.relief) {
-          return { type: "frost", phase: ph, x: W3 * Math.random(), y: H2 * Math.random(), w: Math.random() < 0.5 ? 12 : 35 };
+          return { type: "frost", phase: ph, x: W3 * Math.random(), y: H3 * Math.random(), w: Math.random() < 0.5 ? 12 : 35 };
         }
         if (ev.type === "drought" && eng.relief) {
           for (let tries = 0; tries < 400; tries++) {
-            const i = Math.floor(Math.random() * W3), j = Math.floor(Math.random() * H2);
+            const i = Math.floor(Math.random() * W3), j = Math.floor(Math.random() * H3);
             if (Math.abs(eng.relief[j * W3 + i] - eng.level) < 6e-3) return { type: "drought", phase: ph, x: i + 0.5, y: j + 0.5, w: Math.random() < 0.6 ? 14 : 40 };
           }
         }
-        return { type: ev.type, phase: ph, x: W3 * Math.random(), y: H2 * Math.random(), w: Math.min(W3, H2) * 0.6 };
+        return { type: ev.type, phase: ph, x: W3 * Math.random(), y: H3 * Math.random(), w: Math.min(W3, H3) * 0.6 };
       }
     });
     let surveyT = 0;
@@ -46114,8 +46243,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         eng.notes = null;
         return;
       }
-      const [W3, H2] = eng.grid, p2 = cssPPU(), m = 40 / p2;
-      const w = Math.min(W3, innerWidth / p2 + 2 * m), h = Math.min(H2, innerHeight / p2 + 2 * m);
+      const [W3, H3] = eng.grid, p2 = cssPPU(), m = 40 / p2;
+      const w = Math.min(W3, innerWidth / p2 + 2 * m), h = Math.min(H3, innerHeight / p2 + 2 * m);
       eng.watchRect.set([cam.x - w / 2, cam.y - h / 2, w, h]);
       const need = Math.log2(Math.max(innerWidth, innerHeight) / p2 / 14);
       if (!(noteGridL >= need && noteGridL < need + 1.07)) noteGridL = Math.ceil(need);
@@ -46126,11 +46255,11 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       eng.watchBites = Math.min(4294967295, Math.round(notes.biteKeep * 4294967296));
     }
     function noteProject(s, kind) {
-      const [W3, H2] = eng.grid, g = kind >= FIRST_LIFE ? genomeFor(kind) : null;
+      const [W3, H3] = eng.grid, g = kind >= FIRST_LIFE ? genomeFor(kind) : null;
       const dts = clamp6((viewSimTime || eng.simTime) - s.t, -0.5, carryMax());
       const [fx, fy] = g ? flowAt(s.x, s.y, eng.simTime, eng.waves) : [0, 0], a = g ? g.advect : 0;
       const x = s.x + (s.vx + fx * a) * dts, y = s.y + (s.vy + fy * a) * dts;
-      return toShown((x % W3 + W3) % W3, (y % H2 + H2) % H2);
+      return toShown((x % W3 + W3) % W3, (y % H3 + H3) % H3);
     }
     const noteRadius = (kind) => {
       const g = kind >= FIRST_LIFE ? genomeFor(kind) : null;
@@ -46144,13 +46273,13 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const noteCentral = (x, y) => noteVisible(x, y, 0.25 * Math.min(noteOpen.r - noteOpen.l, noteOpen.b - noteOpen.t));
     const noteFlow = (x, y) => flowAt(x, y, eng.simTime, eng.waves);
     const noteLight = (x, y) => {
-      const [W3, H2] = eng.grid;
-      return (eng.ambient + (1 - eng.ambient) * tideAt(x, y, W3, H2, eng.simTime, eng.tide, eng.tidePh) * eng.season) * eng.sky * (1 - duckShade(x, y, eng.duck, W3, H2));
+      const [W3, H3] = eng.grid;
+      return (eng.ambient + (1 - eng.ambient) * tideAt(x, y, W3, H3, eng.simTime, eng.tide, eng.tidePh) * eng.season) * eng.sky * (1 - duckShade(x, y, eng.duck, W3, H3));
     };
     const noteCam = { x: null, y: null, zoom: null, vel: [0, 0], zoomIn: 0 };
     const noteShade = (x, y) => {
-      const [W3, H2] = eng.grid;
-      return duckShade(x, y, eng.duck, W3, H2);
+      const [W3, H3] = eng.grid;
+      return duckShade(x, y, eng.duck, W3, H3);
     };
     const noteDropsSeen = /* @__PURE__ */ new Map();
     const noteDrops = () => {
@@ -46181,12 +46310,12 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       noteOpen = openArea();
       const speed = state.paused ? 0 : state.speed === Infinity ? perf.rate || 16 : state.speed;
       const shot = director.active ? director.shot : null, flying = !!(shot && shot.t < shot.flight);
-      const dts = Math.max(dtMs / 1e3, 1e-3), [W3, H2] = eng.grid, C3 = noteCam;
+      const dts = Math.max(dtMs / 1e3, 1e-3), [W3, H3] = eng.grid, C3 = noteCam;
       C3.x ??= cam.x;
       C3.y ??= cam.y;
       C3.zoom ??= cam.zoom;
       const f2 = 1 - Math.exp(-dts / 0.2);
-      C3.vel = [C3.vel[0] + (wrapD2(cam.x - C3.x, W3) / dts - C3.vel[0]) * f2, C3.vel[1] + (wrapD2(cam.y - C3.y, H2) / dts - C3.vel[1]) * f2];
+      C3.vel = [C3.vel[0] + (wrapD2(cam.x - C3.x, W3) / dts - C3.vel[0]) * f2, C3.vel[1] + (wrapD2(cam.y - C3.y, H3) / dts - C3.vel[1]) * f2];
       C3.zoomIn += (Math.log(cam.zoom / C3.zoom) / dts - C3.zoomIn) * f2;
       C3.x = cam.x;
       C3.y = cam.y;
@@ -46441,6 +46570,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       if (film.state !== "idle" && now - filmShownAt > 250) {
         filmShownAt = now;
         renderFilm();
+        if (film.elapsed() >= 60) unlock(["FILM"]);
       }
     }
     let last = performance.now();
@@ -46481,7 +46611,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     function maxPlan(now, m) {
       const world = fastMode || now - perf.worldAt >= MAX_FRAME_MS;
       if (world) perf.worldAt = now;
-      const dt = m * H, S = fastCost();
+      const dt = m * H2, S = fastCost();
       const cost = world ? perf.renderR : perf.presentR || 0.3;
       if (!S) return { steps: 4, dt, world };
       perf.stepCredit = Math.min(perf.stepCredit + ((perf.budget || frameTarget()) - cost) / S, MAX_STEPS);
@@ -46492,7 +46622,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     function coarsePlan(now, m) {
       const world = now - perf.worldAt >= MAX_FRAME_MS;
       if (world) perf.worldAt = now;
-      const dt = m * H, S = fastCost();
+      const dt = m * H2, S = fastCost();
       perf.stepCredit = S ? Math.min(perf.stepCredit + ((perf.budget || frameTarget()) - (world ? perf.renderR : perf.presentR || 0.3)) / S, MAX_STEPS) : 4;
       const cap3 = Math.max(1, Math.floor(perf.stepCredit));
       let steps2 = Math.floor(clock2.owed / dt);
@@ -46506,23 +46636,23 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     function plan(now) {
       if (state.paused || state.phase !== "running") {
         clock2.owed = 0;
-        return { steps: 1, dt: H };
+        return { steps: 1, dt: H2 };
       }
       if (state.speed === Infinity) return maxPlan(now, perf.ticks);
       if (perf.held) return coarsePlan(now, perf.ticks);
       const cap3 = stepCap(state.speed > 1 ? MAX_FRAME_MS : frameTarget());
-      if (clock2.owed < H * 0.2) return null;
+      if (clock2.owed < H2 * 0.2) return null;
       if (state.speed < 1) {
-        const n2 = Math.min(cap3, Math.ceil(clock2.owed / H - 0.05));
-        const dt2 = Math.min(clock2.owed / n2, H);
+        const n2 = Math.min(cap3, Math.ceil(clock2.owed / H2 - 0.05));
+        const dt2 = Math.min(clock2.owed / n2, H2);
         clock2.owed = 0;
         return { steps: n2, dt: dt2 };
       }
-      const most = H * (state.speed === 1 ? stepTicks() : state.speed > 1 ? perf.ticks : 1);
+      const most = H2 * (state.speed === 1 ? stepTicks() : state.speed > 1 ? perf.ticks : 1);
       let n = Math.floor(clock2.owed / most + 0.25);
       if (n === 0) return null;
       n = Math.min(n, cap3);
-      const dt = most > H * 1.5 ? most : clamp6(clock2.owed / n, most * 0.9, most * 1.1);
+      const dt = most > H2 * 1.5 ? most : clamp6(clock2.owed / n, most * 0.9, most * 1.1);
       clock2.owed = clamp6(clock2.owed - n * dt, -0.25 * most, most);
       return { steps: n, dt };
     }
@@ -46593,7 +46723,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         perf.gpuHeld = false;
         perf.lastSubmit = now;
         eng.season = seasonAt(eng.simTime);
-        const step = (perf.split && eng.halfOwed && state.speed === 1 && !state.paused ? null : plan(now)) || { steps: 0, dt: H };
+        const step = (perf.split && eng.halfOwed && state.speed === 1 && !state.paused ? null : plan(now)) || { steps: 0, dt: H2 };
         eng.censusEvery = Math.max(20, Math.round(step.steps * 1e3 / frameTarget() / 5));
         if (step.steps > 0) {
           perf.lerpDt = step.dt;

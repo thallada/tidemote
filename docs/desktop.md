@@ -127,12 +127,42 @@ and it would need the SDK in the app's own process, which the helper rules out (
 ## Achievements
 
 `src/achievements.js` lists them (ids are Steam API names; names and descriptions to enter in
-Steamworks → Stats & Achievements, each with an achieved and an unachieved icon). Most come from the stories the chronicler
-tells (`earned(story)` on each one `tellStories` logs: firsts by `key`, dramas by `kind`, the
-return after a collapse and a guild's return by `moment`); the rest from the viewer (a species named,
-a world shared, fifty stories read, counted in localStorage). Since stories are told under a
-budget, an achievement comes with the story the viewer reads, not with every candidate.
-`test/achievements.test.js` and the chronicler tests check the mapping.
+Steamworks → Stats & Achievements, each with an achieved and an unachieved icon). They come in three tiers:
+
+- **core** (paced, below): what most viewers meet by watching one world for a few hours: the
+  chronicler's first story, hunter and hunted in a cycle, an arms race, a genus's radiation, a wave of
+  extinctions, each of the four pool events seen through, a comeback from ten cells or fewer, a reign
+  of half an hour or more ended, the last of a guild, fifty stories read, a world kept a day;
+- **rare** (never held): what few worlds come to, or only a world left running a day: one species
+  nine tenths of all life, a reign of six hours, a hunter holding the pool an hour, one species through
+  all four kinds of event, life down to its last few cells, life sparked from the silt grown to three
+  quarters of the pool, a singer of the five tones taking hold, a species a day old (each in none or
+  one of 24 to 36 eight-hour worlds measured at 131k), and life all but failing and returning (a
+  quarter to a half of them). Mark these hidden in Steamworks;
+- **viewer**: the viewer's own doing: a species named, a card saved, a minute filmed, a cell ridden, a
+  species carried into another world, a world shared on the Workshop.
+
+An achievement comes from a story the chronicler tells (`story`: firsts of a kind by `kind`, `key` and
+`moment`, sized by what the story carries: a comeback's `low`, a reign's `span`), or from the world's numbers
+each census (`world`, given `worldFacts`: the pool's events come and gone, the most numerous species'
+share, guild and reign, the oldest species, what one species has lived through, the fewest cells
+since the most, singers that took hold), or from the page (a name, a card, a film, a ride, a stranger,
+a share; fifty stories read are counted in localStorage).
+
+Pacing: core achievements come at least `PACE` apart (20 simulated minutes and three real ones,
+`createPacer`), because a world's opening is a recovery's boom and bust in which radiations, crashes
+and comebacks come every few minutes; a held one is earned when its story or number comes again,
+which for these is soon. Rare and viewer achievements are never held. A story that would earn an
+achievement not yet earned (`worthy`) is told soon after it happens (the chronicler ranks it above its
+borrowing bar, `T.worthy`), so the achievement arrives with the story in the log; once Steam has
+taken an achievement (kept in localStorage, `tidemote.achieved`) its stories are told as any others.
+
+Measured with `tools/achievelab.mjs` (the built page headless at Max with the chronicler's real-time
+gap off, recording every story weighed and told, the world's numbers each minute and the page's own
+unlocks, collected through `__tidemote.achLog` without the desktop app) over many worlds, summed by
+`node tools/achievelab-report.mjs runs/ach/X/*.json` (`--replay` scores recorded worlds against the
+module's present thresholds and pacing). Check threshold changes with it. `test/achievements.test.js`
+and the chronicler tests check the mapping.
 
 ## Steam in a helper process
 

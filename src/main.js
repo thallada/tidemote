@@ -4,7 +4,7 @@ import { signalAt } from './audio/motif.js';
 import { V_SCALE } from './audio/listen.js';
 import { createEngine, MAXK, FIRST_LIFE, MAX_STEPS, compactState } from './engine.js';
 import { genomeSerial, readGenome, writeGenome, parseParticle, thermalGuild, dietGuild, mobilityGuild, growPlan, hasTails } from './genome.js';
-import { seasonAt, createClimate, abioRate, EVENT_TYPES, EVENT_NAME, excursionAt, eraName } from './climate.js';
+import { seasonAt, createClimate, abioRate, EVENT_TYPES, EVENT_NAME, excursionAt, eraName, eventSpan } from './climate.js';
 import { countPools } from './geography.js';
 import { createLab } from './lab.js';
 import { createSpecimen } from './specimen.js';
@@ -28,7 +28,7 @@ import { Notes } from './notes.js';
 import { createNoteView } from './noteview.js';
 import { NoteCanvas } from './gpunotes.js';
 import { createChronicler, watchMap, durWords } from './chronicler.js';
-import { earned } from './achievements.js';
+import { earned, reached, worthy, worldFacts, createPacer, PACE, EVENT_BITS } from './achievements.js';
 import { createCards, strangerCard, PORTRAIT_BOX, PORTRAIT_SHOWN, CARD_SCALE, CARD_W, CARD_H } from './card.js';
 import { createFilm, clearFilms } from './film.js';
 import { parseMind, interpretMind, settleMind } from './mind.js';
@@ -713,6 +713,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     };
     // the pool's events (docs/catastrophes.md): announced as they begin and turn, and tallied once they have passed
     climate.onEvent = (ev, phase) => {
+      // an event come and gone: each species that was there when it began has lived through one of its kind (achievements)
+      if (!phase) for (const sp of life.reg.values()) if (sp.alive && sp.established && (sp.born ?? Infinity) <= ev.t) sp.weathered = (sp.weathered || 0) | (EVENT_BITS[ev.type] || 0);
       chron.note('event', { t: eng.simTime, type: ev.type, phase, reg: life.reg, living: life.counts[3] });
       const tally = () => {
         const was = ev.before;
@@ -786,7 +788,9 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   // ------------------------------------------------------------ world + life bookkeeping
   let life;
   // the chronicler (chronicler.js): natural history from the census and the species ledger, told rarely
-  const chron = createChronicler({ K, link: spLink, tune: { debug: (t, all, live) => all.length && globalThis.__tidemote?.chronDebug?.push({ t, all: all.map((c) => [c.kind, +c.rank.toFixed(2), c.html.replace(/<[^>]+>/g, '').slice(0, 90)]), live: live.length }) } });
+  // (tools: chronDebug collects every candidate weighed, [kind, rank, words, key, moment, low, span], chronTold every
+  // story told; __chronTune overrides TUNE; tools/chronicle.mjs, tools/achievelab.mjs)
+  const chron = createChronicler({ K, link: spLink, tune: { worthy: (c) => achOn() && pacer.ready(eng.simTime, performance.now()) && worthy(c, asked), debug: (t, all, live) => all.length && globalThis.__tidemote?.chronDebug?.push({ t, all: all.map((c) => [c.kind, +c.rank.toFixed(2), c.html.replace(/<[^>]+>/g, '').slice(0, 90), c.key, c.moment, c.low, c.span]), live: live.length }), ...globalThis.__chronTune } });
   let watchVer = -1;
   const watchSlots = new Uint32Array(MAXK);
   // censuses waiting for a frame (eng.onCensus, drainCensus)
@@ -800,6 +804,9 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       // the hand's acts on this world (hand.js): a world touched says so wherever its record goes; what the
       // pipette holds
       hand: [], pipette: { species: [] }, rode: [], // (rode: the species ridden, marked in the lineage view)
+      // (achievements) when the most numerous species became so; the most cells ever living at once and the fewest since;
+      // species singing the five tones that took hold
+      topSince: 0, peakLiving: 0, lowLiving: Infinity, signals: 0,
       carried: {}, // slot -> { name, home }: a stranger set down, its name and home water for when the census meets it
     };
     hand.reset(life.hand);
@@ -992,11 +999,34 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   desk?.steam().then((x) => { steamOn = x; gameMenu?.render(); }).catch(() => {});
   // in a browser, the page as an installable app (src/pwa.js): the menu's Install row follows what the browser offers
   const pwa = createPwa({ onChange: () => gameMenu?.render(), onInstalled: () => flash(tr('flash.installed', 'Tidemote is installed: open it from its icon')) });
-  // achievements earned (each asked of Steam once a session), and the stories read in all
-  const unlocked = new Set();
+  // achievements (src/achievements.js): each asked of Steam once a session (asked); those Steam took are kept (achieved),
+  // so the chronicler stops hastening their stories (T.worthy); core ones come one at a time (createPacer). Tools collect
+  // them in __tidemote.achLog without the desktop app, and measuring a viewer at real time at Max set __achPace { real: 0 }.
+  const ACHIEVED = 'tidemote.achieved';
+  const achieved = new Set((() => { try { return JSON.parse(localStorage.getItem(ACHIEVED) || '[]'); } catch { return []; } })());
+  const achOn = () => !!desk || !!globalThis.__tidemote?.achLog;
+  const asked = new Set(achieved);
+  const pacer = createPacer({ ...PACE, ...globalThis.__achPace });
   function unlock(ids) {
-    if (!desk) return;
-    for (const id of ids) if (!unlocked.has(id)) { unlocked.add(id); desk.achieve(id).catch(() => {}); }
+    if (!achOn()) return;
+    for (const id of pacer.take(ids, asked, eng.simTime, performance.now())) {
+      asked.add(id);
+      globalThis.__tidemote?.achLog?.push({ id, t: eng.simTime });
+      const keep = () => { achieved.add(id); try { localStorage.setItem(ACHIEVED, JSON.stringify([...achieved])); } catch { /* storage unavailable */ } };
+      if (desk) desk.achieve(id).then((ok) => { if (ok) keep(); }).catch(() => {}); else keep();
+    }
+  }
+  // the world's numbers (worldFacts), read every ten simulated seconds or so
+  let factsAt = -1e9;
+  function achieveWorld() {
+    const t = eng.simTime;
+    if (!achOn() || Math.abs(t - factsAt) < 10) return;
+    factsAt = t;
+    const events = climate.events.map((e) => ({ type: e.type, end: e.t + eventSpan(e) }));
+    const f = worldFacts({ t, living: life.counts[3], count: eng.count, species: life.reg.values(), guildOf: (sp) => dietGuild(sp.genome),
+      events, top: life.top, topSince: life.topSince, peak: life.peakLiving, low: life.lowLiving, signal: life.signals, founders: eng.founders });
+    if (globalThis.__tidemote?.achLog) globalThis.__tidemote.achFacts = f;
+    unlock(reached(f));
   }
   function storiesRead() {
     let n = 0;
@@ -1300,6 +1330,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     if (c) {
       delete life.carried[g.slot];
       Object.assign(sp, { name: c.name, given: true, home: c.home, carried: true });
+      unlock(['STRANGER']);
       for (const ps of pipette.species) if (ps.pending === g.slot) { ps.words = [...ps.words]; ps.words[41] = g.serial; Object.assign(ps, { serial: g.serial, stranger: false, pending: null }); }
     }
     life.reg.set(g.serial, sp);
@@ -1494,6 +1525,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       if (g.depth > life.maxDepth) life.maxDepth = g.depth;
       if (!sp.established && sp.peak >= life.estThreshold) {
         sp.established = true;
+        if (sp.signal) life.signals = (life.signals || 0) + 1;
         sp.establishedAt = t;
         const gen = life.genera.get(sp.genus);
         if (t > 20) {
@@ -1519,6 +1551,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     }
     life.counts[3] = living;
     life.alive = alive;
+    if (living > (life.peakLiving || 0)) { life.peakLiving = living; life.lowLiving = living; } else life.lowLiving = Math.min(life.lowLiving ?? living, living);
     for (const sp of life.reg.values()) {
       if (sp.alive && !seen.has(sp.serial)) {
         sp.alive = false;
@@ -1551,6 +1584,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     if (best && best.serial !== life.top) {
       const prev = life.reg.get(life.top);
       if (!prev || !prev.alive || best.pop > prev.pop * 1.25) {
+        life.topSince = t;
         // i18n: the log: {name} a species (a link), {n} its living cells
         if (prev && t > 30) pushEvent(tr('log.top', '{name} is now the most numerous · {n, plural, other {# cells}}', { name: spLink(best.serial, best.name), n: best.pop }), best.genome.col, 'top');
         life.top = best.serial;
@@ -1607,10 +1641,12 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     });
     for (const s of told) {
       pushEvent(s.html, s.col, 'story');
-      if (desk) unlock(earned(s, storiesRead()));
+      globalThis.__tidemote?.chronTold?.push({ t: c.simTime, kind: s.kind, key: s.key, moment: s.moment, low: s.low, span: s.span });
+      if (achOn()) unlock(earned(s, storiesRead()));
       const sp = s.subjects.map((k) => life.reg.get(k)).find((k) => k && k.alive);
       if (sp) director.spotlight(sp.slot, sp.serial, { story: s.text });
     }
+    achieveWorld();
     const w = chron.watch();
     if (w.version !== watchVer) { watchVer = w.version; eng.setWatch(w.version, watchMap(w, life.reg, watchSlots)); }
   }
@@ -1762,6 +1798,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     if (!cyst) ride.slept = false;
     const g = genomeFor(sel.particle.kind), v = (ride.top = willSpeed(g, K));
     if (s > 0 && g?.serial && !life.rode.includes(g.serial)) life.rode.push(g.serial);
+    if (s > 0) unlock(['RIDE']);
     hand.steer(sel.id, u[0] * v, u[1] * v, s, eng.simTime, [px, py]);
     rideBody(members);
   }
@@ -2416,6 +2453,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     const c = carry(serial);
     await keepCard({ id: newKey('c'), serial, name: sp.name, words: c.words, home: c.home, body: c.body, world: worldId(),
       savedAt: Date.now(), touched: c.touched, png: new Uint8Array(await blob.arrayBuffer()), thumb: p?.thumb ?? null, portrait: p?.full ?? null }, quiet);
+    unlock(['CARD']);
     if (quiet) return;
     // i18n: {name} is a species' name
     flyCard(cv); flash(tr('flash.card-kept', '{name} is in the cabinet', { name: sp.name }));
@@ -6475,7 +6513,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   let filmShownAt = 0;
   function filmTick() {
     const now = performance.now();
-    if (film.state !== 'idle' && now - filmShownAt > 250) { filmShownAt = now; renderFilm(); }
+    if (film.state !== 'idle' && now - filmShownAt > 250) { filmShownAt = now; renderFilm(); if (film.elapsed() >= 60) unlock(['FILM']); }
   }
 
   // ------------------------------------------------------------ loop

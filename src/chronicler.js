@@ -142,7 +142,8 @@ function circ(sc, ss, n) {
 
 /**
  * createChronicler({ K, link, tune }):
- *   link(serial, name) -> html for a species' name (the page's spLink); tune overrides TUNE
+ *   link(serial, name) -> html for a species' name (the page's spLink); tune overrides TUNE, and may add
+ *   worthy(candidate) -> whether a story would earn an achievement not yet earned (the page's, src/achievements.js)
  * Returns { observe, note, reset, watch, relations, latest, save, load }.
  */
 export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune = {} } = {}) {
@@ -296,7 +297,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
    *   founders, slotSerial (Uint32Array by slot, or null), spl (the species ledger, or null),
    *   temp (the water's background), light (ambient), world: [W, H], event: { type, phase } | null,
    *   excursion (the heat wave or cold snap under way, or null), focus (a serial the viewer is looking at) }
-   * Returns the stories to log now: [{ html, text, col, kind, key, moment, subjects, score }] (key and moment, where a story has them, tell it apart from others of its kind: 'first:multi', 'back').
+   * Returns the stories to log now: [{ html, text, col, kind, key, moment, subjects, score, low, span }] (key and moment, where a story has them, tell it apart from others of its kind: 'first:multi', 'back'; low and span, where its kind has them, measure it for achievements: a comeback's fewest cells, an ended reign's length).
    */
   function observe(obs) {
     const { t, reg } = obs;
@@ -361,6 +362,9 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
         if (sp && sp.given) c.rank += 0.15;
         if (obs.focus === s) c.rank += 0.05;
       }
+      // a story that would earn an achievement not yet earned (the page's T.worthy; src/achievements.js) is told
+      // soon after what it tells of, so the two come together
+      if (T.worthy?.(c)) c.rank = Math.max(c.rank, T.borrow + 0.05);
     }
     // a species just written about waits (a weightier story only a while; a death, the end of its story, not at all)
     const subjectGap = (c) => (c.final ? T.subjectGap / 3 : c.rank >= 0.7 ? T.subjectGap / 3 : T.subjectGap);
@@ -389,7 +393,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
     const text = best.html.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
     for (const s of best.subjects || []) S.latest.set(s, { t, text, html: best.html });
     best.onTold?.();
-    return [{ html: best.html, text, col: best.col, kind: best.kind, key: best.key, moment: best.moment, subjects: best.subjects || [], score: best.score }];
+    return [{ html: best.html, text, col: best.col, kind: best.kind, key: best.key, moment: best.moment, subjects: best.subjects || [], score: best.score, low: best.low, span: best.span }];
   }
 
   // ------------------------------------------------------------------ helpers for the stories
@@ -627,7 +631,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       if (was && was.len >= 20 * MIN && t > T.warm) {
         const wst = S.sp.get(was.serial);
         const why = cur && cur.alive && wst ? whyDeclined(ctx, cur, wst, t - 10 * MIN) : null;
-        add({ kind: 'reign', score: 0.55 + Math.min(0.3, was.len / 7200), col: best.genome.col, subjects: [was.serial, best.serial],
+        add({ kind: 'reign', score: 0.55 + Math.min(0.3, was.len / 7200), col: best.genome.col, subjects: [was.serial, best.serial], span: was.len,
           // i18n: the most numerous species overtaken: {dur}, how long it was; {name}: it (a link); {why}: what befell it (chron.why), when {fell} is yes;
           // i18n: {next}: the new most numerous (a link); {kind}: what that is (chron.word.kind)
           html: tr('chron.reign.ended', 'After {dur}, the reign of {name} is ended{fell, select, yes {: it {why}} other {}}. {next}, {kind}, now holds the pool.',
@@ -690,7 +694,7 @@ export function createChronicler({ K = DEFAULT_K, link = (s, n) => esc(n), tune 
       if (st.low && sp.pop >= 0.5 * st.low.peak && sp.pop >= 3 * est && t - st.low.t >= 2 * MIN) {
         const c = causesIn(st, st.low.t - 2 * MIN, t);
         const slept = c[C.woke] > 0.3 * sp.pop;
-        add({ kind: 'comeback', score: 0.65, col: sp.genome.col, subjects: [sp.serial], key: `back:${sp.serial}`, keyGap: 40 * MIN,
+        add({ kind: 'comeback', score: 0.65, col: sp.genome.col, subjects: [sp.serial], key: `back:${sp.serial}`, keyGap: 40 * MIN, low: st.low.n,
           // i18n: a species nearly gone has recovered: {name} (a link); {low}: its fewest cells, at {at} on the world's clock; {now}: its cells now; {woke}: yes when cysts woke to save it; {turn}: the closing line (they take turns)
           html: tr('chron.comeback', '<b>Back from the brink.</b> {name}, brought down to {low, plural, one {# cell} other {# cells}} at {at}, now numbers {now, number}{woke, select, yes {, its sleeping cysts having woken to save it} other {}}. {turn, select, 0 {Those who can wait are seldom wholly lost.} 1 {It was given up for gone, and was not.} other {Patience has served it well.}}',
             { name: L(reg, sp.serial), low: st.low.n, at: fmtClock(st.low.t), now: sp.pop, woke: slept ? 'yes' : 'no', turn: vary('comeback', 3) }) });

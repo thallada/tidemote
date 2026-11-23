@@ -167,12 +167,12 @@ test('life failing and returning are told apart, and earn their achievements', (
   const down = fell.find((s) => s.kind === 'collapse');
   assert.ok(down, fell.map((x) => x.text).join(' | '));
   assert.equal(down.moment, undefined);
-  assert.deepEqual(earned(down), ['COLLAPSE']);
+  assert.deepEqual(earned(down).filter((id) => id !== 'FIRST_STORY'), ['COLLAPSE']);
   const rose = run(ch, w, 40, 10, (w2, i) => { if (i === 0) w2.set(a, 2000); });
   const up = rose.find((s) => s.kind === 'collapse');
   assert.ok(up, rose.map((x) => x.text).join(' | '));
   assert.equal(up.moment, 'back');
-  assert.deepEqual(earned(up), ['RETURN']);
+  assert.deepEqual(earned(up).filter((id) => id !== 'FIRST_STORY'), ['RETURN']);
 });
 
 test('an arms race: the prey genus slips the hunters’ receptors', () => {
