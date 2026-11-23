@@ -1356,14 +1356,18 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 }
 .store:hover, .store:focus-visible { color: var(--cyan); border-color: var(--line-2); outline: none; }
 .menu { display: flex; flex-direction: column; align-items: center; gap: var(--s3); width: min(520px, 100vw - 48px); }
-.menu-row { display: flex; align-items: stretch; justify-content: center; gap: var(--s2); }
+/* the tabs in one row, wider than the panel if they need it; where the screen is narrow they wrap as whole buttons,
+   never their words (a long label in another language may still wrap within its tab, which then grows with room
+   inside its frame) */
+.menu-row { display: flex; flex-wrap: wrap; align-items: stretch; justify-content: center; gap: var(--s2); width: max-content; max-width: calc(100vw - 48px); }
 .menu-tab {
-  --pad: var(--s3); display: inline-flex; align-items: center; gap: var(--s2); height: 34px; padding: 0 var(--pad);
+  --pad: var(--s3); display: inline-flex; align-items: center; gap: var(--s2); min-height: 34px; padding: var(--s1) var(--pad); line-height: 1.35;
   border: 1px solid var(--line-2); background: rgba(6, 10, 11, 0.6); cursor: pointer;
   font-size: 11px; letter-spacing: .2em; text-transform: uppercase; font-weight: 500; font-stretch: 112%; color: var(--ink-2);
   transition: border-color .15s, color .15s, background-color .15s;
 }
-.menu-tab b { color: var(--cyan); font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: .12em; }
+.menu-tab b { flex: none; white-space: nowrap; color: var(--cyan); font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: .12em; }
+.menu-tab span { text-wrap: balance; }
 /* the caret: down while closed, up while its panel is open */
 .menu-tab::after { content: ''; flex: none; width: 5px; height: 5px; margin: 0 1px 3px var(--s1); border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); transition: transform .15s; }
 .menu-tab:hover:not(:disabled), .menu-tab:focus-visible { color: var(--ink); border-color: var(--cyan); background: var(--cyan-deep); }
@@ -1371,6 +1375,8 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .menu-tab[aria-expanded="true"]::after { transform: translateY(4px) rotate(-135deg); }
 .menu-tab:disabled { opacity: .45; cursor: default; }
 .menu-tab.go::after { display: none; }
+/* too narrow for all three in a row: Continue on a row of its own above the other two, each row filled */
+@media (max-width: 600px) { .menu-tab { flex-grow: 1; justify-content: center; } .menu-tab.go { flex-basis: 100%; } }
 .menu-panel {
   --tick: var(--line-2); width: 100%; padding: var(--s3) var(--s3) var(--s2); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: left;
   /* the frame's corners ticked down its sides, as the HUD's brackets */
