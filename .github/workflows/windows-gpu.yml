@@ -48,12 +48,8 @@ jobs:
       - name: The runner's display adapters
         shell: pwsh
         run: Get-CimInstance Win32_VideoController | Format-List Name, DriverVersion, PNPDeviceID, Status | Out-String | ForEach-Object { Write-Output "::notice title=video controllers::$($_ -replace "`r?`n", '%0A')" }
-      - name: GPU probe
-        timeout-minutes: 20
-        run: PROBE_WAIT=90000 PROBE_SETS='[["--ignore-gpu-blocklist"],["--ignore-gpu-blocklist","--disable-gpu-watchdog"],["--ignore-gpu-blocklist","--use-webgpu-adapter=swiftshader"],["--ignore-gpu-blocklist","--use-webgpu-adapter=swiftshader","--disable-gpu-watchdog"]]' node desktop/scripts/gpu-probe.mjs --exe "$OUT/Tidemote.exe" --out gpu-probe
       - name: Launch check
-        if: always()
-        timeout-minutes: 30
+        timeout-minutes: 45
         run: node desktop/scripts/launch-check.mjs --exe "$OUT/Tidemote.exe" --out launch-windows --need-gpu --summary "$GITHUB_STEP_SUMMARY"
       - if: always()
         uses: actions/upload-artifact@v7

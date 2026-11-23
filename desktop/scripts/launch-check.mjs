@@ -32,10 +32,11 @@ if (!exe) throw new Error('--exe PATH to a packaged Tidemote executable');
 
 await mkdir(out, { recursive: true });
 // (Windows' runner: Chromium blocklists its Microsoft Basic Render Driver, leaving WebGPU unavailable; past the
-// blocklist WebGPU runs on D3D12's WARP, the software rasterizer, compiling the world's shaders as a player's GPU does)
+// blocklist WebGPU would take D3D12's WARP, which hangs the GPU process on the world's shaders, so SwiftShader, as
+// Linux's runner has)
 const base = ['--windowed', '--enable-unsafe-swiftshader',
   ...(process.platform === 'linux' ? [`--ozone-platform=${process.env.DISPLAY ? 'x11' : 'headless'}`, '--no-sandbox'] : []),
-  ...(process.platform === 'win32' ? ['--ignore-gpu-blocklist', '--disable-gpu-watchdog'] : [])];
+  ...(process.platform === 'win32' ? ['--ignore-gpu-blocklist', '--use-webgpu-adapter=swiftshader'] : [])];
 const gha = !!process.env.GITHUB_ACTIONS;
 // Chromium's child processes that die while the app runs (the GPU's above all), into list
 async function watchGone(app, list) {
