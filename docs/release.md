@@ -43,12 +43,16 @@ releases: its channels are public downloads, so whatever is pushed is what playe
   itself is not running on a runner, so Steam stays off with the reason) while the app's own process never
   loaded it (Linux), and WebGPU compiled the world and stepped it (`--need-gpu`; each outcome is also an annotation on the
   run's page).
-  On Linux, whose runner has no GPU, the app gets Chromium's software adapter (SwiftShader, allowed by
-  `--enable-unsafe-swiftshader`) and a 4096-particle world (a count chosen in Settings), so every
-  pipeline compiles and runs in seconds; the macOS runner has a GPU of its own. Windows' runner is
-  offered no adapter at all (SwiftShader, its Vulkan and ANGLE's WARP were each tried), so there WebGPU
-  is reported but not required: the Windows build's shaders are proven only on a real machine
-  (`smoke.mjs`). Each OS's result is a line
+  On Linux and Windows, whose runners have no GPU, the app gets Chromium's software adapter (SwiftShader,
+  allowed by `--enable-unsafe-swiftshader`) and a 4096-particle world (a count chosen in Settings), so
+  every pipeline compiles and runs; the macOS runner has a GPU of its own. Linux runs it under Xvfb (Ozone's
+  headless platform loses the page's GPU instance at the first frame). Windows' runner, a Hyper-V VM with
+  the Microsoft Basic Render Driver, is on Chromium's GPU blocklist, so WebGPU there needs
+  `--ignore-gpu-blocklist` and `--use-webgpu-adapter=swiftshader`: past the blocklist WebGPU would take
+  D3D12's WARP, which hangs the GPU process on the world's shaders. On these software GPUs a frame takes
+  about a second, so the Quit check takes minutes, and keeping a world takes about 40 s, longer than the
+  30 s a closed window waits for the page (`TIDEMOTE_CLOSE_WAIT_MS` lengthens it for the check). Each OS's
+  result is a line
   in the run's summary; its report and screenshot are kept as an artifact only when it fails.
 - **macOS**: an ad-hoc signature, verified with `codesign --verify --deep --strict`, and `lipo -archs`
   shows the universal binary's two arches.

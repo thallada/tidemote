@@ -123,7 +123,8 @@ const open = () => {
 // The pages that keep their world as their window closes (preload.cjs onClosing), and the app quitting (nothing waits then)
 const listening = new WeakSet();
 let quitting = false;
-const CLOSE_WAIT_MS = 30000;
+// (TIDEMOTE_CLOSE_WAIT_MS: longer for the launch check on CI's software GPU, where keeping a world takes about 40 s)
+const CLOSE_WAIT_MS = +process.env.TIDEMOTE_CLOSE_WAIT_MS || 30000;
 ipcMain.on('closing:listen', (e) => { if (e.senderFrame?.url.startsWith(ORIGIN)) listening.add(e.sender); });
 
 // Only the page itself may call the shell.

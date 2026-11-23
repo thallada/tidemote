@@ -3,8 +3,7 @@
 // loads steamworks.js's native addon (Steam itself is not running on a build machine, so Steam stays off; steam.js,
 // steam-helper/), and with --need-gpu
 // that WebGPU starts and the world steps. CI machines without a GPU get Chromium's software adapter
-// (SwiftShader, allowed by --enable-unsafe-swiftshader; Windows' runner is offered none at all, by any
-// switch tried: SwiftShader, its Vulkan, ANGLE's WARP) and a small world (4096 particles, as a count
+// (SwiftShader, allowed by --enable-unsafe-swiftshader; on Windows' runner past Chromium's GPU blocklist) and a small world (4096 particles, as a count
 // chosen and kept, at PREFS_V in src/main.js) so it compiles every pipeline and steps in seconds. smoke.mjs is the fuller check
 // on a real GPU and with Steam. Then (once a world steps) the menu's Quit: a world begun, Quit → Save and quit, and the
 // app must exit by itself, its world kept as the last session (userData/worlds/w-last.*), in a userData of its own.
@@ -31,7 +30,12 @@ const summary = arg('summary');
 if (!exe) throw new Error('--exe PATH to a packaged Tidemote executable');
 
 await mkdir(out, { recursive: true });
-const base = ['--windowed', '--enable-unsafe-swiftshader', ...(process.platform === 'linux' ? [`--ozone-platform=${process.env.DISPLAY ? 'x11' : 'headless'}`, '--no-sandbox'] : [])];
+// (Windows' runner: Chromium blocklists its Microsoft Basic Render Driver, leaving WebGPU unavailable; past the
+// blocklist WebGPU would take D3D12's WARP, which hangs the GPU process on the world's shaders, so SwiftShader, as
+// Linux's runner has)
+const base = ['--windowed', '--enable-unsafe-swiftshader',
+  ...(process.platform === 'linux' ? [`--ozone-platform=${process.env.DISPLAY ? 'x11' : 'headless'}`, '--no-sandbox'] : []),
+  ...(process.platform === 'win32' ? ['--ignore-gpu-blocklist', '--use-webgpu-adapter=swiftshader'] : [])];
 const gha = !!process.env.GITHUB_ACTIONS;
 // Chromium's child processes that die while the app runs (the GPU's above all), into list
 async function watchGone(app, list) {
@@ -39,6 +43,13 @@ async function watchGone(app, list) {
   app.process().stdout.on('data', (d) => { for (const m of String(d).matchAll(/tidemote-gone (\{.*\})/g)) list.push(JSON.parse(m[1])); });
 }
 const esc = (t) => String(t).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+// a promise given up on after ms (a hung GPU process leaves a readback, and Chromium's close, waiting forever)
+const within = (ms, p, what) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error(`${what}: no answer in ${ms / 1000} s`)), ms).unref())]);
+// the app closed, or its process killed when it will not close
+async function shut(app) {
+  if (!app) return;
+  await within(20000, app.close(), 'close').catch(() => { try { app.process().kill('SIGKILL'); } catch {} });
+}
 
 async function attempt(extra) {
   const r = { args: [...base, ...extra] };
@@ -60,7 +71,7 @@ async function attempt(extra) {
     // the first steps (the world then waits on the opening menu)
     await page.waitForFunction(() => globalThis.__tidemote?.eng?.simTime > 0 || !document.getElementById('nogpu')?.hidden, null, { timeout: 60000 }).catch(() => {});
     await page.waitForTimeout(2000);
-    Object.assign(r, await page.evaluate(async () => {
+    Object.assign(r, await within(120000, page.evaluate(async () => {
       const t = globalThis.__tidemote;
       const a = t?.eng?.device?.adapterInfo || {};
       const shown = document.getElementById('nogpu')?.hidden === false;
@@ -71,7 +82,7 @@ async function attempt(extra) {
       let gpuAlive = null;
       const d = t?.eng?.device;
       if (d) {
-        try { const b = d.createBuffer({ size: 16, usage: GPUBufferUsage.MAP_READ }); await b.mapAsync(GPUMapMode.READ); b.destroy(); gpuAlive = true; } catch (e) { gpuAlive = String(e.message || e); }
+        try { const b = d.createBuffer({ size: 16, usage: GPUBufferUsage.MAP_READ }); await Promise.race([b.mapAsync(GPUMapMode.READ), new Promise((_, no) => setTimeout(() => no(new Error('readback: no answer in 60 s')), 60000))]); b.destroy(); gpuAlive = true; } catch (e) { gpuAlive = String(e.message || e); }
       }
       return {
         origin: location.origin, ua: navigator.userAgent, gpuAlive,
@@ -84,7 +95,7 @@ async function attempt(extra) {
         detail: shown ? document.getElementById('nogpu-detail')?.textContent : null,
         fallback,
       };
-    }));
+    }), 'page'));
     r.version = await app.evaluate(({ app: a }) => a.getVersion());
     // the Steam API must load only in the helper's process, never in the app's (Linux can tell: /proc/self/maps)
     r.steamInMain = await app.evaluate(() => {
@@ -96,7 +107,7 @@ async function attempt(extra) {
   } catch (e) {
     r.exception = String(e?.message || e).split('\n')[0];
   } finally {
-    await app?.close().catch(() => {});
+    await shut(app);
     await rm(data, { recursive: true, force: true }).catch(() => {});
   }
   const line = `${r.args.join(' ')} → ${r.exception ?? (r.stepped ? `stepped on ${r.gpu || 'an adapter'}` : `${r.failed ?? 'never stepped'}: ${r.detail ?? ''}`)}; fallback adapter: ${r.fallback}`;
@@ -110,7 +121,9 @@ async function quitCheck() {
   let app;
   // (a userData of its own: the machine's saves and settings untouched)
   const data = await mkdtemp(join(tmpdir(), 'tidemote-quit-')), worlds = join(data, 'worlds');
-  const launch = () => _electron.launch({ executablePath: exe, args: [...base, `--user-data-dir=${data}`], timeout: 60000 });
+  // (the window's close waits on the page keeping its world longer than a player's 30 s: on a software GPU that takes
+  // about 40 s)
+  const launch = () => _electron.launch({ executablePath: exe, args: [...base, `--user-data-dir=${data}`], env: { ...process.env, TIDEMOTE_CLOSE_WAIT_MS: '300000' }, timeout: 60000 });
   // a world begun (the opening menu waits on Begin, or under automation goes by itself) and run long enough that
   // quitting asks: simulated time more than a second past its start (from: a continued world's saved time). Slowly
   // where the GPU is software: a frame takes about a second there and steps 1/60 s of the world.
@@ -132,11 +145,13 @@ async function quitCheck() {
     await page.reload();
     await begin(page);
     await page.evaluate(() => globalThis.__tidemote.input.act('menu'));
-    const closed = app.waitForEvent('close', { timeout: 120000 }).then(() => true, () => false);
+    const closed = app.waitForEvent('close', { timeout: 360000 }).then(() => true, () => false);
     await page.click('#gmenu [data-g="quit"]');
     r.asked = await page.locator('#gmenu [data-g="quit-save"]').count() > 0;
+    const t0 = Date.now();
     if (r.asked) await page.click('#gmenu [data-g="quit-save"]');
     r.exited = await closed;
+    r.quitMs = Date.now() - t0;
     r.code = proc.exitCode;
     const meta = existsSync(join(worlds, 'w-last.json')) ? JSON.parse(await readFile(join(worlds, 'w-last.json'), 'utf8')) : null;
     r.last = meta && { last: meta.last, name: meta.name, simTime: meta.simTime, bytes: meta.bytes, file: existsSync(join(worlds, 'w-last.tidemote')) };
@@ -145,18 +160,25 @@ async function quitCheck() {
     if (meta) {
       app = await launch();
       const page2 = await app.firstWindow();
+      // (the page's errors and its own log lines as it closes: why closing kept nothing)
+      r.log2 = [];
+      page2.on('console', (m) => { if ((m.type() === 'error' || m.text().includes('[tidemote]')) && r.log2.length < 10) r.log2.push(m.text().split('\n')[0].slice(0, 300)); });
       await page2.waitForFunction(() => !document.getElementById('menu-c')?.hidden || document.body.classList.contains('live'), null, { timeout: 180000 });
       r.continue = await page2.evaluate(() => !document.getElementById('menu-c').hidden && document.getElementById('menu-c-v').textContent);
       await begin(page2, meta.simTime ?? 0);
-      const closed2 = app.waitForEvent('close', { timeout: 120000 }).then(() => true, () => false);
+      r.sim2 = await page2.evaluate(() => globalThis.__tidemote.eng.simTime);
+      const closed2 = app.waitForEvent('close', { timeout: 360000 }).then(() => true, () => false);
+      const t1 = Date.now();
       await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
       r.closeExited = await closed2;
+      r.closeMs = Date.now() - t1;
       const again = JSON.parse(await readFile(join(worlds, 'w-last.json'), 'utf8'));
       r.closeKept = again.savedAt > meta.savedAt;
+      r.again = { name: again.name, simTime: again.simTime };
     }
   } catch (e) {
     r.exception = String(e?.message || e).split('\n')[0];
-    await app?.close().catch(() => {});
+    await shut(app);
   } finally {
     await rm(data, { recursive: true, force: true }).catch(() => {});
   }

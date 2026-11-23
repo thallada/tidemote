@@ -74,7 +74,7 @@ jobs:
       matrix:
         include:
           - { os: ubuntu-24.04, platform: linux, arch: x64, folder: linux, exe: Tidemote, gpu: --need-gpu, display: xvfb-run -a -s '-screen 0 1280x800x24' }
-          - { os: windows-2025, platform: win32, arch: x64, folder: windows, exe: Tidemote.exe, gpu: '', display: '' }
+          - { os: windows-2025, platform: win32, arch: x64, folder: windows, exe: Tidemote.exe, gpu: --need-gpu, display: '' }
           - { os: macos-15, platform: darwin, arch: universal, folder: mac, exe: Tidemote.app/Contents/MacOS/Tidemote, gpu: --need-gpu, display: '' }
     runs-on: ${{ matrix.os }}
     env:
@@ -120,8 +120,8 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$OUT/Tidemote.app"
           lipo -archs "$OUT/${{ matrix.exe }}"
       # the app starts, its Steam helper process loads the Steam addon (never the app itself), and WebGPU
-      # compiles the world and steps it (Linux: the software adapter; macOS: the runner's GPU; Windows'
-      # runner offers no adapter at all, so there it is reported, not required); a line in the run's summary.
+      # compiles the world and steps it (Linux and Windows: the software adapter, SwiftShader; macOS: the runner's
+      # GPU); a line in the run's summary.
       # Linux runs it on Xvfb: under Ozone's headless platform a WebGPU canvas's first frame loses the page's GPU
       - name: Launch check
         run: ${{ matrix.display }} node desktop/scripts/launch-check.mjs --exe "$OUT/${{ matrix.exe }}" --out "launch-${{ matrix.folder }}" ${{ matrix.gpu }} --summary "$GITHUB_STEP_SUMMARY"
