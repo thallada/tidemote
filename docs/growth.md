@@ -203,6 +203,24 @@ Torpid, stranded or encysted cells rest. The swim, ride and step labs measure mu
 (`beatWill` 0 by default there); `tools/willlab.mjs` grows a world and reports how beating cells' wills
 are spread, by guild and by energy, and how fast resting and beating cells move.
 
+In one 16k world (seed 1, 8 minutes), from the third minute on 30-50% of beating cells rest, the rest
+beat partway or fully; the will follows energy (mean 0-0.5 for cells under a quarter of their division
+energy, 0.7-0.9 between a quarter and three quarters, about 0.25 for the sated); cells beating fully move
+0.16-0.24 units/s, resting ones 0.06-0.10 (the currents' drift). Gates, 32 worlds x 30 min at 32k
+(`tools/farm.mjs`), every gated metric the same as the baseline (Holm p >= 0.8) with the will and
+without it (`beatWill` 0) at 1 and 6 ticks; paired, the will moved nothing beyond noise (late 10 minutes,
+medians, share of the living):
+
+| | swimmers | swimmers of 6+ cells | tailed | trees | grazers | predators | scavengers |
+|---|---|---|---|---|---|---|---|
+| 1 tick, `beatWill` 0 | 1.9% | 0.8% | 0.5% | 5.5% | 51% | 15% | 5.2% |
+| 1 tick, `beatWill` 1 | 2.0% | 0.6% | 0.8% | 4.5% | 45% | 14% | 8.2% |
+| 6 ticks, `beatWill` 0 | 1.8% | 0.4% | 0.4% | 6.1% | 46% | 12% | 7.4% |
+| 6 ticks, `beatWill` 1 | 2.5% | 0.6% | 0.3% | 4.1% | 50% | 11% | 7.5% |
+
+(Each row higher than its pair in 13-19 of 32 worlds.) Late guilds 3.47 / 3.25 at 1 tick, 3.22 / 3.31
+at 6 ticks; effective species 106 / 105, 110 / 101. `beatAim` has not been gated.
+
 ## Tails
 
 A packed body (a mat or a clump, not a tree) can grow tails, as a colonial protist grows flagella or a
