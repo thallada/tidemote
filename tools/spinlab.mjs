@@ -98,7 +98,7 @@ async function measure(eng, step) {
         const a = (acc.get(id) ?? (acc.set(id, { cat, net: 0, abs: 0, t: 0, dist: 0 }), acc.get(id)));
         const dd = wrapAng(draw - p.draw);
         a.net += dd; a.abs += Math.abs(dd); a.t += dt; a.dist += Math.hypot(dx, dy) / radius; a.cat = cat;
-        a.k = k; a.gen = (info >> 16) & 4095; a.order = order; a.slot = i;
+        a.k = k; a.gen = (info >> 16) & 255; a.order = order; a.slot = i;
         // a reversal: this step's displacement against the last one's (both over 5% of a radius)
         if (p.mx != null && Math.hypot(dx, dy) > 0.05 * radius && Math.hypot(p.mx, p.my) > 0.05 * radius) { s.revN = (s.revN || 0) + 1; if (dx * p.mx + dy * p.my < 0) s.rev = (s.rev || 0) + 1; }
         cur.get(id).mx = dx; cur.get(id).my = dy;

@@ -28,7 +28,7 @@ const { P_BYTES, FIRST_LIFE, NONE = 0xffffffff, STONE = 3 } = await import(src +
 const { testGenome, aloneInWater } = await import('./swimlab-bodies.mjs');
 const R = await import('../src/ride.js');
 
-const K = { metab: 0, ...JSON.parse(v.k) };
+const K = { metab: 0, beatWill: 0, ...JSON.parse(v.k) };
 const eng = await E.createEngine(device, 'rgba8unorm', { K });
 await eng.allocate(+v.n);
 eng.resize(640, 360);

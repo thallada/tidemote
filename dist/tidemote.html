@@ -2505,6 +2505,25 @@ fn swaySlot2(id: u32, n: u32) -> u32 {
     // a tail's beat is this much stronger than a tree's (it carries its whole body)
     beatCost: 5e-3,
     // upkeep per unit of beat amplitude (radians) times frequency (Hz)
+    // A beat at will (docs/growth.md): 0, a beating body beats always at its genes' amplitude, paying for it in its
+    // upkeep; 1, each cell holds a will to beat (0..1, info's bits 24-27: willOf) that scales its beat's amplitude and
+    // what the beat costs. It wants to beat as it is hungry (an eater short of sated; a producer short of it in the
+    // light), the more so fleeing a hunter, the less with food in reach; it cannot below beatRest of the energy it
+    // divides at (it rests, as through the dark); a body's cells share their will through their bonds (beatShare)
+    // and it changes at most beatRamp of its range a second.
+    beatWill: 1,
+    beatRest: 0.15,
+    // the share of its division energy below which a cell's will fades to rest (over as much again)
+    beatEat: 0.25,
+    // what is left of a hungry cell's urge with food in reach (it stops to eat)
+    beatDark: 0.3,
+    // a producer's urge fades to nothing as its light falls below this
+    beatShare: 0.6,
+    // how much of a cell's will is its bond partners' (a body beats as one)
+    beatRamp: 2,
+    // the will's whole range a second, at most
+    beatAim: 0,
+    // how much a body's will waits on heading toward what pulls it (food, away from hunters): 0 none
     bodyHold: 0.3,
     // with bodyPush, the share of overlap undone each tick by velocity (contact as a constraint)
     bodyGive: 0.85,
@@ -2952,7 +2971,11 @@ fn pcgHash(v: u32) -> u32 {
   return (w >> 22u) ^ w;
 }
 fn renderHash(id: u32) -> f32 { return f32(pcgHash(id)) / 4294967296.0; }
-fn genOf(info: u32) -> u32 { return (info >> 16u) & 4095u; }
+// a living cell's generation (counting on from its mother's, wrapping past 255) and its will to beat (K.beatWill,
+// 0..1 in fifteenths; the bits above the generation)
+fn genOf(info: u32) -> u32 { return (info >> 16u) & 255u; }
+const WILL_BITS = 0x0f000000u;
+fn willOf(info: u32) -> f32 { return f32((info >> 24u) & 15u) * (1.0 / 15.0); }
 // A tree's cell: the turn it grew at from its mother (0 straight on, 1 left, 2 right) and its
 // branch order (0: the main axis)
 fn turnOf(info: u32) -> u32 { return (info >> 28u) & 3u; }
@@ -3330,6 +3353,8 @@ ${w ? "" : "    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }"}
   var hasKid = false;
   // (a tail of its own kind within tailSpace: a body bearing tails buds no other there)
   var tailNear = false;
+  // (a hunter of others within its reach, from which it flees: beatWill)
+  var threat = false;
   let budGap = 0.9 * 0.085 * g.size * (2.0 - 0.24 * f32(role));
 `
     );
@@ -3447,7 +3472,7 @@ ${w ? "" : "    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }"}
         let appetite = select(0.0, select(gFlesh, ${f(K2.grazePref)} * gGlint + ${f(K2.plantPref)} * gFlesh, (q.kr & (1u << 12u)) != 0u) * eatEff * ${f(K2.hunt)}, canHunt && qk != p.kind);
         if (x >= bk) { fr += appetite * shape; pull = a + appetite; } else { dfr = core * invBk * invR; }
         // an animal that is not a hunter swims away from hunters near it, the harder the closer they are
-        if ((q.kr & (1u << 14u)) != 0u && qk != p.kind && gFlesh <= 0.5 && gPhoto <= 0.4) { fr -= ${f(K2.flee)} * min(gSwim, 1.0) * (1.0 - x);${W3(`mFl = ${f(K2.flee)} * min(gSwim, 1.0) * (1.0 - x);`)} }
+        if ((q.kr & (1u << 14u)) != 0u && qk != p.kind && gFlesh <= 0.5 && gPhoto <= 0.4) { threat = true; fr -= ${f(K2.flee)} * min(gSwim, 1.0) * (1.0 - x);${W3(`mFl = ${f(K2.flee)} * min(gSwim, 1.0) * (1.0 - x);`)} }
         crowd += (1.0 - x) * select(1.0, ${f(K2.kinShade)}, bonding && qk == p.kind);
         if ((q.kr & (1u << 12u)) != 0u) { crowdP += (1.0 - x) * select(1.0, ${f(K2.kinShade)}, bonding && qk == p.kind); }
         if (DIAG) {
@@ -3551,7 +3576,7 @@ ${w ? "" : "    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }"}
 `
     ) : (
       /* wgsl */
-      `  budTurn = (sf >> 5u) & 3u; budBlocked = (sf & 4u) != 0u; tailNear = (sf & 8u) != 0u; hasKid = (sf & 16u) != 0u;
+      `  budTurn = (sf >> 5u) & 3u; budBlocked = (sf & 4u) != 0u; tailNear = (sf & 8u) != 0u; hasKid = (sf & 16u) != 0u; threat = (sf & 512u) != 0u;
   // (the rest is read where used: SENSE)
   let stride = 1.0;
   if (DIAG) { crowd = sGet(so + 34u); overlap = sGet(so + 35u); deepOther = sGet(so + 36u); preyNear = sGet2(so + 37u); }
@@ -3564,7 +3589,7 @@ ${w ? "" : "    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }"}
   sPut(so + 7u, crowdP); sPut(so + 8u, nutr); sPut(so + 9u, pack); sPut(so + 10u, stoneN); sPut(so + 11u, plantN); sPut(so + 12u, animN);
   sense[so + 13u] = pack4x8unorm(vec4f(csum / max(wsum, 1e-9), select(0.0, 1.0, wsum > 0.0)));
   sense[so + 14u] = n1; sense[so + 15u] = n2; sense[so + 16u] = food; sense[so + 17u] = silt;
-  sense[so + 18u] = select(0u, 1u, keep1) | select(0u, 2u, keep2) | select(0u, 4u, budBlocked) | select(0u, 8u, tailNear) | select(0u, 16u, hasKid) | (budTurn << 5u) | (min(torn, 3u) << 7u);
+  sense[so + 18u] = select(0u, 1u, keep1) | select(0u, 2u, keep2) | select(0u, 4u, budBlocked) | select(0u, 8u, tailNear) | select(0u, 16u, hasKid) | (budTurn << 5u) | (min(torn, 3u) << 7u) | select(0u, 512u, threat);
   if (coarse) {
     sPut2(so + 19u, jF.xy * stride); sPut(so + 21u, jF.z * stride); sPut2(so + 22u, jS.xy * stride); sPut(so + 24u, jS.z * stride);
     sPut2(so + 25u, vN); sPut(so + 27u, wN); sPut(so + 28u, wN2);
@@ -3739,7 +3764,7 @@ ${scan ? "" : "  if (coarse) { vN = sGet2(so + 25u); wN = sGet(so + 27u); wN2 = 
   }
   // a tree's muscles and tissue (beatPull)
   var beatDv = vec2f(0.0);
-  if (beating && !sub) { beatDv = beatPull(i, gr, g.size, p.vel * fr0 - across * (dot(p.vel, across) * (fr0 - frX)), fr0); }
+  if (beating && !sub) { beatDv = beatPull(i, gr, g.size); }
   var vB1 = vec2f(0.0);
   var vB2 = vec2f(0.0);
   if (n1 != NONE) { vB1 = sortedFull[n1].vel; }
@@ -3851,9 +3876,52 @@ ${scan ? `  if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K2.colorMix)}); }`
   // a ridden cell pays for its will as for swimming
   let willCost = select(0.0, bitcast<f32>(sim.hand.ids.z) * min(length(sim.hand.more.zw) / ${f(K2.will)}, 1.0) * ${f(K2.willCost)} * g.metab, willOn);
   let upkeep = g.metab * kinCost * thrift * (0.55 + 0.45 * clamp(p.energy / g.reproE, 0.0, 1.0))
-    * (1.0 + ${f(K2.stressCost)} * th.stress) * select(1.0, ${f(K2.torporCost)}, th.torpid) + heatMaking + willCost;`;
+    * (1.0 + ${f(K2.stressCost)} * th.stress) * select(1.0, ${f(K2.torporCost)}, th.torpid) + heatMaking + willCost${K2.beatWill ? `
+    // (beatWill: a beat costs as hard as it beats now, rather than in the species' upkeep)
+    + ${f(K2.beatCost * K2.metab)} * g.beat.x * g.beat.y * willOf(p.info) * select(0.0, 1.0, (g.dev.x >= 0x80000000u || g.tail.x > 0.0) && bonding)` : ""};`;
   }
   var senseWords = (K2) => K2.diag ? 40 : 34;
+  function willWGSL(K2) {
+    return (
+      /* wgsl */
+      `  if (g.beat.x > 0.0 && bonding && (tree || tails || tail) && kind == p.kind && (info & 15u) != CYST) {
+    // what it has to spend: none below beatRest of its division energy, all from twice that
+    let fill = E / divE;
+    var want = smoothstep(${f(K2.beatRest)}, ${f(2 * K2.beatRest)}, fill);
+    // why it would: an eater short of sated forages; a producer short of it moves as long as there is light to find
+    let need = smoothstep(${f(K2.sated)}, ${f(0.5 * K2.sated)}, fill);
+    var urge = select(need * select(1.0, ${f(K2.beatEat)}, ${SENSE.food} != NONE), need * smoothstep(0.0, ${f(K2.beatDark)}, light), g.photo > 0.4);
+    // a hunter near: it flees as hard as it can
+    if (threat) { urge = 1.0; }
+    // (beatAim: heading toward what pulls it, or the urge waits; nothing pulling, it roams)
+    ${K2.beatAim ? `if (tree || tail) {
+      let pull = ${SENSE.force};
+      let arm = treeArm(i);
+      if (arm != NONE && dot(pull, pull) > 1e-8) {
+        let hd = treeRel(i, arm) * select(-1.0, 1.0, arm == treeMom(i));
+        let c = dot(hd, pull) / max(length(hd) * length(pull), 1e-6);
+        urge *= mix(1.0, smoothstep(-0.2, 0.5, c), ${f(K2.beatAim)} * smoothstep(0.0, 0.05, length(pull)));
+      }
+    }` : ""}
+    want *= select(urge, 0.0, th.torpid || stranded);
+    // its body's will: its partners' mean
+    var sw = 0.0; var nw = 0.0;
+    if (n1 != NONE) { sw += willOf(sortedFull[n1].info); nw += 1.0; }
+    if (n2 != NONE) { sw += willOf(sortedFull[n2].info); nw += 1.0; }
+    for (var k = 0u; k < nBack; k++) {
+      let nb = backAt(i, k, p, n1, n2);
+      if (nb != NONE) { sw += willOf(sortedFull[nb].info); nw += 1.0; }
+    }
+    if (nw > 0.0) { want = mix(want, sw / nw, ${f(K2.beatShare)}); }
+    let now = (info >> 24u) & 15u;
+    let to = u32(round(clamp(want, 0.0, 1.0) * 15.0));
+    let ds = u32(min(floor(${f(K2.beatRamp * 15)} * sim.dt + rnd(&s)), 15.0));
+    let next = select(max(now, ds) - ds, min(now + ds, to), to > now);
+    info = (info & ~WILL_BITS) | (select(max(next, to), next, to > now) << 24u);
+  }
+`
+    );
+  }
   function simWGSL(K2, { dp4a = false, lifeWG = 128 } = {}) {
     return commonWGSL(K2) + /* wgsl */
     `
@@ -4426,7 +4494,7 @@ fn deriveMetab(g: Genome) -> f32 {
   return (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
         + ${f(K2.anchorCost)} * (1.0 - g.advect) + 0.004 * g.size + ${f(K2.swimCost)} * g.swim * (1.0 - g.photo) + 0.006 * g.align + 0.004 * g.adhesion + ${f(K2.calcCost)} * g.calcify
         + ${f(K2.phototaxisCost)} * abs(g.tail.z)
-        + ${f(K2.beatCost)} * g.beat.x * g.beat.y * select(0.0, 1.0, (g.dev.x >= 0x80000000u || g.tail.x > 0.0) && g.adhesion > ${f(K2.adhMin)})) * ${f(K2.metab)};
+        + ${f(K2.beatWill ? 0 : K2.beatCost)} * g.beat.x * g.beat.y * select(0.0, 1.0, (g.dev.x >= 0x80000000u || g.tail.x > 0.0) && g.adhesion > ${f(K2.adhMin)})) * ${f(K2.metab)};
 }
 
 fn finalize(g: ptr<storage, Genome, read_write>) {
@@ -4850,7 +4918,8 @@ fn resolveCount(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invoca
         }
         p.id = newId();
         p.col = pack4x8unorm(vec4f(roleColor(genomes[ck], cr), 1.0));
-        p.info = (gen << 16u) | (bud << 28u) | (cr << 4u) | 9u;
+        // (her will to beat her mother's: beatWill)
+        p.info = ((gen & 255u) << 16u) | (parts[c - 1u].info & WILL_BITS) | (bud << 28u) | (cr << 4u) | 9u;
         noteBy(EV_BIRTH, p, c - 1u);
         intent[i].z = select(NONE, c - 1u, genomes[ck].adhesion > ${f(K2.adhMin)});
         intent[i].w = NONE;
@@ -5506,10 +5575,7 @@ fn treeDeg(x: u32) -> f32 {
   return max(2.0, f32(backN(x)) + select(0.0, 1.0, m < sim.count && m != x));
 }
 // One pull a tick, the beat reckoned at the tick's middle (a coarse step's substeps, bodyTick, one each).
-// vD: this cell's velocity after the tick's drag fr0. Along each bond it blends with its partner's velocity after
-// drag too: blended with it in full, an anchored mother and daughter pressed together were held overlapped
-// (docs/growth.md, Pairs that would not part).
-fn beatPull(i: u32, gr: Grow, size: f32, vD: vec2f, fr0: f32) -> vec2f {
+fn beatPull(i: u32, gr: Grow, size: f32) -> vec2f {
   let info = sortedFull[i].info;
   let tm = select(sim.time - 0.5 * sim.dt, sim.time - sim.dt + (f32(subK) + 0.5) * sim.dt / f32(sim.ticks), SUBSTEP);
   // (a tail drives a whole body: it swings tailGain harder)
@@ -5529,11 +5595,10 @@ fn beatPull(i: u32, gr: Grow, size: f32, vD: vec2f, fr0: f32) -> vec2f {
     let n = vec2f(-a.y, a.x) / max(length(a), 1e-6);
     let sj = beatSpeed(gr, size, genOf(sortedFull[j].info), tm, ph) * tg;
     // a joint pulled well past its rest goes slack: its muscle lets go
-    let slack = smoothstep(1.6, 1.3, length(a) / (${f(0.153)} * size));
-    // (a mother's drag along the bond taken as fr0, a daughter's)
-    let vj = treeVel(j);
-    let u = vec2f(n.y, -n.x);
-    dv += (n * (dot(vj - vi, n) + (si - sj) * slack) + u * dot(vj * fr0 - vD, u)) * (2.0 / max(di, treeDeg(j)));
+    var slack = smoothstep(1.6, 1.3, length(a) / (${f(0.153)} * size));
+    // (beatWill: the bond beats with its two cells' mean will, as both of them reckon it)
+    ${K2.beatWill ? "slack *= 0.5 * (willOf(info) + willOf(sortedFull[j].info));" : ""}
+    dv += (treeVel(j) - vi + n * ((si - sj) * slack)) * (2.0 / max(di, treeDeg(j)));
   }
   return dv * ${f(K2.beatMix)};
 }
@@ -6069,11 +6134,11 @@ ${cellWGSL(K2, false, "act")}
     kind = STONE; E = ${f(K2.stoneLife)} * (0.5 + rnd(&s)); vel = vec2f(0.0);
   }
   // the child's generation, and in a tree her turn and branch order
-  var childGen = ((genOf(p.info) + 1u) & 4095u) << 14u;
+  var childGen = ((genOf(p.info) + 1u) & 255u) << 14u;
   if (tree && budTurn < 3u) { childGen |= (budTurn | (min(orderOf(p.info) + select(1u, 0u, budTurn == 0u), 3u) << 2u)) << 26u; }
   // a tail's base: generation 0, branch order 2 (a tail grows on as a tree's straight daughters do, order kept)
   else if (sprout) { childGen = (2u << 2u) << 26u; }
-  // y: the child's energy on a birth; otherwise how closely packed this cell is, read only by rendering
+${K2.beatWill ? willWGSL(K2) : ""}  // y: the child's energy on a birth; otherwise how closely packed this cell is, read only by rendering
   intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(select(${SENSE.pack}, ce, act == 2u)), n1, n2);
   // (a cell that died this step is not bodyTick's to move)
   if (sub && kind != p.kind) { bondsNow[subMark(i)] = 0u; }
@@ -6142,8 +6207,7 @@ fn bodyTick(@builtin(global_invocation_id) gid: vec3u) {
   var across = vec2f(0.0);
   let arm = treeArm(i);
   if (arm != NONE) { let a = treeRel(i, arm); across = vec2f(-a.y, a.x) / max(length(a), 1e-6); }
-  let vD = vel * fr0 - across * (dot(vel, across) * (fr0 - frX));
-  vel = (vD + pf.xy * h) * bitcast<f32>(bondsNow[o + 8u]) + fw.zw;
+  vel = (vel * fr0 - across * (dot(vel, across) * (fr0 - frX)) + pf.xy * h) * bitcast<f32>(bondsNow[o + 8u]) + fw.zw;
   // bonds (treeBond times as firm as a body's; a tail's base held by an ordinary bond) and bend
   let role = roleOf(p.info);
   let kept = bondsOf(i);
@@ -6167,7 +6231,7 @@ fn bodyTick(@builtin(global_invocation_id) gid: vec3u) {
     bondF += e * ((l - restTo(nb, g.size, role, 1.0)) / max(l, 1e-4));
   }
   vel += ((bondF - baseB) * ${f(K2.treeBond)} + baseB + bendOn(i, gr) * ${f(K2.growStiff)}) * (g.adhesion * ${f(K2.bond)} * h);
-  vel += beatPull(i, gr, g.size, vD, fr0);
+  vel += beatPull(i, gr, g.size);
   if (bondsNow[o + 9u] != 0u) { vel = vel * exp(-${f(K2.dryDrag)} * h) + fw.xy * h; }
   let sp = length(vel);
   if (sp > sim.maxSpeed) { vel *= sim.maxSpeed / sp; }
@@ -16982,7 +17046,7 @@ struct SV {
     g.dGlint /= s;
     g.dHusk /= s;
     g.dFlesh /= s;
-    g.metab = (0.012 + 32e-4 * g.force + 0.012 * g.radius + 12e-5 * g.lifespan + (K2.anchorCost ?? 0) * (1 - g.advect) + 4e-3 * g.size + (K2.swimCost ?? 0.018) * g.swim * (1 - g.photo) + 6e-3 * g.align + 4e-3 * (g.adhesion || 0) + (K2.calcCost ?? 0) * (g.calcify || 0) + (K2.phototaxisCost ?? 0) * Math.abs(g.phototaxis || 0) + (K2.beatCost ?? 0) * (g.beat?.[0] ?? 0) * (g.beat?.[1] ?? 0) * (growPlan(g, K2) || hasTails(g, K2) ? 1 : 0)) * K2.metab;
+    g.metab = (0.012 + 32e-4 * g.force + 0.012 * g.radius + 12e-5 * g.lifespan + (K2.anchorCost ?? 0) * (1 - g.advect) + 4e-3 * g.size + (K2.swimCost ?? 0.018) * g.swim * (1 - g.photo) + 6e-3 * g.align + 4e-3 * (g.adhesion || 0) + (K2.calcCost ?? 0) * (g.calcify || 0) + (K2.phototaxisCost ?? 0) * Math.abs(g.phototaxis || 0) + (K2.beatWill ? 0 : K2.beatCost ?? 0) * (g.beat?.[0] ?? 0) * (g.beat?.[1] ?? 0) * (growPlan(g, K2) || hasTails(g, K2) ? 1 : 0)) * K2.metab;
     g.col = packUnorm(...roleColor(g, 0));
     return g;
   }
@@ -17113,7 +17177,8 @@ struct SV {
       info,
       cause: info & 15,
       role: info >>> 4 & 3,
-      gen: info >>> 16 & 4095,
+      gen: info >>> 16 & 255,
+      will: (info >>> 24 & 15) / 15,
       turn: info >>> 28 & 3,
       order: info >>> 30
     };
@@ -39582,9 +39647,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "37c9aefd67f27c22") return;
+      if (localStorage.getItem(key) === "e911633bf4cdd606") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "37c9aefd67f27c22");
+      if (res) localStorage.setItem(key, "e911633bf4cdd606");
     } catch {
     }
   }
@@ -45411,27 +45476,13 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const S1 = perf.split ? perf.simS / tickCost(2) : perf.simS;
       return perf.renderR + S1 > T2 * (perf.split ? 0.75 : 0.85);
     }
-    const frameSim = (m) => perf.simS * (m === 1 ? state.perf.split === "off" ? 1 : splitPer() : tickCost(m)) / tickCost(stepTicks());
-    const sim = { on: false, share: 0, since: 0 };
-    function simJudge(now) {
-      if (state.phase !== "running" || state.paused || state.speed > 1) {
-        sim.on = false;
-        sim.since = 0;
-        return;
-      }
-      const A = displayFrames() * displayMs() * (state.perf.fps === "auto" ? 2 : 1);
-      const share2 = perf.simS && perf.renderR ? frameSim(ticksFor(A)) / A : 0;
-      const short = state.perf.fps === "auto" && perf.slow > 2 || perf.fps > 0 && perf.fps < 0.85 * (1e3 / A);
-      const bound = short && share2 > (sim.on ? 0.5 : 0.6);
-      if (bound) sim.share = share2;
-      if (bound === sim.on) sim.since = 0;
-      else if (!sim.since) sim.since = now;
-      else if (now - sim.since >= (sim.on ? 1e4 : 5e3)) {
-        sim.on = bound;
-        sim.since = 0;
-      }
+    let simBoundOn = false;
+    function simBound() {
+      const A = displayFrames() * displayMs(), share2 = perf.simS && perf.renderR ? perf.simS * tickCost(ticksFor(A)) / A : 0;
+      const short = state.phase === "running" && !state.paused && state.speed <= 1 && (perf.slow > 1 || perf.fps > 0 && perf.fps < 0.85 * (1e3 / A));
+      simBoundOn = short && share2 > (simBoundOn ? 0.5 : 0.6);
+      return simBoundOn ? share2 : 0;
     }
-    const simBound = () => sim.on ? sim.share : 0;
     const SCALES = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
     function resetAdapt() {
       clearFrames();
@@ -45547,7 +45598,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const best = Object.keys(tune).every((k) => !tuneAuto(k) || tune[k].level === KNOBS[k].levels.length - 1) && (!auto || renderScale >= 1 - 1e-3);
       if (perf.slow > 1 && fasterFirst({ slow: perf.slow, best })) {
         const faster = T2 * (perf.slow - 1) / perf.slow, m2 = ticksFor(faster);
-        const est = hasTS && perf.simS && perf.renderR ? perf.renderR + frameSim(m2) : perf.gpu;
+        const per = m2 === 1 ? state.perf.split === "off" ? 1 : splitPer() : tickCost(m2);
+        const est = hasTS && perf.simS && perf.renderR ? perf.renderR + perf.simS * per / tickCost(stepTicks()) : perf.gpu;
         const fits = (!est || est < faster * 0.75) && perf.frameMain < faster * 0.75;
         if (fits ? !(held && perf.slow - 1 <= perf.slowCeiling) : probeOk) {
           perf.slow--;
@@ -47046,7 +47098,6 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         if (state.phase === "running") updateHud(now);
       }
       adaptQuality(now);
-      simJudge(now);
       tuneProfile(now);
       const spent = performance.now() - t0;
       perf.mainMs += (spent - perf.mainMs) * 0.1;

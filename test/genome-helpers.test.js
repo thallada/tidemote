@@ -108,14 +108,14 @@ test('parseParticle decodes cause, role, generation and a tree cell\'s turn and 
   u32[offset + 8] = 0xff123456;
   for (const cause of [0, 9, 15]) {
     for (const role of [0, 1, 2, 3]) {
-      for (const [gen, turn, order] of [[0, 0, 0], [1234, 2, 1], [4095, 1, 3]]) {
+      for (const [gen, will, turn, order] of [[0, 0, 0, 0], [123, 7, 2, 1], [255, 15, 1, 3]]) {
         for (const image of [0, 4, 511, 512, 1023]) {
-          const info = ((order << 30) | (turn << 28) | (gen << 16) | (image << 6) | (role << 4) | cause) >>> 0;
+          const info = ((order << 30) | (turn << 28) | (will << 24) | (gen << 16) | (image << 6) | (role << 4) | cause) >>> 0;
           u32[offset + 9] = info;
           assert.deepEqual(parseParticle(u32, f32, offset), {
             x: 1.25, y: -2.5, vx: 0.5, vy: -0.75, kind: 7,
             energy: 3.5, age: 12, id: 123, col: 0xff123456,
-            info, cause, role, gen, turn, order,
+            info, cause, role, gen, will: will / 15, turn, order,
           });
         }
       }

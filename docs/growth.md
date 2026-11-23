@@ -176,6 +176,33 @@ world or after its growth). Swim lab (12-cell filament and 20-cell tree, five ge
 most within 2%, the extremes 0.41 to 0.46 and 0.24 to 0.21 units/s, none broken. Gates read the same at 1/60 s
 steps and 6 ticks.
 
+### A beat at will (experiment, branch beat-will, 2026-11-23)
+
+Before, every body of a beating species beat all the time at its genes' amplitude, so a whole species
+wiggled alike wherever it was, fed or starving, by day or night. With `beatWill` (1), each cell of a
+beating body (a tree, or a tailed body's tails and cells) holds a will to beat, 0 to 1 in fifteenths, in
+the four bits of `info` above its generation (`willOf`; the generation now wraps past 255, which only
+moves a branching rhythm). Its beat's amplitude and what the beat costs scale with it: a bond's muscle
+beats with its two cells' mean will (both ends reckon it alike, so the body still cannot push itself),
+and the beat's upkeep (`beatCost` x amplitude x frequency) moves out of the species' metabolism and is
+paid cell by cell as hard as it beats now. At the end of each step (`willWGSL` in `src/shaders.js`):
+
+- **What it can spend:** nothing below `beatRest` (0.15) of the energy it divides at, all from twice that.
+  A starving body stops and waits.
+- **Why it would beat:** an eater short of sated forages (fully at half of sated), a quarter as hard with
+  food in reach (`beatEat`: it stops to eat); a producer short of sated moves only while there is light
+  (fading to nothing below `beatDark`), so producers rest through the dark. A hunter in reach (the flee
+  rule's hunters) makes it beat as hard as it can afford, and so does being ridden.
+- **Heading** (`beatAim`, 0 by default): optionally the urge waits on the body heading toward what pulls
+  it (its scan's summed force: food, away from hunters); with nothing pulling it roams.
+- **A body agrees:** a cell's will is `beatShare` (0.6) its bond partners' mean, and changes at most
+  `beatRamp` (2) of its range a second, a fifteenth at a time (fractions by chance, so a coarse step and
+  1/60 s steps change it alike on average). A daughter starts with her mother's will.
+
+Torpid, stranded or encysted cells rest. The swim, ride and step labs measure muscles at full will
+(`beatWill` 0 by default there); `tools/willlab.mjs` grows a world and reports how beating cells' wills
+are spread, by guild and by energy, and how fast resting and beating cells move.
+
 ## Tails
 
 A packed body (a mat or a clump, not a tree) can grow tails, as a colonial protist grows flagella or a

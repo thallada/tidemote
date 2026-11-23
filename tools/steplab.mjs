@@ -23,7 +23,7 @@ const E = await import('../src/engine.js');
 const { testGenome, aloneInWater } = await import('./swimlab-bodies.mjs');
 const { P_BYTES } = await import('../src/shaders.js');
 
-const eng = await E.createEngine(device, 'rgba8unorm', { K: { metab: 0, ...JSON.parse(v.k) } });
+const eng = await E.createEngine(device, 'rgba8unorm', { K: { metab: 0, beatWill: 0, ...JSON.parse(v.k) } });
 await eng.allocate(+v.n);
 eng.resize(640, 360);
 let seed = 7;

@@ -26,7 +26,7 @@ const E = await import('../src/engine.js');
 const { testGenome, aloneInWater } = await import('./swimlab-bodies.mjs');
 const { P_BYTES } = await import('../src/shaders.js');
 
-const K = { metab: 0, ...JSON.parse(v.k) };
+const K = { metab: 0, beatWill: 0, ...JSON.parse(v.k) };
 const eng = await E.createEngine(device, 'rgba8unorm', { K });
 await eng.allocate(+v.n);
 eng.resize(640, 360);
@@ -50,7 +50,7 @@ async function run(over) {
       for (let i = 0; i < N; i++) { const o = i * PW; if (pu2[o + 4] !== E.FIRST_LIFE || (pu2[o + 9] >>> 30) !== 2) continue; const m = iu2[i * 4 + 2];
         console.error('  tail', i, 'mom', m, m < N ? `kind ${pu2[m * PW + 4]} order ${pu2[m * PW + 9] >>> 30} dist ${Math.hypot(pf2[m * PW] - pf2[o], pf2[m * PW + 1] - pf2[o + 1]).toFixed(3)}` : 'none', 'w', iu2[i * 4 + 3]); }
       let live = 0, tails = 0, orders = {};
-      for (let i = 0; i < N; i++) { const o = i * PW; if (r.u32[o + 4] !== E.FIRST_LIFE) continue; live++; const od = r.u32[o + 9] >>> 30; orders[od] = (orders[od] || 0) + 1; if (od === 2) { tails++; if (tails <= 2) console.error('  tail cell gen', (r.u32[o + 9] >> 16) & 4095, 'E', r.f32[o + 5].toFixed(2), 'age', r.f32[o + 6].toFixed(1), 'cause', r.u32[o + 9] & 15); } }
+      for (let i = 0; i < N; i++) { const o = i * PW; if (r.u32[o + 4] !== E.FIRST_LIFE) continue; live++; const od = r.u32[o + 9] >>> 30; orders[od] = (orders[od] || 0) + 1; if (od === 2) { tails++; if (tails <= 2) console.error('  tail cell gen', (r.u32[o + 9] >> 16) & 255, 'E', r.f32[o + 5].toFixed(2), 'age', r.f32[o + 6].toFixed(1), 'cause', r.u32[o + 9] & 15); } }
       console.error('grown: living', live, 'tail cells', tails, JSON.stringify(orders));
     }
     const s = { t: eng.simTime, x: cells.map(() => null), v: cells.map(() => null), alive: 0 };

@@ -240,7 +240,7 @@ export function finalizeGenome(g, K = DEFAULT_K) {
   g.metab = (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
     + (K.anchorCost ?? 0) * (1 - g.advect) + 0.004 * g.size + (K.swimCost ?? 0.018) * g.swim * (1 - g.photo) + 0.006 * g.align + 0.004 * (g.adhesion || 0) + (K.calcCost ?? 0) * (g.calcify || 0)
     + (K.phototaxisCost ?? 0) * Math.abs(g.phototaxis || 0)
-    + (K.beatCost ?? 0) * (g.beat?.[0] ?? 0) * (g.beat?.[1] ?? 0) * (growPlan(g, K) || hasTails(g, K) ? 1 : 0)) * K.metab;
+    + (K.beatWill ? 0 : K.beatCost ?? 0) * (g.beat?.[0] ?? 0) * (g.beat?.[1] ?? 0) * (growPlan(g, K) || hasTails(g, K) ? 1 : 0)) * K.metab;
   g.col = packUnorm(...roleColor(g, 0));
   return g;
 }
@@ -353,7 +353,7 @@ export function parseParticle(u32, f32, o) {
   return {
     x: f32[o], y: f32[o + 1], vx: f32[o + 2], vy: f32[o + 3], kind: u32[o + 4],
     energy: f32[o + 5], age: f32[o + 6], id: u32[o + 7], col: u32[o + 8], info,
-    cause: info & 15, role: (info >>> 4) & 3, gen: (info >>> 16) & 4095, turn: (info >>> 28) & 3, order: info >>> 30,
+    cause: info & 15, role: (info >>> 4) & 3, gen: (info >>> 16) & 255, will: ((info >>> 24) & 15) / 15, turn: (info >>> 28) & 3, order: info >>> 30,
   };
 }
 
