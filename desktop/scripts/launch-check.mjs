@@ -10,8 +10,9 @@
 // app must exit by itself, its world kept as the last session (userData/worlds/w-last.*), in a userData of its own.
 //   node desktop/scripts/launch-check.mjs --exe out/Tidemote-linux-x64/Tidemote [--out DIR] [--need-gpu]
 //     [--summary FILE]  appends a Markdown line for the run's summary ($GITHUB_STEP_SUMMARY)
-// On Linux it runs with Ozone's headless platform (no display needed) and without Chromium's sandbox
-// (an unpacked build's chrome-sandbox is not setuid root). A world that steps must also still answer a GPU readback
+// On Linux it runs with Ozone's headless platform (no display needed), without Chromium's sandbox
+// (an unpacked build's chrome-sandbox is not setuid root) and without the GPU watchdog, which killed the GPU process
+// (and with it the page's device) while SwiftShader took its time over the world's shaders. A world that steps must also still answer a GPU readback
 // (gpuAlive): if Chromium's GPU process dies, the page's device is lost but its clock keeps running.
 import { _electron } from 'playwright-core';
 import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -30,8 +31,13 @@ const summary = arg('summary');
 if (!exe) throw new Error('--exe PATH to a packaged Tidemote executable');
 
 await mkdir(out, { recursive: true });
-const base = ['--windowed', '--enable-unsafe-swiftshader', ...(process.platform === 'linux' ? ['--ozone-platform=headless', '--no-sandbox'] : [])];
+const base = ['--windowed', '--enable-unsafe-swiftshader', ...(process.platform === 'linux' ? ['--ozone-platform=headless', '--no-sandbox', '--disable-gpu-watchdog'] : [])];
 const gha = !!process.env.GITHUB_ACTIONS;
+// Chromium's child processes that die while the app runs (the GPU's above all), into list
+async function watchGone(app, list) {
+  await app.evaluate(({ app: a }) => { a.on('child-process-gone', (e, d) => console.log(`tidemote-gone ${JSON.stringify(d)}`)); });
+  app.process().stdout.on('data', (d) => { for (const m of String(d).matchAll(/tidemote-gone (\{.*\})/g)) list.push(JSON.parse(m[1])); });
+}
 const esc = (t) => String(t).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
 
 async function attempt(extra) {
@@ -41,6 +47,8 @@ async function attempt(extra) {
   const data = await mkdtemp(join(tmpdir(), 'tidemote-launch-'));
   try {
     app = await _electron.launch({ executablePath: exe, args: [...r.args, `--user-data-dir=${data}`], timeout: 60000 });
+    r.gone = [];
+    await watchGone(app, r.gone);
     const page = await app.firstWindow();
     await page.waitForLoadState();
     await page.evaluate(() => localStorage.setItem('tidemote.view', JSON.stringify({ particles: 4096, v: 6 })));
@@ -115,8 +123,7 @@ async function quitCheck() {
     const proc = app.process();
     // why a quit did not happen: Chromium's child processes that died (the GPU's) and the page's errors
     r.gone = []; r.errors = [];
-    await app.evaluate(({ app: a }) => { a.on('child-process-gone', (e, d) => console.log(`tidemote-gone ${JSON.stringify(d)}`)); });
-    proc.stdout.on('data', (d) => { for (const m of String(d).matchAll(/tidemote-gone (\{.*\})/g)) r.gone.push(JSON.parse(m[1])); });
+    await watchGone(app, r.gone);
     const page = await app.firstWindow();
     page.on('console', (m) => { if (m.type() === 'error' && r.errors.length < 10) r.errors.push(m.text().split('\n')[0].slice(0, 300)); });
     await page.waitForLoadState();
@@ -165,7 +172,7 @@ if (!report.bridge) problems.push('the page has no tidemoteDesktop bridge');
 if (!report.steam?.loaded && !report.steam?.on) problems.push(`the Steam helper did not load steamworks.js: ${report.steam?.why}`);
 if (report.steamInMain) problems.push('the Steam API loaded in the app\'s own process, not only in the helper');
 if (needGpu && !report.stepped) problems.push(`no world stepped: ${report.failed ?? 'started but never stepped'}`);
-if (report.stepped && report.gpuAlive !== true) problems.push(`the world's clock ran but the GPU stopped answering: ${report.gpuAlive}`);
+if (report.stepped && report.gpuAlive !== true) problems.push(`the world's clock ran but the GPU stopped answering: ${report.gpuAlive}; processes gone: ${JSON.stringify(report.gone)}`);
 if (report.running && report.errors?.length) problems.push(`page errors: ${report.errors.join(' | ')}`);
 const q = report.quit;
 if (q && (q.exception || !q.exited || !q.asked || !q.last?.last || !q.last?.file || !q.continue || !q.closeExited || !q.closeKept)) problems.push(`Quit → Save and quit: ${q.exception ?? JSON.stringify(q)}`);
