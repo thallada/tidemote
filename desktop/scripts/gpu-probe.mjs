@@ -41,7 +41,7 @@ async function probe(extra) {
     app.process().stdout.on('data', (d) => { for (const m of String(d).matchAll(/tidemote-gone (\{.*\})/g)) r.gone.push(JSON.parse(m[1])); });
     const page = await app.firstWindow();
     await page.waitForLoadState();
-    await page.waitForTimeout(8000);
+    await page.waitForTimeout(+(process.env.PROBE_WAIT || 8000));
     Object.assign(r, await app.evaluate(async ({ app: a }) => {
       const info = await a.getGPUInfo('complete').catch((e) => ({ error: String(e) }));
       return { status: a.getGPUFeatureStatus(), info };
@@ -55,6 +55,9 @@ async function probe(extra) {
         fallback: await one({ forceFallbackAdapter: true }),
         nogpu: document.getElementById('nogpu')?.hidden === false ? document.getElementById('nogpu-title')?.textContent : null,
         stepped: (globalThis.__tidemote?.eng?.simTime ?? 0) > 0,
+        // the world's device still answering a readback
+        alive: await (async () => { const d = globalThis.__tidemote?.eng?.device; if (!d) return null; try { const b = d.createBuffer({ size: 16, usage: GPUBufferUsage.MAP_READ }); await b.mapAsync(GPUMapMode.READ); b.destroy(); return true; } catch (e) { return e.message; } })(),
+        worldAdapter: globalThis.__tidemote?.eng?.device?.adapterInfo?.architecture,
       };
     });
   } catch (e) {
@@ -66,7 +69,7 @@ async function probe(extra) {
   const dev = r.info?.gpuDevice?.map((d) => `${d.vendorString || d.vendorId}/${d.deviceString || d.deviceId}${d.active ? '*' : ''} ${d.driverVersion ?? ''}`).join(', ');
   const st = r.status && ['webgpu', 'gpu_compositing', 'webgl2', 'rasterization'].map((k) => `${k}=${r.status[k]}`).join(' ');
   const ad = (a) => (typeof a === 'object' ? [a.vendor, a.architecture, a.description, a.type, a.backend].filter(Boolean).join(' / ') || 'unnamed' : a);
-  const line = `${extra.join(' ') || '(base)'} → ${r.exception ?? `${st}; devices ${dev ?? r.info?.error}; adapter ${ad(r.page?.adapter)}; fallback ${ad(r.page?.fallback)}; world ${r.page?.stepped ? 'stepped' : r.page?.nogpu ?? 'not stepped'}${r.gone.length ? `; gone ${JSON.stringify(r.gone)}` : ''}`}`;
+  const line = `${extra.join(' ') || '(base)'} → ${r.exception ?? `${st}; devices ${dev ?? r.info?.error}; adapter ${ad(r.page?.adapter)}; fallback ${ad(r.page?.fallback)}; world ${r.page?.stepped ? `stepped on ${r.page.worldAdapter}, GPU ${r.page.alive === true ? 'alive' : `dead (${r.page.alive})`}` : r.page?.nogpu ?? 'not stepped'}${r.gone.length ? `; gone ${JSON.stringify(r.gone)}` : ''}`}`;
   console.log(gha ? `::notice title=gpu probe (${process.platform})::${esc(line)}` : line);
   return r;
 }

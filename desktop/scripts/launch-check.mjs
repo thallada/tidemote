@@ -35,7 +35,7 @@ await mkdir(out, { recursive: true });
 // blocklist WebGPU runs on D3D12's WARP, the software rasterizer, compiling the world's shaders as a player's GPU does)
 const base = ['--windowed', '--enable-unsafe-swiftshader',
   ...(process.platform === 'linux' ? [`--ozone-platform=${process.env.DISPLAY ? 'x11' : 'headless'}`, '--no-sandbox'] : []),
-  ...(process.platform === 'win32' ? ['--ignore-gpu-blocklist'] : [])];
+  ...(process.platform === 'win32' ? ['--ignore-gpu-blocklist', '--disable-gpu-watchdog'] : [])];
 const gha = !!process.env.GITHUB_ACTIONS;
 // Chromium's child processes that die while the app runs (the GPU's above all), into list
 async function watchGone(app, list) {
