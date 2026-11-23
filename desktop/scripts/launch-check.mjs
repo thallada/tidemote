@@ -43,6 +43,13 @@ async function watchGone(app, list) {
   app.process().stdout.on('data', (d) => { for (const m of String(d).matchAll(/tidemote-gone (\{.*\})/g)) list.push(JSON.parse(m[1])); });
 }
 const esc = (t) => String(t).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+// a promise given up on after ms (a hung GPU process leaves a readback, and Chromium's close, waiting forever)
+const within = (ms, p, what) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error(`${what}: no answer in ${ms / 1000} s`)), ms).unref())]);
+// the app closed, or its process killed when it will not close
+async function shut(app) {
+  if (!app) return;
+  await within(20000, app.close(), 'close').catch(() => { try { app.process().kill('SIGKILL'); } catch {} });
+}
 
 async function attempt(extra) {
   const r = { args: [...base, ...extra] };
@@ -64,7 +71,7 @@ async function attempt(extra) {
     // the first steps (the world then waits on the opening menu)
     await page.waitForFunction(() => globalThis.__tidemote?.eng?.simTime > 0 || !document.getElementById('nogpu')?.hidden, null, { timeout: 60000 }).catch(() => {});
     await page.waitForTimeout(2000);
-    Object.assign(r, await page.evaluate(async () => {
+    Object.assign(r, await within(120000, page.evaluate(async () => {
       const t = globalThis.__tidemote;
       const a = t?.eng?.device?.adapterInfo || {};
       const shown = document.getElementById('nogpu')?.hidden === false;
@@ -75,7 +82,7 @@ async function attempt(extra) {
       let gpuAlive = null;
       const d = t?.eng?.device;
       if (d) {
-        try { const b = d.createBuffer({ size: 16, usage: GPUBufferUsage.MAP_READ }); await b.mapAsync(GPUMapMode.READ); b.destroy(); gpuAlive = true; } catch (e) { gpuAlive = String(e.message || e); }
+        try { const b = d.createBuffer({ size: 16, usage: GPUBufferUsage.MAP_READ }); await Promise.race([b.mapAsync(GPUMapMode.READ), new Promise((_, no) => setTimeout(() => no(new Error('readback: no answer in 60 s')), 60000))]); b.destroy(); gpuAlive = true; } catch (e) { gpuAlive = String(e.message || e); }
       }
       return {
         origin: location.origin, ua: navigator.userAgent, gpuAlive,
@@ -88,7 +95,7 @@ async function attempt(extra) {
         detail: shown ? document.getElementById('nogpu-detail')?.textContent : null,
         fallback,
       };
-    }));
+    }), 'page'));
     r.version = await app.evaluate(({ app: a }) => a.getVersion());
     // the Steam API must load only in the helper's process, never in the app's (Linux can tell: /proc/self/maps)
     r.steamInMain = await app.evaluate(() => {
@@ -100,7 +107,7 @@ async function attempt(extra) {
   } catch (e) {
     r.exception = String(e?.message || e).split('\n')[0];
   } finally {
-    await app?.close().catch(() => {});
+    await shut(app);
     await rm(data, { recursive: true, force: true }).catch(() => {});
   }
   const line = `${r.args.join(' ')} → ${r.exception ?? (r.stepped ? `stepped on ${r.gpu || 'an adapter'}` : `${r.failed ?? 'never stepped'}: ${r.detail ?? ''}`)}; fallback adapter: ${r.fallback}`;
@@ -160,7 +167,7 @@ async function quitCheck() {
     }
   } catch (e) {
     r.exception = String(e?.message || e).split('\n')[0];
-    await app?.close().catch(() => {});
+    await shut(app);
   } finally {
     await rm(data, { recursive: true, force: true }).catch(() => {});
   }

@@ -18,6 +18,13 @@ if (!exe) throw new Error('--exe PATH to a packaged Tidemote executable');
 await mkdir(out, { recursive: true });
 const gha = !!process.env.GITHUB_ACTIONS;
 const esc = (t) => String(t).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+// a promise given up on after ms (a hung GPU process leaves a readback, and Chromium's close, waiting forever)
+const within = (ms, p, what) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error(`${what}: no answer in ${ms / 1000} s`)), ms).unref())]);
+// the app closed, or its process killed when it will not close
+async function shut(app) {
+  if (!app) return;
+  await within(20000, app.close(), 'close').catch(() => { try { app.process().kill('SIGKILL'); } catch {} });
+}
 
 const base = ['--windowed', '--enable-unsafe-swiftshader'];
 const BL = '--ignore-gpu-blocklist';
@@ -42,11 +49,11 @@ async function probe(extra) {
     const page = await app.firstWindow();
     await page.waitForLoadState();
     await page.waitForTimeout(+(process.env.PROBE_WAIT || 8000));
-    Object.assign(r, await app.evaluate(async ({ app: a }) => {
+    Object.assign(r, await within(60000, app.evaluate(async ({ app: a }) => {
       const info = await a.getGPUInfo('complete').catch((e) => ({ error: String(e) }));
       return { status: a.getGPUFeatureStatus(), info };
-    }));
-    r.page = await page.evaluate(async () => {
+    }), 'GPU info'));
+    r.page = await within(120000, page.evaluate(async () => {
       const desc = (ad) => ad && { ...Object.fromEntries(['vendor', 'architecture', 'device', 'description', 'type', 'backend', 'isFallbackAdapter'].map((k) => [k, ad.info?.[k]])), features: [...ad.features].length };
       const one = async (opts) => { try { return desc(await navigator.gpu?.requestAdapter(opts)) ?? 'none'; } catch (e) { return `error: ${e.message}`; } };
       return {
@@ -56,14 +63,14 @@ async function probe(extra) {
         nogpu: document.getElementById('nogpu')?.hidden === false ? document.getElementById('nogpu-title')?.textContent : null,
         stepped: (globalThis.__tidemote?.eng?.simTime ?? 0) > 0,
         // the world's device still answering a readback
-        alive: await (async () => { const d = globalThis.__tidemote?.eng?.device; if (!d) return null; try { const b = d.createBuffer({ size: 16, usage: GPUBufferUsage.MAP_READ }); await b.mapAsync(GPUMapMode.READ); b.destroy(); return true; } catch (e) { return e.message; } })(),
+        alive: await (async () => { const d = globalThis.__tidemote?.eng?.device; if (!d) return null; try { const b = d.createBuffer({ size: 16, usage: GPUBufferUsage.MAP_READ }); await Promise.race([b.mapAsync(GPUMapMode.READ), new Promise((_, no) => setTimeout(() => no(new Error('readback: no answer in 60 s')), 60000))]); b.destroy(); return true; } catch (e) { return e.message; } })(),
         worldAdapter: globalThis.__tidemote?.eng?.device?.adapterInfo?.architecture,
       };
-    });
+    }), 'page');
   } catch (e) {
     r.exception = String(e?.message || e).split('\n')[0];
   } finally {
-    await app?.close().catch(() => {});
+    await shut(app);
     await rm(data, { recursive: true, force: true }).catch(() => {});
   }
   const dev = r.info?.gpuDevice?.map((d) => `${d.vendorString || d.vendorId}/${d.deviceString || d.deviceId}${d.active ? '*' : ''} ${d.driverVersion ?? ''}`).join(', ');
