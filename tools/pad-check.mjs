@@ -30,11 +30,21 @@ check(`${tag} the hints and pointer follow the pad`, b.glyphs === 'pad' && b.poi
 await page.waitForTimeout(3000);
 await T(() => __tidemote.setSpeed(1));
 b = await S(); check(`${tag} the reticle (or the loupe in hand) sits at the view's middle`, b.aim || b.tool === 'loupe', JSON.stringify({ aim: b.aim, tool: b.tool }));
-await pad.press(BTN.LB); b = await S(); check(`${tag} LB tapped puts the loupe down: the reticle shows`, b.tool === 'none' && b.aim, JSON.stringify({ aim: b.aim, tool: b.tool }));
-
-// the stick pans, the triggers zoom
+// the stick pans; the loupe, only the default tool, is put down for Pan (as a finger pans), and the reticle, wherever a
+// finger or the mouse left it, comes back to the middle
+const mid = await T(() => __tidemote.input.aim());
+await T(() => Object.assign(__tidemote.input.aimPt, { x: 120, y: 160, set: true }));
 let a = await S(); await pad.stick(1, 0); await page.waitForTimeout(500); await pad.stick(0, 0); b = await S();
 check(`${tag} the left stick pans`, b.x !== a.x, `${a.x.toFixed(2)} → ${b.x.toFixed(2)}`);
+check(`${tag} the stick puts the default loupe down: the reticle shows`, b.tool === 'none' && b.aim, JSON.stringify({ aim: b.aim, tool: b.tool }));
+const aimAt = await T(() => __tidemote.input.aim());
+check(`${tag} panning, the reticle comes back to the middle`, Math.hypot(aimAt[0] - mid[0], aimAt[1] - mid[1]) < 6, `${aimAt.map(Math.round)} vs ${mid.map(Math.round)}`);
+// the loupe chosen stays in hand under the stick
+await pad.press(BTN.LB); b = await S(); check(`${tag} LB tapped takes the loupe up`, b.tool === 'loupe', b.tool);
+await pad.stick(-1, 0); await page.waitForTimeout(300); await pad.stick(0, 0); b = await S();
+check(`${tag} the loupe chosen stays in hand as the stick pans`, b.tool === 'loupe', b.tool);
+await pad.press(BTN.LB); b = await S(); check(`${tag} LB tapped puts the loupe down: the reticle shows`, b.tool === 'none' && b.aim, JSON.stringify({ aim: b.aim, tool: b.tool }));
+a = b;
 a = b; await pad.trig(BTN.RT, 1); await page.waitForTimeout(500); await pad.trig(BTN.RT, 0); b = await S();
 check(`${tag} RT zooms in`, b.zoomT > a.zoomT * 1.3, `${a.zoomT.toFixed(2)} → ${b.zoomT.toFixed(2)}`);
 a = b; await pad.trig(BTN.LT, 1); await page.waitForTimeout(300); await pad.trig(BTN.LT, 0); b = await S();

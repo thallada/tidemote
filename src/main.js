@@ -388,7 +388,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   document.body.classList.toggle('no-closeup', !state.closeup);
   const persist = () => {
     const s = eng.settings;
-    savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, prompts: state.prompts, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, focus: state.focus, hdr: dsp.hdr, peak: dsp.peak, wide: dsp.wide, fixed: state.fixed, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+    savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, prompts: state.prompts, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, focus: state.focus, hdr: dsp.hdr, peak: dsp.peak, wide: dsp.wide, fixed: state.fixed, events: state.events, ui: state.ui, reach: hand.reach, measured: gpuN(), ...state.perf });
     document.body.classList.toggle('no-closeup', !state.closeup);
   };
   // the look (src/look.js, docs/look.md): Darkfield as the Display settings ask, how strong as a whole and how much
@@ -871,6 +871,10 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   }
   // the count measured this session (the menu's Auto offers it again without measuring)
   let measuredN = null;
+  // a count well past what this GPU drew smoothly (the menus mark it with a hot tick): by this session's measure, else
+  // the last one kept (a world continued or opened from a save never measures)
+  const gpuN = () => measuredN || prefs.measured || null;
+  const heavyN = (n) => gpuN() && n > gpuN() * 1.4;
   // A new world starts K.foundLife of its particles alive and blooms within minutes to about half (a 143k world on an
   // M1: 50% living at five minutes; saves 15-45%, the gate's 32k worlds 33% at thirty): what the measure of a new
   // world leaves out is the living cells' passes for the rest. Their cost per living cell differs most between GPUs
@@ -959,6 +963,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     state.busy = false;
     calStep(tr('intro.particles', '{n, plural, other {# particles}}', { n: final }), 1);
     measuredN = final;
+    persist();
     return final;
   }
 
@@ -997,6 +1002,19 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   // In the desktop app (desktop/preload.cjs), saves are files Steam Cloud keeps, Steam is there for
   // achievements and the Workshop (docs/desktop.md); in a browser, desk is null.
   const desk = globalThis.tidemoteDesktop || null;
+  // Where the page lists saved-world files itself rather than open the system's file chooser: the desktop app under
+  // gamescope (a Steam Deck's Game Mode), whose chooser is a window of its own that neither touch nor the controller
+  // reaches (desktop/files.js)
+  let ownFiles = false;
+  desk?.files?.own?.().then((v) => { ownFiles = !!v; }).catch(() => {});
+  // i18n: where a saved-world file the page lists was found: a system folder, or a memory card or USB drive ({name}, its label)
+  const fileWhere = (f) => (f.where === 'media' ? tr('files.where-media', 'Memory card · {name}', { name: f.volume }) : { downloads: tr('files.where-downloads', 'Downloads'), documents: tr('files.where-documents', 'Documents'), desktop: tr('files.where-desktop', 'Desktop'), home: tr('files.where-home', 'Home folder') }[f.where] || '');
+  // a listed file's line: where it is, its size and when it was saved
+  // i18n: a listed saved-world file's line: {where} where it was found (files.where-*), {size} its size (worlds.mb), {when} when it was written
+  const fileLine = (f) => tr('files.row', '{where} · {size} · {when}', { where: fileWhere(f), size: `${(f.size / 1048576).toFixed(1)} MB`, when: when(f.at) });
+  // i18n: the page's own list of saved-world files, when it finds none
+  const NO_FILES = () => tr('files.none', 'No .tidemote files found in Downloads, Documents, the Desktop, the home folder or on a memory card. Copy one into one of those, or open it in Desktop Mode.');
+  const fileRows = (files, attr, busyAt = -1) => files.map((f, i) => `<button type="button" class="f-row" ${attr}="${i}"${busyAt >= 0 ? ' disabled' : ''}><b>${esc(f.name)}</b><span>${busyAt === i ? tr('menu.opening', 'Opening') : esc(fileLine(f))}</span></button>`).join('');
   let steamOn = { on: false };
   desk?.steam().then((x) => { steamOn = x; gameMenu?.render(); }).catch(() => {});
   // in a browser, the page as an installable app (src/pwa.js): the menu's Install row follows what the browser offers
@@ -2729,7 +2747,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       const now = String(cur) === 'auto' ? autoNow(id) : null;
       const sos = now?.sos ? ' auto-sos' : '';
       const label = (v, l) => (v === 'auto' && now ? `${l} <span class="auto-now${sos}" data-auto="${id}">${now.text}</span>` : l);
-      return `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ''}</span><div class="row segs${cols ? ` many" style="--cols: ${cols}` : items.length > 7 ? ' many' : ''}" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip${now && String(v) === now.pick ? ` auto-pick${sos}` : ''}" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? ' disabled' : ''}>${label(v, l)}</button>`).join('')}</div></div>`;
+      return `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ''}</span><div class="row segs${cols ? ` many" style="--cols: ${cols}` : items.length > 7 ? ' many' : ''}" role="group" aria-label="${title}">${items.map(([v, l, dis, hot]) => `<button type="button" class="chip${now && String(v) === now.pick ? ` auto-pick${sos}` : ''}${hot ? ' heavy' : ''}" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${hot ? ` data-hint="${esc(hot)}"` : ''}${dis ? ' disabled' : ''}>${label(v, l)}</button>`).join('')}</div></div>`;
     };
     // what an Auto option is using now ({ text, pick: the data-v of the choice it matches, if any }):
     // the render scale, the pixel density, the frame rate aimed for, a measured world's particle count, and a Display
@@ -2760,7 +2778,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     const onoff = (id, title, key, on, tip) => choice(id, title, key, [[1, tr('settings.on', 'On')], [0, tr('settings.off', 'Off')]], on ? 1 : 0, tip);
     // a Display row the tuner may ease (EASES): Auto, then its values, Auto chosen unless the viewer chose one (five
     // words to a line crowd a narrow panel: three to a line, over two)
-    const autoRow = (id, title, key, items, tip) => choice(id, title, key, [['auto', AUTO], ...items], state.fixed[id] ? rowVal[id]() : 'auto', tip, items.length > 3 ? 3 : 0);
+    const autoRow = (id, title, key, items, tip) => choice(id, title, key, [['auto', AUTO], ...items], state.fixed[id] ? rowVal[id]() : 'auto', tip);
     const autoOnOff = (id, title, key, tip) => autoRow(id, title, key, [[1, tr('settings.on', 'On')], [0, OFF]], tip);
     // i18n: a choice in Settings: {n} percent (a render scale), or {n} times (device pixels per CSS pixel)
     const pctOf = (n) => tr('settings.pct', '{n}%', { n }), timesOf = (n) => tr('settings.times', '{n}×', { n });
@@ -2869,6 +2887,15 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     // what the tuner holds back now, in words (Performance, under Adaptation)
     // i18n: Settings → Performance, under Adaptation, when the page holds nothing back for speed
     const heldWords = () => { const h = heldNow(); return h.length ? h.map(([id, l]) => HELD[id](l)).join(' · ') : tr('settings.perf.held-none', 'Full Quality'); };
+    // the world's step holding the frame rate down (simBound): said under Adaptation, with the way to a smaller world
+    let simShown = false;
+    function simWords() {
+      const share = simBound();
+      simShown = share > 0;
+      // i18n: Settings → Performance, under Adaptation, when the simulation itself limits the frame rate: {n}, this
+      // world's particles; <new> a link to the menu's New world
+      return simShown ? `<p class="sim-bound" id="perf-sim">${tr('settings.perf.sim-bound', 'The simulation itself is limiting the frame rate: simulating this world\'s {n, plural, other {# particles}} takes most of each frame, and lowering the quality can\'t fix that. A world with fewer particles will run more smoothly. <new>Begin a new world</new>', { n: eng.count, new: (c) => `<button type="button" class="link" data-o="new-world" data-v="0">${c.join('')}</button>` })}</p>` : '';
+    }
     // the neighbor budgets offered: Auto's (the tuner's levels), 1½ and 2 times the default, and one chosen before
     const scanChoices = () => [...new Set([...KNOBS.neighbors.levels, ...[1.5, 2].map((f) => Math.round((K.maxScan * f) / 8) * 8), state.perf.scan ?? K.maxScan])].sort((a, b) => a - b);
     function performance_() {
@@ -2876,7 +2903,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       const dev = Math.min(devicePixelRatio || 1, 2);
       // (what the tuner holds back now under Adaptation, a line of fixed height that readout keeps current)
       return group('quality', tr('settings.perf.quality', 'Quality'), onoff('adapt', tr('settings.perf.adapt', 'Adaptation'), '', P.adapt, 'adapt')
-        + `<p class="eased-now" id="perf-held">${heldWords()}</p>`)
+        + `<p class="eased-now" id="perf-held">${heldWords()}</p>` + simWords())
         + group('res', tr('settings.perf.resolution', 'Resolution'), choice('scale', NAMES.scale, '', [['auto', AUTO], [1, pctOf(100)], [0.75, pctOf(75)], [0.5, pctOf(50)], [0.25, pctOf(25)]], P.scale, 'renderscale')
         + (P.scale === 'auto' ? choice('floor', tr('settings.perf.floor', 'Auto lowest'), '', [[0.75, pctOf(75)], [0.5, pctOf(50)], [0.35, pctOf(35)], [0.25, pctOf(25)]], P.floor, 'autofloor') : '')
         + choice('density', tr('settings.perf.density', 'Pixel density'), '', [['auto', AUTO], [1, timesOf(1)], [1.5, timesOf(1.5), dev < 1.5], [2, timesOf(2), dev < 2]], P.density, 'density')
@@ -2945,6 +2972,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       // what the tuner eases: the value Auto holds underlined on Display's rows, said under Adaptation in Performance
       if (tab === 'display') { autoLive(); return; }
       setText('perf-held', heldWords());
+      // (the simulation's line, shown or gone as the world's step comes to hold the frame rate or stops: drawn anew)
+      if ((simBound() > 0) !== simShown) { render(); return; }
       setText('ro-fps', perf.fps ? perf.fps.toFixed(0) : '–');
       setText('ro-ms', perf.gpu ? perf.gpu.toFixed(1) : '–');
       setText('ro-res', pctOf(Math.round(renderScale * 100)));
@@ -3178,6 +3207,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     // subscribed to, m.from 'workshop'), the name being typed, a load, delete or share waiting to be
     // confirmed ({ kind, id }), and what is under way ('save', 'load', 'open', 'share')
     let saves = null, used = 0, wName = '', ask = null, wBusy = '', wPoll = 0;
+    let files = null, fileAt = -1; // (the page's own list of saved-world files, where the system's chooser cannot be used)
     // i18n: a save's name unless the viewer gives one: the era's name and the world's age (a duration)
     const defaultName = () => tr('worlds.default-name', '{era} · {age}', { era: eraName(climate.name), age: fmtDur(eng.simTime) });
     const mb = (n) => tr('worlds.mb', '{n} MB', { n: (n / 1048576).toFixed(n < 10485760 ? 1 : 0) });
@@ -3281,24 +3311,49 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       } else if (id === 'w-dl') {
         const m = saves.find((x) => x.id === v);
         if (m) download(m, await worldStore.get(v));
-      } else if (id === 'w-open') $('w-file').click();
+      } else if (id === 'w-open') { if (ownFiles) show('files'); else $('w-file').click(); }
+      else if (id === 'w-pick') {
+        const f = files?.[+v];
+        if (!f || wBusy) return;
+        fileAt = +v; render();
+        await keepFile(`${f.name}.tidemote`, () => desk.files.read(f.path), true);
+        fileAt = -1;
+      }
     }
-    // a file downloaded from here (on any device): kept with the saves, then offered to load
-    $('w-file').addEventListener('change', async (e) => {
-      const f = e.target.files[0];
-      e.target.value = '';
-      if (!f) return;
+    // A file downloaded from here (on any device): kept with the saves, then offered to load (from the page's own list:
+    // back on the saves, there)
+    async function keepFile(name, bytesOf, fromList = false) {
       wBusy = 'open'; render();
       try {
-        const bytes = await f.arrayBuffer();
+        const got = await bytesOf(), bytes = got.buffer ? got.buffer.slice(got.byteOffset, got.byteOffset + got.byteLength) : got;
         const { meta } = await openWorld(bytes);
         await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes);
         ask = { kind: 'load', id: meta.id };
+        if (fromList) { wBusy = ''; show('worlds', 'load'); }
       // i18n: {file} the file's name, {why} what went wrong
-      } catch (err) { flash(tr('flash.open-failed', 'Could not open {file}: {why}', { file: f.name, why: String(err.message || err) })); }
+      } catch (err) { flash(tr('flash.open-failed', 'Could not open {file}: {why}', { file: name, why: String(err.message || err) })); }
       wBusy = '';
       await refreshSaves();
+      // (its Load, to say yes to with one press)
+      if (ask?.kind === 'load' && page === 'worlds') el.querySelector(`[data-o="w-yes"][data-v="${CSS.escape(ask.id)}"]`)?.focus({ preventScroll: true });
+    }
+    $('w-file').addEventListener('change', (e) => {
+      const f = e.target.files[0];
+      e.target.value = '';
+      if (f) keepFile(f.name, () => f.arrayBuffer());
     });
+    // the saved-world files the page lists itself (ownFiles), read as the page opens
+    function files_() {
+      const list = files == null ? `<p class="note">${tr('files.reading', 'Looking for saved-world files…')}</p>` : files.length ? `<div class="f-list">${fileRows(files, 'data-o="w-pick" data-v', fileAt)}</div>` : `<p class="note">${NO_FILES()}</p>`;
+      // i18n: under the page's own list of saved-world files: where it looked
+      return group('files', '', list + (files?.length ? `<p class="gm-note">${tr('files.where-looked', 'From Downloads, Documents, the Desktop, the home folder and memory cards.')}</p>` : ''));
+    }
+    async function refreshFiles() {
+      try { files = await desk.files.list(); } catch { files = []; }
+      // (focus on the first, from the page's back button where it waited)
+      const a = document.activeElement;
+      if (page === 'files') { render(); if (!el.contains(a) || a.dataset.g) el.querySelector('[data-o="w-pick"]')?.focus({ preventScroll: true }); }
+    }
     const ext = (href, text) => `<a class="sp" target="_blank" rel="noopener" href="${href}">${text}</a>`;
     function about_() {
       const link = (href) => (c) => ext(href, c.join(''));
@@ -3333,8 +3388,10 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       // i18n: the menu's New world: the Auto count, with the count this GPU was measured to draw smoothly ({n}, short: 64k)
       const auto = measuredN ? tr('gamemenu.auto-measured', 'Auto {n}', { n: kfmt(measuredN) }) : tr('settings.auto', 'Auto');
       const off = wBusy ? ' disabled' : '';
+      // i18n: a count well past what this GPU drew smoothly: a hot tick, and its hint (two lines: the count {n}; {measured}, short: 64k)
+      const hot = (n) => (heavyN(n) ? tr('menu.count.hint-heavy', '{n, plural, other {# particles}}\nMore than this GPU\'s measured capability ({measured})', { n, measured: kfmt(gpuN()) }) : '');
       // i18n: the menu's New world: what beginning one does to this one, and its buttons
-      return group('new', '', choice('n', tr('settings.perf.particles', 'Particles'), '', [['auto', auto], ...sizes.map((n) => [n, kfmt(n)])], cur, 'particles', 3)
+      return group('new', '', choice('n', tr('settings.perf.particles', 'Particles'), '', [['auto', auto], ...sizes.map((n) => [n, kfmt(n), false, hot(n)])], cur, 'particles')
         + `<p class="gm-note">${tr('gamemenu.new-note', 'This world ends when the new one begins.')}</p>`
         + `<div class="gm-acts">${unsaved() ? `<button type="button" class="btn" data-o="new-first" data-v="0"${off}>${tr('gamemenu.new-save-first', 'Save this one first')}</button>` : ''}`
         + `<button type="button" class="btn hot-btn" data-o="new-go" data-v="0"${off}>${wBusy === 'new' ? tr('gamemenu.new-saving', 'Saving') : tr('gamemenu.new-begin', 'Begin a new world')}</button></div>`);
@@ -3348,7 +3405,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       }
       const n = pickN ?? (state.perf.particles || 'auto');
       pickN = null;
-      close();
+      close(true);
       await newWorld(n);
     }
 
@@ -3381,7 +3438,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
         + (desk ? `<hr>${quitRow()}` : '') + '</nav>';
     }
     // i18n: the menu's pages, their headings
-    const TITLE = () => ({ worlds: tr('gamemenu.worlds-title', 'Save and load'), new: tr('gamemenu.new-title', 'New world'), events: tr('gamemenu.events-title', 'Pool events'), about: tr('gamemenu.about-title', 'About Tidemote'), install: tr('gamemenu.install-title', 'Install Tidemote') });
+    const TITLE = () => ({ worlds: tr('gamemenu.worlds-title', 'Save and load'), files: tr('gamemenu.files-title', 'Open a file'), new: tr('gamemenu.new-title', 'New world'), events: tr('gamemenu.events-title', 'Pool events'), about: tr('gamemenu.about-title', 'About Tidemote'), install: tr('gamemenu.install-title', 'Install Tidemote') });
     function header() {
       const x = `<button type="button" class="ghost" data-g="close" aria-label="${tr('gamemenu.close', 'Close the menu')}"><svg><use href="#i-close"/></svg></button>`;
       if (page === 'root') {
@@ -3399,7 +3456,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       const typing = a?.id === 'w-name' ? [a.selectionStart, a.selectionEnd] : null;
       el.dataset.page = page;
       head.innerHTML = header();
-      setHTML(body, page === 'root' ? root_() : `<div class="opts">${page === 'worlds' ? worlds_() + worldsFoot() : page === 'new' ? new_() : page === 'events' ? climate_() : page === 'install' ? install_() : about_()}</div>`);
+      setHTML(body, page === 'root' ? root_() : `<div class="opts">${page === 'worlds' ? worlds_() + worldsFoot() : page === 'files' ? files_() : page === 'new' ? new_() : page === 'events' ? climate_() : page === 'install' ? install_() : about_()}</div>`);
       if (at) {
         const sel = at.id ? `#${CSS.escape(at.id)}` : at.g ? `[data-g="${at.g}"]` : at.o ? `[data-o="${at.o}"][data-v="${CSS.escape(at.v ?? '')}"]` : null;
         const b = sel && el.querySelector(sel);
@@ -3412,6 +3469,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       page = p; quitAsk = false;
       if (p !== 'worlds') { clearTimeout(wPoll); ask = null; }
       if (p === 'worlds') { saves = null; refreshSaves(); }
+      if (p === 'files') { files = null; fileAt = -1; refreshFiles(); }
       body.scrollTop = 0;
       render();
       const pad = mode.glyphs === 'pad', q = (s) => body.querySelector(s);
@@ -3433,19 +3491,22 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       }
       show(p, at);
     }
-    function close() {
+    // (toWorld: focus to the world, not back to what opened the menu: a new world begun)
+    function close(toWorld = false) {
       if (el.hidden) return;
       el.hidden = true;
       page = 'root'; quitAsk = false; ask = null; pickN = null;
       clearTimeout(wPoll);
       for (const b of openers) b.setAttribute('aria-expanded', 'false');
       const a = document.activeElement;
-      if (a && el.contains(a)) { if (opener?.isConnected && canFocus(opener)) opener.focus({ preventScroll: true }); else a.blur(); }
+      if (toWorld) input.panel = null;
+      if (a && el.contains(a)) { if (!toWorld && opener?.isConnected && canFocus(opener)) opener.focus({ preventScroll: true }); else a.blur(); }
       opener = null;
     }
     // One step back: Quit's question put away, a page back to the list, the list closed
     function back() {
       if (quitAsk) { quitAsk = false; render(); el.querySelector('[data-g="quit"]')?.focus({ preventScroll: true }); return; }
+      if (page === 'files') { show('worlds', 'load'); return; }
       if (page !== 'root') { const from = page; show('root', from === 'worlds' ? 'save' : from); return; }
       close();
     }
@@ -3563,8 +3624,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   if (deskFs) { deskFs.on(showFullscreen); deskFs.get().then(showFullscreen).catch(() => {}); }
   else document.addEventListener('fullscreenchange', () => showFullscreen(!!document.fullscreenElement));
   // (under gamescope, a Steam Deck's Game Mode, the window fills the screen anyway: no button, nor its Settings row;
-  // an older shell without forced() keeps it)
-  deskFs?.forced?.().then((on) => { if (on) { fsBtn.hidden = true; view.render(); } }).catch(() => {});
+  // an older shell without forced() keeps it; there the controller is the pointer, so the hand starts empty: Pan)
+  deskFs?.forced?.().then((on) => { if (on) { fsBtn.hidden = true; view.render(); padDefault(); } }).catch(() => {});
   for (const row of document.querySelectorAll('.tabs')) wireTabRow(row);
   // the Controls dialog: every key and button, from the action table, in the controller family in use
   function renderHelp() { $('help-keys').innerHTML = controlsTable(padFamily()); }
@@ -3598,7 +3659,9 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   // (a tool that acts on the world: not none, not the loupe)
   const inHand = () => works(hand.tool);
   // Take up a tool (a working one stops the auto camera); the one in hand taken up again is put down: Pan.
+  let toolPicked = false; // (whether the viewer has chosen a tool yet: until then the loupe is only the default)
   function pickTool(id) {
+    toolPicked = true;
     if (id === hand.tool) id = 'none';
     hand.set(id, eng.simTime);
     hear('pick', { tool: hand.tool });
@@ -4195,9 +4258,12 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   const rose = createRose($('rose'));
   // the controller family the hints draw: the viewer's choice (Settings → Display → Controller), else the pad's own
   // i18n: the controller families' names (Settings → Display → Controller); hardware makers' names, kept as such
-  const FAMILY_NAME = () => ({ xbox: tr('prompts.xbox', 'Xbox'), ps: tr('prompts.ps', 'PlayStation'), switch: tr('prompts.switch', 'Switch'), deck: tr('prompts.deck', 'Steam Deck') });
+  const FAMILY_NAME = () => ({ xbox: tr('prompts.xbox', 'Xbox'), ps: tr('prompts.ps', 'PlayStation'), switch: tr('prompts.switch', 'Switch'), deck: tr('prompts.deck', 'Steam') });
   let onDeck = false;
-  desk?.deck?.().then((v) => { onDeck = !!v; }).catch(() => {});
+  desk?.deck?.().then((v) => { onDeck = !!v; if (onDeck) padDefault(); }).catch(() => {});
+  // A controller in use, a Steam Deck or gamescope: the loupe, the mouse's default tool, put down for Pan (as a
+  // phone's finger pans), unless the viewer has chosen a tool; the loupe chosen stays in hand under the stick
+  function padDefault() { if (!toolPicked && hand.tool === 'loupe') pickTool('none'); }
   const padFamily = () => (FAMILIES.includes(state.prompts) ? state.prompts : familyOf(pads.id, { steamDeck: onDeck }));
   // A text field a controller presses A on (a card's name, a world's, a search): in the desktop app on Steam, Steam's
   // floating keyboard opens clear of it and types into it (only in Big Picture and the Deck's Game Mode; elsewhere
@@ -4251,7 +4317,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     if (!aimPt.set || dt <= 0) { Object.assign(aimPt, { x: mx, y: my, set: true }); return; }
     const k = Math.min(1, dt / 70);
     let tx = aimPt.x, ty = aimPt.y;
-    if (state.follow && sel) { tx = mx; ty = my; } else {
+    // (following a cell, or the stick panning: back to the middle, wherever a finger or the mouse left it)
+    if (state.follow && sel || input.stickPan) { tx = mx; ty = my; } else {
       // the open area, less a margin for the loupe's lens or the reticle
       const ins = specInset(), left = lab && lab.isOpen() && !phone() && state.ui ? labRight() : 0;
       const top = phone() ? 48 : 52, bot = Math.max(phone() ? 62 : 56, ins.bottom), right = innerWidth - ins.right;
@@ -4544,7 +4611,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     load: tr('legend.load', 'Load'), dispense: tr('legend.dispense', 'Dispense'), toLoad: tr('legend.to-load', 'Switch to load'), toDispense: tr('legend.to-dispense', 'Switch to dispense'),
     steer: tr('legend.steer', 'Steer'), hop: tr('legend.hop', 'Next of kin'), off: tr('legend.off', 'Get off'),
     choose: tr('legend.choose', 'Choose'), tabs: tr('legend.tabs', 'Tabs'), zoom: tr('legend.zoom', 'Zoom'),
-    adjust: tr('legend.adjust', 'Adjust'), top: tr('legend.top-bar', 'Top bar'), close: tr('legend.close', 'Close'), done: tr('legend.done', 'Done'), hint: tr('legend.hint', 'Explain'),
+    adjust: tr('legend.adjust', 'Adjust'), top: tr('legend.top-bar', 'Top bar'), bottom: tr('legend.bottom-bar', 'Bottom bar'), world: tr('legend.world', 'World'), close: tr('legend.close', 'Close'), done: tr('legend.done', 'Done'), hint: tr('legend.hint', 'Explain'),
   });
   // Its items: [places (a button, or several drawn together), what a press or tap does, what holding it does]
   function legendItems(ctx) {
@@ -4553,9 +4620,11 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       if (input.grab) return [[['LEFT', 'RIGHT'], L.adjust], ['S', L.done], ['E', L.done]];
       const a = document.activeElement, root = padRoot();
       const what = isAdjustable(a) ? L.adjust : isTerm(a) ? L.hint : L.choose;
-      // (tabs on the bumpers; the bench's RB closes it; the dock's up reaches the rail at the top)
-      return [['S', what], ['E', L.back], ...(root?.querySelector('[role="tablist"]') ? [[['LB', 'RB'], L.tabs]] : []),
-        ...(root?.id === 'bench' ? [['RB', L.close]] : []), ...(root?.id === 'dock' ? [['UP', L.top]] : [])];
+      // (tabs on the bumpers; the bench's RB closes it; the dock's up reaches the rail at the top, the rail's down the
+      // dock; from a side panel or a bar, Y goes back to the world, as B does)
+      const side = ['dock', 'rail', 'spec', 'lab', 'bench', 'held'].includes(root?.id);
+      return [['S', what], ['E', L.back], ...(side ? [['N', L.world]] : []), ...(root?.querySelector('[role="tablist"]') ? [[['LB', 'RB'], L.tabs]] : []),
+        ...(root?.id === 'bench' ? [['RB', L.close]] : []), ...(root?.id === 'dock' ? [['UP', L.top]] : []), ...(root?.id === 'rail' ? [['DOWN', L.bottom]] : [])];
     }
     if (ctx === 'ride') return [['L', L.steer], ['S', L.hop], ['E', L.off], [['LT', 'RT'], L.zoom]];
     if (ctx === 'tool') {
@@ -4563,7 +4632,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       const pip = hand.tool === 'pipette', d = pip && pull.armed !== shiftHeld;
       return [['S', !pip ? L.use : d ? L.dispense : L.load], ...(pip ? [['W', d ? L.toLoad : L.toDispense]] : []), ['E', L.down], ['R', L.reach], ['LB', '', L.tools]];
     }
-    return [['S', L.select], ['E', L.back], ...(sel && !sel.lost ? [['W', L.ride]] : []), ...(sidePanel() ? [['N', L.panel]] : []),
+    return [['S', L.select], ['E', L.back], ...(sel && !sel.lost ? [['W', L.ride]] : []), ['N', sidePanel() ? L.panel : L.bottom],
       ['LB', L.last, L.tools], ['RB', L.bench, L.view], ['MENU', L.menu], ['VIEW', L.lab]];
   }
   function legendX(ctx) {
@@ -4626,6 +4695,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     if (!panel && !rose.shown && Math.hypot(P.left[0], P.left[1]) > Math.hypot(way[0], way[1])) way = P.left;
     input.way = way;
     const running = state.phase === 'running' && !introUp();
+    input.stickPan = running && !ride.on && way === P.left && mode.pointer === 'pad';
+    if (input.stickPan) padDefault();
     if (running && !ride.on && (way[0] || way[1])) {
       takeOver();
       if (state.follow) { state.follow = false; dirty = true; }
@@ -4881,6 +4952,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
   const menu = (() => {
     const el = $('menu'), panel = $('menu-panel'), tabN = $('menu-n'), tabW = $('menu-w'), tabC = $('menu-c');
     let open = null, saves = null, busy = '', err = '', go = false, startAfter = false;
+    let files = null; // (the page's own list of saved-world files, where the system's chooser cannot be used: open 'f')
     let whenStarted = null;
     const startedP = new Promise((r) => { whenStarted = r; });
     const P = state.perf;
@@ -4890,7 +4962,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     const lastSave = () => listed().find((m) => m.last && openable(m.version) === 'ok');
     // what each count means, as hints (hover, keyboard focus); a count well past what this GPU drew smoothly
     // is also marked, for touch screens, which show no hint on a button
-    const heavy = (n) => measuredN && n > measuredN * 1.4;
+    const heavy = heavyN;
     function nPanel() {
       const off = busy ? ' disabled' : '';
       const sizes = PARTICLE_SIZES.filter((n) => n <= maxParticles());
@@ -4898,7 +4970,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       // i18n: the menu's particle counts, their hints (two lines): Auto, {n} the count measured; a count {n}, past what
       // the GPU drew smoothly ({measured}, short: 64k) or not
       const autoHint = measuredN ? tr('menu.auto.hint-measured', 'As many particles as this GPU can draw smoothly\nMeasured just now: {n, number}', { n: measuredN }) : tr('menu.auto.hint', 'As many particles as this GPU can draw smoothly\nMeasured as the world starts');
-      const hint = (n) => (heavy(n) ? tr('menu.count.hint-heavy', '{n, plural, other {# particles}}\nMore than this GPU\'s measured capability ({measured})', { n, measured: kfmt(measuredN) }) : tr('menu.count.hint', '{n, plural, other {# particles}}\nPreference is saved as the default for future world starts', { n }));
+      const hint = (n) => (heavy(n) ? tr('menu.count.hint-heavy', '{n, plural, other {# particles}}\nMore than this GPU\'s measured capability ({measured})', { n, measured: kfmt(gpuN()) }) : tr('menu.count.hint', '{n, plural, other {# particles}}\nPreference is saved as the default for future world starts', { n }));
       return `<div class="menu-h"><span>${tr('menu.new-world', 'Size of new world')}</span><b>${busy === 'n' ? tr('menu.seeding', 'Seeding') : fmt(eng.count)}</b></div>`
         // i18n: the Auto count, with the count measured ({n}, short: 64k)
         + `<div class="menu-chips" role="group" aria-label="${tr('menu.particles.aria', 'Particles')}">${chip('auto', measuredN ? tr('menu.auto-measured', 'Auto <b>{n}</b>', { n: kfmt(measuredN) }) : tr('menu.auto', 'Auto'), !P.particles, autoHint, ' auto')}`
@@ -4923,6 +4995,14 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
         + (err ? `<p class="menu-note"><em>${esc(err)}</em></p>` : '')
         + `<div class="menu-foot"><span class="lbl">${desk ? tr('menu.kept-computer', 'On this computer') : tr('menu.kept-browser', 'In this browser')}</span><button type="button" class="btn" data-m="file" data-hint="${tr('menu.file.hint', 'Open a .tidemote file\nSaved from the menu')}"${busy ? ' disabled' : ''}>${busy === 'file' ? tr('menu.opening', 'Opening') : tr('menu.file', 'Open a file')}</button></div>`;
     }
+    // the saved-world files the page lists itself (ownFiles), in the saved worlds' place
+    function fPanel() {
+      const list = files == null ? `<p class="menu-note">${tr('files.reading', 'Looking for saved-world files…')}</p>`
+        : files.length ? `<div class="menu-list f-list">${fileRows(files, 'data-f', busy.startsWith('f:') ? +busy.slice(2) : busy ? -2 : -1)}</div>` : `<p class="menu-note">${NO_FILES()}</p>`;
+      return `<div class="menu-h"><span>${tr('gamemenu.files-title', 'Open a file')}</span><b>${files?.length || ''}</b></div>${list}`
+        + (err ? `<p class="menu-note"><em>${esc(err)}</em></p>` : '')
+        + `<div class="menu-foot"><span class="lbl"></span><button type="button" class="btn" data-m="saves"${busy ? ' disabled' : ''}>${tr('menu.back-saves', 'Saved worlds')}</button></div>`;
+    }
     function render() {
       $('menu-n-v').textContent = countText();
       $('menu-w-v').textContent = saves == null ? '' : String(listed().length);
@@ -4933,17 +5013,17 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       // i18n: the opening menu's Continue: its hint, the last session's name ({name})
       if (last) tabC.dataset.hint = tr('menu.continue.hint', 'Continue the last session\n{name}', { name: last.name });
       tabN.setAttribute('aria-expanded', String(open === 'n'));
-      tabW.setAttribute('aria-expanded', String(open === 'w'));
+      tabW.setAttribute('aria-expanded', String(open === 'w' || open === 'f'));
       $('intro').classList.toggle('menu-open', !!open);
       panel.hidden = !open;
       if (!open) return;
       // (the control under the pointer is replaced: focus kept on the same one)
       const at = document.activeElement && panel.contains(document.activeElement) ? document.activeElement.dataset : null;
-      panel.innerHTML = open === 'n' ? nPanel() : wPanel();
-      if (at) panel.querySelector(at.n != null ? `[data-n="${at.n}"]` : at.w != null ? `[data-w="${CSS.escape(at.w)}"]` : at.m ? `[data-m="${at.m}"]` : 'x')?.focus({ preventScroll: true });
+      panel.innerHTML = open === 'n' ? nPanel() : open === 'f' ? fPanel() : wPanel();
+      if (at) panel.querySelector(at.n != null ? `[data-n="${at.n}"]` : at.w != null ? `[data-w="${CSS.escape(at.w)}"]` : at.f != null ? `[data-f="${at.f}"]` : at.m ? `[data-m="${at.m}"]` : 'x')?.focus({ preventScroll: true });
     }
     function toggle(which) {
-      open = open === which ? null : which;
+      open = open === which || (which === 'w' && open === 'f') ? null : which;
       err = '';
       if (open === 'w') refresh();
       render();
@@ -5001,6 +5081,27 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     tabN.addEventListener('click', () => toggle('n'));
     tabC.addEventListener('click', () => { const m = lastSave(); if (m) { open = null; render(); pickW(m.id); } });
     tabW.addEventListener('click', () => toggle('w'));
+    // the page's own list of files (ownFiles): shown in the saved worlds' place, focus on the first once read
+    async function showFiles() {
+      open = 'f'; files = null; err = ''; render();
+      panel.querySelector('[data-m="saves"]')?.focus({ preventScroll: true });
+      try { files = await desk.files.list(); } catch { files = []; }
+      if (open !== 'f') return;
+      const back = document.activeElement?.dataset?.m === 'saves';
+      render();
+      if (back) (panel.querySelector('[data-f]') || panel.querySelector('[data-m="saves"]'))?.focus({ preventScroll: true });
+    }
+    const pickF = (i) => {
+      const f = files?.[i];
+      if (!f) return;
+      take(`f:${i}`, async () => {
+        const got = await desk.files.read(f.path), bytes = got.buffer.slice(got.byteOffset, got.byteOffset + got.byteLength);
+        let w;
+        try { w = await openWorld(bytes); } catch (x) { throw new Error(tr('flash.open-failed', 'Could not open {file}: {why}', { file: `${f.name}.tidemote`, why: String(x.message || x) })); }
+        await worldStore.put({ ...w.meta, bytes: bytes.byteLength }, bytes);
+        await openIt(w);
+      });
+    };
     // (Begin pressed as a click alone: a controller's A, or assistive technology; a pointer or a key has begun already)
     $('begin').addEventListener('click', () => { if (!go || introHidden) return; if (busy) startAfter = true; else start(); });
     panel.addEventListener('click', (e) => {
@@ -5008,8 +5109,12 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       if (!b || b.disabled) return;
       if (b.dataset.n != null) pickN(b.dataset.n);
       else if (b.dataset.w != null) pickW(b.dataset.w);
-      else if (b.dataset.m === 'file') $('menu-file').click();
+      else if (b.dataset.f != null) pickF(+b.dataset.f);
+      else if (b.dataset.m === 'file') { if (ownFiles) showFiles(); else $('menu-file').click(); }
+      else if (b.dataset.m === 'saves') toSaves();
     });
+    // from the files back to the saved worlds, on Open a file
+    function toSaves() { open = 'w'; err = ''; refresh(); panel.querySelector('[data-m="file"]')?.focus({ preventScroll: true }); }
     // the world begins (once it runs: a count being seeded holds it)
     function start() {
       startAfter = false;
@@ -5039,6 +5144,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
         if (e.key === 'Escape') {
           if (!open) return;
           e.preventDefault();
+          if (open === 'f') { toSaves(); return; }
           const inside = panel.contains(document.activeElement);
           toggle(null);
           if (inside) tabN.focus({ preventScroll: true }); // (a keyboard user's focus, not lost with the panel)
@@ -5058,6 +5164,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       // a controller's B in the intro: an open panel closed, focus back on its tab
       back() {
         if (!open) return;
+        if (open === 'f') { toSaves(); return; }
         const inside = panel.contains(document.activeElement);
         toggle(null);
         if (inside) tabN.focus({ preventScroll: true });
@@ -5270,6 +5377,18 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     if (state.perf.split === 'off' || T < 900 * H || ticksFor(T) !== 1 || !perf.simS || !perf.renderR || splitPer() === 1 || !eng.coarseReady) return false;
     const S1 = perf.split ? perf.simS / tickCost(2) : perf.simS;
     return perf.renderR + S1 > T * (perf.split ? 0.75 : 0.85);
+  }
+  // Whether the world's own step is what holds the frame rate down, so that only a smaller world would help (Settings →
+  // Performance says so under Adaptation): at real time, frames short of the rate aimed for (the adaptation has cut it,
+  // or they run late), and the step a frame of that rate would take filling most of it by the GPU's timestamps (the
+  // drawing, which the adaptation can ease, the rest). On past 60% of the frame, off again under 50%, so the line holds
+  // still. Its share of the frame, or 0.
+  let simBoundOn = false;
+  function simBound() {
+    const A = displayFrames() * displayMs(), share = perf.simS && perf.renderR ? (perf.simS * tickCost(ticksFor(A))) / A : 0;
+    const short = state.phase === 'running' && !state.paused && state.speed <= 1 && (perf.slow > 1 || (perf.fps > 0 && perf.fps < 0.85 * (1000 / A)));
+    simBoundOn = short && share > (simBoundOn ? 0.5 : 0.6);
+    return simBoundOn ? share : 0;
   }
   // render scales the auto resolution steps between (down to the floor chosen in Settings)
   const SCALES = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
@@ -6916,7 +7035,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     ride: { state: ride, sel: () => sel, members: () => members, viewShort },
     // keys and controllers (docs/controller.md), for tools/keys-check.mjs and tools/pad-check.mjs: the input in use,
     // the pad's state, an action by id, and which panels are open
-    input: { mode, pads, act, rose, padCtx, aim, glyph,
+    input: { mode, pads, act, rose, padCtx, aim, aimPt, glyph,
       // the camera moved so that world point (wx, wy) sits under the reticle
       lookAt(wx, wy) { const [ax, ay] = aim(), p = cssPPU(); state.follow = false; cam.x = wx - (ax - innerWidth / 2) / p; cam.y = wy - (ay - innerHeight / 2) / p; },
       open: () => ({ menu: gameMenu.isOpen(), menuPage: gameMenu.isOpen() ? gameMenu.page() : null, settings: view.isOpen(), help: !$('help').hidden, bench: bench.isOpen(), lab: lab.isOpen(), spec: !$('spec').hidden, card: cards.isOpen(), ladder: ladder.isOpen() }),

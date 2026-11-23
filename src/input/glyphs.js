@@ -1,5 +1,5 @@
 // A controller's buttons as drawn in hints, the pad's legend and the Controls dialog (docs/controller.md): four
-// families (Xbox, PlayStation, Switch, Steam Deck), each button named by its place on the pad (actions.js BTN) and
+// families (Xbox, PlayStation, Switch, Steam: the Deck's and the Steam Controller's), each button named by its place on the pad (actions.js BTN) and
 // drawn in the family's own labels. Our own simple drawings (letters and shapes in the page's line style), no logos.
 import { tr } from '../i18n.js';
 import { PAD_MAP, BTN_NAME } from './actions.js';

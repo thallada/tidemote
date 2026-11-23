@@ -712,7 +712,7 @@ canvas.chart { cursor: crosshair; }
 
 /* ------------------------------------------------------------------ settings, help */
 .settings {
-  position: absolute; right: calc(var(--gut) + var(--safe-r)); bottom: calc(var(--bot) + 10px); width: 430px; --pad: 14px;
+  position: absolute; right: calc(var(--gut) + var(--safe-r)); bottom: calc(var(--bot) + 10px); width: 480px; --pad: 16px;
   padding: var(--s2) var(--pad) 0; z-index: 6; max-height: calc(100% - var(--top) - var(--bot) - 20px);
   display: flex; flex-direction: column;
 }
@@ -743,15 +743,16 @@ canvas.chart { cursor: crosshair; }
 .settings .grip:is([data-d="ne"], [data-d="sw"]) { cursor: nesw-resize; }
 .settings.placed { right: auto; bottom: auto; }
 body.set-grabbing, body.set-grabbing * { cursor: var(--grab-cursor) !important; user-select: none; -webkit-user-select: none; }
-@container settings (max-width: 340px) {
-  .settings.placed .opt { grid-template-columns: minmax(0, 1fr); gap: var(--s1); }
+@container settings (max-width: 400px) {
+  .settings.placed .opt { grid-template-columns: minmax(0, 1fr); gap: var(--s2); }
+  .settings.placed .opts .ramp { margin-left: 0; }
 }
 .opt .chip:disabled { opacity: .35; cursor: default; }
 /* an Auto choice shows what it is using now: the choice it matches underlined in the sun's color, or, when it
    matches none (a render scale of 60%), its value on the Auto chip, at a fixed width so the row never reflows */
 .opt .auto-now { color: var(--sun); min-width: 3ch; letter-spacing: .04em; font-variant-numeric: tabular-nums; }
 .opt .segs:has(.auto-pick) .auto-now { display: none; }
-.opt .chip.auto-pick:not([aria-pressed="true"]) { box-shadow: inset 0 -2px 0 var(--sun); }
+.opt .chip.auto-pick:not([aria-pressed="true"]) { box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--sun) 60%, transparent); }
 /* Auto below its own lowest (the render scale's emergency step when the GPU is overloaded): red, not the sun's */
 .opt .chip.auto-pick.auto-sos:not([aria-pressed="true"]) { box-shadow: inset 0 -2px 0 var(--hot); }
 .opt .auto-now.auto-sos { color: var(--hot); }
@@ -767,23 +768,36 @@ body.set-grabbing, body.set-grabbing * { cursor: var(--grab-cursor) !important; 
 .readout span { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
 .opts { display: flex; flex-direction: column; margin-top: var(--s4); }
 /* one option: its label in a fixed column, then its choices as one bar filling the rest, so every row's label and
-   bar line up with the next and the eye runs down each. A bar never wraps (an Auto chip's value coming and going
-   would change its height): short of room its chips give up their padding. A bar of many choices (.many) is a
-   grid of even cells over two lines or more. */
+   bar line up with the next and the eye runs down each. Each row is a band of its own, a hairline between it and the
+   next, its label in plain words (the capitals are the section's and the choices'), so a glance finds the row and
+   then its choice. A bar never wraps (an Auto chip's value coming and going would change its height): its choices
+   share it evenly where they fit, a longer one taking what it needs, and short of room they give up their padding. A
+   bar of many choices (.many) is a grid of even cells over two lines or more. */
 .opt { display: grid; grid-template-columns: 9.6em minmax(0, 1fr); gap: var(--s3); align-items: center; }
+.opts .opt { grid-template-columns: 118px minmax(0, 1fr); gap: var(--s3); min-height: 44px; padding: var(--s1) 0; }
+.opts .blk { gap: 0; }
+.opts .blk > .opt + .opt { border-top: 1px solid var(--line-faint); }
 .opt > .lbl { white-space: nowrap; }
+.opts .opt > .lbl { font-size: 13px; line-height: 1.3; letter-spacing: .02em; text-transform: none; font-weight: 400; font-stretch: 100%; color: var(--ink-2); white-space: normal; }
+.opts .opt > .lbl .term { text-decoration-color: rgba(163, 189, 190, 0.35); }
 .opt > .segs { flex-wrap: nowrap; min-width: 0; padding-top: 1px; }
 .opt > .segs .chip { flex: 1 1 auto; min-width: 0; padding: 0 6px; margin-top: -1px; justify-content: center; white-space: nowrap; }
+.opts .opt > .segs:not(.many) { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(max-content, 1fr); }
+.opts .opt > .segs .chip { height: 30px; }
+.opts .opt > .segs:has(> .chip:nth-child(5)) .chip { padding: 0 4px; letter-spacing: .06em; }
 .opt > .segs .chip:has(.auto-now) { gap: 5px; }
 .opt > .segs.many { display: grid; grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); padding-left: 1px; }
 .opt > .segs.many .chip { margin-left: -1px; }
 .opt > .segs.many .chip:has(.auto-now) { grid-column: span 2; }
 .opt > .segs.many:has(.auto-pick) .chip:has(.auto-now) { grid-column: auto; }
 .opt kbd { color: var(--sun); margin-left: var(--s1); }
+.opts .opt > .lbl kbd { color: var(--ink-3); margin-left: 6px; font-size: 10px; }
 /* a touch screen has no keys to show */
 @media (pointer: coarse) { .opt kbd { display: none; } }
-.opts .ramp { margin-left: calc(9.6em + var(--s3)); }
+.opts .ramp { margin-left: calc(118px + var(--s3)); margin-bottom: var(--s2); }
 /* what the page holds back now (under Adaptation): three lines, room for all of it, whatever they say */
+.opts .sim-bound { margin: 0 0 var(--s2); padding: var(--s2) var(--s3); border-left: 2px solid var(--hot); background: rgba(255, 120, 80, 0.06); font-size: 12px; line-height: 1.45; color: var(--ink-2); }
+.opts .sim-bound .link { display: inline; margin-left: .25em; }
 .opts .eased-now { margin: 0; height: 48px; font-size: 12px; line-height: 16px; color: var(--ink-2); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 .vol-row { display: flex; align-items: center; gap: var(--s3); height: 32px; }
 .vol-row input { flex: 1; min-width: 0; height: 24px; }
@@ -1453,11 +1467,18 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .menu-chips .chip.auto b { color: var(--sun); font-weight: 500; }
 .menu-chips { margin-bottom: var(--s1); }
 /* a count well past what this GPU drew smoothly: a hot tick in its corner */
-.menu-chips .chip.heavy { position: relative; }
-.menu-chips .chip.heavy::after { content: ''; position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; background: var(--hot); opacity: .8; }
+.menu-chips .chip.heavy, .segs .chip.heavy { position: relative; }
+.menu-chips .chip.heavy::after, .segs .chip.heavy::after { content: ''; position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; background: var(--hot); opacity: .8; }
 .menu-note { margin: var(--s3) 0 var(--s1); color: var(--ink-3); font-size: 12px; line-height: 1.45; }
 .menu-note em { font-style: normal; color: var(--sun); }
 .menu-list { max-height: min(232px, 34dvh); overflow-y: auto; margin: 0 calc(-1 * var(--s1)); }
+/* a saved-world file the page lists itself (where the system's chooser cannot be used): its name, then where it is */
+button.f-row { display: flex; flex-direction: column; justify-content: center; gap: 2px; width: 100%; min-height: 52px; padding: var(--s1) var(--s2); border: 0; border-bottom: 1px solid var(--line-faint); background: none; text-align: left; color: inherit; cursor: pointer; }
+button.f-row b { font-weight: 500; font-size: 14px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+button.f-row span { font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+button.f-row:hover:not(:disabled), button.f-row:focus-visible { background: var(--cyan-deep); }
+button.f-row:disabled { cursor: default; opacity: .55; }
+.f-list { max-height: min(360px, 50dvh); overflow-y: auto; }
 .menu-list button.w-row { display: grid; width: 100%; height: 46px; padding: 0 var(--s1); border: 0; border-bottom: 1px solid var(--line-faint); text-align: left; color: inherit; }
 .menu-list button.w-row:hover:not(:disabled), .menu-list button.w-row:focus-visible { background: var(--cyan-deep); }
 .menu-list button.w-row:disabled { cursor: default; opacity: .55; }
@@ -1539,7 +1560,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .spec-id h2 { font-size: 19px; margin: 2px 0; }
   .viewer { height: clamp(104px, calc(22vh - 10px), 176px); }
   .btn { height: 30px; }
-  .settings { width: 400px; --pad: 12px; }
+  .settings { width: 450px; --pad: 14px; }
 }
 @media (max-width: 980px) {
   .dock .tools { display: none; }
@@ -1714,15 +1735,11 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 @media (max-width: 380px) {
   .tabs button { padding: 0 6px; letter-spacing: .06em; }
   .settings .sec-h h2 { display: none; }
-  /* a narrower label column, its labels on two lines where they must, for the choices' room */
-  .opt { grid-template-columns: 8em minmax(0, 1fr); }
-  .opt > .lbl { white-space: normal; line-height: 1.3; }
-  .opts .ramp { margin-left: calc(8em + var(--s3)); }
   .opt > .segs .chip { padding: 0 4px; letter-spacing: .07em; }
 }
-/* the narrowest phones: every row's label over its bar, the bar the panel's width */
-@media (max-width: 340px) {
-  .opt { grid-template-columns: minmax(0, 1fr); gap: var(--s2); padding-top: var(--s1); }
+/* a phone: every row's label over its bar, the bar the panel's width */
+@media (max-width: 520px) {
+  .opt, .opts .opt { grid-template-columns: minmax(0, 1fr); gap: var(--s2); padding: 10px 0; }
   .opts .ramp { margin-left: 0; }
 }
 @media (pointer: coarse) {
@@ -24415,6 +24432,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
   var namePlate = (col, name, sub) => `<i style="background:${cssCol(col)}"></i><span>${esc2(name)}</span><small>${sub}</small>`;
   function chartPointer(plate, onPick) {
     let hot = null;
+    let place = null;
     const bound = /* @__PURE__ */ new WeakSet();
     function point(cv, e) {
       const r = cv.getBoundingClientRect();
@@ -24436,8 +24454,11 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
           x = Math.min(r.left + hit.plateAt[0], innerWidth - pw - 8);
           y = r.top + hit.plateAt[1];
         }
-        plate.style.left = `${Math.round(Math.max(8, x))}px`;
-        plate.style.top = `${Math.round(Math.max(8, Math.min(innerHeight - ph - 8, y)))}px`;
+        x = Math.round(Math.max(8, x));
+        y = Math.round(Math.max(8, Math.min(innerHeight - ph - 8, y)));
+        plate.style.left = `${x}px`;
+        plate.style.top = `${y}px`;
+        place = { ax: e.clientX - r.left, ay: e.clientY - r.top, ox: x - r.left, oy: y - r.top };
       } else plate.hidden = true;
       if ((cv._hot ? cv._hot.key : null) !== prev) cv._ch.redraw();
       return prev;
@@ -24477,6 +24498,18 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
     }
     document.addEventListener("pointerdown", (e) => {
       if (hot && e.target !== hot) leave();
+    }, true);
+    document.addEventListener("scroll", (e) => {
+      const sc = e.target;
+      if (!hot || plate.hidden || !place || !sc.contains?.(hot)) return;
+      const r = hot.getBoundingClientRect(), v = sc.getBoundingClientRect();
+      const ax = r.left + place.ax, ay = r.top + place.ay;
+      if (ax < v.left || ax > v.right || ay < v.top || ay > v.bottom) {
+        leave();
+        return;
+      }
+      plate.style.left = `${Math.round(r.left + place.ox)}px`;
+      plate.style.top = `${Math.round(r.top + place.oy)}px`;
     }, true);
     addEventListener("keydown", (e) => {
       if (e.key === "Escape" && hot) leave();
@@ -39796,7 +39829,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     document.body.classList.toggle("no-closeup", !state.closeup);
     const persist = () => {
       const s = eng.settings;
-      savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, prompts: state.prompts, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, focus: state.focus, hdr: dsp.hdr, peak: dsp.peak, wide: dsp.wide, fixed: state.fixed, events: state.events, ui: state.ui, reach: hand.reach, ...state.perf });
+      savePrefs({ v: PREFS_V, trails: trailIdx, bloom: s.bloom, specks: s.specks, lod: s.lod, map: state.map, haze: state.haze, labOpen: state.labOpen, auto: state.auto, loupeR: state.loupeR, currents: state.currents, closeup: state.closeup, prompts: state.prompts, songMarks: state.songMarks, notes: state.notes, water: state.water, waves: state.waves, look: state.look, grain: state.grain, focus: state.focus, hdr: dsp.hdr, peak: dsp.peak, wide: dsp.wide, fixed: state.fixed, events: state.events, ui: state.ui, reach: hand.reach, measured: gpuN(), ...state.perf });
       document.body.classList.toggle("no-closeup", !state.closeup);
     };
     let lookLast = state.look || 2;
@@ -40342,6 +40375,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       return Math.min(hardCap, 8388608, Math.floor(MAX_CELLS * K2.density * 0.95), window.__MC_MAX || Infinity);
     }
     let measuredN = null;
+    const gpuN = () => measuredN || prefs.measured || null;
+    const heavyN = (n) => gpuN() && n > gpuN() * 1.4;
     const MATURE_LIVING = 0.5;
     const AUTO_60 = 102400;
     const LIVING_PASSES = /* @__PURE__ */ new Set(["senseMain", "lifeMain", "contactMain", "bondBackMain", "bodyTick"]);
@@ -40407,6 +40442,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       state.busy = false;
       calStep(tr("intro.particles", "{n, plural, other {# particles}}", { n: final }), 1);
       measuredN = final;
+      persist();
       return final;
     }
     async function newWorld(n) {
@@ -40441,6 +40477,15 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       flash(tr("flash.new-world", "A new world begins"));
     }
     const desk = globalThis.tidemoteDesktop || null;
+    let ownFiles = false;
+    desk?.files?.own?.().then((v) => {
+      ownFiles = !!v;
+    }).catch(() => {
+    });
+    const fileWhere = (f2) => f2.where === "media" ? tr("files.where-media", "Memory card · {name}", { name: f2.volume }) : { downloads: tr("files.where-downloads", "Downloads"), documents: tr("files.where-documents", "Documents"), desktop: tr("files.where-desktop", "Desktop"), home: tr("files.where-home", "Home folder") }[f2.where] || "";
+    const fileLine = (f2) => tr("files.row", "{where} · {size} · {when}", { where: fileWhere(f2), size: `${(f2.size / 1048576).toFixed(1)} MB`, when: when(f2.at) });
+    const NO_FILES = () => tr("files.none", "No .tidemote files found in Downloads, Documents, the Desktop, the home folder or on a memory card. Copy one into one of those, or open it in Desktop Mode.");
+    const fileRows = (files, attr, busyAt = -1) => files.map((f2, i) => `<button type="button" class="f-row" ${attr}="${i}"${busyAt >= 0 ? " disabled" : ""}><b>${esc2(f2.name)}</b><span>${busyAt === i ? tr("menu.opening", "Opening") : esc2(fileLine(f2))}</span></button>`).join("");
     let steamOn = { on: false };
     desk?.steam().then((x) => {
       steamOn = x;
@@ -42328,7 +42373,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         const now = String(cur) === "auto" ? autoNow(id) : null;
         const sos = now?.sos ? " auto-sos" : "";
         const label3 = (v, l) => v === "auto" && now ? `${l} <span class="auto-now${sos}" data-auto="${id}">${now.text}</span>` : l;
-        return `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ""}</span><div class="row segs${cols ? ` many" style="--cols: ${cols}` : items.length > 7 ? " many" : ""}" role="group" aria-label="${title}">${items.map(([v, l, dis]) => `<button type="button" class="chip${now && String(v) === now.pick ? ` auto-pick${sos}` : ""}" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${dis ? " disabled" : ""}>${label3(v, l)}</button>`).join("")}</div></div>`;
+        return `<div class="opt"><span class="lbl">${tip ? term(tip, title) : title}${key ? ` <kbd>${key}</kbd>` : ""}</span><div class="row segs${cols ? ` many" style="--cols: ${cols}` : items.length > 7 ? " many" : ""}" role="group" aria-label="${title}">${items.map(([v, l, dis, hot]) => `<button type="button" class="chip${now && String(v) === now.pick ? ` auto-pick${sos}` : ""}${hot ? " heavy" : ""}" data-o="${id}" data-v="${v}" aria-pressed="${String(v) === String(cur)}"${hot ? ` data-hint="${esc2(hot)}"` : ""}${dis ? " disabled" : ""}>${label3(v, l)}</button>`).join("")}</div></div>`;
       };
       function autoNow(id) {
         if (EASES[id]) return { text: "", pick: String(tune[EASES[id]].level === 0 ? 0 : rowVal[id]()) };
@@ -42362,7 +42407,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         }
       };
       const onoff = (id, title, key, on, tip) => choice(id, title, key, [[1, tr("settings.on", "On")], [0, tr("settings.off", "Off")]], on ? 1 : 0, tip);
-      const autoRow = (id, title, key, items, tip) => choice(id, title, key, [["auto", AUTO], ...items], state.fixed[id] ? rowVal[id]() : "auto", tip, items.length > 3 ? 3 : 0);
+      const autoRow = (id, title, key, items, tip) => choice(id, title, key, [["auto", AUTO], ...items], state.fixed[id] ? rowVal[id]() : "auto", tip);
       const autoOnOff = (id, title, key, tip) => autoRow(id, title, key, [[1, tr("settings.on", "On")], [0, OFF]], tip);
       const pctOf = (n) => tr("settings.pct", "{n}%", { n }), timesOf = (n) => tr("settings.times", "{n}×", { n });
       const OFF = tr("settings.off", "Off"), NORMAL = tr("settings.normal", "Normal"), AUTO = tr("settings.auto", "Auto");
@@ -42429,11 +42474,17 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         const h = heldNow();
         return h.length ? h.map(([id, l]) => HELD[id](l)).join(" · ") : tr("settings.perf.held-none", "Full Quality");
       };
+      let simShown = false;
+      function simWords() {
+        const share2 = simBound();
+        simShown = share2 > 0;
+        return simShown ? `<p class="sim-bound" id="perf-sim">${tr("settings.perf.sim-bound", "The simulation itself is limiting the frame rate: simulating this world's {n, plural, other {# particles}} takes most of each frame, and lowering the quality can't fix that. A world with fewer particles will run more smoothly. <new>Begin a new world</new>", { n: eng.count, new: (c) => `<button type="button" class="link" data-o="new-world" data-v="0">${c.join("")}</button>` })}</p>` : "";
+      }
       const scanChoices = () => [.../* @__PURE__ */ new Set([...KNOBS.neighbors.levels, ...[1.5, 2].map((f2) => Math.round(K2.maxScan * f2 / 8) * 8), state.perf.scan ?? K2.maxScan])].sort((a, b) => a - b);
       function performance_() {
         const P2 = state.perf;
         const dev = Math.min(devicePixelRatio || 1, 2);
-        return group("quality", tr("settings.perf.quality", "Quality"), onoff("adapt", tr("settings.perf.adapt", "Adaptation"), "", P2.adapt, "adapt") + `<p class="eased-now" id="perf-held">${heldWords()}</p>`) + group("res", tr("settings.perf.resolution", "Resolution"), choice("scale", NAMES.scale, "", [["auto", AUTO], [1, pctOf(100)], [0.75, pctOf(75)], [0.5, pctOf(50)], [0.25, pctOf(25)]], P2.scale, "renderscale") + (P2.scale === "auto" ? choice("floor", tr("settings.perf.floor", "Auto lowest"), "", [[0.75, pctOf(75)], [0.5, pctOf(50)], [0.35, pctOf(35)], [0.25, pctOf(25)]], P2.floor, "autofloor") : "") + choice("density", tr("settings.perf.density", "Pixel density"), "", [["auto", AUTO], [1, timesOf(1)], [1.5, timesOf(1.5), dev < 1.5], [2, timesOf(2), dev < 2]], P2.density, "density") + choice("fps", NAMES.fps, "", [["auto", AUTO], [30, "30"], [60, "60"], [0, tr("settings.perf.fps-display", "Display")]], P2.fps, "targetfps") + (K2.heat ? choice("iceScale", NAMES.ice, "", [["auto", AUTO], [1, FULL], [0.5, HALF]], P2.iceScale, "icescale") : "")) + group("pacing", tr("settings.perf.pacing", "Pacing"), (state.water ? choice("seaEvery", tr("settings.perf.sea-every", "Water surface"), "", [["auto", AUTO], [1, FULL], [2, RATE_HALF], [4, RATE_QUARTER]], P2.seaEvery, "seaevery") : "") + choice("contactsEvery", NAMES.contacts, "", [["auto", AUTO], [2, RATE_HALF], [4, RATE_QUARTER]], P2.contactsEvery, "contactsevery") + choice("stoneEvery", NAMES.stone, "", [["auto", AUTO], ...[0.5, 1, 2].map((v) => [v, tr("settings.perf.every-s", "{s} s", { s: v })])], P2.stoneEvery, "stoneevery") + choice("split", NAMES.split, "", [["auto", AUTO], ["off", OFF]], P2.split, "splitsteps")) + group("world", tr("settings.perf.world", "World"), `<div class="opt"><span class="lbl">${term("particles", tr("settings.perf.particles", "Particles"))}</span><div class="row set-n"><b>${fmt(eng.count)}</b><button type="button" class="link" data-o="new-world" data-v="0">${tr("settings.perf.new-world", "New world")}</button></div></div>` + choice("scan", NAMES.neighbors, "", [["auto", AUTO], ...scanChoices().map((n) => [n, String(n)])], P2.scan ?? "auto", "neighbors") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", tr("settings.perf.profile", "Profile"))}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">${tr("settings.perf.copy-profile", "Copy profile")}</button></div></div>` : ""));
+        return group("quality", tr("settings.perf.quality", "Quality"), onoff("adapt", tr("settings.perf.adapt", "Adaptation"), "", P2.adapt, "adapt") + `<p class="eased-now" id="perf-held">${heldWords()}</p>` + simWords()) + group("res", tr("settings.perf.resolution", "Resolution"), choice("scale", NAMES.scale, "", [["auto", AUTO], [1, pctOf(100)], [0.75, pctOf(75)], [0.5, pctOf(50)], [0.25, pctOf(25)]], P2.scale, "renderscale") + (P2.scale === "auto" ? choice("floor", tr("settings.perf.floor", "Auto lowest"), "", [[0.75, pctOf(75)], [0.5, pctOf(50)], [0.35, pctOf(35)], [0.25, pctOf(25)]], P2.floor, "autofloor") : "") + choice("density", tr("settings.perf.density", "Pixel density"), "", [["auto", AUTO], [1, timesOf(1)], [1.5, timesOf(1.5), dev < 1.5], [2, timesOf(2), dev < 2]], P2.density, "density") + choice("fps", NAMES.fps, "", [["auto", AUTO], [30, "30"], [60, "60"], [0, tr("settings.perf.fps-display", "Display")]], P2.fps, "targetfps") + (K2.heat ? choice("iceScale", NAMES.ice, "", [["auto", AUTO], [1, FULL], [0.5, HALF]], P2.iceScale, "icescale") : "")) + group("pacing", tr("settings.perf.pacing", "Pacing"), (state.water ? choice("seaEvery", tr("settings.perf.sea-every", "Water surface"), "", [["auto", AUTO], [1, FULL], [2, RATE_HALF], [4, RATE_QUARTER]], P2.seaEvery, "seaevery") : "") + choice("contactsEvery", NAMES.contacts, "", [["auto", AUTO], [2, RATE_HALF], [4, RATE_QUARTER]], P2.contactsEvery, "contactsevery") + choice("stoneEvery", NAMES.stone, "", [["auto", AUTO], ...[0.5, 1, 2].map((v) => [v, tr("settings.perf.every-s", "{s} s", { s: v })])], P2.stoneEvery, "stoneevery") + choice("split", NAMES.split, "", [["auto", AUTO], ["off", OFF]], P2.split, "splitsteps")) + group("world", tr("settings.perf.world", "World"), `<div class="opt"><span class="lbl">${term("particles", tr("settings.perf.particles", "Particles"))}</span><div class="row set-n"><b>${fmt(eng.count)}</b><button type="button" class="link" data-o="new-world" data-v="0">${tr("settings.perf.new-world", "New world")}</button></div></div>` + choice("scan", NAMES.neighbors, "", [["auto", AUTO], ...scanChoices().map((n) => [n, String(n)])], P2.scan ?? "auto", "neighbors") + (hasTS ? `<div class="opt"><span class="lbl">${term("profile", tr("settings.perf.profile", "Profile"))}</span><div class="row segs"><button type="button" class="chip" data-o="profile" data-v="1">${tr("settings.perf.copy-profile", "Copy profile")}</button></div></div>` : ""));
       }
       const keysNote = `<button type="button" class="link keys-note" data-open="help">${tr("settings.keys-note", "Controls")}</button>`;
       function foot() {
@@ -42503,6 +42554,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           return;
         }
         setText2("perf-held", heldWords());
+        if (simBound() > 0 !== simShown) {
+          render();
+          return;
+        }
         setText2("ro-fps", perf.fps ? perf.fps.toFixed(0) : "–");
         setText2("ro-ms", perf.gpu ? perf.gpu.toFixed(1) : "–");
         setText2("ro-res", pctOf(Math.round(renderScale * 100)));
@@ -42836,6 +42891,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         return group("events", "", onoff("ev-on", tr("settings.climate.events-on", "Events"), "", E.on, "poolevents") + kinds + now);
       }
       let saves = null, used = 0, wName = "", ask2 = null, wBusy = "", wPoll = 0;
+      let files = null, fileAt = -1;
       const defaultName = () => tr("worlds.default-name", "{era} · {age}", { era: eraName(climate.name), age: fmtDur(eng.simTime) });
       const mb = (n) => tr("worlds.mb", "{n} MB", { n: (n / 1048576).toFixed(n < 10485760 ? 1 : 0) });
       const mini = (o, v, text2, cls = "") => `<button type="button" class="btn mini${cls}" data-o="${o}" data-v="${esc2(v)}"${wBusy ? " disabled" : ""}>${text2}</button>`;
@@ -42932,25 +42988,58 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         } else if (id === "w-dl") {
           const m = saves.find((x) => x.id === v);
           if (m) download(m, await worldStore.get(v));
-        } else if (id === "w-open") $2("w-file").click();
+        } else if (id === "w-open") {
+          if (ownFiles) show("files");
+          else $2("w-file").click();
+        } else if (id === "w-pick") {
+          const f2 = files?.[+v];
+          if (!f2 || wBusy) return;
+          fileAt = +v;
+          render();
+          await keepFile(`${f2.name}.tidemote`, () => desk.files.read(f2.path), true);
+          fileAt = -1;
+        }
       }
-      $2("w-file").addEventListener("change", async (e) => {
-        const f2 = e.target.files[0];
-        e.target.value = "";
-        if (!f2) return;
+      async function keepFile(name, bytesOf, fromList = false) {
         wBusy = "open";
         render();
         try {
-          const bytes = await f2.arrayBuffer();
+          const got = await bytesOf(), bytes = got.buffer ? got.buffer.slice(got.byteOffset, got.byteOffset + got.byteLength) : got;
           const { meta } = await openWorld(bytes);
           await worldStore.put({ ...meta, bytes: bytes.byteLength }, bytes);
           ask2 = { kind: "load", id: meta.id };
+          if (fromList) {
+            wBusy = "";
+            show("worlds", "load");
+          }
         } catch (err) {
-          flash(tr("flash.open-failed", "Could not open {file}: {why}", { file: f2.name, why: String(err.message || err) }));
+          flash(tr("flash.open-failed", "Could not open {file}: {why}", { file: name, why: String(err.message || err) }));
         }
         wBusy = "";
         await refreshSaves();
+        if (ask2?.kind === "load" && page === "worlds") el2.querySelector(`[data-o="w-yes"][data-v="${CSS.escape(ask2.id)}"]`)?.focus({ preventScroll: true });
+      }
+      $2("w-file").addEventListener("change", (e) => {
+        const f2 = e.target.files[0];
+        e.target.value = "";
+        if (f2) keepFile(f2.name, () => f2.arrayBuffer());
       });
+      function files_() {
+        const list = files == null ? `<p class="note">${tr("files.reading", "Looking for saved-world files…")}</p>` : files.length ? `<div class="f-list">${fileRows(files, 'data-o="w-pick" data-v', fileAt)}</div>` : `<p class="note">${NO_FILES()}</p>`;
+        return group("files", "", list + (files?.length ? `<p class="gm-note">${tr("files.where-looked", "From Downloads, Documents, the Desktop, the home folder and memory cards.")}</p>` : ""));
+      }
+      async function refreshFiles() {
+        try {
+          files = await desk.files.list();
+        } catch {
+          files = [];
+        }
+        const a = document.activeElement;
+        if (page === "files") {
+          render();
+          if (!el2.contains(a) || a.dataset.g) el2.querySelector('[data-o="w-pick"]')?.focus({ preventScroll: true });
+        }
+      }
       const ext = (href, text2) => `<a class="sp" target="_blank" rel="noopener" href="${href}">${text2}</a>`;
       function about_() {
         const link = (href) => (c) => ext(href, c.join(""));
@@ -42971,7 +43060,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         const sizes2 = PARTICLE_SIZES.filter((n) => n <= maxParticles());
         const auto = measuredN ? tr("gamemenu.auto-measured", "Auto {n}", { n: kfmt(measuredN) }) : tr("settings.auto", "Auto");
         const off = wBusy ? " disabled" : "";
-        return group("new", "", choice("n", tr("settings.perf.particles", "Particles"), "", [["auto", auto], ...sizes2.map((n) => [n, kfmt(n)])], cur, "particles", 3) + `<p class="gm-note">${tr("gamemenu.new-note", "This world ends when the new one begins.")}</p><div class="gm-acts">${unsaved() ? `<button type="button" class="btn" data-o="new-first" data-v="0"${off}>${tr("gamemenu.new-save-first", "Save this one first")}</button>` : ""}<button type="button" class="btn hot-btn" data-o="new-go" data-v="0"${off}>${wBusy === "new" ? tr("gamemenu.new-saving", "Saving") : tr("gamemenu.new-begin", "Begin a new world")}</button></div>`);
+        const hot = (n) => heavyN(n) ? tr("menu.count.hint-heavy", "{n, plural, other {# particles}}\nMore than this GPU's measured capability ({measured})", { n, measured: kfmt(gpuN()) }) : "";
+        return group("new", "", choice("n", tr("settings.perf.particles", "Particles"), "", [["auto", auto], ...sizes2.map((n) => [n, kfmt(n), false, hot(n)])], cur, "particles") + `<p class="gm-note">${tr("gamemenu.new-note", "This world ends when the new one begins.")}</p><div class="gm-acts">${unsaved() ? `<button type="button" class="btn" data-o="new-first" data-v="0"${off}>${tr("gamemenu.new-save-first", "Save this one first")}</button>` : ""}<button type="button" class="btn hot-btn" data-o="new-go" data-v="0"${off}>${wBusy === "new" ? tr("gamemenu.new-saving", "Saving") : tr("gamemenu.new-begin", "Begin a new world")}</button></div>`);
       }
       async function begin(saveFirst) {
         if (wBusy || state.phase !== "running") return;
@@ -42990,7 +43080,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         }
         const n = pickN ?? (state.perf.particles || "auto");
         pickN = null;
-        close();
+        close(true);
         await newWorld(n);
       }
       function quitRow() {
@@ -43003,7 +43093,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         const running = state.phase === "running";
         return `<nav class="gm-list" aria-label="${tr("gamemenu.list", "Menu")}">` + item("world", tr("gamemenu.back", "Back to the world"), tr("key.esc", "Esc")) + item("save", tr("gamemenu.save", "Save this world"), "", !running) + item("load", tr("gamemenu.load", "Load a world")) + item("new", tr("gamemenu.new", "New world"), "", !running) + item("events", tr("gamemenu.events", "Pool events")) + "<hr>" + item("settings", tr("gamemenu.settings", "Settings"), "V") + item("controls", tr("gamemenu.controls", "Controls"), "?") + item("about", tr("gamemenu.about", "About Tidemote")) + (pwa.can() ? item("install", tr("gamemenu.install", "Install Tidemote")) : "") + (desk ? `<hr>${quitRow()}` : "") + "</nav>";
       }
-      const TITLE = () => ({ worlds: tr("gamemenu.worlds-title", "Save and load"), new: tr("gamemenu.new-title", "New world"), events: tr("gamemenu.events-title", "Pool events"), about: tr("gamemenu.about-title", "About Tidemote"), install: tr("gamemenu.install-title", "Install Tidemote") });
+      const TITLE = () => ({ worlds: tr("gamemenu.worlds-title", "Save and load"), files: tr("gamemenu.files-title", "Open a file"), new: tr("gamemenu.new-title", "New world"), events: tr("gamemenu.events-title", "Pool events"), about: tr("gamemenu.about-title", "About Tidemote"), install: tr("gamemenu.install-title", "Install Tidemote") });
       function header() {
         const x = `<button type="button" class="ghost" data-g="close" aria-label="${tr("gamemenu.close", "Close the menu")}"><svg><use href="#i-close"/></svg></button>`;
         if (page === "root") {
@@ -43018,7 +43108,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         const typing = a?.id === "w-name" ? [a.selectionStart, a.selectionEnd] : null;
         el2.dataset.page = page;
         head.innerHTML = header();
-        setHTML(body, page === "root" ? root_() : `<div class="opts">${page === "worlds" ? worlds_() + worldsFoot() : page === "new" ? new_() : page === "events" ? climate_() : page === "install" ? install_() : about_()}</div>`);
+        setHTML(body, page === "root" ? root_() : `<div class="opts">${page === "worlds" ? worlds_() + worldsFoot() : page === "files" ? files_() : page === "new" ? new_() : page === "events" ? climate_() : page === "install" ? install_() : about_()}</div>`);
         if (at) {
           const sel2 = at.id ? `#${CSS.escape(at.id)}` : at.g ? `[data-g="${at.g}"]` : at.o ? `[data-o="${at.o}"][data-v="${CSS.escape(at.v ?? "")}"]` : null;
           const b = sel2 && el2.querySelector(sel2);
@@ -43038,6 +43128,11 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         if (p2 === "worlds") {
           saves = null;
           refreshSaves();
+        }
+        if (p2 === "files") {
+          files = null;
+          fileAt = -1;
+          refreshFiles();
         }
         body.scrollTop = 0;
         render();
@@ -43061,7 +43156,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         }
         show(p2, at);
       }
-      function close() {
+      function close(toWorld2 = false) {
         if (el2.hidden) return;
         el2.hidden = true;
         page = "root";
@@ -43071,8 +43166,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         clearTimeout(wPoll);
         for (const b of openers2) b.setAttribute("aria-expanded", "false");
         const a = document.activeElement;
+        if (toWorld2) input.panel = null;
         if (a && el2.contains(a)) {
-          if (opener?.isConnected && canFocus(opener)) opener.focus({ preventScroll: true });
+          if (!toWorld2 && opener?.isConnected && canFocus(opener)) opener.focus({ preventScroll: true });
           else a.blur();
         }
         opener = null;
@@ -43082,6 +43178,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           quitAsk = false;
           render();
           el2.querySelector('[data-g="quit"]')?.focus({ preventScroll: true });
+          return;
+        }
+        if (page === "files") {
+          show("worlds", "load");
           return;
         }
         if (page !== "root") {
@@ -43297,6 +43397,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       if (on) {
         fsBtn.hidden = true;
         view.render();
+        padDefault();
       }
     }).catch(() => {
     });
@@ -43349,7 +43450,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     addEventListener("pointerup", sound.unlock, true);
     addEventListener("keydown", sound.unlock, true);
     const inHand = () => works(hand.tool);
+    let toolPicked = false;
     function pickTool(id) {
+      toolPicked = true;
       if (id === hand.tool) id = "none";
       hand.set(id, eng.simTime);
       hear("pick", { tool: hand.tool });
@@ -44010,12 +44113,16 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const input = { way: [0, 0], stick: null, apply: null, lastTool: "loupe", grab: null, panel: null };
     for (const id of ["intro", "card", "gmenu", "help", "settings", "ladder", "bench", "held", "spec", "lab", "dock", "rail"]) $2(id).dataset.navRoot = "";
     const rose = createRose($2("rose"));
-    const FAMILY_NAME = () => ({ xbox: tr("prompts.xbox", "Xbox"), ps: tr("prompts.ps", "PlayStation"), switch: tr("prompts.switch", "Switch"), deck: tr("prompts.deck", "Steam Deck") });
+    const FAMILY_NAME = () => ({ xbox: tr("prompts.xbox", "Xbox"), ps: tr("prompts.ps", "PlayStation"), switch: tr("prompts.switch", "Switch"), deck: tr("prompts.deck", "Steam") });
     let onDeck = false;
     desk?.deck?.().then((v) => {
       onDeck = !!v;
+      if (onDeck) padDefault();
     }).catch(() => {
     });
+    function padDefault() {
+      if (!toolPicked && hand.tool === "loupe") pickTool("none");
+    }
     const padFamily = () => FAMILIES.includes(state.prompts) ? state.prompts : familyOf(pads.id, { steamDeck: onDeck });
     const isText = (t) => t.matches?.("input:not([type=range], [type=checkbox], [type=radio], [type=file], [type=button]), textarea");
     function typeInto(t) {
@@ -44069,7 +44176,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       }
       const k = Math.min(1, dt / 70);
       let tx = aimPt.x, ty = aimPt.y;
-      if (state.follow && sel) {
+      if (state.follow && sel || input.stickPan) {
         tx = mx;
         ty = my;
       } else {
@@ -44504,6 +44611,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       zoom: tr("legend.zoom", "Zoom"),
       adjust: tr("legend.adjust", "Adjust"),
       top: tr("legend.top-bar", "Top bar"),
+      bottom: tr("legend.bottom-bar", "Bottom bar"),
+      world: tr("legend.world", "World"),
       close: tr("legend.close", "Close"),
       done: tr("legend.done", "Done"),
       hint: tr("legend.hint", "Explain")
@@ -44514,12 +44623,15 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         if (input.grab) return [[["LEFT", "RIGHT"], L.adjust], ["S", L.done], ["E", L.done]];
         const a = document.activeElement, root = padRoot();
         const what = isAdjustable(a) ? L.adjust : isTerm(a) ? L.hint : L.choose;
+        const side = ["dock", "rail", "spec", "lab", "bench", "held"].includes(root?.id);
         return [
           ["S", what],
           ["E", L.back],
+          ...side ? [["N", L.world]] : [],
           ...root?.querySelector('[role="tablist"]') ? [[["LB", "RB"], L.tabs]] : [],
           ...root?.id === "bench" ? [["RB", L.close]] : [],
-          ...root?.id === "dock" ? [["UP", L.top]] : []
+          ...root?.id === "dock" ? [["UP", L.top]] : [],
+          ...root?.id === "rail" ? [["DOWN", L.bottom]] : []
         ];
       }
       if (ctx2 === "ride") return [["L", L.steer], ["S", L.hop], ["E", L.off], [["LT", "RT"], L.zoom]];
@@ -44531,7 +44643,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         ["S", L.select],
         ["E", L.back],
         ...sel && !sel.lost ? [["W", L.ride]] : [],
-        ...sidePanel() ? [["N", L.panel]] : [],
+        ["N", sidePanel() ? L.panel : L.bottom],
         ["LB", L.last, L.tools],
         ["RB", L.bench, L.view],
         ["MENU", L.menu],
@@ -44597,6 +44709,8 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       if (!panel && !rose.shown && Math.hypot(P2.left[0], P2.left[1]) > Math.hypot(way[0], way[1])) way = P2.left;
       input.way = way;
       const running = state.phase === "running" && !introUp();
+      input.stickPan = running && !ride.on && way === P2.left && mode.pointer === "pad";
+      if (input.stickPan) padDefault();
       if (running && !ride.on && (way[0] || way[1])) {
         takeOver();
         if (state.follow) {
@@ -44872,6 +44986,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const menu = (() => {
       const el2 = $2("menu"), panel = $2("menu-panel"), tabN = $2("menu-n"), tabW = $2("menu-w"), tabC = $2("menu-c");
       let open = null, saves = null, busy = "", err = "", go = false, startAfter = false;
+      let files = null;
       let whenStarted = null;
       const startedP = new Promise((r) => {
         whenStarted = r;
@@ -44880,13 +44995,13 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const countText2 = () => P2.particles ? kfmt(P2.particles) : measuredN ? kfmt(measuredN) : tr("menu.auto", "Auto");
       const listed = () => (saves || []).filter((m) => m.downloading == null);
       const lastSave = () => listed().find((m) => m.last && openable(m.version) === "ok");
-      const heavy = (n) => measuredN && n > measuredN * 1.4;
+      const heavy = heavyN;
       function nPanel() {
         const off = busy ? " disabled" : "";
         const sizes2 = PARTICLE_SIZES.filter((n) => n <= maxParticles());
         const chip = (v, label3, on, hint2, cls = "") => `<button type="button" class="chip${cls}" data-n="${v}" aria-pressed="${on}" data-hint="${esc2(hint2)}"${off}>${label3}</button>`;
         const autoHint = measuredN ? tr("menu.auto.hint-measured", "As many particles as this GPU can draw smoothly\nMeasured just now: {n, number}", { n: measuredN }) : tr("menu.auto.hint", "As many particles as this GPU can draw smoothly\nMeasured as the world starts");
-        const hint = (n) => heavy(n) ? tr("menu.count.hint-heavy", "{n, plural, other {# particles}}\nMore than this GPU's measured capability ({measured})", { n, measured: kfmt(measuredN) }) : tr("menu.count.hint", "{n, plural, other {# particles}}\nPreference is saved as the default for future world starts", { n });
+        const hint = (n) => heavy(n) ? tr("menu.count.hint-heavy", "{n, plural, other {# particles}}\nMore than this GPU's measured capability ({measured})", { n, measured: kfmt(gpuN()) }) : tr("menu.count.hint", "{n, plural, other {# particles}}\nPreference is saved as the default for future world starts", { n });
         return `<div class="menu-h"><span>${tr("menu.new-world", "Size of new world")}</span><b>${busy === "n" ? tr("menu.seeding", "Seeding") : fmt(eng.count)}</b></div><div class="menu-chips" role="group" aria-label="${tr("menu.particles.aria", "Particles")}">${chip("auto", measuredN ? tr("menu.auto-measured", "Auto <b>{n}</b>", { n: kfmt(measuredN) }) : tr("menu.auto", "Auto"), !P2.particles, autoHint, " auto")}` + sizes2.map((n) => chip(n, kfmt(n), P2.particles === n, hint(n), heavy(n) ? " heavy" : "")).join("") + "</div>" + (err ? `<p class="menu-note"><em>${esc2(err)}</em></p>` : "");
       }
       function row(m) {
@@ -44900,6 +45015,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         const list = saves == null ? `<p class="menu-note">${tr("worlds.reading", "Reading the saved worlds…")}</p>` : ws.length ? `<div class="menu-list">${ws.map(row).join("")}</div>` : `<p class="menu-note">${tr("menu.no-saves", "No saved worlds yet. Save one from the menu (Esc).")}</p>`;
         return `<div class="menu-h"><span>${tr("menu.open-saved", "Open a saved world")}</span><b>${ws.length || ""}</b></div>${list}` + (err ? `<p class="menu-note"><em>${esc2(err)}</em></p>` : "") + `<div class="menu-foot"><span class="lbl">${desk ? tr("menu.kept-computer", "On this computer") : tr("menu.kept-browser", "In this browser")}</span><button type="button" class="btn" data-m="file" data-hint="${tr("menu.file.hint", "Open a .tidemote file\nSaved from the menu")}"${busy ? " disabled" : ""}>${busy === "file" ? tr("menu.opening", "Opening") : tr("menu.file", "Open a file")}</button></div>`;
       }
+      function fPanel() {
+        const list = files == null ? `<p class="menu-note">${tr("files.reading", "Looking for saved-world files…")}</p>` : files.length ? `<div class="menu-list f-list">${fileRows(files, "data-f", busy.startsWith("f:") ? +busy.slice(2) : busy ? -2 : -1)}</div>` : `<p class="menu-note">${NO_FILES()}</p>`;
+        return `<div class="menu-h"><span>${tr("gamemenu.files-title", "Open a file")}</span><b>${files?.length || ""}</b></div>${list}` + (err ? `<p class="menu-note"><em>${esc2(err)}</em></p>` : "") + `<div class="menu-foot"><span class="lbl"></span><button type="button" class="btn" data-m="saves"${busy ? " disabled" : ""}>${tr("menu.back-saves", "Saved worlds")}</button></div>`;
+      }
       function render() {
         $2("menu-n-v").textContent = countText2();
         $2("menu-w-v").textContent = saves == null ? "" : String(listed().length);
@@ -44909,16 +45028,16 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         $2("menu-c-v").textContent = last2 ? fmtDur(last2.simTime) : "";
         if (last2) tabC.dataset.hint = tr("menu.continue.hint", "Continue the last session\n{name}", { name: last2.name });
         tabN.setAttribute("aria-expanded", String(open === "n"));
-        tabW.setAttribute("aria-expanded", String(open === "w"));
+        tabW.setAttribute("aria-expanded", String(open === "w" || open === "f"));
         $2("intro").classList.toggle("menu-open", !!open);
         panel.hidden = !open;
         if (!open) return;
         const at = document.activeElement && panel.contains(document.activeElement) ? document.activeElement.dataset : null;
-        panel.innerHTML = open === "n" ? nPanel() : wPanel();
-        if (at) panel.querySelector(at.n != null ? `[data-n="${at.n}"]` : at.w != null ? `[data-w="${CSS.escape(at.w)}"]` : at.m ? `[data-m="${at.m}"]` : "x")?.focus({ preventScroll: true });
+        panel.innerHTML = open === "n" ? nPanel() : open === "f" ? fPanel() : wPanel();
+        if (at) panel.querySelector(at.n != null ? `[data-n="${at.n}"]` : at.w != null ? `[data-w="${CSS.escape(at.w)}"]` : at.f != null ? `[data-f="${at.f}"]` : at.m ? `[data-m="${at.m}"]` : "x")?.focus({ preventScroll: true });
       }
       function toggle(which) {
-        open = open === which ? null : which;
+        open = open === which || which === "w" && open === "f" ? null : which;
         err = "";
         if (open === "w") refresh();
         render();
@@ -45002,6 +45121,37 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         }
       });
       tabW.addEventListener("click", () => toggle("w"));
+      async function showFiles() {
+        open = "f";
+        files = null;
+        err = "";
+        render();
+        panel.querySelector('[data-m="saves"]')?.focus({ preventScroll: true });
+        try {
+          files = await desk.files.list();
+        } catch {
+          files = [];
+        }
+        if (open !== "f") return;
+        const back2 = document.activeElement?.dataset?.m === "saves";
+        render();
+        if (back2) (panel.querySelector("[data-f]") || panel.querySelector('[data-m="saves"]'))?.focus({ preventScroll: true });
+      }
+      const pickF = (i) => {
+        const f2 = files?.[i];
+        if (!f2) return;
+        take(`f:${i}`, async () => {
+          const got = await desk.files.read(f2.path), bytes = got.buffer.slice(got.byteOffset, got.byteOffset + got.byteLength);
+          let w;
+          try {
+            w = await openWorld(bytes);
+          } catch (x) {
+            throw new Error(tr("flash.open-failed", "Could not open {file}: {why}", { file: `${f2.name}.tidemote`, why: String(x.message || x) }));
+          }
+          await worldStore.put({ ...w.meta, bytes: bytes.byteLength }, bytes);
+          await openIt(w);
+        });
+      };
       $2("begin").addEventListener("click", () => {
         if (!go || introHidden) return;
         if (busy) startAfter = true;
@@ -45012,8 +45162,18 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         if (!b || b.disabled) return;
         if (b.dataset.n != null) pickN(b.dataset.n);
         else if (b.dataset.w != null) pickW(b.dataset.w);
-        else if (b.dataset.m === "file") $2("menu-file").click();
+        else if (b.dataset.f != null) pickF(+b.dataset.f);
+        else if (b.dataset.m === "file") {
+          if (ownFiles) showFiles();
+          else $2("menu-file").click();
+        } else if (b.dataset.m === "saves") toSaves();
       });
+      function toSaves() {
+        open = "w";
+        err = "";
+        refresh();
+        panel.querySelector('[data-m="file"]')?.focus({ preventScroll: true });
+      }
       function start2() {
         startAfter = false;
         if (!go) return;
@@ -45043,6 +45203,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           if (e.key === "Escape") {
             if (!open) return;
             e.preventDefault();
+            if (open === "f") {
+              toSaves();
+              return;
+            }
             const inside = panel.contains(document.activeElement);
             toggle(null);
             if (inside) tabN.focus({ preventScroll: true });
@@ -45065,6 +45229,10 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         // a controller's B in the intro: an open panel closed, focus back on its tab
         back() {
           if (!open) return;
+          if (open === "f") {
+            toSaves();
+            return;
+          }
           const inside = panel.contains(document.activeElement);
           toggle(null);
           if (inside) tabN.focus({ preventScroll: true });
@@ -45235,6 +45403,13 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const S1 = perf.split ? perf.simS / tickCost(2) : perf.simS;
       return perf.renderR + S1 > T2 * (perf.split ? 0.75 : 0.85);
     }
+    let simBoundOn = false;
+    function simBound() {
+      const A = displayFrames() * displayMs(), share2 = perf.simS && perf.renderR ? perf.simS * tickCost(ticksFor(A)) / A : 0;
+      const short = state.phase === "running" && !state.paused && state.speed <= 1 && (perf.slow > 1 || perf.fps > 0 && perf.fps < 0.85 * (1e3 / A));
+      simBoundOn = short && share2 > (simBoundOn ? 0.5 : 0.6);
+      return simBoundOn ? share2 : 0;
+    }
     const SCALES = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
     function resetAdapt() {
       clearFrames();
@@ -45302,7 +45477,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       perf.goodWindows = j.good;
       perf.judged = m / T2;
       const floor = auto ? Math.max(state.perf.floor, filmScale()) : renderScale;
-      const simBound = hasTS && !state.paused && (perf.split ? halfShare() : 1) * perf.simS > 2 * perf.renderR;
+      const simBound2 = hasTS && !state.paused && (perf.split ? halfShare() : 1) * perf.simS > 2 * perf.renderR;
       if (j.behind) {
         perf.why = "frames late";
         const climbed = !!perf.raised && now - perf.raisedAt < 6e3;
@@ -45329,11 +45504,11 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         } else if (autoD && density() > 1.01 && !(film.state === "recording" && filmScale(1) > renderScale)) {
           filmDense = false;
           resizeDue = true;
-        } else if (autoF && slowerFirst({ slow: perf.slow, simBound, lighter })) {
+        } else if (autoF && slowerFirst({ slow: perf.slow, simBound: simBound2, lighter })) {
           perf.slowCeiling = perf.slow;
           perf.slow = Math.min(4, perf.slow + (perf.slow > 1 && m > 2 * T2 ? 2 : 1));
           tuneLog(now, "fps", perf.slow);
-        } else if (tuneSteps(true, now, T2, floor, m > 2 * T2 ? 3 : m > 1.4 * T2 ? 2 : 1, false, autoF && perf.slow > 1 && simBound ? ["neighbors"] : null)) {
+        } else if (tuneSteps(true, now, T2, floor, m > 2 * T2 ? 3 : m > 1.4 * T2 ? 2 : 1, false, autoF && perf.slow > 1 && simBound2 ? ["neighbors"] : null)) {
         } else if (autoF && perf.slow < 4) {
           perf.slowCeiling = perf.slow;
           perf.slow = Math.min(4, perf.slow + (m > 2 * T2 ? 2 : 1));
@@ -47009,6 +47184,7 @@ Tidemote ${SAVE_VERSION} · world time ${fmtClock(eng.simTime)} · ${eng.count} 
         rose,
         padCtx,
         aim,
+        aimPt,
         glyph,
         // the camera moved so that world point (wx, wy) sits under the reticle
         lookAt(wx, wy) {

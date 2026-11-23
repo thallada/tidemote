@@ -14,6 +14,7 @@ import { basename, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { APP_ID, startSteam, stopSteam, status, achieve, onDeck, keyboard } from './steam.js';
 import { worlds, workshop } from './worlds.js';
+import { gamescope, list as listFiles, read as readFile_ } from './files.js';
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 const PAGE_DIR = join(HERE, 'page');
@@ -135,7 +136,12 @@ handleWin('fullscreen:get', (w) => w.isFullScreen());
 // Whether the screen is the window's whatever it asks: under gamescope (a Steam Deck's Game Mode, Steam's gamescope
 // session anywhere, or a game run nested in gamescope), which fills its output with the game's window, full screen or
 // not, so the page hides its full-screen button. Only gamescope sets these; an ordinary desktop never does.
-handle('fullscreen:forced', () => !!process.env.GAMESCOPE_WAYLAND_DISPLAY || process.env.XDG_CURRENT_DESKTOP === 'gamescope');
+handle('fullscreen:forced', gamescope);
+// Saved-world files listed by the page itself where the system's file chooser cannot be used (files.js): own() says
+// where that is (gamescope), list() what there is, read(path) one of them
+handle('files:own', gamescope);
+handle('files:list', listFiles);
+handle('files:read', readFile_);
 handle('app:quit', () => { quitting = true; app.quit(); });
 handle('worlds:list', worlds.list);
 handle('worlds:put', worlds.put);

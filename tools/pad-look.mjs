@@ -316,7 +316,7 @@ else {
   }
   check('A on an option keeps focus on that option (Display and Audio, every option of their rows)', !lost.length, lost.slice(0, 6).join(' | '));
 }
-// chips in a grid (Display's rows of two lines: Microscope, Surface, Controller): the d-pad down and right go to the
+// chips in a grid (Display's rows of two lines: Controller; Microscope and Surface now fit in one): the d-pad down and right go to the
 // chip in line below and beside, never its neighbour
 {
   await T(() => [...document.querySelectorAll('#settings [role="tab"]')].find((x) => /display/i.test(x.textContent))?.click());
@@ -345,7 +345,7 @@ else {
     const at = await T(() => { const a = document.activeElement; return a?.dataset?.o ? `${a.dataset.o}=${a.dataset.v}` : a?.tagName; });
     if (at !== want) wrong.push(`${from} ${dir} → ${at} (not ${want})`);
   }
-  check(`the d-pad in a grid of chips goes to the one in line (${plan.length} moves)`, plan.length > 10 && !wrong.length, wrong.slice(0, 5).join(' | '));
+  check(`the d-pad in a grid of chips goes to the one in line (${plan.length} moves)`, plan.length >= 4 && !wrong.length, wrong.slice(0, 5).join(' | '));
 }
 // a glossary term: A shows its hint, A again hides it
 const hasTerm = await T(() => { const t = [...document.querySelectorAll('#settings .term')].find((x) => x.getBoundingClientRect().height); t?.focus(); return t ? t.dataset.tip || t.dataset.hint || '?' : null; });

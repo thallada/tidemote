@@ -146,7 +146,14 @@ the glyphs say what to press.
 
 A reticle sits at the middle of the open view when the pad is first used, and then keeps its place on the screen as
 panels open and close (clamped inside what they leave open; following a cell, it eases to the middle with the
-camera), so the loupe at it stays on what it was over when a selection opens the specimen panel. Selecting picks the nearest living cell
+camera), so the loupe at it stays on what it was over when a selection opens the specimen panel. While the left stick
+pans it eases back to the middle, wherever a finger or the mouse left it (2026-11-23: a tap on the Deck's screen moved
+the lens, and the stick then panned with the crosshairs off to one side).
+
+The loupe is the mouse's default tool; the stick panning puts it down for Pan (as a phone's finger pans) unless the
+viewer has chosen a tool, and the loupe chosen stays in hand under the stick. Under gamescope or on a Deck the hand
+starts empty (`padDefault`). A browser cannot tell a controller is there before its first button press (the gamepad
+gate), so elsewhere the stick decides. Selecting picks the nearest living cell
 within about 40 px of it (the `selectAt` pick, with a wider radius), so the stick never has to land on a 3 px cell.
 A tool applies at the reticle, so holding South while panning sweeps it through the water (`hand.move` per frame as
 the camera moves). The reticle is drawn as part of the instrument (the composite's `instrument`) so films keep it out,
@@ -171,7 +178,9 @@ like the cursor.
 | LB / RB | Previous / next tab (Settings, Lab, specimen sections) |
 | Right stick | Scroll |
 
-The legend over the dock says which of these applies to what has focus (Choose, Adjust, Explain, Done). It shows for
+The legend over the dock says which of these applies to what has focus (Choose, Adjust, Explain, Done), and the ways
+out: in a side panel or a bar, Y back to the world; in the dock, up to the Top bar; in the rail, down to the Bottom bar.
+In the world, Y names where it goes: the open side panel, else the Bottom bar. It shows for
 four seconds and fades (0.22 s in, 0.3 s out): after any bound button, when what the buttons do changes (a tool, a
 panel, a ride), and when the pad is first taken up; panning and zooming with the sticks and triggers leave it faded,
 and the auto camera hides it. RB in the bench (which has no tabs) closes it, as RB opened it.
@@ -255,7 +264,7 @@ Phase 6 does that, so the first phases needn't touch every guide message.
 2. The `id`'s vendor: `054c` PlayStation, `057e` Switch, `28de` Steam, `045e` or `XInput` Xbox.
 3. Otherwise Xbox-shaped generic glyphs.
 
-Settings → Controls offers "Button prompts: Auto / Xbox / PlayStation / Switch / Steam Deck", because detection
+Settings → Controls offers "Button prompts: Auto / Xbox / PlayStation / Switch / Steam" (the Deck's and the Steam Controller's glyphs), because detection
 fails often enough: Windows' XInput ids carry no vendor, and neither do Proton builds. That's a display choice, not
 rebinding.
 
@@ -286,6 +295,18 @@ which is the same rule as never re-rendering a control under the pointer.
 - Ship the native Linux build to the Deck rather than Windows under Proton, so the pad's id keeps its vendor.
 - The Steamworks setting: Steam Input template "Gamepad", "Any Future Devices", and a recommended configuration for
   every controller type, so nobody is asked to choose. The alternative is a decision below.
+
+## Opening a file on the Deck
+
+Under gamescope (Game Mode) there is no desktop portal, and the GTK file chooser Chromium falls back to for an
+`<input type=file>` opens as a window of its own that gamescope shows but neither touch nor the controller reaches,
+and that cannot be closed (found on a Deck, 2026-11-22). Valve asks that the default controller configuration reach
+everything, and recommends keeping all of it in the game's own window. So there (`files:own`, the same test as
+`fullscreen:forced`) Open a file lists the `.tidemote` files itself (`desktop/files.js`): in Downloads, Documents, the
+Desktop and the home folder, and on a memory card or USB drive (`/run/media/<user>/<label>` and its Downloads and
+Documents), newest first, as rows the pad and touch drive, in the menu's saves (a page, Open a file) and in the
+opening menu's Saved worlds panel. The main process reads only a file it listed. In Desktop Mode, and anywhere else,
+the system's chooser opens as before. `tools/files-check.mjs` drives it with a stand-in bridge.
 
 ## Touch on the Deck
 

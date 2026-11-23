@@ -653,7 +653,7 @@ canvas.chart { cursor: crosshair; }
 
 /* ------------------------------------------------------------------ settings, help */
 .settings {
-  position: absolute; right: calc(var(--gut) + var(--safe-r)); bottom: calc(var(--bot) + 10px); width: 430px; --pad: 14px;
+  position: absolute; right: calc(var(--gut) + var(--safe-r)); bottom: calc(var(--bot) + 10px); width: 480px; --pad: 16px;
   padding: var(--s2) var(--pad) 0; z-index: 6; max-height: calc(100% - var(--top) - var(--bot) - 20px);
   display: flex; flex-direction: column;
 }
@@ -684,15 +684,16 @@ canvas.chart { cursor: crosshair; }
 .settings .grip:is([data-d="ne"], [data-d="sw"]) { cursor: nesw-resize; }
 .settings.placed { right: auto; bottom: auto; }
 body.set-grabbing, body.set-grabbing * { cursor: var(--grab-cursor) !important; user-select: none; -webkit-user-select: none; }
-@container settings (max-width: 340px) {
-  .settings.placed .opt { grid-template-columns: minmax(0, 1fr); gap: var(--s1); }
+@container settings (max-width: 400px) {
+  .settings.placed .opt { grid-template-columns: minmax(0, 1fr); gap: var(--s2); }
+  .settings.placed .opts .ramp { margin-left: 0; }
 }
 .opt .chip:disabled { opacity: .35; cursor: default; }
 /* an Auto choice shows what it is using now: the choice it matches underlined in the sun's color, or, when it
    matches none (a render scale of 60%), its value on the Auto chip, at a fixed width so the row never reflows */
 .opt .auto-now { color: var(--sun); min-width: 3ch; letter-spacing: .04em; font-variant-numeric: tabular-nums; }
 .opt .segs:has(.auto-pick) .auto-now { display: none; }
-.opt .chip.auto-pick:not([aria-pressed="true"]) { box-shadow: inset 0 -2px 0 var(--sun); }
+.opt .chip.auto-pick:not([aria-pressed="true"]) { box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--sun) 60%, transparent); }
 /* Auto below its own lowest (the render scale's emergency step when the GPU is overloaded): red, not the sun's */
 .opt .chip.auto-pick.auto-sos:not([aria-pressed="true"]) { box-shadow: inset 0 -2px 0 var(--hot); }
 .opt .auto-now.auto-sos { color: var(--hot); }
@@ -708,23 +709,36 @@ body.set-grabbing, body.set-grabbing * { cursor: var(--grab-cursor) !important; 
 .readout span { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
 .opts { display: flex; flex-direction: column; margin-top: var(--s4); }
 /* one option: its label in a fixed column, then its choices as one bar filling the rest, so every row's label and
-   bar line up with the next and the eye runs down each. A bar never wraps (an Auto chip's value coming and going
-   would change its height): short of room its chips give up their padding. A bar of many choices (.many) is a
-   grid of even cells over two lines or more. */
+   bar line up with the next and the eye runs down each. Each row is a band of its own, a hairline between it and the
+   next, its label in plain words (the capitals are the section's and the choices'), so a glance finds the row and
+   then its choice. A bar never wraps (an Auto chip's value coming and going would change its height): its choices
+   share it evenly where they fit, a longer one taking what it needs, and short of room they give up their padding. A
+   bar of many choices (.many) is a grid of even cells over two lines or more. */
 .opt { display: grid; grid-template-columns: 9.6em minmax(0, 1fr); gap: var(--s3); align-items: center; }
+.opts .opt { grid-template-columns: 118px minmax(0, 1fr); gap: var(--s3); min-height: 44px; padding: var(--s1) 0; }
+.opts .blk { gap: 0; }
+.opts .blk > .opt + .opt { border-top: 1px solid var(--line-faint); }
 .opt > .lbl { white-space: nowrap; }
+.opts .opt > .lbl { font-size: 13px; line-height: 1.3; letter-spacing: .02em; text-transform: none; font-weight: 400; font-stretch: 100%; color: var(--ink-2); white-space: normal; }
+.opts .opt > .lbl .term { text-decoration-color: rgba(163, 189, 190, 0.35); }
 .opt > .segs { flex-wrap: nowrap; min-width: 0; padding-top: 1px; }
 .opt > .segs .chip { flex: 1 1 auto; min-width: 0; padding: 0 6px; margin-top: -1px; justify-content: center; white-space: nowrap; }
+.opts .opt > .segs:not(.many) { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(max-content, 1fr); }
+.opts .opt > .segs .chip { height: 30px; }
+.opts .opt > .segs:has(> .chip:nth-child(5)) .chip { padding: 0 4px; letter-spacing: .06em; }
 .opt > .segs .chip:has(.auto-now) { gap: 5px; }
 .opt > .segs.many { display: grid; grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); padding-left: 1px; }
 .opt > .segs.many .chip { margin-left: -1px; }
 .opt > .segs.many .chip:has(.auto-now) { grid-column: span 2; }
 .opt > .segs.many:has(.auto-pick) .chip:has(.auto-now) { grid-column: auto; }
 .opt kbd { color: var(--sun); margin-left: var(--s1); }
+.opts .opt > .lbl kbd { color: var(--ink-3); margin-left: 6px; font-size: 10px; }
 /* a touch screen has no keys to show */
 @media (pointer: coarse) { .opt kbd { display: none; } }
-.opts .ramp { margin-left: calc(9.6em + var(--s3)); }
+.opts .ramp { margin-left: calc(118px + var(--s3)); margin-bottom: var(--s2); }
 /* what the page holds back now (under Adaptation): three lines, room for all of it, whatever they say */
+.opts .sim-bound { margin: 0 0 var(--s2); padding: var(--s2) var(--s3); border-left: 2px solid var(--hot); background: rgba(255, 120, 80, 0.06); font-size: 12px; line-height: 1.45; color: var(--ink-2); }
+.opts .sim-bound .link { display: inline; margin-left: .25em; }
 .opts .eased-now { margin: 0; height: 48px; font-size: 12px; line-height: 16px; color: var(--ink-2); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 .vol-row { display: flex; align-items: center; gap: var(--s3); height: 32px; }
 .vol-row input { flex: 1; min-width: 0; height: 24px; }
@@ -1394,11 +1408,18 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 .menu-chips .chip.auto b { color: var(--sun); font-weight: 500; }
 .menu-chips { margin-bottom: var(--s1); }
 /* a count well past what this GPU drew smoothly: a hot tick in its corner */
-.menu-chips .chip.heavy { position: relative; }
-.menu-chips .chip.heavy::after { content: ''; position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; background: var(--hot); opacity: .8; }
+.menu-chips .chip.heavy, .segs .chip.heavy { position: relative; }
+.menu-chips .chip.heavy::after, .segs .chip.heavy::after { content: ''; position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; background: var(--hot); opacity: .8; }
 .menu-note { margin: var(--s3) 0 var(--s1); color: var(--ink-3); font-size: 12px; line-height: 1.45; }
 .menu-note em { font-style: normal; color: var(--sun); }
 .menu-list { max-height: min(232px, 34dvh); overflow-y: auto; margin: 0 calc(-1 * var(--s1)); }
+/* a saved-world file the page lists itself (where the system's chooser cannot be used): its name, then where it is */
+button.f-row { display: flex; flex-direction: column; justify-content: center; gap: 2px; width: 100%; min-height: 52px; padding: var(--s1) var(--s2); border: 0; border-bottom: 1px solid var(--line-faint); background: none; text-align: left; color: inherit; cursor: pointer; }
+button.f-row b { font-weight: 500; font-size: 14px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+button.f-row span { font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+button.f-row:hover:not(:disabled), button.f-row:focus-visible { background: var(--cyan-deep); }
+button.f-row:disabled { cursor: default; opacity: .55; }
+.f-list { max-height: min(360px, 50dvh); overflow-y: auto; }
 .menu-list button.w-row { display: grid; width: 100%; height: 46px; padding: 0 var(--s1); border: 0; border-bottom: 1px solid var(--line-faint); text-align: left; color: inherit; }
 .menu-list button.w-row:hover:not(:disabled), .menu-list button.w-row:focus-visible { background: var(--cyan-deep); }
 .menu-list button.w-row:disabled { cursor: default; opacity: .55; }
@@ -1480,7 +1501,7 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   .spec-id h2 { font-size: 19px; margin: 2px 0; }
   .viewer { height: clamp(104px, calc(22vh - 10px), 176px); }
   .btn { height: 30px; }
-  .settings { width: 400px; --pad: 12px; }
+  .settings { width: 450px; --pad: 14px; }
 }
 @media (max-width: 980px) {
   .dock .tools { display: none; }
@@ -1655,15 +1676,11 @@ canvas.niches { width: 100%; height: 160px; display: block; }
 @media (max-width: 380px) {
   .tabs button { padding: 0 6px; letter-spacing: .06em; }
   .settings .sec-h h2 { display: none; }
-  /* a narrower label column, its labels on two lines where they must, for the choices' room */
-  .opt { grid-template-columns: 8em minmax(0, 1fr); }
-  .opt > .lbl { white-space: normal; line-height: 1.3; }
-  .opts .ramp { margin-left: calc(8em + var(--s3)); }
   .opt > .segs .chip { padding: 0 4px; letter-spacing: .07em; }
 }
-/* the narrowest phones: every row's label over its bar, the bar the panel's width */
-@media (max-width: 340px) {
-  .opt { grid-template-columns: minmax(0, 1fr); gap: var(--s2); padding-top: var(--s1); }
+/* a phone: every row's label over its bar, the bar the panel's width */
+@media (max-width: 520px) {
+  .opt, .opts .opt { grid-template-columns: minmax(0, 1fr); gap: var(--s2); padding: 10px 0; }
   .opts .ramp { margin-left: 0; }
 }
 @media (pointer: coarse) {

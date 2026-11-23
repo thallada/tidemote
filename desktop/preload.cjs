@@ -18,6 +18,9 @@ contextBridge.exposeInMainWorld('tidemoteDesktop', {
   // the app closed (the menu's Quit), and the window about to close (its ✕, Alt+F4): fn() keeps the world first and then
   // calls quit(); a page that never asks is closed at once
   quit: call('app:quit'),
+  // saved-world files where the system's file chooser cannot be used (gamescope): own() -> whether the page lists them
+  // itself, list() -> [{ path, name, where, volume, size, at }], read(path) -> its bytes
+  files: { own: call('files:own'), list: call('files:list'), read: call('files:read') },
   onClosing: (fn) => { ipcRenderer.on('closing', () => fn()); ipcRenderer.send('closing:listen'); },
   // a film written as it is made, into Videos/Tidemote (src/film.js): open(name) -> { id, free }, then
   // write(id, bytes) in order, patch(id, at, bytes), close(id) -> its path

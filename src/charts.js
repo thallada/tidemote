@@ -370,6 +370,7 @@ export const namePlate = (col, name, sub) => `<i style="background:${cssCol(col)
  */
 export function chartPointer(plate, onPick) {
   let hot = null; // the canvas the plate is naming
+  let place = null; // where on it: the point named and the plate, in its px ({ ax, ay, ox, oy })
   const bound = new WeakSet();
   function point(cv, e) {
     const r = cv.getBoundingClientRect();
@@ -390,8 +391,10 @@ export function chartPointer(plate, onPick) {
       let y = touch ? e.clientY - ph - 28 : cv._ch.rows ? e.clientY - ph / 2 : e.clientY - 26;
       // (a chart may hang it from what it names instead: hit.plateAt, in the canvas's px, so it never covers it)
       if (hit.plateAt && !touch) { x = Math.min(r.left + hit.plateAt[0], innerWidth - pw - 8); y = r.top + hit.plateAt[1]; }
-      plate.style.left = `${Math.round(Math.max(8, x))}px`;
-      plate.style.top = `${Math.round(Math.max(8, Math.min(innerHeight - ph - 8, y)))}px`;
+      x = Math.round(Math.max(8, x)); y = Math.round(Math.max(8, Math.min(innerHeight - ph - 8, y)));
+      plate.style.left = `${x}px`;
+      plate.style.top = `${y}px`;
+      place = { ax: e.clientX - r.left, ay: e.clientY - r.top, ox: x - r.left, oy: y - r.top };
     } else plate.hidden = true;
     if ((cv._hot ? cv._hot.key : null) !== prev) cv._ch.redraw();
     return prev;
@@ -422,6 +425,17 @@ export function chartPointer(plate, onPick) {
     });
   }
   document.addEventListener('pointerdown', (e) => { if (hot && e.target !== hot) leave(); }, true);
+  // The panel scrolled under it (a finger, the wheel, a controller's stick): the plate stays with what it names, and goes
+  // once that leaves the panel's view
+  document.addEventListener('scroll', (e) => {
+    const sc = e.target;
+    if (!hot || plate.hidden || !place || !sc.contains?.(hot)) return;
+    const r = hot.getBoundingClientRect(), v = sc.getBoundingClientRect();
+    const ax = r.left + place.ax, ay = r.top + place.ay;
+    if (ax < v.left || ax > v.right || ay < v.top || ay > v.bottom) { leave(); return; }
+    plate.style.left = `${Math.round(r.left + place.ox)}px`;
+    plate.style.top = `${Math.round(r.top + place.oy)}px`;
+  }, true);
   addEventListener('keydown', (e) => { if (e.key === 'Escape' && hot) leave(); }, true);
   join = bind;
   return {
