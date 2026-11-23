@@ -2888,9 +2888,11 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     // i18n: Settings → Performance, under Adaptation, when the page holds nothing back for speed
     const heldWords = () => { const h = heldNow(); return h.length ? h.map(([id, l]) => HELD[id](l)).join(' · ') : tr('settings.perf.held-none', 'Full Quality'); };
     // the world's step holding the frame rate down (simBound): said under Adaptation, with the way to a smaller world
+    // (only where a smaller world can be had: none below the least of the menu's counts)
     let simShown = false;
+    const simWarn = () => (eng.count > PARTICLE_SIZES[0] ? simBound() : 0);
     function simWords() {
-      const share = simBound();
+      const share = simWarn();
       simShown = share > 0;
       // i18n: Settings → Performance, under Adaptation, when the simulation itself limits the frame rate: {n}, this
       // world's particles; <new> a link to the menu's New world
@@ -2973,7 +2975,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       if (tab === 'display') { autoLive(); return; }
       setText('perf-held', heldWords());
       // (the simulation's line, shown or gone as the world's step comes to hold the frame rate or stops: drawn anew)
-      if ((simBound() > 0) !== simShown) { render(); return; }
+      if ((simWarn() > 0) !== simShown) { render(); return; }
       setText('ro-fps', perf.fps ? perf.fps.toFixed(0) : '–');
       setText('ro-ms', perf.gpu ? perf.gpu.toFixed(1) : '–');
       setText('ro-res', pctOf(Math.round(renderScale * 100)));

@@ -42475,8 +42475,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         return h.length ? h.map(([id, l]) => HELD[id](l)).join(" · ") : tr("settings.perf.held-none", "Full Quality");
       };
       let simShown = false;
+      const simWarn = () => eng.count > PARTICLE_SIZES[0] ? simBound() : 0;
       function simWords() {
-        const share2 = simBound();
+        const share2 = simWarn();
         simShown = share2 > 0;
         return simShown ? `<p class="sim-bound" id="perf-sim">${tr("settings.perf.sim-bound", "The simulation itself is limiting the frame rate: simulating this world's {n, plural, other {# particles}} takes most of each frame, and lowering the quality can't fix that. A world with fewer particles will run more smoothly. <new>Begin a new world</new>", { n: eng.count, new: (c) => `<button type="button" class="link" data-o="new-world" data-v="0">${c.join("")}</button>` })}</p>` : "";
       }
@@ -42554,7 +42555,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
           return;
         }
         setText2("perf-held", heldWords());
-        if (simBound() > 0 !== simShown) {
+        if (simWarn() > 0 !== simShown) {
           render();
           return;
         }
