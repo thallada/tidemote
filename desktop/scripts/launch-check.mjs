@@ -122,7 +122,9 @@ async function quitCheck() {
   let app;
   // (a userData of its own: the machine's saves and settings untouched)
   const data = await mkdtemp(join(tmpdir(), 'tidemote-quit-')), worlds = join(data, 'worlds');
-  const launch = () => _electron.launch({ executablePath: exe, args: [...base, `--user-data-dir=${data}`], timeout: 60000 });
+  // (the window's close waits on the page keeping its world longer than a player's 30 s: on a software GPU that takes
+  // about 40 s)
+  const launch = () => _electron.launch({ executablePath: exe, args: [...base, `--user-data-dir=${data}`], env: { ...process.env, TIDEMOTE_CLOSE_WAIT_MS: '300000' }, timeout: 60000 });
   // a world begun (the opening menu waits on Begin, or under automation goes by itself) and run long enough that
   // quitting asks: simulated time more than a second past its start (from: a continued world's saved time). Slowly
   // where the GPU is software: a frame takes about a second there and steps 1/60 s of the world.
@@ -144,7 +146,7 @@ async function quitCheck() {
     await page.reload();
     await begin(page);
     await page.evaluate(() => globalThis.__tidemote.input.act('menu'));
-    const closed = app.waitForEvent('close', { timeout: 120000 }).then(() => true, () => false);
+    const closed = app.waitForEvent('close', { timeout: 360000 }).then(() => true, () => false);
     await page.click('#gmenu [data-g="quit"]');
     r.asked = await page.locator('#gmenu [data-g="quit-save"]').count() > 0;
     const t0 = Date.now();
@@ -166,7 +168,7 @@ async function quitCheck() {
       r.continue = await page2.evaluate(() => !document.getElementById('menu-c').hidden && document.getElementById('menu-c-v').textContent);
       await begin(page2, meta.simTime ?? 0);
       r.sim2 = await page2.evaluate(() => globalThis.__tidemote.eng.simTime);
-      const closed2 = app.waitForEvent('close', { timeout: 120000 }).then(() => true, () => false);
+      const closed2 = app.waitForEvent('close', { timeout: 360000 }).then(() => true, () => false);
       const t1 = Date.now();
       await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
       r.closeExited = await closed2;
