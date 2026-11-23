@@ -3891,8 +3891,8 @@ ${scan ? `  if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K2.colorMix)}); }`
     // why it would: an eater short of sated forages; a producer short of it moves as long as there is light to find
     let need = smoothstep(${f(K2.sated)}, ${f(0.5 * K2.sated)}, fill);
     var urge = select(need * select(1.0, ${f(K2.beatEat)}, ${SENSE.food} != NONE), need * smoothstep(0.0, ${f(K2.beatDark)}, light), g.photo > 0.4);
-    // a hunter near: it flees as hard as it can
-    if (threat) { urge = 1.0; }
+    // a hunter near: it flees as hard as it can; ridden (the hand's will), it works to go where it is steered
+    if (threat || willOn) { urge = 1.0; }
     // (beatAim: heading toward what pulls it, or the urge waits; nothing pulling, it roams)
     ${K2.beatAim ? `if (tree || tail) {
       let pull = ${SENSE.force};
@@ -39647,9 +39647,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "e911633bf4cdd606") return;
+      if (localStorage.getItem(key) === "1159a76c519a476d") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "e911633bf4cdd606");
+      if (res) localStorage.setItem(key, "1159a76c519a476d");
     } catch {
     }
   }
