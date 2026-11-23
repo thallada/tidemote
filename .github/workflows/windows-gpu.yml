@@ -44,10 +44,15 @@ jobs:
         shell: pwsh
         run: Get-CimInstance Win32_VideoController | Format-List Name, DriverVersion, PNPDeviceID, Status | Out-String | ForEach-Object { Write-Output "::notice title=video controllers::$($_ -replace "`r?`n", '%0A')" }
       - name: GPU probe
-        run: node desktop/scripts/gpu-probe.mjs --exe "$OUT/Tidemote.exe" --out gpu-probe
+        run: PROBE_SETS='[[],["--ignore-gpu-blocklist"]]' node desktop/scripts/gpu-probe.mjs --exe "$OUT/Tidemote.exe" --out gpu-probe
+      - name: Launch check
+        if: always()
+        run: node desktop/scripts/launch-check.mjs --exe "$OUT/Tidemote.exe" --out launch-windows --need-gpu --summary "$GITHUB_STEP_SUMMARY"
       - if: always()
         uses: actions/upload-artifact@v7
         with:
           name: gpu-probe
-          path: gpu-probe/
+          path: |
+            gpu-probe/
+            launch-windows/
           if-no-files-found: ignore
