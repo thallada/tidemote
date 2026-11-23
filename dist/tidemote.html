@@ -39570,7 +39570,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     bootTimes.device = Math.round(performance.now());
     let started = false;
     device.lost.then((info) => {
-      if (started && info.reason !== "destroyed") fail(
+      if (started) fail(
         tr("err.device-lost", "The GPU device was lost"),
         // i18n: {why} is the driver's own words (English, from the browser) or err.device-lost.reset
         tr("err.device-lost.detail", "{why} The world running on the device was lost; reload the page to start a new one.", { why: info.message || tr("err.device-lost.reset", "The driver reset the device.") }),

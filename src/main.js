@@ -189,8 +189,10 @@ async function boot(tries = 4) {
     },
   });
   bootTimes.device = Math.round(performance.now());
+  // A device lost once the world has started is shown, whatever its reason: Chromium reports its GPU process dying as
+  // 'destroyed' too, and the world's clock would run on with nothing stepping it. Only boot's own retry destroys it.
   let started = false;
-  device.lost.then((info) => { if (started && info.reason !== 'destroyed') fail(tr('err.device-lost', 'The GPU device was lost'),
+  device.lost.then((info) => { if (started) fail(tr('err.device-lost', 'The GPU device was lost'),
     // i18n: {why} is the driver's own words (English, from the browser) or err.device-lost.reset
     tr('err.device-lost.detail', '{why} The world running on the device was lost; reload the page to start a new one.', { why: info.message || tr('err.device-lost.reset', 'The driver reset the device.') }), [RELOAD]); });
   device.addEventListener('uncapturederror', (e) => console.error('[tidemote]', e.error.message));

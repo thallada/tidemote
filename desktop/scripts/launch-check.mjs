@@ -11,7 +11,8 @@
 //   node desktop/scripts/launch-check.mjs --exe out/Tidemote-linux-x64/Tidemote [--out DIR] [--need-gpu]
 //     [--summary FILE]  appends a Markdown line for the run's summary ($GITHUB_STEP_SUMMARY)
 // On Linux it runs with Ozone's headless platform (no display needed) and without Chromium's sandbox
-// (an unpacked build's chrome-sandbox is not setuid root).
+// (an unpacked build's chrome-sandbox is not setuid root). A world that steps must also still answer a GPU readback
+// (gpuAlive): if Chromium's GPU process dies, the page's device is lost but its clock keeps running.
 import { _electron } from 'playwright-core';
 import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -58,8 +59,14 @@ async function attempt(extra) {
       // what Chromium offers when asked for its fallback (software) adapter, for the record
       let fallback = null;
       try { const f = await navigator.gpu?.requestAdapter({ forceFallbackAdapter: true }); fallback = f ? [f.info?.vendor, f.info?.architecture, f.info?.description].filter(Boolean).join(' / ') || 'unnamed' : 'none'; } catch (e) { fallback = `error: ${e.message}`; }
+      // the GPU still answering once frames have been presented: a readback, as saving a world makes
+      let gpuAlive = null;
+      const d = t?.eng?.device;
+      if (d) {
+        try { const b = d.createBuffer({ size: 16, usage: GPUBufferUsage.MAP_READ }); await b.mapAsync(GPUMapMode.READ); b.destroy(); gpuAlive = true; } catch (e) { gpuAlive = String(e.message || e); }
+      }
       return {
-        origin: location.origin, ua: navigator.userAgent,
+        origin: location.origin, ua: navigator.userAgent, gpuAlive,
         bridge: typeof globalThis.tidemoteDesktop?.worlds?.list === 'function',
         steam: await globalThis.tidemoteDesktop?.steam?.(),
         running: !!t?.eng, stepped: (t?.eng?.simTime ?? 0) > 0,
@@ -106,7 +113,12 @@ async function quitCheck() {
   try {
     app = await launch();
     const proc = app.process();
+    // why a quit did not happen: Chromium's child processes that died (the GPU's) and the page's errors
+    r.gone = []; r.errors = [];
+    await app.evaluate(({ app: a }) => { a.on('child-process-gone', (e, d) => console.log(`tidemote-gone ${JSON.stringify(d)}`)); });
+    proc.stdout.on('data', (d) => { for (const m of String(d).matchAll(/tidemote-gone (\{.*\})/g)) r.gone.push(JSON.parse(m[1])); });
     const page = await app.firstWindow();
+    page.on('console', (m) => { if (m.type() === 'error' && r.errors.length < 10) r.errors.push(m.text().split('\n')[0].slice(0, 300)); });
     await page.waitForLoadState();
     await page.evaluate(() => localStorage.setItem('tidemote.view', JSON.stringify({ particles: 4096, v: 6 })));
     await page.reload();
@@ -145,7 +157,7 @@ async function quitCheck() {
 }
 
 const report = await attempt([]);
-if (report.stepped) report.quit = await quitCheck();
+if (report.stepped && report.gpuAlive === true) report.quit = await quitCheck();
 const problems = [];
 if (report.exception) problems.push(`the app did not start: ${report.exception}`);
 if (report.origin !== 'app://tidemote') problems.push(`page origin ${report.origin}`);
@@ -153,6 +165,7 @@ if (!report.bridge) problems.push('the page has no tidemoteDesktop bridge');
 if (!report.steam?.loaded && !report.steam?.on) problems.push(`the Steam helper did not load steamworks.js: ${report.steam?.why}`);
 if (report.steamInMain) problems.push('the Steam API loaded in the app\'s own process, not only in the helper');
 if (needGpu && !report.stepped) problems.push(`no world stepped: ${report.failed ?? 'started but never stepped'}`);
+if (report.stepped && report.gpuAlive !== true) problems.push(`the world's clock ran but the GPU stopped answering: ${report.gpuAlive}`);
 if (report.running && report.errors?.length) problems.push(`page errors: ${report.errors.join(' | ')}`);
 const q = report.quit;
 if (q && (q.exception || !q.exited || !q.asked || !q.last?.last || !q.last?.file || !q.continue || !q.closeExited || !q.closeKept)) problems.push(`Quit → Save and quit: ${q.exception ?? JSON.stringify(q)}`);
