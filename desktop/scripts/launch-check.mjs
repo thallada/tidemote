@@ -112,11 +112,12 @@ async function quitCheck() {
   const data = await mkdtemp(join(tmpdir(), 'tidemote-quit-')), worlds = join(data, 'worlds');
   const launch = () => _electron.launch({ executablePath: exe, args: [...base, `--user-data-dir=${data}`], timeout: 60000 });
   // a world begun (the opening menu waits on Begin, or under automation goes by itself) and run long enough that
-  // quitting asks: simulated time past a second
-  const begin = async (page) => {
+  // quitting asks: simulated time more than a second past its start (from: a continued world's saved time). Slowly
+  // where the GPU is software: a frame takes about a second there and steps 1/60 s of the world.
+  const begin = async (page, from = 0) => {
     await page.waitForFunction(() => document.getElementById('intro')?.classList.contains('ask') || document.body.classList.contains('live'), null, { timeout: 180000 });
     if (await page.evaluate(() => !document.body.classList.contains('live'))) await page.click('#begin');
-    await page.waitForFunction(() => document.body.classList.contains('live') && globalThis.__tidemote.eng.simTime > 2, null, { timeout: 120000 });
+    await page.waitForFunction((t) => document.body.classList.contains('live') && globalThis.__tidemote.eng.simTime > t, from + 1.25, { timeout: 600000 });
   };
   try {
     app = await launch();
@@ -146,7 +147,7 @@ async function quitCheck() {
       const page2 = await app.firstWindow();
       await page2.waitForFunction(() => !document.getElementById('menu-c')?.hidden || document.body.classList.contains('live'), null, { timeout: 180000 });
       r.continue = await page2.evaluate(() => !document.getElementById('menu-c').hidden && document.getElementById('menu-c-v').textContent);
-      await begin(page2);
+      await begin(page2, meta.simTime ?? 0);
       const closed2 = app.waitForEvent('close', { timeout: 120000 }).then(() => true, () => false);
       await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
       r.closeExited = await closed2;
