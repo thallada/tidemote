@@ -10,10 +10,10 @@
 // app must exit by itself, its world kept as the last session (userData/worlds/w-last.*), in a userData of its own.
 //   node desktop/scripts/launch-check.mjs --exe out/Tidemote-linux-x64/Tidemote [--out DIR] [--need-gpu]
 //     [--summary FILE]  appends a Markdown line for the run's summary ($GITHUB_STEP_SUMMARY)
-// On Linux it runs with Ozone's headless platform (no display needed), without Chromium's sandbox
-// (an unpacked build's chrome-sandbox is not setuid root) and without the GPU watchdog, which killed the GPU process
-// (and with it the page's device) while SwiftShader took its time over the world's shaders. A world that steps must also still answer a GPU readback
-// (gpuAlive): if Chromium's GPU process dies, the page's device is lost but its clock keeps running.
+// On Linux it runs on the X server in DISPLAY (the workflow's xvfb-run) and without Chromium's sandbox (an unpacked
+// build's chrome-sandbox is not setuid root). Ozone's headless platform, used when there is no DISPLAY, has no shared
+// images for a WebGPU canvas: its first frame drops the page's GPU instance. A world that steps must also still
+// answer a GPU readback (gpuAlive), since a lost device leaves its clock running.
 import { _electron } from 'playwright-core';
 import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -31,7 +31,7 @@ const summary = arg('summary');
 if (!exe) throw new Error('--exe PATH to a packaged Tidemote executable');
 
 await mkdir(out, { recursive: true });
-const base = ['--windowed', '--enable-unsafe-swiftshader', ...(process.platform === 'linux' ? ['--ozone-platform=headless', '--no-sandbox', '--disable-gpu-watchdog'] : [])];
+const base = ['--windowed', '--enable-unsafe-swiftshader', ...(process.platform === 'linux' ? [`--ozone-platform=${process.env.DISPLAY ? 'x11' : 'headless'}`, '--no-sandbox'] : [])];
 const gha = !!process.env.GITHUB_ACTIONS;
 // Chromium's child processes that die while the app runs (the GPU's above all), into list
 async function watchGone(app, list) {
