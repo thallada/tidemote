@@ -16,7 +16,10 @@ const { create, globals } = await import('webgpu');
 Object.assign(globalThis, globals);
 const gpu = create([]);
 const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
-const device = await adapter.requestDevice({ requiredLimits: { maxStorageBuffersPerShaderStage: 10 } });
+// (the limits the page asks for, so a world as large as the page's runs: tens of millions of particles want big buffers)
+const lim = adapter.limits;
+const device = await adapter.requestDevice({ requiredLimits: { maxStorageBuffersPerShaderStage: 10,
+  maxStorageBufferBindingSize: Math.min(lim.maxStorageBufferBindingSize, 2 ** 31 - 4), maxBufferSize: Math.min(lim.maxBufferSize, 2 ** 31 - 4) } });
 const { runHeadless } = await import('../src/headless.js');
 const { G_WORDS, FIRST_LIFE, SWAY_BYTES } = await import('../src/shaders.js');
 const { readGenome } = await import('../src/genome.js');
