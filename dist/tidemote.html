@@ -3767,7 +3767,7 @@ ${scan ? "" : "  if (coarse) { vN = sGet2(so + 25u); wN = sGet(so + 27u); wN2 = 
   }
   // a tree's muscles and tissue (beatPull)
   var beatDv = vec2f(0.0);
-  if (beating && !sub) { beatDv = beatPull(i, gr, g.size); }
+  if (beating && !sub) { beatDv = beatPull(i, gr, g.size, p.vel * fr0 - across * (dot(p.vel, across) * (fr0 - frX)), fr0); }
   var vB1 = vec2f(0.0);
   var vB2 = vec2f(0.0);
   if (n1 != NONE) { vB1 = sortedFull[n1].vel; }
@@ -5592,7 +5592,10 @@ fn treeDeg(x: u32) -> f32 {
   return max(2.0, f32(backN(x)) + select(0.0, 1.0, m < sim.count && m != x));
 }
 // One pull a tick, the beat reckoned at the tick's middle (a coarse step's substeps, bodyTick, one each).
-fn beatPull(i: u32, gr: Grow, size: f32) -> vec2f {
+// vD: this cell's velocity after the tick's drag fr0. Along each bond it blends with its partner's velocity after
+// drag too: blended with it in full, an anchored mother and daughter pressed together were held overlapped
+// (docs/growth.md, Pairs that would not part).
+fn beatPull(i: u32, gr: Grow, size: f32, vD: vec2f, fr0: f32) -> vec2f {
   let info = sortedFull[i].info;
   let tm = select(sim.time - 0.5 * sim.dt, sim.time - sim.dt + (f32(subK) + 0.5) * sim.dt / f32(sim.ticks), SUBSTEP);
   // (a tail drives a whole body: it swings tailGain harder)
@@ -5615,7 +5618,10 @@ fn beatPull(i: u32, gr: Grow, size: f32) -> vec2f {
     var slack = smoothstep(1.6, 1.3, length(a) / (${f(0.153)} * size));
     // (beatWill: the bond beats with its two cells' mean will, as both of them reckon it)
     ${K2.beatWill ? "slack *= 0.5 * (willOf(info) + willOf(sortedFull[j].info));" : ""}
-    dv += (treeVel(j) - vi + n * ((si - sj) * slack)) * (2.0 / max(di, treeDeg(j)));
+    // (a mother's drag along the bond taken as fr0, a daughter's)
+    let vj = treeVel(j);
+    let u = vec2f(n.y, -n.x);
+    dv += (n * (dot(vj - vi, n) + (si - sj) * slack) + u * dot(vj * fr0 - vD, u)) * (2.0 / max(di, treeDeg(j)));
   }
   return dv * ${f(K2.beatMix)};
 }
@@ -6224,7 +6230,8 @@ fn bodyTick(@builtin(global_invocation_id) gid: vec3u) {
   var across = vec2f(0.0);
   let arm = treeArm(i);
   if (arm != NONE) { let a = treeRel(i, arm); across = vec2f(-a.y, a.x) / max(length(a), 1e-6); }
-  vel = (vel * fr0 - across * (dot(vel, across) * (fr0 - frX)) + pf.xy * h) * bitcast<f32>(bondsNow[o + 8u]) + fw.zw;
+  let vD = vel * fr0 - across * (dot(vel, across) * (fr0 - frX));
+  vel = (vD + pf.xy * h) * bitcast<f32>(bondsNow[o + 8u]) + fw.zw;
   // bonds (treeBond times as firm as a body's; a tail's base held by an ordinary bond) and bend
   let role = roleOf(p.info);
   let kept = bondsOf(i);
@@ -6248,7 +6255,7 @@ fn bodyTick(@builtin(global_invocation_id) gid: vec3u) {
     bondF += e * ((l - restTo(nb, g.size, role, 1.0)) / max(l, 1e-4));
   }
   vel += ((bondF - baseB) * ${f(K2.treeBond)} + baseB + bendOn(i, gr) * ${f(K2.growStiff)}) * (g.adhesion * ${f(K2.bond)} * h);
-  vel += beatPull(i, gr, g.size);
+  vel += beatPull(i, gr, g.size, vD, fr0);
   if (bondsNow[o + 9u] != 0u) { vel = vel * exp(-${f(K2.dryDrag)} * h) + fw.xy * h; }
   let sp = length(vel);
   if (sp > sim.maxSpeed) { vel *= sim.maxSpeed / sp; }
@@ -39692,9 +39699,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "c62ca5b57f782e70") return;
+      if (localStorage.getItem(key) === "f6819ffa4c72dc3b") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "c62ca5b57f782e70");
+      if (res) localStorage.setItem(key, "f6819ffa4c72dc3b");
     } catch {
     }
   }
@@ -45524,13 +45531,27 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const S1 = perf.split ? perf.simS / tickCost(2) : perf.simS;
       return perf.renderR + S1 > T2 * (perf.split ? 0.75 : 0.85);
     }
-    let simBoundOn = false;
-    function simBound() {
-      const A = displayFrames() * displayMs(), share2 = perf.simS && perf.renderR ? perf.simS * tickCost(ticksFor(A)) / A : 0;
-      const short = state.phase === "running" && !state.paused && state.speed <= 1 && (perf.slow > 1 || perf.fps > 0 && perf.fps < 0.85 * (1e3 / A));
-      simBoundOn = short && share2 > (simBoundOn ? 0.5 : 0.6);
-      return simBoundOn ? share2 : 0;
+    const frameSim = (m) => perf.simS * (m === 1 ? state.perf.split === "off" ? 1 : splitPer() : tickCost(m)) / tickCost(stepTicks());
+    const sim = { on: false, share: 0, since: 0 };
+    function simJudge(now) {
+      if (state.phase !== "running" || state.paused || state.speed > 1) {
+        sim.on = false;
+        sim.since = 0;
+        return;
+      }
+      const A = displayFrames() * displayMs() * (state.perf.fps === "auto" ? 2 : 1);
+      const share2 = perf.simS && perf.renderR ? frameSim(ticksFor(A)) / A : 0;
+      const short = state.perf.fps === "auto" && perf.slow > 2 || perf.fps > 0 && perf.fps < 0.85 * (1e3 / A);
+      const bound = short && share2 > (sim.on ? 0.5 : 0.6);
+      if (bound) sim.share = share2;
+      if (bound === sim.on) sim.since = 0;
+      else if (!sim.since) sim.since = now;
+      else if (now - sim.since >= (sim.on ? 1e4 : 5e3)) {
+        sim.on = bound;
+        sim.since = 0;
+      }
     }
+    const simBound = () => sim.on ? sim.share : 0;
     const SCALES = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
     function resetAdapt() {
       clearFrames();
@@ -45646,8 +45667,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       const best = Object.keys(tune).every((k) => !tuneAuto(k) || tune[k].level === KNOBS[k].levels.length - 1) && (!auto || renderScale >= 1 - 1e-3);
       if (perf.slow > 1 && fasterFirst({ slow: perf.slow, best })) {
         const faster = T2 * (perf.slow - 1) / perf.slow, m2 = ticksFor(faster);
-        const per = m2 === 1 ? state.perf.split === "off" ? 1 : splitPer() : tickCost(m2);
-        const est = hasTS && perf.simS && perf.renderR ? perf.renderR + perf.simS * per / tickCost(stepTicks()) : perf.gpu;
+        const est = hasTS && perf.simS && perf.renderR ? perf.renderR + frameSim(m2) : perf.gpu;
         const fits = (!est || est < faster * 0.75) && perf.frameMain < faster * 0.75;
         if (fits ? !(held && perf.slow - 1 <= perf.slowCeiling) : probeOk) {
           perf.slow--;
@@ -47146,6 +47166,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         if (state.phase === "running") updateHud(now);
       }
       adaptQuality(now);
+      simJudge(now);
       tuneProfile(now);
       const spent = performance.now() - t0;
       perf.mainMs += (spent - perf.mainMs) * 0.1;
