@@ -185,29 +185,49 @@ the four bits of `info` above its generation (`willOf`; the generation now wraps
 moves a branching rhythm). Its beat's amplitude and what the beat costs scale with it: a bond's muscle
 beats with its two cells' mean will (both ends reckon it alike, so the body still cannot push itself),
 and the beat's upkeep (`beatCost` x amplitude x frequency) moves out of the species' metabolism and is
-paid cell by cell as hard as it beats now. At the end of each step (`willWGSL` in `src/shaders.js`):
+paid cell by cell as hard as it beats now. A body beats in **bouts** (`willWGSL` in `src/shaders.js`, at the
+end of each step):
 
 - **What it can spend:** nothing below `beatRest` (0.15) of the energy it divides at, all from twice that.
   A starving body stops and waits.
-- **Why it would beat:** an eater short of sated forages (fully at half of sated), a quarter as hard with
-  food in reach (`beatEat`: it stops to eat); a producer beats with the light, sated or not: fully where
-  a tide band lifts it `beatDark` (0.3) over the open water's ambient light, not at all at the ambient or
-  below, so producers move in the bands and rest between them, in dim seasons and dark eras. (At first a
-  producer beat only short of sated, as an eater does, but the light keeps a producer sated: producer
-  filaments lay still day and night. Then with the light measured from 0, the ambient light, 0.12-0.3,
-  kept them beating at about 60% in the dark: 6% rested.) A hunter in reach (the flee
-  rule's hunters) makes it beat as hard as it can afford, and so does being ridden.
-- **Heading** (`beatAim`, 0 by default): optionally the urge waits on the body heading toward what pulls
+- **Its drive** (0 to 1): an eater short of sated forages (fully at half of sated), a quarter as hard with
+  food in reach (`beatEat`: it stops to eat); a producer goes with the light, sated or not: fully where a
+  tide band lifts it `beatDark` (0.3) over the open water's ambient light, `beatDim` (0.25) at the ambient
+  or below. Times what it can spend.
+- **A leader starts bouts:** a tree's root (no mother), or in another body the cell of lowest id among its
+  partners (one or a few per body; a torn body has a leader in each part). Now and then (`beatKick`, 0.5 a
+  second at full drive, as often as its drive) it starts a bout as strong as its drive, by chance from
+  `beatLift` (0.4) of that to all of it.
+- **The body takes it up:** each cell takes the strongest bout among its bond partners, so a bout runs
+  through the body within a few steps.
+- **Bouts fade** `beatFade` (1.5) fifteenths a second, every cell of the species on the same beats of
+  its clock, so a body rises and falls as one (its cells differ by under 0.01 on average) while each body
+  keeps its own time: a full bout lasts 10 s, a weak one in the dark a second or two.
+- **A hunter in reach** (the flee rule's hunters) sends a cell to full, and its body with it; so does
+  being ridden.
+- **Heading** (`beatAim`, 0 by default): optionally the drive waits on the body heading toward what pulls
   it (its scan's summed force: food, away from hunters); with nothing pulling it roams.
-- **A body agrees:** a cell's will is `beatShare` (0.6) its bond partners' mean, and changes at most
-  `beatRamp` (2) of its range a second, a fifteenth at a time (fractions by chance, so a coarse step and
-  1/60 s steps change it alike on average). A daughter starts with her mother's will.
+
+A daughter starts with her mother's will. (The first version had each cell want to beat as its energy,
+hunger and light said and share that with its partners, stepping toward it: whole groups beat alike and
+stopped together as a band of light passed, and in the light they settled one step under full, 14/15 =
+93%. At first, too, a producer beat only short of sated, as an eater does, but the light keeps a producer
+sated: producer filaments lay still day and night; then with the light measured from 0, the ambient
+light, 0.12-0.3, kept them beating at about 60% in the dark.)
+
+In willlab (32k, seed 2, 10 minutes) bodies of the same species at the same moment rest, beat partway or
+beat fully (at 300 s: 105 resting, 29 partway, 6 full), 30-40% of bodies change between beating and
+resting from one look to the next 30 s later, and 50-80% of beating cells rest overall (most producers lie
+between the tide's bands). The specimen panel tells a beating cell's swing (its species' amplitude at its
+will, in degrees), how many of its body's cells beat, what the beat adds to its upkeep, and its species'
+full swing and how many cells its wave runs crest to crest.
 
 Torpid, stranded or encysted cells rest. The swim, ride and step labs measure muscles at full will
 (`beatWill` 0 by default there); `tools/willlab.mjs` grows a world and reports how beating cells' wills
-are spread, by guild and by energy, and how fast resting and beating cells move.
+are spread, by guild, by energy and by body, and how fast resting and beating cells move;
+`tools/anim/willfilm.mjs` films a saved world with and without it.
 
-In one 16k world (seed 1, 8 minutes), from the third minute on 30-50% of beating cells rest, the rest
+With the first version, in one 16k world (seed 1, 8 minutes), from the third minute on 30-50% of beating cells rest, the rest
 beat partway or fully; the will follows energy (mean 0-0.5 for cells under a quarter of their division
 energy, 0.7-0.9 between a quarter and three quarters, about 0.25 for the sated); cells beating fully move
 0.16-0.24 units/s, resting ones 0.06-0.10 (the currents' drift). Gates, 32 worlds x 30 min at 32k
