@@ -246,13 +246,10 @@ export function createSpecimen(api) {
     // how hard it beats now, of its species' full beat (its will to beat: docs/growth.md, A beat at will), and what
     // that costs it a second (upkeep's beat term, lifeMain)
     if (K.beatWill && beats(g) && p.cause !== CYST) {
-      // (its cost against the rest of its upkeep, as the energy budget tells its other terms; known while it lives)
-      const cost = K.beatCost * K.metab * g.beat[0] * g.beat[1] * p.will, up = mind?.budget ? mind.budget.upkeep - cost : 0;
-      const more = up > 1e-6 ? (100 * cost) / up : -1;
-      // i18n: a beating body's cell now: {p} a percentage of its species' full beat; {more} how much its beat adds to its
-      // upkeep, a percentage ({known} no while it is not known)
-      h += kv(tr('spec.cell.beating', 'Beating'), p.will < 0.1 ? `<span class="nil">${tr('spec.cell.beating.resting', 'resting')}</span>`
-        : tr('spec.cell.beating.value', '{p}% of full{known, select, no {} other { · upkeep +{more}%}}', { p: Math.round(p.will * 100), known: more >= 0 ? 'yes' : 'no', more: more >= 0 ? more.toFixed(more < 10 ? 1 : 0) : '' }), 'beat');
+      // i18n: a beating body's cell now: how far it swings ({deg} degrees, its species' beat at its will) and {p} what
+      // share of its species' full beat that is
+      h += kv(tr('spec.cell.beating', 'Beating'), p.will <= 0 ? `<span class="nil">${tr('spec.cell.beating.resting', 'resting')}</span>`
+        : tr('spec.cell.beating.value', 'swings {deg}° · {p}% of full', { deg: Math.round(g.beat[0] * p.will * 57.3), p: Math.round(p.will * 100) }), 'beat');
     }
     return blk(past ? tr('spec.cell.title-past', 'The cell, last seen') : `<i class="corner cell"></i>${tr('spec.cell.title', 'This cell')}`, h);
   }
@@ -272,6 +269,11 @@ export function createSpecimen(api) {
     if (K.heat && g && (g.thermo || 0) > 0.005) h += kv(tr('spec.budget.heat-making', 'Heat-making'), b ? `<span class="neg">${signed(-b.heatMaking)}/s</span>` : '—', 'heatmaker');
     // i18n: {p} a percentage
     if (g && (1 - g.photo) ** 2 > 0.1) h += kv(tr('spec.budget.gut', 'Gut'), !b ? '—' : b.gut > 0.01 ? tr('spec.budget.gut-full', '{p}% full', { p: Math.round(b.gut * 100) }) : `<span class="nil">${tr('spec.budget.gut-empty', 'empty')}</span>`, 'mind-gut');
+    // (the beat as hard as it beats now, against the rest of its upkeep: docs/growth.md, A beat at will)
+    if (K.beatWill && beats(g)) {
+      const cost = K.beatCost * K.metab * g.beat[0] * g.beat[1] * (p.will || 0), up = b ? b.upkeep - cost : 0;
+      h += kv(tr('spec.budget.beating', 'Beating'), !b ? '—' : cost > 1e-7 && up > 1e-6 ? tr('spec.budget.upkeep-more', 'upkeep +{p}%', { p: ((100 * cost) / up).toFixed(cost / up < 0.001 ? 2 : cost / up < 0.1 ? 1 : 0) }) : none, 'beat');
+    }
     h += kv(tr('spec.budget.lean', 'Saving energy'), !b ? '—' : b.lean < 0.995 ? tr('spec.budget.lean-burns', 'burns {p}% of its upkeep', { p: Math.round(b.lean * 100) }) : none, 'lean');
     // i18n: <net> wraps the figure, colored by its sign
     h += kv(tr('spec.budget.net', 'Net'), b ? tr('spec.budget.net-value', '<net>{rate}/s</net> between meals', { rate: signed(b.net), net: (c) => `<span class="${b.net >= 0 ? 'pos' : 'neg'}">${c.join('')}</span>` }) : '—', 'mind-net');
@@ -299,6 +301,9 @@ export function createSpecimen(api) {
     }
     // a free cell's neighbors are listed under Neighbors; a body's contacts are its own
     // i18n: {n} species it touches
+    // i18n: a beating body: {n} of its {total} cells beat now, {p} how hard on the whole (a percentage of full)
+    if (K.beatWill && beats(g) && o.cells > 1 && o.beating != null) h += kv(tr('spec.org.beating', 'Beating'), o.beating ? tr('spec.org.beating-value', '{n} of {total} cells · {p}% of full', { n: o.beating, total: o.cells, p: Math.round(o.will * 100) })
+      : `<span class="nil">${tr('spec.org.beating-none', 'resting')}</span>`, 'beat');
     if ((g.adhesion || 0) > K.adhMin) h += kv(tr('spec.org.touching', 'Touching'), o.touching ? tr('spec.org.touching-n', '{n} other species', { n: o.touching }) : tr('spec.org.touching-none', 'no other species'), 'touching');
     return blk(past ? tr('spec.org.title-past', 'Its organism, last seen') : `<i class="corner org"></i>${term('organism', tr('spec.org.title', 'Organism'))}`, h);
   }
@@ -427,10 +432,12 @@ export function createSpecimen(api) {
     let m = trait(tr('spec.move.swimming', 'Swimming'), g.swim * (1 - g.photo), 0, 3, (g.swim * (1 - g.photo)).toFixed(2), 'swimming');
     if ((g.adhesion || 0) > K.adhMin) {
       const amp = g.beat?.[0] ?? 0;
-      // i18n: a bonded species' beat: {p} how hard (a percentage of the strongest beat), {hz} how many beats a second
+      // i18n: a bonded species' beat: {deg} how far its cells swing at full beat (degrees), {hz} how many beats a second
       // (hertz); {still} yes when its body cannot move by beating (packed, without tails)
       m += trait(tr('spec.move.beat', 'Beat'), amp, 0, 0.6, amp <= 0.005 ? tr('spec.none', 'none')
-        : tr('spec.move.beat-value', '{p}% · {still, select, yes {holds still} other {{hz} Hz}}', { p: Math.round(amp / 0.6 * 100), hz: (g.beat[1] ?? 0).toFixed(1), still: beats(g) ? 'no' : 'yes' }), 'beat');
+        : tr('spec.move.beat-value', '{deg}° · {still, select, yes {holds still} other {{hz} Hz}}', { deg: Math.round(amp * 57.3), hz: (g.beat[1] ?? 0).toFixed(1), still: beats(g) ? 'no' : 'yes' }), 'beat');
+      // i18n: a beating body's wave: {n} cells from one crest to the next along it (the phase its beat lags cell by cell)
+      if (beats(g)) m += kv(tr('spec.move.beat-wave', 'Beat wave'), tr('spec.move.beat-wave-value', '{n} cells crest to crest', { n: Math.round(6.283 / Math.max(g.beat[2] ?? 0.6, 0.05)) }), 'beat');
     }
     m += trait(tr('spec.move.schooling', 'Schooling'), g.align, 0, 1, `${Math.round(g.align * 100)}%`, 'schooling');
     const pt = g.phototaxis || 0;

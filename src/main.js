@@ -2126,7 +2126,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     // body statistics, measured relative to one cell so wrap-around bodies stay whole
     const ai = index.get(sel.id);
     const rx = ai !== undefined ? X[ai] : sel.particle.x, ry = ai !== undefined ? Y[ai] : sel.particle.y;
-    let cx = 0, cy = 0, eSum = 0, vx = 0, vy = 0;
+    let cx = 0, cy = 0, eSum = 0, vx = 0, vy = 0, beating = 0, willSum = 0;
     const roles = [0, 0, 0];
     const rel = new Float32Array(cells.length * 2);
     cells.forEach((i, k) => {
@@ -2135,6 +2135,10 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       cx += dx; cy += dy;
       eSum += f32[i * PICK_WORDS + 5]; vx += f32[i * PICK_WORDS + 2]; vy += f32[i * PICK_WORDS + 3];
       roles[(u32[i * PICK_WORDS + 9] >> 4) & 3]++;
+      // (its will to beat, docs/growth.md, A beat at will: how many of its cells beat now, and how hard on the whole)
+      const w = (u32[i * PICK_WORDS + 9] >>> 24) & 15;
+      if (w) beating++;
+      willSum += w / 15;
     });
     const m = Math.max(1, cells.length);
     cx /= m; cy /= m;
@@ -2179,7 +2183,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     sel.box = members.size > 1 ? box : null;
     const prev = sel.org;
     const mid = [((rx + cx) % W + W) % W, ((ry + cy) % H + H) % H];
-    sel.org = { cells: members.size, roles, span: span * 2, mid, speed: Math.hypot(vx / m, vy / m), meanE: eSum / m, partial: res.truncated, touching: prev ? prev.touching : 0, at: res.simTime, ms: performance.now() - t0 };
+    sel.org = { cells: members.size, roles, span: span * 2, mid, speed: Math.hypot(vx / m, vy / m), meanE: eSum / m, beating, will: willSum / m, partial: res.truncated, touching: prev ? prev.touching : 0, at: res.simTime, ms: performance.now() - t0 };
     if (sel.orgFirst == null) {
       sel.orgFirst = members.size;
       // the camera moved on to another cell after its subject died, perhaps of another organism of

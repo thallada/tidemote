@@ -2506,22 +2506,25 @@ fn swaySlot2(id: u32, n: u32) -> u32 {
     beatCost: 5e-3,
     // upkeep per unit of beat amplitude (radians) times frequency (Hz)
     // A beat at will (docs/growth.md): 0, a beating body beats always at its genes' amplitude, paying for it in its
-    // upkeep; 1, each cell holds a will to beat (0..1, info's bits 24-27: willOf) that scales its beat's amplitude and
-    // what the beat costs. It wants to beat as it is hungry (an eater short of sated; a producer short of it in the
-    // light), the more so fleeing a hunter, the less with food in reach; it cannot below beatRest of the energy it
-    // divides at (it rests, as through the dark); a body's cells share their will through their bonds (beatShare)
-    // and it changes at most beatRamp of its range a second.
+    // upkeep; 1, each cell holds a will to beat (0..1 in fifteenths, info's bits 24-27: willOf) that scales its beat's
+    // amplitude and what the beat costs. A body beats in bouts: its leader starts one now and then (beatKick a second at
+    // full drive), as strong as its drive (an eater's hunger, a producer's light), by chance from beatLift of that to
+    // all of it; its cells take up the strongest bout among their partners, and bouts fade beatFade fifteenths a second.
     beatWill: 1,
     beatRest: 0.15,
-    // the share of its division energy below which a cell's will fades to rest (over as much again)
+    // the share of its division energy below which a cell cannot beat (over as much again, fully)
     beatEat: 0.25,
-    // what is left of a hungry cell's urge with food in reach (it stops to eat)
+    // what is left of a hungry cell's drive with food in reach (it stops to eat)
     beatDark: 0.3,
-    // a producer beats with the light, fully this far above the open water's ambient, resting at it
-    beatShare: 0.6,
-    // how much of a cell's will is its bond partners' (a body beats as one)
-    beatRamp: 2,
-    // the will's whole range a second, at most
+    // a producer's drive is full this far above the open water's ambient light
+    beatDim: 0.25,
+    // a producer's drive in the dark (at the ambient light or less), a share of full
+    beatKick: 0.5,
+    // the bouts a body's leader starts a second at full drive
+    beatLift: 0.4,
+    // the weakest a bout starts, a share of its leader's drive
+    beatFade: 1.5,
+    // the fifteenths a bout fades a second (a full one lasts 10 s)
     beatAim: 0,
     // how much a body's will waits on heading toward what pulls it (food, away from hunters): 0 none
     bodyHold: 0.3,
@@ -3885,40 +3888,53 @@ ${scan ? `  if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K2.colorMix)}); }`
     return (
       /* wgsl */
       `  if (g.beat.x > 0.0 && bonding && (tree || tails || tail) && kind == p.kind && (info & 15u) != CYST) {
-    // what it has to spend: none below beatRest of its division energy, all from twice that
+    // Bouts (docs/growth.md, A beat at will): a body beats in bouts its leader starts now and then, at random, more
+    // often and harder the more it has reason to swim; its cells take up the strongest bout among their partners, and
+    // every bout fades a level at a time on the species' clock, so a body rises and falls as one, each body in its time.
     let fill = E / divE;
-    var want = smoothstep(${f(K2.beatRest)}, ${f(2 * K2.beatRest)}, fill);
-    // why it would: an eater short of sated forages; a producer moves with the light (sated or not: the light fills it)
-    // and rests in the dark, the open water's ambient light between the tide's bright bands or less
+    // what it can afford: nothing below beatRest of its division energy, all from twice that
+    let afford = smoothstep(${f(K2.beatRest)}, ${f(2 * K2.beatRest)}, fill);
+    // its reason to swim: an eater short of sated forages (less with food in reach: it stops to eat); a producer goes
+    // with the light (sated or not: the light fills it), a little even in the dark (beatDim), fully where a tide band
+    // lifts it beatDark over the open water's ambient light
     let need = smoothstep(${f(K2.sated)}, ${f(0.5 * K2.sated)}, fill);
-    var urge = select(need * select(1.0, ${f(K2.beatEat)}, ${SENSE.food} != NONE), smoothstep(sim.ambient, sim.ambient + ${f(K2.beatDark)}, light), g.photo > 0.4);
-    // a hunter near: it flees as hard as it can; ridden (the hand's will), it works to go where it is steered
-    if (threat || willOn) { urge = 1.0; }
-    // (beatAim: heading toward what pulls it, or the urge waits; nothing pulling, it roams)
+    var drive = select(need * select(1.0, ${f(K2.beatEat)}, ${SENSE.food} != NONE),
+      mix(${f(K2.beatDim)}, 1.0, smoothstep(sim.ambient, sim.ambient + ${f(K2.beatDark)}, light)), g.photo > 0.4) * afford;
+    // (beatAim: heading toward what pulls it, or the drive waits; nothing pulling, it roams)
     ${K2.beatAim ? `if (tree || tail) {
       let pull = ${SENSE.force};
       let arm = treeArm(i);
       if (arm != NONE && dot(pull, pull) > 1e-8) {
         let hd = treeRel(i, arm) * select(-1.0, 1.0, arm == treeMom(i));
         let c = dot(hd, pull) / max(length(hd) * length(pull), 1e-6);
-        urge *= mix(1.0, smoothstep(-0.2, 0.5, c), ${f(K2.beatAim)} * smoothstep(0.0, 0.05, length(pull)));
+        drive *= mix(1.0, smoothstep(-0.2, 0.5, c), ${f(K2.beatAim)} * smoothstep(0.0, 0.05, length(pull)));
       }
     }` : ""}
-    want *= select(urge, 0.0, th.torpid || stranded);
-    // its body's will: its partners' mean
-    var sw = 0.0; var nw = 0.0;
-    if (n1 != NONE) { sw += willOf(sortedFull[n1].info); nw += 1.0; }
-    if (n2 != NONE) { sw += willOf(sortedFull[n2].info); nw += 1.0; }
+    // the strongest bout among its partners, and whether it leads: a tree's root (no mother), or in another body the
+    // cell of lowest id among its partners (one or a few in a body; a body torn in two has a leader in each part)
+    var next = (info >> 24u) & 15u;
+    var lead = !tail && (!tree || n1 == NONE);
+    if (n1 != NONE) { next = max(next, (sortedFull[n1].info >> 24u) & 15u); lead = lead && (tree || p.id < sortedFull[n1].id); }
+    if (n2 != NONE) { next = max(next, (sortedFull[n2].info >> 24u) & 15u); lead = lead && (tree || p.id < sortedFull[n2].id); }
     for (var k = 0u; k < nBack; k++) {
       let nb = backAt(i, k, p, n1, n2);
-      if (nb != NONE) { sw += willOf(sortedFull[nb].info); nw += 1.0; }
+      if (nb != NONE) { next = max(next, (sortedFull[nb].info >> 24u) & 15u); lead = lead && (tree || p.id < sortedFull[nb].id); }
     }
-    if (nw > 0.0) { want = mix(want, sw / nw, ${f(K2.beatShare)}); }
-    let now = (info >> 24u) & 15u;
-    let to = u32(round(clamp(want, 0.0, 1.0) * 15.0));
-    let ds = u32(min(floor(${f(K2.beatRamp * 15)} * sim.dt + rnd(&s)), 15.0));
-    let next = select(max(now, ds) - ds, min(now + ds, to), to > now);
-    info = (info & ~WILL_BITS) | (select(max(next, to), next, to > now) << 24u);
+    // a bout fades beatFade levels a second, every cell of the species on the same beats of its clock
+    let ph = f32(pcgHash(p.kind) & 1023u) / 1024.0;
+    let fade = clamp(floor(sim.time * ${f(K2.beatFade)} + ph) - floor((sim.time - sim.dt) * ${f(K2.beatFade)} + ph), 0.0, 2.0);
+    next -= min(next, u32(fade));
+    // the leader starts a bout now and then (beatKick a second at full drive), as strong as its drive, by chance
+    // between beatLift of that and all of it
+    if (lead && rnd(&s) < ${f(K2.beatKick)} * drive * sim.dt) {
+      next = max(next, u32(round(15.0 * drive * mix(${f(K2.beatLift)}, 1.0, rnd(&s)))));
+    }
+    // a hunter near: it flees as hard as it can, and its body with it; ridden (the hand's will), it works to go where
+    // it is steered
+    if (threat || willOn) { next = 15u; }
+    // what it can afford holds it back, and a torpid or stranded cell rests
+    next = select(min(next, u32(ceil(15.0 * afford))), 0u, th.torpid || stranded);
+    info = (info & ~WILL_BITS) | (next << 24u);
   }
 `
     );
@@ -27863,9 +27879,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       h += kv(tr("spec.cell.generation", "Generation"), fmt(p2.gen), "generation");
       h += kv(tr("spec.cell.speed", "Speed"), fmtLen(Math.hypot(p2.vx, p2.vy), "/s"), "speed");
       if (K2.beatWill && beats(g) && p2.cause !== CYST) {
-        const cost = K2.beatCost * K2.metab * g.beat[0] * g.beat[1] * p2.will, up = mind?.budget ? mind.budget.upkeep - cost : 0;
-        const more2 = up > 1e-6 ? 100 * cost / up : -1;
-        h += kv(tr("spec.cell.beating", "Beating"), p2.will < 0.1 ? `<span class="nil">${tr("spec.cell.beating.resting", "resting")}</span>` : tr("spec.cell.beating.value", "{p}% of full{known, select, no {} other { · upkeep +{more}%}}", { p: Math.round(p2.will * 100), known: more2 >= 0 ? "yes" : "no", more: more2 >= 0 ? more2.toFixed(more2 < 10 ? 1 : 0) : "" }), "beat");
+        h += kv(tr("spec.cell.beating", "Beating"), p2.will <= 0 ? `<span class="nil">${tr("spec.cell.beating.resting", "resting")}</span>` : tr("spec.cell.beating.value", "swings {deg}° · {p}% of full", { deg: Math.round(g.beat[0] * p2.will * 57.3), p: Math.round(p2.will * 100) }), "beat");
       }
       return blk(past ? tr("spec.cell.title-past", "The cell, last seen") : `<i class="corner cell"></i>${tr("spec.cell.title", "This cell")}`, h);
     }
@@ -27879,6 +27893,10 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       if (K2.heat) h += kv(tr("spec.budget.heat-stress", "Heat stress"), !b ? "—" : mind.m.torpid ? tr("spec.budget.torpid", "torpid: burns {p}% of its upkeep", { p: Math.round(K2.torporCost * 100) }) : b.stress > 0.01 ? tr("spec.budget.upkeep-more", "upkeep +{p}%", { p: Math.round(b.stress * 100) }) : none, "thermal");
       if (K2.heat && g && (g.thermo || 0) > 5e-3) h += kv(tr("spec.budget.heat-making", "Heat-making"), b ? `<span class="neg">${signed(-b.heatMaking)}/s</span>` : "—", "heatmaker");
       if (g && (1 - g.photo) ** 2 > 0.1) h += kv(tr("spec.budget.gut", "Gut"), !b ? "—" : b.gut > 0.01 ? tr("spec.budget.gut-full", "{p}% full", { p: Math.round(b.gut * 100) }) : `<span class="nil">${tr("spec.budget.gut-empty", "empty")}</span>`, "mind-gut");
+      if (K2.beatWill && beats(g)) {
+        const cost = K2.beatCost * K2.metab * g.beat[0] * g.beat[1] * (p2.will || 0), up = b ? b.upkeep - cost : 0;
+        h += kv(tr("spec.budget.beating", "Beating"), !b ? "—" : cost > 1e-7 && up > 1e-6 ? tr("spec.budget.upkeep-more", "upkeep +{p}%", { p: (100 * cost / up).toFixed(cost / up < 1e-3 ? 2 : cost / up < 0.1 ? 1 : 0) }) : none, "beat");
+      }
       h += kv(tr("spec.budget.lean", "Saving energy"), !b ? "—" : b.lean < 0.995 ? tr("spec.budget.lean-burns", "burns {p}% of its upkeep", { p: Math.round(b.lean * 100) }) : none, "lean");
       h += kv(tr("spec.budget.net", "Net"), b ? tr("spec.budget.net-value", "<net>{rate}/s</net> between meals", { rate: signed(b.net), net: (c) => `<span class="${b.net >= 0 ? "pos" : "neg"}">${c.join("")}</span>` }) : "—", "mind-net");
       return blk(tr("spec.budget", "Energy budget"), h, { tip: "energy" });
@@ -27899,6 +27917,7 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
         const tot = o.roles[0] + o.roles[1] + o.roles[2] || 1;
         h += comp2(tr("spec.org.cell-types", "Cell types"), "celltype", o.roles.map((c) => c / tot), g, tr("spec.org.cell-types.hint", "Of its {n, plural, other {# cells}}: {mix}.", { n: tot, mix: [0, 1, 2].filter((r) => o.roles[r]).map((r) => `${fmt(o.roles[r])} ${ROLE[r]}`).join(", ") }));
       }
+      if (K2.beatWill && beats(g) && o.cells > 1 && o.beating != null) h += kv(tr("spec.org.beating", "Beating"), o.beating ? tr("spec.org.beating-value", "{n} of {total} cells · {p}% of full", { n: o.beating, total: o.cells, p: Math.round(o.will * 100) }) : `<span class="nil">${tr("spec.org.beating-none", "resting")}</span>`, "beat");
       if ((g.adhesion || 0) > K2.adhMin) h += kv(tr("spec.org.touching", "Touching"), o.touching ? tr("spec.org.touching-n", "{n} other species", { n: o.touching }) : tr("spec.org.touching-none", "no other species"), "touching");
       return blk(past ? tr("spec.org.title-past", "Its organism, last seen") : `<i class="corner org"></i>${term("organism", tr("spec.org.title", "Organism"))}`, h);
     }
@@ -28013,7 +28032,8 @@ ${items.map((s) => `<li>${s}</li>`).join("\n")}
       let m = trait(tr("spec.move.swimming", "Swimming"), g.swim * (1 - g.photo), 0, 3, (g.swim * (1 - g.photo)).toFixed(2), "swimming");
       if ((g.adhesion || 0) > K2.adhMin) {
         const amp = g.beat?.[0] ?? 0;
-        m += trait(tr("spec.move.beat", "Beat"), amp, 0, 0.6, amp <= 5e-3 ? tr("spec.none", "none") : tr("spec.move.beat-value", "{p}% · {still, select, yes {holds still} other {{hz} Hz}}", { p: Math.round(amp / 0.6 * 100), hz: (g.beat[1] ?? 0).toFixed(1), still: beats(g) ? "no" : "yes" }), "beat");
+        m += trait(tr("spec.move.beat", "Beat"), amp, 0, 0.6, amp <= 5e-3 ? tr("spec.none", "none") : tr("spec.move.beat-value", "{deg}° · {still, select, yes {holds still} other {{hz} Hz}}", { deg: Math.round(amp * 57.3), hz: (g.beat[1] ?? 0).toFixed(1), still: beats(g) ? "no" : "yes" }), "beat");
+        if (beats(g)) m += kv(tr("spec.move.beat-wave", "Beat wave"), tr("spec.move.beat-wave-value", "{n} cells crest to crest", { n: Math.round(6.283 / Math.max(g.beat[2] ?? 0.6, 0.05)) }), "beat");
       }
       m += trait(tr("spec.move.schooling", "Schooling"), g.align, 0, 1, `${Math.round(g.align * 100)}%`, "schooling");
       const pt = g.phototaxis || 0;
@@ -39672,9 +39692,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "ab2c9f6f38c71639") return;
+      if (localStorage.getItem(key) === "c62ca5b57f782e70") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "ab2c9f6f38c71639");
+      if (res) localStorage.setItem(key, "c62ca5b57f782e70");
     } catch {
     }
   }
@@ -41758,7 +41778,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       }
       const ai = index.get(sel.id);
       const rx = ai !== void 0 ? X[ai] : sel.particle.x, ry = ai !== void 0 ? Y[ai] : sel.particle.y;
-      let cx = 0, cy = 0, eSum = 0, vx = 0, vy = 0;
+      let cx = 0, cy = 0, eSum = 0, vx = 0, vy = 0, beating = 0, willSum = 0;
       const roles = [0, 0, 0];
       const rel = new Float32Array(cells.length * 2);
       cells.forEach((i, k) => {
@@ -41771,6 +41791,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         vx += f32[i * PICK_WORDS + 2];
         vy += f32[i * PICK_WORDS + 3];
         roles[u32[i * PICK_WORDS + 9] >> 4 & 3]++;
+        const w = u32[i * PICK_WORDS + 9] >>> 24 & 15;
+        if (w) beating++;
+        willSum += w / 15;
       });
       const m = Math.max(1, cells.length);
       cx /= m;
@@ -41820,7 +41843,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
       sel.box = members2.size > 1 ? box : null;
       const prev = sel.org;
       const mid = [((rx + cx) % W3 + W3) % W3, ((ry + cy) % H3 + H3) % H3];
-      sel.org = { cells: members2.size, roles, span: span2 * 2, mid, speed: Math.hypot(vx / m, vy / m), meanE: eSum / m, partial: res.truncated, touching: prev ? prev.touching : 0, at: res.simTime, ms: performance.now() - t0 };
+      sel.org = { cells: members2.size, roles, span: span2 * 2, mid, speed: Math.hypot(vx / m, vy / m), meanE: eSum / m, beating, will: willSum / m, partial: res.truncated, touching: prev ? prev.touching : 0, at: res.simTime, ms: performance.now() - t0 };
       if (sel.orgFirst == null) {
         sel.orgFirst = members2.size;
         const sh = sel.film && director.shot;
