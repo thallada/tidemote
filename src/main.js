@@ -5380,18 +5380,28 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     const S1 = perf.split ? perf.simS / tickCost(2) : perf.simS;
     return perf.renderR + S1 > T * (perf.split ? 0.75 : 0.85);
   }
+  // What a frame of m ticks' step costs, from the step lately measured (perf.simS: a coarse or split step's, 1.1 to
+  // 1.45 times a 1/60 s one's)
+  const frameSim = (m) => perf.simS * (m === 1 ? (state.perf.split === 'off' ? 1 : splitPer()) : tickCost(m)) / tickCost(stepTicks());
   // Whether the world's own step is what holds the frame rate down, so that only a smaller world would help (Settings →
-  // Performance says so under Adaptation): at real time, frames short of the rate aimed for (the adaptation has cut it,
-  // or they run late), and the step a frame of that rate would take filling most of it by the GPU's timestamps (the
-  // drawing, which the adaptation can ease, the rest). On past 60% of the frame, off again under 50%, so the line holds
-  // still. Its share of the frame, or 0.
-  let simBoundOn = false;
-  function simBound() {
-    const A = displayFrames() * displayMs(), share = perf.simS && perf.renderR ? (perf.simS * tickCost(ticksFor(A))) / A : 0;
-    const short = state.phase === 'running' && !state.paused && state.speed <= 1 && (perf.slow > 1 || (perf.fps > 0 && perf.fps < 0.85 * (1000 / A)));
-    simBoundOn = short && share > (simBoundOn ? 0.5 : 0.6);
-    return simBoundOn ? share : 0;
+  // Performance says so under Adaptation): at real time, frames short of the slowest rate the page means to hold (with
+  // Auto's frame rate, half the rate aimed for: what Auto sizes a world for on a GPU short of AUTO_60, calibrate; else
+  // the rate chosen), and the step a frame of that rate takes filling most of it by the GPU's timestamps. On past 60%
+  // of the frame, off under 50%, and shown or hidden only once that has held 5 s or 10 s (simJudge, each frame), so
+  // the line never flickers at the edge. Its share of the frame, or 0.
+  const sim = { on: false, share: 0, since: 0 };
+  function simJudge(now) {
+    if (state.phase !== 'running' || state.paused || state.speed > 1) { sim.on = false; sim.since = 0; return; }
+    const A = displayFrames() * displayMs() * (state.perf.fps === 'auto' ? 2 : 1);
+    const share = perf.simS && perf.renderR ? frameSim(ticksFor(A)) / A : 0;
+    const short = (state.perf.fps === 'auto' && perf.slow > 2) || (perf.fps > 0 && perf.fps < 0.85 * (1000 / A));
+    const bound = short && share > (sim.on ? 0.5 : 0.6);
+    if (bound) sim.share = share;
+    if (bound === sim.on) sim.since = 0;
+    else if (!sim.since) sim.since = now;
+    else if (now - sim.since >= (sim.on ? 10000 : 5000)) { sim.on = bound; sim.since = 0; }
   }
+  const simBound = () => (sim.on ? sim.share : 0);
   // render scales the auto resolution steps between (down to the floor chosen in Settings)
   const SCALES = [1, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.25];
   function resetAdapt() {
@@ -5503,8 +5513,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
     // spare), as a step up is; and like one, taken back if frames run late at once (undoClimb), and held.
     if (perf.slow > 1 && fasterFirst({ slow: perf.slow, best })) {
       const faster = (T * (perf.slow - 1)) / perf.slow, m = ticksFor(faster);
-      const per = m === 1 ? (state.perf.split === 'off' ? 1 : splitPer()) : tickCost(m);
-      const est = hasTS && perf.simS && perf.renderR ? perf.renderR + perf.simS * per / tickCost(stepTicks()) : perf.gpu;
+      const est = hasTS && perf.simS && perf.renderR ? perf.renderR + frameSim(m) : perf.gpu;
       // (and the page's own work a frame, as Android's frame pacing asks of the CPU's: a frame rate held back by the main
       // thread, not the GPU, looked able to climb by the GPU's time alone, and was taken back each time)
       const fits = (!est || est < faster * 0.75) && perf.frameMain < faster * 0.75;
@@ -6959,6 +6968,7 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       if (state.phase === 'running') updateHud(now);
     }
     adaptQuality(now);
+    simJudge(now);
     tuneProfile(now);
     const spent = performance.now() - t0;
     perf.mainMs += (spent - perf.mainMs) * 0.1;
