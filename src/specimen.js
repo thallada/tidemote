@@ -243,8 +243,7 @@ export function createSpecimen(api) {
     if (p.cause !== CYST) h += kv(tr('spec.cell.origin', 'Origin'), CAUSE[p.cause] || tr('spec.cell.origin.founder', 'a founder of this world'), 'origin');
     h += kv(tr('spec.cell.generation', 'Generation'), fmt(p.gen), 'generation');
     h += kv(tr('spec.cell.speed', 'Speed'), fmtLen(Math.hypot(p.vx, p.vy), '/s'), 'speed');
-    // how hard it beats now, of its species' full beat (its will to beat: docs/growth.md, A beat at will), and what
-    // that costs it a second (upkeep's beat term, lifeMain)
+    // how far it swings now, its species' beat at its will to beat (docs/growth.md, A beat at will)
     if (K.beatWill && beats(g) && p.cause !== CYST) {
       // i18n: a beating body's cell now: how far it swings ({deg} degrees, its species' beat at its will) and {p} what
       // share of its species' full beat that is

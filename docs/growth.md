@@ -176,7 +176,7 @@ world or after its growth). Swim lab (12-cell filament and 20-cell tree, five ge
 most within 2%, the extremes 0.41 to 0.46 and 0.24 to 0.21 units/s, none broken. Gates read the same at 1/60 s
 steps and 6 ticks.
 
-### A beat at will (experiment, branch beat-will, 2026-11-23)
+### A beat at will (2026-11-23)
 
 Before, every body of a beating species beat all the time at its genes' amplitude, so a whole species
 wiggled alike wherever it was, fed or starving, by day or night. With `beatWill` (1), each cell of a
@@ -204,58 +204,28 @@ end of each step):
   its clock, so a body rises and falls as one (its cells differ by under 0.01 on average) while each body
   keeps its own time: a full bout lasts 10 s, a weak one in the dark a second or two.
 - **A hunter in reach** (the flee rule's hunters) sends a cell to full, and its body with it; so does
-  being ridden.
-- **Heading** (`beatAim`, 0 by default): optionally the drive waits on the body heading toward what pulls
-  it (its scan's summed force: food, away from hunters); with nothing pulling it roams.
+  being ridden. Torpid, stranded or encysted cells rest. A daughter starts with her mother's will.
 
-A daughter starts with her mother's will. (The first version had each cell want to beat as its energy,
-hunger and light said and share that with its partners, stepping toward it: whole groups beat alike and
-stopped together as a band of light passed, and in the light they settled one step under full, 14/15 =
-93%. At first, too, a producer beat only short of sated, as an eater does, but the light keeps a producer
-sated: producer filaments lay still day and night; then with the light measured from 0, the ambient
-light, 0.12-0.3, kept them beating at about 60% in the dark.)
+What did not work: each cell wanting to beat as its energy, hunger and light said and sharing that with
+its partners made whole groups beat alike and stop together as a band of light passed (and settle one
+step under full in the light, 14/15); a producer beating only short of sated, as an eater does, never
+beat, since the light keeps it sated; and light measured from 0 rather than over the ambient kept
+producers beating in the dark.
 
 In willlab (32k, seed 2, 10 minutes) bodies of the same species at the same moment rest, beat partway or
 beat fully (at 300 s: 105 resting, 29 partway, 6 full), 30-40% of bodies change between beating and
 resting from one look to the next 30 s later, and 50-80% of beating cells rest overall (most producers lie
-between the tide's bands). The specimen panel tells a beating cell's swing (its species' amplitude at its
-will, in degrees), how many of its body's cells beat, what the beat adds to its upkeep, and its species'
-full swing and how many cells its wave runs crest to crest.
+between the tide's bands). Gates (32 worlds x 30 min at 32k): every gated metric the same as the baseline
+at 1 and 6 ticks, and with the pair fix above at 1 tick; paired against the beat always on (`beatWill` 0),
+every share of the living (swimmers, tailed, trees, each guild) higher in 13-18 of 32 worlds, noise.
 
-Gates of bouts (runs/gate-will/bouts, bouts6; 32 worlds x 30 min at 32k): every gated metric the same as the
-baseline at 1 and 6 ticks; paired against the beat always on (`beatWill` 0), every share of the living
-(swimmers, tailed, trees, each guild) higher in 13-18 of 32 worlds, noise.
-
-Torpid, stranded or encysted cells rest. The swim, ride and step labs measure muscles at full will
-(`beatWill` 0 by default there); `tools/willlab.mjs` grows a world and reports how beating cells' wills
-are spread, by guild, by energy and by body, and how fast resting and beating cells move;
-`tools/anim/willfilm.mjs` films a saved world with and without it.
-
-With the first version, in one 16k world (seed 1, 8 minutes), from the third minute on 30-50% of beating cells rest, the rest
-beat partway or fully; the will follows energy (mean 0-0.5 for cells under a quarter of their division
-energy, 0.7-0.9 between a quarter and three quarters, about 0.25 for the sated); cells beating fully move
-0.16-0.24 units/s, resting ones 0.06-0.10 (the currents' drift). Gates, 32 worlds x 30 min at 32k
-(`tools/farm.mjs`), every gated metric the same as the baseline (Holm p >= 0.8) with the will and
-without it (`beatWill` 0) at 1 and 6 ticks; paired, the will moved nothing beyond noise (late 10 minutes,
-medians, share of the living):
-
-| | swimmers | swimmers of 6+ cells | tailed | trees | grazers | predators | scavengers |
-|---|---|---|---|---|---|---|---|
-| 1 tick, `beatWill` 0 | 1.9% | 0.8% | 0.5% | 5.5% | 51% | 15% | 5.2% |
-| 1 tick, `beatWill` 1, producers by hunger | 2.0% | 0.6% | 0.8% | 4.5% | 45% | 14% | 8.2% |
-| 1 tick, `beatWill` 1, producers by light | 2.2% | 0.8% | 0.9% | 6.0% | 48% | 14% | 14% |
-| 6 ticks, `beatWill` 0 | 1.8% | 0.4% | 0.4% | 6.1% | 46% | 12% | 7.4% |
-| 6 ticks, `beatWill` 1, producers by hunger | 2.5% | 0.6% | 0.3% | 4.1% | 50% | 11% | 7.5% |
-| 6 ticks, `beatWill` 1, producers by light | 1.4% | 0.4% | 0.7% | 7.0% | 49% | 15% | 9.3% |
-
-(Each row higher than its pair in 13-19 of 32 worlds, but for the scavengers of producers by light at 1
-tick: 25 of 32, not so at 6 ticks, 16; one of sixteen rows, which chance gives about as often.) Late guilds
-3.47 / 3.25 / 3.56 at 1 tick, 3.22 / 3.31 / 3.44 at 6 ticks (without / by hunger / by light); effective
-species 106 / 105 / 114, 110 / 101 / 100. Producers by light were gated too (runs/gate-will/amb, amb6):
-every gated metric the same as the baseline. In willlab (32k, seed 2) the producers' will swings with the
-light, 50-99% of their cells resting (mean about 70%); `tools/anim/willfilm.mjs` films a saved world with
-and without the will, following the same bodies (`--photo 1` producers only, `--speed 4` to see a band
-pass), and `tools/anim/willfilm.sh` cuts each pair side by side. `beatAim` has not been gated.
+The specimen panel tells a beating cell's swing (its species' amplitude at its will, in degrees), how many
+of its body's cells beat, what the beat adds to its upkeep, and its species' full swing and how many cells
+its wave runs crest to crest; the beating note needs a body's mean will of 0.35 (`TUNE.beatWill`). The swim,
+ride and step labs measure muscles at full will (`beatWill` 0 there); `tools/willlab.mjs` reports how beating
+cells' wills are spread, by guild, by energy and by body, and how fast resting and beating cells move;
+`tools/anim/willfilm.mjs` films a saved world with and without the will, following the same bodies (`--photo 1`
+producers only, `--speed 4` to see a band pass), and `tools/anim/willfilm.sh` cuts each pair side by side.
 
 ## Tails
 

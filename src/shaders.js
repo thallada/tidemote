@@ -249,7 +249,6 @@ export const DEFAULT_K = {
   beatKick: 0.5,    // the bouts a body's leader starts a second at full drive
   beatLift: 0.4,    // the weakest a bout starts, a share of its leader's drive
   beatFade: 1.5,    // the fifteenths a bout fades a second (a full one lasts 10 s)
-  beatAim: 0,       // how much a body's will waits on heading toward what pulls it (food, away from hunters): 0 none
   bodyHold: 0.3,    // with bodyPush, the share of overlap undone each tick by velocity (contact as a constraint)
   bodyGive: 0.85,   // with bodyPush, how far cells may squash against each other first (share of touching; bonds rest at bondTouch)
   bodyPush: 30,     // contactMain: how hard overlapping cells' bodies push apart (units/s² per unit of overlap, summed; 0: off)
@@ -1509,11 +1508,11 @@ ${scan ? `  if (wsum > 0.0) { col = mix(col, csum / wsum, ${f(K.colorMix)}); }` 
 export const senseWords = (K) => (K.diag ? 40 : 34);
 
 // A beat at will (K.beatWill, docs/growth.md): the will to beat a beating body's cell holds in info's bits 24-27
-// (willOf), reckoned at the end of its step: bouts its body's leader starts by chance, as its energy, hunger, light and
-// what is near give it reason, taken up through the bonds and fading on the species' clock (a coarse step fades as
-// many levels as the 1/60 s steps it stands for, and kicks as often). beatPull reads it next step, the bond by its two
-// cells' mean, and the upkeep pays for it.
+// (willOf), reckoned at the end of its step; beatPull reads it next step, the bond by its two cells' mean, and the
+// upkeep pays for it. A coarse step fades as many levels as the 1/60 s steps it stands for, and kicks as often.
 function willWGSL(K) {
+  // a partner x: take up its bout, and lead only below its id (a tree's root leads anyway)
+  const take = (x) => `if (${x} != NONE) { next = max(next, (sortedFull[${x}].info >> 24u) & 15u); lead = lead && (tree || p.id < sortedFull[${x}].id); }`;
   return /* wgsl */ `  if (g.beat.x > 0.0 && bonding && (tree || tails || tail) && kind == p.kind && (info & 15u) != CYST) {
     // Bouts (docs/growth.md, A beat at will): a body beats in bouts its leader starts now and then, at random, more
     // often and harder the more it has reason to swim; its cells take up the strongest bout among their partners, and
@@ -1525,27 +1524,17 @@ function willWGSL(K) {
     // with the light (sated or not: the light fills it), a little even in the dark (beatDim), fully where a tide band
     // lifts it beatDark over the open water's ambient light
     let need = smoothstep(${f(K.sated)}, ${f(0.5 * K.sated)}, fill);
-    var drive = select(need * select(1.0, ${f(K.beatEat)}, ${SENSE.food} != NONE),
+    let drive = select(need * select(1.0, ${f(K.beatEat)}, ${SENSE.food} != NONE),
       mix(${f(K.beatDim)}, 1.0, smoothstep(sim.ambient, sim.ambient + ${f(K.beatDark)}, light)), g.photo > 0.4) * afford;
-    // (beatAim: heading toward what pulls it, or the drive waits; nothing pulling, it roams)
-    ${K.beatAim ? `if (tree || tail) {
-      let pull = ${SENSE.force};
-      let arm = treeArm(i);
-      if (arm != NONE && dot(pull, pull) > 1e-8) {
-        let hd = treeRel(i, arm) * select(-1.0, 1.0, arm == treeMom(i));
-        let c = dot(hd, pull) / max(length(hd) * length(pull), 1e-6);
-        drive *= mix(1.0, smoothstep(-0.2, 0.5, c), ${f(K.beatAim)} * smoothstep(0.0, 0.05, length(pull)));
-      }
-    }` : ''}
     // the strongest bout among its partners, and whether it leads: a tree's root (no mother), or in another body the
     // cell of lowest id among its partners (one or a few in a body; a body torn in two has a leader in each part)
     var next = (info >> 24u) & 15u;
     var lead = !tail && (!tree || n1 == NONE);
-    if (n1 != NONE) { next = max(next, (sortedFull[n1].info >> 24u) & 15u); lead = lead && (tree || p.id < sortedFull[n1].id); }
-    if (n2 != NONE) { next = max(next, (sortedFull[n2].info >> 24u) & 15u); lead = lead && (tree || p.id < sortedFull[n2].id); }
+    ${take('n1')}
+    ${take('n2')}
     for (var k = 0u; k < nBack; k++) {
       let nb = backAt(i, k, p, n1, n2);
-      if (nb != NONE) { next = max(next, (sortedFull[nb].info >> 24u) & 15u); lead = lead && (tree || p.id < sortedFull[nb].id); }
+      ${take('nb')}
     }
     // a bout fades beatFade levels a second, every cell of the species on the same beats of its clock
     let ph = f32(pcgHash(p.kind) & 1023u) / 1024.0;
