@@ -3,7 +3,7 @@
 // same moments, the camera following the same beating bodies (by a cell's id: the bodies of the world as saved, some
 // resting and some beating there, apart); tools/anim/willfilm.sh puts each body's films side by side.
 //   tools/gpu-node.sh tools/anim/willfilm.mjs --world will1 [--n 131072 --mature 1800] --out runs/anim/will/NAME
-//     [--zoom 200] [--secs 12] [--spots 4] [--modes '[["will",{}],["always",{"beatWill":0}]]']
+//     [--zoom 200] [--secs 12] [--spots 4] [--speed 1] [--photo 1: producers' bodies only] [--modes '[["will",{}],["always",{"beatWill":0}]]']
 // The world is grown at Max (with the default tunables) to --mature simulated seconds the first time and kept as
 // runs/anim/worlds/NAME.bin. Each body's frames go to OUT/MODE/spotN with times.json and will.json (the followed body's
 // beating cells each half second: how many rest, beat in part or in full by their will's bits, which only the will's mode
@@ -16,7 +16,7 @@ import { loadBinWorld, saveBinWorld } from '../lib/world.mjs';
 import { cliArgs } from '../lib/args.mjs';
 
 const args = cliArgs();
-const v = { world: 'will1', n: 131072, mature: 1800, out: 'runs/anim/will/x', zoom: 200, secs: 12, spots: 4, pre: 3, w: 960, h: 720,
+const v = { world: 'will1', n: 131072, mature: 1800, out: 'runs/anim/will/x', zoom: 200, secs: 12, spots: 4, pre: 3, speed: 1, photo: 0, w: 960, h: 720,
   html: 'dist/tidemote.html', modes: '[["will",{}],["always",{"beatWill":0}]]', ...args };
 const modes = JSON.parse(v.modes);
 const root = path.resolve('.');
@@ -69,10 +69,10 @@ for (const [mode, k] of modes) {
   }
   await page.evaluate(() => globalThis.__tidemote.setSpeed(1));
   // The beating cells in a circle (the page's own reading: species that beat and bond), with their will.
-  await page.evaluate(() => {
+  await page.evaluate((photo) => {
     globalThis.__beaters = async (at, r) => {
       const T = globalThis.__tidemote, eng = T.eng, beats = new Set();
-      for (const sp of T.life().reg.values()) if (sp.alive && (sp.genome.beat?.[0] ?? 0) > 0.05 && (sp.genome.adhesion || 0) > eng.K.adhMin) beats.add(sp.slot);
+      for (const sp of T.life().reg.values()) if (sp.alive && (sp.genome.beat?.[0] ?? 0) > 0.05 && (sp.genome.adhesion || 0) > eng.K.adhMin && (!photo || sp.genome.photo > 0.4)) beats.add(sp.slot);
       const res = await eng.requestPick(at, r, 0xffffffff, { maxOut: eng.count, raw: true });
       if (!res?.raw) return null; // a pick refused (another in flight)
       const { u32, f32, count } = res.raw, PW = 12, out = [];
@@ -83,7 +83,7 @@ for (const [mode, k] of modes) {
       }
       return out;
     };
-  });
+  }, +v.photo);
   if (!spots) {
     // Spots where beating cells crowd, apart from one another; the same ones for every mode.
     await page.waitForTimeout(+v.pre * 1000);
@@ -136,6 +136,7 @@ for (const [mode, k] of modes) {
       };
       step();
     }, [s.id, s.kind]);
+    await page.evaluate((sp) => globalThis.__tidemote.setSpeed(sp), +v.speed);
     await page.waitForTimeout(1200);
     const dir = path.join(v.out, mode, `spot${n}`); fs.rmSync(dir, { recursive: true, force: true }); fs.mkdirSync(dir, { recursive: true });
     const times = [], will = [];

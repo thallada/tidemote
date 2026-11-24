@@ -218,12 +218,20 @@ medians, share of the living):
 | | swimmers | swimmers of 6+ cells | tailed | trees | grazers | predators | scavengers |
 |---|---|---|---|---|---|---|---|
 | 1 tick, `beatWill` 0 | 1.9% | 0.8% | 0.5% | 5.5% | 51% | 15% | 5.2% |
-| 1 tick, `beatWill` 1 | 2.0% | 0.6% | 0.8% | 4.5% | 45% | 14% | 8.2% |
+| 1 tick, `beatWill` 1, producers by hunger | 2.0% | 0.6% | 0.8% | 4.5% | 45% | 14% | 8.2% |
+| 1 tick, `beatWill` 1, producers by light | 2.2% | 0.8% | 0.9% | 6.0% | 48% | 14% | 14% |
 | 6 ticks, `beatWill` 0 | 1.8% | 0.4% | 0.4% | 6.1% | 46% | 12% | 7.4% |
-| 6 ticks, `beatWill` 1 | 2.5% | 0.6% | 0.3% | 4.1% | 50% | 11% | 7.5% |
+| 6 ticks, `beatWill` 1, producers by hunger | 2.5% | 0.6% | 0.3% | 4.1% | 50% | 11% | 7.5% |
+| 6 ticks, `beatWill` 1, producers by light | 1.4% | 0.4% | 0.7% | 7.0% | 49% | 15% | 9.3% |
 
-(Each row higher than its pair in 13-19 of 32 worlds.) Late guilds 3.47 / 3.25 at 1 tick, 3.22 / 3.31
-at 6 ticks; effective species 106 / 105, 110 / 101. `beatAim` has not been gated.
+(Each row higher than its pair in 13-19 of 32 worlds, but for the scavengers of producers by light at 1
+tick: 25 of 32, not so at 6 ticks, 16; one of sixteen rows, which chance gives about as often.) Late guilds
+3.47 / 3.25 / 3.56 at 1 tick, 3.22 / 3.31 / 3.44 at 6 ticks (without / by hunger / by light); effective
+species 106 / 105 / 114, 110 / 101 / 100. Producers by light were gated too (runs/gate-will/amb, amb6):
+every gated metric the same as the baseline. In willlab (32k, seed 2) the producers' will swings with the
+light, 50-99% of their cells resting (mean about 70%); `tools/anim/willfilm.mjs` films a saved world with
+and without the will, following the same bodies (`--photo 1` producers only, `--speed 4` to see a band
+pass), and `tools/anim/willfilm.sh` cuts each pair side by side. `beatAim` has not been gated.
 
 ## Tails
 
