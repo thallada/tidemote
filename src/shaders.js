@@ -4458,7 +4458,9 @@ fn noteMain(@builtin(global_invocation_id) gid: vec3u) {
   // stranded: on dry ground, the water's level below the floor there (pondWith's depth, without its edge's sway)
   let dry = nu.level < 1.0 && nu.level - blockAt(${MAX_CELLS}u, p.pos) < 0.0;
   atomicStore(&nout[o + 3u], (p.kind & 1023u) | ((p.info & 15u) << 10u) | (((p.info >> 4u) & 3u) << 14u) | (((p.info >> 6u) & 1023u) << 16u)
-    | select(0u, 1u << 26u, (p.info & LITTER) != 0u) | select(0u, 1u << 27u, torpid) | select(0u, 1u << 28u, dry));
+    | select(0u, 1u << 26u, (p.info & LITTER) != 0u) | select(0u, 1u << 27u, torpid) | select(0u, 1u << 28u, dry)
+    // (its will to beat in eighths: the will's bits, docs/growth.md, A beat at will)
+    | (((p.info >> 25u) & 7u) << 29u));
   atomicStore(&nout[o + 4u], pack2x16float(p.vel));
   atomicStore(&nout[o + 5u], pack2x16float(vec2f(min(fed, 60000.0), clamp(x, -60000.0, 60000.0))));
   atomicStore(&nout[o + 6u], partners.x);

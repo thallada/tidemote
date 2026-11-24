@@ -43,6 +43,8 @@ export const TUNE = {
   sprint: 0.25,    // world units a second (about 15 µm/s) from which the fastest in view is told
   beatSway: 0.25,  // world units a second its cells move about a body, from which it is told beating (cells that do
                    // not beat: under 0.15 in nineteen of twenty bodies; beating trees: 0.3–0.37 in half of them)
+  beatWill: 0.35,  // a body's mean will to beat (K.beatWill) from which it is told beating: one resting or barely
+                   // beating, swung by its neighbors or the water, is not (0: every beat counts, as without the will)
   meet: 1 / 3,     // two species meet (a front) only where their grounds overlap over no more than this share of the smaller
   stepped: true,   // a look at the view a step a frame
 };
@@ -87,7 +89,7 @@ const POOL = [{}, {}, {}];
 let poolAt = 0;
 const COLS = [['id', Uint32Array], ['x', Float32Array], ['y', Float32Array], ['vx', Float32Array], ['vy', Float32Array], ['kind', Uint16Array],
   ['cause', Uint8Array], ['role', Uint8Array], ['img', Uint16Array], ['litter', Uint8Array], ['torpid', Uint8Array], ['fed', Float32Array],
-  ['tx', Float32Array], ['p1', Uint32Array], ['p2', Uint32Array], ['dry', Uint8Array]];
+  ['tx', Float32Array], ['p1', Uint32Array], ['p2', Uint32Array], ['dry', Uint8Array], ['will', Uint8Array]];
 
 /**
  * The view's cells from a scan (Engine.onNotes), as columns, with an id -> row index; and its water, square by square
@@ -120,7 +122,7 @@ export function readView(scan, world) {
     const o = NOTE_HEAD + i * NOTE_REC, w = u32[o + 3];
     v.id[i] = u32[o]; v.x[i] = f32[o + 1]; v.y[i] = f32[o + 2];
     v.kind[i] = w & 1023; v.cause[i] = (w >>> 10) & 15; v.role[i] = (w >>> 14) & 3; v.img[i] = (w >>> 16) & 1023;
-    v.litter[i] = (w >>> 26) & 1; v.torpid[i] = (w >>> 27) & 1; v.dry[i] = (w >>> 28) & 1;
+    v.litter[i] = (w >>> 26) & 1; v.torpid[i] = (w >>> 27) & 1; v.dry[i] = (w >>> 28) & 1; v.will[i] = w >>> 29;
     v.vx[i] = half(u32[o + 4] & 0xffff); v.vy[i] = half(u32[o + 4] >>> 16);
     v.fed[i] = half(u32[o + 5] & 0xffff); v.tx[i] = half(u32[o + 5] >>> 16);
     v.p1[i] = u32[o + 6]; v.p2[i] = u32[o + 7];
@@ -622,11 +624,12 @@ export class Notes {
       }
       // A beating body: an organism whose beat plainly moves it, a wave running down it (its genome's beat): a tree or a
       // body with tails (a packed body without tails holds still whatever its beat gene), its cells swinging about it
-      // well past the jostle of cells that do not beat (sway).
+      // well past the jostle of cells that do not beat (sway), and beating now (its will: a body at rest, swung by its
+      // neighbors or the water, is not told beating).
       let bt = null;
       for (const b of this._bodies(v)) {
         const g = this.sp(b.kind);
-        if (!g || !(g.beat > 0) || !(g.tree || g.tail) || b.n < 3 || b.sway < this.T.beatSway || !ctx.inner(b.ax, b.ay)) continue;
+        if (!g || !(g.beat > 0) || !(g.tree || g.tail) || b.n < 3 || b.sway < this.T.beatSway || b.will < this.T.beatWill || !ctx.inner(b.ax, b.ay)) continue;
         if (!bt || b.n > bt.n) bt = b;
       }
       if (bt) {
@@ -875,7 +878,10 @@ export class Notes {
       const l1 = trace / 2 + disc, l2 = Math.max(trace / 2 - disc, 1e-9), elong = Math.sqrt(l1 / l2);
       // (and how hard its cells move about it: their speeds against the body's own, a beat's swing)
       let s2 = 0;
-      for (const i of rows) s2 += (v.vx[i] - vx) ** 2 + (v.vy[i] - vy) ** 2;
+      let w8 = 0;
+      for (const i of rows) { s2 += (v.vx[i] - vx) ** 2 + (v.vy[i] - vy) ** 2; w8 += v.will[i]; }
+      // (and how hard they mean to beat: their will, in eighths, as a share of full)
+      const will = w8 / (7 * rows.length);
       const size = 2 * Math.sqrt(far), speed = Math.hypot(vx, vy), sway = Math.sqrt(s2 / n);
       const ids = rows.map((i) => v.id[i]);
       // its key: the one it had while it held any of these cells (the one it shared most with), else its first cell's
@@ -885,7 +891,7 @@ export class Notes {
       if (key == null || keys.has(key)) { let lo = ids[0]; for (const id of ids) if (id < lo) lo = id; key = `${v.kind[rows[0]]}.${lo}`; }
       keys.add(key);
       for (const id of ids) cells.set(id, key);
-      list.push({ kind: v.kind[rows[0]], ids, n, anchor: v.id[anchor], ax: v.x[anchor], ay: v.y[anchor], size, speed, sway,
+      list.push({ kind: v.kind[rows[0]], ids, n, anchor: v.id[anchor], ax: v.x[anchor], ay: v.y[anchor], size, speed, sway, will,
         lengths: speed / Math.max(size, 0.05), heading: Math.atan2(vy, vx), key,
         form: elong >= 3.5 ? 'filament' : n >= 20 && elong < 1.8 ? 'mat' : n >= 8 ? 'colony' : 'cluster' });
     }

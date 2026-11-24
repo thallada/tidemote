@@ -6370,7 +6370,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       // cells a beat moves: a packed body without tails holds still whatever its beat gene)
       beat: g.beat?.[0] ?? 0, beatHz: g.beat?.[1] ?? 0, tree: !!growPlan(g, K), tail: hasTails(g, K) } : null;
   };
-  const notes = new Notes({ species: noteSp, world: () => eng.grid });
+  // (without the will to beat, K.beatWill 0, its bits stay as they were: every beat counts)
+  const notes = new Notes({ species: noteSp, world: () => eng.grid, tune: K.beatWill ? {} : { beatWill: 0 } });
   // the notes drawn by WebGPU into the world's frame (src/gpunotes.js): an overlay canvas, rasterized afresh each frame
   // on the browser's GPU process, held up the world's frames behind it (docs/annotations.md, What it costs); the
   // overlay keeps a view of its own for the subject's line under its plate

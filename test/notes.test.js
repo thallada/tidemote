@@ -33,7 +33,7 @@ function scan(cells, { simTime = 10, tick = 600, rect = [0, 0, 100, 100], grid =
   cells.forEach((c, i) => {
     const o = NOTE_HEAD + i * NOTE_REC;
     u[o] = c.id; f[o + 1] = c.x; f[o + 2] = c.y;
-    u[o + 3] = c.kind | ((c.cause ?? 9) << 10) | ((c.img ?? 0) << 16) | ((c.torpid ? 1 : 0) << 27) | ((c.dry ? 1 : 0) << 28);
+    u[o + 3] = c.kind | ((c.cause ?? 9) << 10) | ((c.img ?? 0) << 16) | ((c.torpid ? 1 : 0) << 27) | ((c.dry ? 1 : 0) << 28) | ((c.will ?? 7) << 29);
     u[o + 4] = halfOf(c.vx ?? 0) | (halfOf(c.vy ?? 0) << 16);
     u[o + 5] = halfOf(c.fed ?? 0.5) | (halfOf(c.tx ?? 0) << 16);
     u[o + 6] = c.p1 ?? NONE; u[o + 7] = c.p2 ?? NONE;
@@ -457,4 +457,7 @@ test('a beating body is told only when its beat plainly moves it: a tree or tail
   assert.equal(beat(swinging(Eel, 0.1)), undefined);
   // a packed body with the gene but no tails: its beat moves nothing, whatever its cells do
   assert.equal(beat(swinging(Lump, 0.4)), undefined);
+  // swinging hard but at rest (its will to beat a seventh): swung by its neighbors or the water, it is not beating
+  assert.equal(beat(swinging(Eel, 0.4).map((c) => ({ ...c, will: 1 }))), undefined);
+  assert.ok(beat(swinging(Eel, 0.4).map((c) => ({ ...c, will: 4 }))));
 });

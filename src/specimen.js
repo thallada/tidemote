@@ -1,4 +1,4 @@
-import { roleShares, roleColor, affinity, CELL_SHAPES, cellShape, thermalPerf, thermalGuild, divEnergy, growPlan, describeGrowth } from './genome.js';
+import { roleShares, roleColor, affinity, CELL_SHAPES, cellShape, thermalPerf, thermalGuild, divEnergy, growPlan, describeGrowth, hasTails } from './genome.js';
 import { FIRST_LIFE } from './engine.js';
 import { FRAMBOID, CYST, stoneGrain } from './shaders.js';
 import { tagsOf } from './facets.js';
@@ -192,6 +192,9 @@ export function createSpecimen(api) {
   tagsEl.addEventListener('click', expandTags);
   tagsEl.addEventListener('keydown', expandTags);
   const blk = (title, html, opts) => block(title, html, opts);
+  // Whether a species' beat moves it: it bonds and its bodies grow as trees or bud tails (a packed body without
+  // tails holds still whatever its beat gene; a single cell has no bonds to beat along)
+  const beats = (g) => !!g && (g.adhesion || 0) > K.adhMin && (g.beat?.[0] ?? 0) > 0.005 && (!!growPlan(g, K) || hasTails(g, K));
   const vital = (label, frac, cls, text, tip) => `<div class="vital"><span>${tip ? term(tip, label) : label}</span>${meter(frac, cls)}<b>${text}</b></div>`;
   // How warm a cell is against its species' range: a needle on a cold-to-hot scale running two
   // tolerances either side of its optimum, over the band where it works at its best.
@@ -240,6 +243,17 @@ export function createSpecimen(api) {
     if (p.cause !== CYST) h += kv(tr('spec.cell.origin', 'Origin'), CAUSE[p.cause] || tr('spec.cell.origin.founder', 'a founder of this world'), 'origin');
     h += kv(tr('spec.cell.generation', 'Generation'), fmt(p.gen), 'generation');
     h += kv(tr('spec.cell.speed', 'Speed'), fmtLen(Math.hypot(p.vx, p.vy), '/s'), 'speed');
+    // how hard it beats now, of its species' full beat (its will to beat: docs/growth.md, A beat at will), and what
+    // that costs it a second (upkeep's beat term, lifeMain)
+    if (K.beatWill && beats(g) && p.cause !== CYST) {
+      // (its cost against the rest of its upkeep, as the energy budget tells its other terms; known while it lives)
+      const cost = K.beatCost * K.metab * g.beat[0] * g.beat[1] * p.will, up = mind?.budget ? mind.budget.upkeep - cost : 0;
+      const more = up > 1e-6 ? (100 * cost) / up : -1;
+      // i18n: a beating body's cell now: {p} a percentage of its species' full beat; {more} how much its beat adds to its
+      // upkeep, a percentage ({known} no while it is not known)
+      h += kv(tr('spec.cell.beating', 'Beating'), p.will < 0.1 ? `<span class="nil">${tr('spec.cell.beating.resting', 'resting')}</span>`
+        : tr('spec.cell.beating.value', '{p}% of full{known, select, no {} other { · upkeep +{more}%}}', { p: Math.round(p.will * 100), known: more >= 0 ? 'yes' : 'no', more: more >= 0 ? more.toFixed(more < 10 ? 1 : 0) : '' }), 'beat');
+    }
     return blk(past ? tr('spec.cell.title-past', 'The cell, last seen') : `<i class="corner cell"></i>${tr('spec.cell.title', 'This cell')}`, h);
   }
 
@@ -411,6 +425,13 @@ export function createSpecimen(api) {
     b += kv(tr('spec.body.shape', 'Shape'), CELL_SHAPES[cellShape(g, role)], 'size');
     h += blk(tr('spec.body', 'Body'), b);
     let m = trait(tr('spec.move.swimming', 'Swimming'), g.swim * (1 - g.photo), 0, 3, (g.swim * (1 - g.photo)).toFixed(2), 'swimming');
+    if ((g.adhesion || 0) > K.adhMin) {
+      const amp = g.beat?.[0] ?? 0;
+      // i18n: a bonded species' beat: {p} how hard (a percentage of the strongest beat), {hz} how many beats a second
+      // (hertz); {still} yes when its body cannot move by beating (packed, without tails)
+      m += trait(tr('spec.move.beat', 'Beat'), amp, 0, 0.6, amp <= 0.005 ? tr('spec.none', 'none')
+        : tr('spec.move.beat-value', '{p}% · {still, select, yes {holds still} other {{hz} Hz}}', { p: Math.round(amp / 0.6 * 100), hz: (g.beat[1] ?? 0).toFixed(1), still: beats(g) ? 'no' : 'yes' }), 'beat');
+    }
     m += trait(tr('spec.move.schooling', 'Schooling'), g.align, 0, 1, `${Math.round(g.align * 100)}%`, 'schooling');
     const pt = g.phototaxis || 0;
     // i18n: {p} a percentage; {dir} whether it swims toward the light or away from it
