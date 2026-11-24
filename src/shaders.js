@@ -1365,7 +1365,7 @@ ${scan ? '' : '  if (coarse) { vN = sGet2(so + 25u); wN = sGet(so + 27u); wN2 = 
   }
   // a tree's muscles and tissue (beatPull)
   var beatDv = vec2f(0.0);
-  if (beating && !sub) { beatDv = beatPull(i, gr, g.size); }
+  if (beating && !sub) { beatDv = beatPull(i, gr, g.size, p.vel * fr0 - across * (dot(p.vel, across) * (fr0 - frX)), fr0); }
   var vB1 = vec2f(0.0);
   var vB2 = vec2f(0.0);
   if (n1 != NONE) { vB1 = sortedFull[n1].vel; }
@@ -3139,7 +3139,10 @@ fn treeDeg(x: u32) -> f32 {
   return max(2.0, f32(backN(x)) + select(0.0, 1.0, m < sim.count && m != x));
 }
 // One pull a tick, the beat reckoned at the tick's middle (a coarse step's substeps, bodyTick, one each).
-fn beatPull(i: u32, gr: Grow, size: f32) -> vec2f {
+// vD: this cell's velocity after the tick's drag fr0. Along each bond it blends with its partner's velocity after
+// drag too: blended with it in full, an anchored mother and daughter pressed together were held overlapped
+// (docs/growth.md, Pairs that would not part).
+fn beatPull(i: u32, gr: Grow, size: f32, vD: vec2f, fr0: f32) -> vec2f {
   let info = sortedFull[i].info;
   let tm = select(sim.time - 0.5 * sim.dt, sim.time - sim.dt + (f32(subK) + 0.5) * sim.dt / f32(sim.ticks), SUBSTEP);
   // (a tail drives a whole body: it swings tailGain harder)
@@ -3160,7 +3163,10 @@ fn beatPull(i: u32, gr: Grow, size: f32) -> vec2f {
     let sj = beatSpeed(gr, size, genOf(sortedFull[j].info), tm, ph) * tg;
     // a joint pulled well past its rest goes slack: its muscle lets go
     let slack = smoothstep(1.6, 1.3, length(a) / (${f(0.153)} * size));
-    dv += (treeVel(j) - vi + n * ((si - sj) * slack)) * (2.0 / max(di, treeDeg(j)));
+    // (a mother's drag along the bond taken as fr0, a daughter's)
+    let vj = treeVel(j);
+    let u = vec2f(n.y, -n.x);
+    dv += (n * (dot(vj - vi, n) + (si - sj) * slack) + u * dot(vj * fr0 - vD, u)) * (2.0 / max(di, treeDeg(j)));
   }
   return dv * ${f(K.beatMix)};
 }
@@ -3769,7 +3775,8 @@ fn bodyTick(@builtin(global_invocation_id) gid: vec3u) {
   var across = vec2f(0.0);
   let arm = treeArm(i);
   if (arm != NONE) { let a = treeRel(i, arm); across = vec2f(-a.y, a.x) / max(length(a), 1e-6); }
-  vel = (vel * fr0 - across * (dot(vel, across) * (fr0 - frX)) + pf.xy * h) * bitcast<f32>(bondsNow[o + 8u]) + fw.zw;
+  let vD = vel * fr0 - across * (dot(vel, across) * (fr0 - frX));
+  vel = (vD + pf.xy * h) * bitcast<f32>(bondsNow[o + 8u]) + fw.zw;
   // bonds (treeBond times as firm as a body's; a tail's base held by an ordinary bond) and bend
   let role = roleOf(p.info);
   let kept = bondsOf(i);
@@ -3793,7 +3800,7 @@ fn bodyTick(@builtin(global_invocation_id) gid: vec3u) {
     bondF += e * ((l - restTo(nb, g.size, role, 1.0)) / max(l, 1e-4));
   }
   vel += ((bondF - baseB) * ${f(K.treeBond)} + baseB + bendOn(i, gr) * ${f(K.growStiff)}) * (g.adhesion * ${f(K.bond)} * h);
-  vel += beatPull(i, gr, g.size);
+  vel += beatPull(i, gr, g.size, vD, fr0);
   if (bondsNow[o + 9u] != 0u) { vel = vel * exp(-${f(K.dryDrag)} * h) + fw.xy * h; }
   let sp = length(vel);
   if (sp > sim.maxSpeed) { vel *= sim.maxSpeed / sp; }

@@ -157,6 +157,25 @@ bend, swim lab, 12 genotypes at 3, 5 and 12 cells, 6 ticks). Reckoning the step 
 partners' start, as before, a fitted gain kept 12-cell filaments near their speed but drove small bodies
 too hard and tore them, and the fastest beaters made a quarter of their speed.
 
+### Pairs that would not part (2026-11-24)
+
+Cells of an anchored beating tree (Skyqueo troudrora: advect 0.21, so a holdfast, keeping 44% of its motion a
+1/60 s tick along its branch and 2% across it) sat in mother-daughter pairs nearly on top of each other and
+whirled. With its genome put into a 70k world's most numerous producer, 230-313 pairs stayed under 0.3 radii apart
+for the whole 10-25 s measured (252 among cells born after 3 minutes of its own growth).
+
+The cause was `beatPull`'s tissue term: each bond's cells took a share of their velocity difference reckoned before
+the tick's drag and added after it. Contact parts an overlapping pair by velocity; each cell then took on a quarter
+of its partner's push in full, though the partner's drag (2% left, for a mother moving across her branch) took it
+away. The pair's separating speed came out about -0.28 of contact's, drawing them back together each tick. With
+`beatMix` 0 no pair lasted, nor with `holdfast` 1 (2); `beatGain` 0 (230) and `growStiff` 0 (287) did not help.
+
+Along each bond a cell now blends with its partner's velocity after drag (`fr0`; a mother's drag along the bond is
+taken as a daughter's), less its own after drag; across it the muscles act as tuned. No pair lasts (in the swapped
+world or after its growth). Swim lab (12-cell filament and 20-cell tree, five genes, 1/60 s steps and 4 ticks):
+most within 2%, the extremes 0.41 to 0.46 and 0.24 to 0.21 units/s, none broken. Gates read the same at 1/60 s
+steps and 6 ticks.
+
 ## Tails
 
 A packed body (a mat or a clump, not a tree) can grow tails, as a colonial protist grows flagella or a
