@@ -222,6 +222,10 @@ between the tide's bands). The specimen panel tells a beating cell's swing (its 
 will, in degrees), how many of its body's cells beat, what the beat adds to its upkeep, and its species'
 full swing and how many cells its wave runs crest to crest.
 
+Gates of bouts (runs/gate-will/bouts, bouts6; 32 worlds x 30 min at 32k): every gated metric the same as the
+baseline at 1 and 6 ticks; paired against the beat always on (`beatWill` 0), every share of the living
+(swimmers, tailed, trees, each guild) higher in 13-18 of 32 worlds, noise.
+
 Torpid, stranded or encysted cells rest. The swim, ride and step labs measure muscles at full will
 (`beatWill` 0 by default there); `tools/willlab.mjs` grows a world and reports how beating cells' wills
 are spread, by guild, by energy and by body, and how fast resting and beating cells move;
