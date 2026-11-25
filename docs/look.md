@@ -38,7 +38,7 @@ haze, bubbles, ice, the dry floor, duckweed) and the maps, so a specimen reads c
 | Display, after the gamma curve | `lookGrade` (`lookDisplay` over the water's view) | contrast, black (the darks pressed down), saturation, dye density, grain |
 
 The edge effects read the scene four times a pixel or more apart, so they fade in from 25 to 70 pixels per world
-unit (cells several pixels across) and their reach grows with zoom to 3 px; where the optics blur the image they fade
+unit (cells several pixels across) and their reach grows with zoom to 1.5 px; where the optics blur the image they fade
 by how far it is spread (Stone, below: the look's edges). Under a full light or heat map the grade
 is mostly held back so the map reads true (`lookDisplay`); the close-up has no maps or field stop, so it takes
 the scene light, the tone curve and the whole grade. The shallow focus and the iris need the optics (the Microscope on).
@@ -85,6 +85,9 @@ waves add to it, so their passing can be gentler than the edges (one `dof` scale
 Until 2026-11 the depth was a value noise fixed in the world, unrelated to anything seen: cells blurred
 in patches, sharp ones right at the edge beside soft ones in the middle.
 
+Silt and husks take exactly the blur a cell at the same place takes: the waves' and the rim's (a permanent blur of
+the floor's matter, tried in 2026-11, kept them soft whatever the waves did and went).
+
 ## How it was chosen
 
 Real micrographs were the reference (Wikimedia Commons: darkfield Spirogyra and Volvox, a darkfield water flea,
@@ -107,6 +110,92 @@ by ±35 % chroma; so they move together under Microscope, with grain alone set a
 
 What it costs (RTX 2080 SUPER, 2560×1440 at scale 1, a 256k world; `tools/perf/plans/look.json`): the composite pass
 takes 0.1 to 0.3 ms more (2 to 5 % of a GPU frame of about 6.1 ms), most at 150 px per unit; off, nothing measurable.
+
+## Cells
+
+A resolved cell is drawn as darkfield shows a live one (`cellColor` in DRAW_WGSL, 2026-11): only what scatters light.
+Measured against 35 darkfield micrographs, real cells have a hairline outline that drops straight to black, a dim,
+translucent inside full of sparkles (a few points near white among many faint ones), big smooth organelles dark and
+small ones ringed, and pigment in bodies set in from the wall; the cells as they were drawn were opaque, evenly
+filled, embossed (a dome lit from the upper left, the nucleus and organelles as bumps and hollows) and outlined by a
+thick soft glow, which read as clay or plastic. So (the membrane and the dark body from where a cell first has a shape,
+2.8 pixels a radius, the insides' first points from 5.6 and the nucleus from 7, the rest from about 12, `interiorLOD`):
+
+- The membrane is a thin bright line just inside the outline (1.2% of the radius, never under a pixel), mostly a
+  pale, cool white with some of the species' color. It is bright on the flank toward `TO_LIGHT` and fades to almost
+  nothing on the far one (the square of the flank, every cell lit from the same side), brighter and dimmer in stretches
+  along it (a triangle wave of the cell's own frame), and close up wider where it is brighter (0.7 to 1.3 of itself);
+  a cyst's or a calcified cell's wall doubled (a second, fainter line inset), a new species' brighter. Where a cell is
+  pressed flat against a neighbor the line lies on the outline itself and each cell draws the half on its side, so a
+  shared wall in tissue is one line (two parallel lines with a seam between read as stacked stickers). It is drawn
+  from 2.8 pixels a radius, where the sprite gives way to the cell's shape, in the lean pipeline too.
+- What the line gives, the haze pays for over the whole cell, by the plan's outline against its area (`bodyEdge`, a
+  table per plan at 8 and 18 pixels, calibrated by the render test; vsPoint packs it above the area it hands the
+  fragment, `geom.y`, so no fragment switches on the plan). The light holds as cells resolve: within 15% of the distant
+  sprite for every plan up to 18 px.
+- A small cell is a bright ring round a dark middle. From 2.8 px a radius to 7 the line takes the body's light until
+  the body is down to its floor (0.2 of the even fill unpigmented, 0.3 pigmented), its share of the whole by the plan's
+  outline again (`bodyEdge`, recalibrated for it by the render test's ratios at 8 and 18 px), so the light holds
+  exactly while the body darkens. While the cell is small the line is mostly the species' own color (85%), turning to
+  the pale cool white (45%) as its insides resolve, and the dark body keeps its tint, so species still part by color
+  at mid zoom. From 5.6 px a radius the ring hands a share of it (`SMALL_POINTS`, 0.45 of the body's light above its
+  floor, by 10 px) to the insides' coarsest points (below), and as the granules show (from 22 px a radius to 40) the
+  rest, the body staying at its floor through the hand-over (its floor eased from the small cell's to the granules':
+  `bodyFloor`).
+- A small cell's insides are the granules seen from further off (`coarseGranules`): coarser octaves of the same
+  lattice, 2 a radius from 5.6 px (where its cells are 2.8 px), 4 from 11 to 16 and 8 from 22 to 32 (each handing
+  over as its own cells grow from 5.6 to 8 px), so the few points a small cell shows split into more as it grows and
+  become the granules. Half their light is an even haze and half is drawn into a point in every lattice cell (never under
+  about a pixel and a half across, set at random in it, its brightness an even draw squared: most dim, a few bright),
+  still and in the body's color. Every lattice cell holds the same light, so a small cell's light hardly strays: with a
+  few heavy-tailed points (the granules' own draw) it strayed past the render test's 15%, and with the light in soft
+  blobs in every lattice cell they read as a regular mesh at 340 px a unit.
+- The inside's light, close up, is its granules. They carry all of the cytoplasm's light but a faint floor: 0.12 of
+  the fill in an unpigmented cell, whose floor turns a dim cool grey so the species' color is in its granules and its
+  line; 0.25 in a pigmented one, whose floor keeps its color (a try raised these to 0.3 and 0.5 and the close-up turned to
+  opaque pastel plates; the dark see-through body read better). The floor thins to 0.6 of itself in a large
+  cell (26 to 130 px). The granules lie on a hashed lattice in the cell's own frame (`q`, its stretch along its length
+  undone so they are round: stretched, the plastids of the pale producers at the `3-husks` spot, which are living cells
+  and not husks, read as glossy streaks; they ride with the cell and never slide across it; `granules`, one hash a
+  lattice cell), its rows bent by a slow triangle wave, two lattice cells in three holding a granule of one of three
+  kinds: specks (half), soft round dots whose brightness is a steep draw (u⁸: most near invisible, a few bright, the
+  brighter the smaller, the very brightest near white); vesicles (3 in 100), rings with dark middles from 0.22 to 0.44
+  of a lattice cell; blobs out of focus (15 in 100), broad, soft and dim, kept inside their lattice cell (cut off by
+  its sides, they showed straight edges). Most take the body's color; one in twelve is warm (golden) and one in twelve
+  cool. They crowd in clusters and bands (two triangle waves across the cell at odd angles) that mottle the floor too,
+  and leave a clearer margin inside the wall, its light the floor's (what the margin leaves out, the line's share above
+  gives back, by the plan's outline again). Their size follows the magnification: a lattice of 8 a radius, doubling
+  (16, 32, 64) each time a lattice cell grows past 9 pixels, the next (turned against it, so the two never line up; a
+  lattice keeps its turn as it passes from finer to coarser) taking over by 12, so zooming in resolves finer granules,
+  as a microscope does, rather than enlarging the same ones. Specks jiggle on the real clock (triangle waves, no
+  sines); a cyst's and a dead cell's hold still. In a pigmented cell the specks are its plastids, broader and evener,
+  in its pigment, so producers glow with their color while eaters read darker and cooler.
+- The nucleus is a dim hollow, from 7 px a radius (its outline from 12), visible mostly because the granules stop at it: its haze halved, a faint dust of
+  granules through it, its edge soft and wavering by the cell's seed, a faint outline; pinched in two only while a bud
+  is still joined to the cell. Vacuoles and pyrenoids are rings with dark middles, an eater's first vacuole
+  contractile (swelling over 8 s, snapping shut); a meal's food vacuole a ring. Hairs and a tail glow faintly, pale.
+
+Only optics blur a cell: the lens's soft rim and the shallow focus (Shallow focus, above). (For a while one cell in
+four, picked by its seed, was drawn a little out of focus, a softer edge and fewer granules; with no cause in the
+optics it read as arbitrary, and went.)
+
+From mid zoom, before 2026-11-24, cells under 22 px a radius were an even, flat fill in their color with a line, and
+the close-up's dim body and points came in abruptly as they grew: flat and pastel beside the close-up. A first answer
+put a few points in small cells (three triangle waves peaking together) and lifted the close-up's floor to meet
+them: the mid zoom read as polka-dotted pastel fills and the close-up went milky, for 4-6% of the scene pass. Now the
+ring carries a small cell's light, as darkfield shows one, and the close-up keeps its dark body. Then the ring
+shares it with the coarse points above from 5.6 px, so the insides last out until a cell is a few pixels across.
+
+The look's relief (DIC) embossed the voids and granules on top of it and was turned from 0.4 to 0.12, and its rims
+from 0.45 to 0.3, so the post rim and the cell's own line do not add up to a thick glow (this softens stone's edge
+light in the composite a little too). Its four-tap edges (`lookScene`) gave every point of light a cross of colored
+fringes, a game's sparkle or holographic foil. They are read at most 1.5 px apart (3 until 2026-11-24: a granule a
+few pixels across got its cross well clear of it), and a point of light (brighter than all four taps, with little
+gradient) takes neither the rims nor the fringes (they lit every faint granule into a busy glitter and ringed each in
+color); Darkfield's rainbow rims went from 0.4 to 0.3 and its fringes from 0.2 to 0.1. (Taking the diagonals on every
+other pixel, a checkerboard, gave points a ring instead of a cross but every edge a pixel-scale salt.)
+`tools/celllab.mjs` photographs the same cells before and after; `~/.cache/tidemote-refs` holds the micrographs and
+`stats.py`, which measures both.
 
 ## Stone
 
@@ -177,7 +266,10 @@ and the look, and stone was added after them, so it took neither. Now:
   or from the living (both in focus, in front), and only the share of a pixel the living leave bare takes it: the
   taps once gathered cells too, which spread each cell's light over the pile round it as a wide speckled fringe in
   its color (seen on an M1 and on Windows alike, there since the pile blur came in), where over water a cell keeps
-  its thin rim and its bloom. The living's share comes from their own layer (`liveTex`, `coverAt`), not the scene's
+  its thin rim and its bloom. A tap is left out wherever anything is drawn (the scene's alpha): weighed by what the
+  living leave bare (until 2026-11), a cell's antialiased edge, where its bright hairline lies, still gave up to a
+  quarter of the line's light, scattered over the stone about small crisp cells at mid zoom as speckles in their
+  color; and only bare stone takes the pile's blur, not the trails a moving cell leaves over it. The living's share comes from their own layer (`liveTex`, `coverAt`), not the scene's
   alpha, which holds the matter drawn as points too (husks, silt, sprites; bonds): read from the scene's alpha, a
   husk's faint outline over a blurred grain stayed sharp by its share and left the taps, a crisp dashed ring round
   nothing in particular. Matter keeps the rule it had (blurred where it covers under half the pixel, gathered by the
@@ -369,6 +461,21 @@ a pixel.
   colors, the one thing the colors are for. AgX alone, at full: bright cells run to pastel; it is mixed in at a quarter.
 - A skirt of biofilm beyond a grain's outline, softening it over the water (the edge pass and every quad would have
   to reach further), and glass grains seen through to what lies beneath (the stone targets hold the top grain alone).
-- Texture inside cells laid in world space: it would slide across moving cells (the shower-door effect).
+- Texture inside cells laid in world space: it would slide across moving cells (the shower-door effect). Cells' granules
+  are laid in each cell's own frame instead (Cells, above).
 - Hot pixels, fixed-pattern noise, rolling shutter, interlacing, compression, mains flicker, auto-exposure
   hunting: a real camera's faults, but they read as faults of the viewer's screen or as a broken page.
+
+## Trails
+
+Settings → Display → Trails keeps a fading share of the last frames (`settings.trails`: Short 0.45 a 60 Hz frame,
+the default; Long 0.7; Exposure 0.88), carried with the camera (`fsReproj`). With the cells' light in a hairline and
+specks, each frame's copy of a moving cell stayed sharp in the history, and its wake was a comb of outlines and a
+trail of dots at each frame's place. So with trails on (the view's flag 2) the scene a cell writes, where it covers a
+pixel whole, is its even fill (fsPointLive), and its line and insides go only to the living alone, which the composite
+lays over the scene wherever they cover it (overCells): a cell in place shows exactly what it shows without trails,
+and a moving one leaves a smooth smear of its light, as a long exposure does (at Exposure a pale band of its color,
+as before the granules). For a while (2026-11) the history was spread instead, four diagonal taps 1.5 px out every frame:
+the wake was smooth, but everything still was low-passed again every frame, and far out, where cells are dots and
+splats, the whole view turned blurrier and up to twice as bright about a second after it came to rest (the composite
+divides light by coverage, and spread coverage divides less). The history is carried unspread again, one tap.

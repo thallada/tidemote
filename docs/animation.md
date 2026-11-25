@@ -40,7 +40,7 @@ draw. The buffer has `min(n, 2^20)` slots of `SWAY_BYTES`: only cells in view ne
 | Bite (a producer) | A notch is taken out of its side toward the biter and heals; it flinches (`BITE_T`). | `cellColor` |
 | Meal (an animal) | It lunges and swells a little; a food vacuole forms at its front and drifts inward as it is digested (`GULP_T`, `DIGEST_T`). | `animScale`, `cellColor` |
 | Mother giving birth | Drawn out toward her daughter for a moment. | the squash spring |
-| Cyst / waking | It curls up by degrees: its outline rounds into a disc of the same area and stops flowing, its wall thickens, it grays; waking reverses it (`SLEEP_T`). A cell woken in view does not flash as a birth. | `cellOutline` (`rest`), `spriteOf` |
+| Cyst / waking | It curls up by degrees: its outline rounds into a disc of the same area and stops flowing, its wall doubles and its granules hold still, it grays; waking reverses it (`SLEEP_T`). A cell woken in view does not flash as a birth. | `cellOutline` (`rest`), `spriteOf` |
 | Husk eaten or rotted away | It shrinks and fades into the grain of silt it leaves (`EATEN_T`). | `spriteOf` |
 | Husk with no death seen (dung, or out of view) | It swells into view. | `spriteOf` |
 | Stone worn away (or a spent framboid) | It cracks into a handful of shards (cells about points spread over its outline) that slump apart, tip and turn, then crumble raggedly from their rims into dust that settles and fades, the middle shard shrinking into the chip of silt it leaves (`CRUMBLE_T`). Seen from afar, the grain shrinks into silt. | `crumbleColor` |

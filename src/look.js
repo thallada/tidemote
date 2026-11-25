@@ -9,7 +9,7 @@ export const LOOK = ['prism', 'relief', 'rims', 'fringe', 'halation', 'veil', 'f
 export const LOOK_WORDS = 16;
 
 /** Darkfield, as chosen by eye (docs/look.md). */
-export const DARKFIELD = { prism: 0.4, relief: 0.4, rims: 0.45, fringe: 0.2, halation: 0.45, veil: 0.5, film: 0.25, grain: 0.25, sat: 0.1, density: 0.25, contrast: 0.3, black: 0.6, dof: 0.9, iris: 0.2, waves: 0.6 };
+export const DARKFIELD = { prism: 0.3, relief: 0.12, rims: 0.3, fringe: 0.1, halation: 0.45, veil: 0.5, film: 0.25, grain: 0.25, sat: 0.1, density: 0.25, contrast: 0.3, black: 0.6, dof: 0.9, iris: 0.2, waves: 0.6 };
 
 /** Settings → Display → Focus blur: Off, Subtle, Normal (Darkfield's), Strong (the waves' blur as it was until 2026-11). */
 export const FOCUS = [{ dof: 0, waves: 0 }, { dof: 0.7, waves: 0.4 }, { dof: 0.9, waves: 0.6 }, { dof: 1, waves: 0.8 }];

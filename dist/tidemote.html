@@ -7443,8 +7443,9 @@ struct View {
   // simulation's tissue has them, where whether a species bonds at all is the defaults' adhMin, as in COMMON)
   tightFrom: f32,
   // the pool (docs/catastrophes.md): its water level, to show cells stranded
-  // lit: 1 where the world's light shows (the main view, the loupe), 0 in views shown unlit (the close-up, the stone cache)
-  level: f32, lit: u32,
+  // flags: 1 where the world's light shows (the main view, the loupe; not in views shown unlit, the close-up and the stone
+  // cache), 2 where the scene keeps trails (the main view's, fsPointLive)
+  level: f32, flags: u32,
   // the radius in pixels from which listMain gives a cell a pipeline that draws its insides (12; past any cell's when
   // the tuner leaves insides out, Engine.fx.interiors, a new species' sparkle still drawn full); below 0, a view
   // whose cells are drawn twice without listMain (the loupe's and the live close-up's with insides left out: vsPoint)
@@ -7535,6 +7536,12 @@ override NECKS: bool = true;
 // Until the main view's full and bare pipelines land, the lean one draws its cells unlisted, as the full one would;
 // with insides left out it draws the full list, and listMain gives the plain one what the bare one would draw.
 const QUAD_HEAD = 12u;
+// listMain's slim sprites up to this radius in pixels, past vsPoint's 2.8: to 3.1 a cell's shape is under 3% of how it
+// is drawn (detailLOD) and the step unseen, while the resolved path's pixels for it cost the view of the whole world a
+// tenth of its scene pass (most of its quads are cells just past 2.8; docs/performance.md)
+const SPRITE_UNTIL = 3.1;
+// the radius in pixels from which a cell shows its insides' coarsest points (5.6: the coarsest lattice's cells 2.8 px)
+const SMALL_INSIDE = 5.6;
 fn pointAt(ii: u32) -> u32 {
   if (view.splat < 0.0) {
     let n = (arrayLength(&quadR) - QUAD_HEAD) / 2u;
@@ -7995,6 +8002,27 @@ fn smoothUnion(a: f32, b: f32, k: f32) -> f32 {
 }
 // Occupied area / pi, before the shared, nearly area-preserving domain warp.
 // Calibrated against raster integrals; avoids SDF sampling loops in the vertex shader.
+// How long a plan's outline is for its area, against a disc's (the membrane's line is drawn along it, the haze pays
+// for it over the area), at 8 px a radius and from 18 (where its finer turns resolve), in 25ths, packed as 64 a
+// unit of the first and one of the second; calibrated against raster integrals (render.test). vsPoint adds it to
+// the area it hands the fragment (geom.y: the area its fraction, these its whole part), so no fragment switches on
+// the plan for it.
+fn bodyEdge(shape: u32) -> f32 {
+  switch (shape) {
+    case 1u: { return 1564.0; }
+    case 2u: { return 1689.0; }
+    case 3u: { return 2151.0; }
+    case 4u: { return 1563.0; }
+    case 5u: { return 1824.0; }
+    case 6u: { return 1627.0; }
+    case 7u: { return 2792.0; }
+    case 8u: { return 2537.0; }
+    case 9u: { return 1644.0; }
+    case 10u: { return 2351.0; }
+    case 11u: { return 1825.0; }
+    default: { return 1500.0; }
+  }
+}
 fn bodyArea(shape: u32, s: vec2f) -> f32 {
   switch (shape) {
     case 1u: { return 0.215; }
@@ -8250,7 +8278,7 @@ fn listMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocation
         let sp = spriteOf(p, i);
         if (sp.px <= 0.0) {
           // (not drawn: a grain crumbling that the stone cache still shows whole)
-        } else if (sp.px <= 2.8 || view.detail == 0u) {
+        } else if (sp.px <= SPRITE_UNTIL || view.detail == 0u) {
           let footprint = select(1.0, 0.85, sp.kind >= FIRST_LIFE);
           ra = vec4f(d, sp.px * footprint, footprint);
           rb = vec4u(bitcast<vec3u>(sp.col), (sp.shape & 255u) | select(0u, 256u, p.kind >= FIRST_LIFE));
@@ -8448,7 +8476,7 @@ struct PO {
     let species = morphOf(g);
     o.morph = species;
     o.jelly.y = pace;
-    o.geom.y = bodyArea(shape, species);
+    o.geom.y = bodyArea(shape, species) + bodyEdge(shape);
     // (a new species' sparkle, in place of sleep, which a newborn never is: negative)
     o.fx.x = select(an.sleep, -an.novel, an.novel > 0.0);
     if (an.novel > 0.0) { extent = max(extent, 1.5); }
@@ -8571,7 +8599,22 @@ struct PO {
 struct PointOut { @location(0) all: vec4f, @location(1) live: vec4f };
 @fragment fn fsPointLive(i: PO) -> PointOut {
   let c = pointColor(i);
-  return PointOut(c, c * liveShare(i));
+  // With trails (view.flags 2) the scene keeps a resolved cell as its even fill where it covers a pixel whole, its
+  // line and insides only in the living alone, which the composite lays over the scene there (overCells): a cell in
+  // place shows them as sharp as ever, and a moving one leaves a smooth smear of its light, as a long exposure does,
+  // not a copy of its hairline and granules at each frame's place (a comb of outlines and a trail of dots).
+  let share = liveShare(i);
+  // (covered whole, alpha 1, only where a living cell is drawn resolved whole, from 6 px: smaller it leaves no comb)
+  let kept = select(c, vec4f(i.col * (spriteMean(i.shape & 255u) / fract(i.geom.y)), c.a), (view.flags & 2u) != 0u && c.a >= 1.0 && share >= 1.0);
+  return PointOut(kept, c * share);
+}
+// A resolved cell's even fill where cellColor drew it with coverage a (its alpha, the sprite's eased into the cell's:
+// how much of the pixel the cell covers is worked back out of it), and that coverage
+fn evenFill(i: PO, a: f32) -> vec4f {
+  let far = spriteFalloff(i.uv, i.shape & 255u);
+  let lod = detailLOD(min(i.geom.x, view.pointSize));
+  let body = clamp((a - (1.0 - lod) * far * SPRITE_COVER) / max(lod, 1e-3), 0.0, 1.0);
+  return vec4f(i.col * mix(far, body * spriteMean(i.shape & 255u) / fract(i.geom.y), lod), body);
 }
 // How much of a point is drawn with the living (over the matter): a ghost passes to the matter's layer
 // as it becomes its husk.
@@ -8602,7 +8645,7 @@ fn soloCell(p: Particle, ii: u32) -> PO {
   o.index = ii;
   let species = morphOf(g);
   o.morph = species;
-  o.geom = vec4f(soloPx(g, p.info), bodyArea(plan, species), dirz(p.vel));
+  o.geom = vec4f(soloPx(g, p.info), bodyArea(plan, species) + bodyEdge(plan), dirz(p.vel));
   o.jelly = vec3f(1.0, 0.0, 0.0);
   o.bondSeeds = vec2u(0u, 0x7fffu);
   o.neck = vec4f(0.12, 0.12, 0.12, p.energy / max(g.reproE, 0.01));
@@ -8693,7 +8736,11 @@ fn soloCell(p: Particle, ii: u32) -> PO {
     for (var k = 0u; k < TUBE_TAPS; k++) {
       let a = f32(k) * 2.39996 + turn;
       j.uv = i.uv + vec2f(cos(a), sin(a)) * blur * sqrt((f32(k) + shift) / f32(TUBE_TAPS));
-      c += select(cellColor(j, p, p.kind, spriteFalloff(j.uv, j.shape & 255u)), vec4f(0.0), dot(j.uv, j.uv) > 4.0);
+      var tap = cellColor(j, p, p.kind, spriteFalloff(j.uv, j.shape & 255u));
+      // (a cell's hairline and granules, a few bright points, glittered through so few taps: its even fill, all of it
+      // by a third of its radius out of focus, as the disc's mean has it)
+      tap = vec4f(mix(tap.rgb, evenFill(j, tap.a).rgb, smoothstep(0.05, 0.33, blur)), tap.a);
+      c += select(tap, vec4f(0.0), dot(j.uv, j.uv) > 4.0);
     }
     c /= f32(TUBE_TAPS);
   }
@@ -8788,12 +8835,104 @@ fn ghostColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
 // pressed flat against its neighbors, its interior and its hairs and tail.
 // a soft bump for the insides' gaussians, exp(-x²) as near as a cheap polynomial gets (1 at 0, gone past 1.5)
 fn insideBump(x: f32) -> f32 { let t = max(0.0, 1.0 - x * x * 0.4444); return t * t; }
+// The insides' light, as shares of the even fill: the membrane's line at its peak and a doubled wall's second line (a
+// cyst's, a calcified cell's)
+const CELL_RIM = 2.0;
+const CELL_RIM2 = 1.0;
+// what the membrane's line takes from the haze for each unit of its strength and width, for a plan whose outline is
+// a circle's for its area (bodyEdge: the plan's outline against that), so its light comes out of the cell's own
+const RIM_TAKE = 3.5;
+// the haze left under the granules once they resolve, in a pigmented cell (0.12 in an unpigmented one)
+const CELL_FLOOR = 0.25;
+// a small cell's body, as the ring takes its light (unpigmented, pigmented: their pigment glows)
+const SMALL_BODY = 0.2;
+const SMALL_BODY_PHOTO = 0.3;
+// what a small cell's points carry of its body's light above the floor (the ring keeps the rest), until the granules show
+const SMALL_POINTS = 0.45;
+// hairs and a tail
+const CELL_HAIR = 0.18;
+const CELL_TAIL = 0.25;
+// a granule's tints, warm (golden) and cool (bluish), luminance 1
+const GRAIN_WARM = vec3f(1.15, 0.98, 0.75);
+const GRAIN_COOL = vec3f(0.86, 1.01, 1.22);
+// A cell's granules, one lattice evaluation (v in lattice cells, in the cell's own frame): the lattice's rows bent
+// (each coordinate pushed by a slow triangle wave of the other, up to 0.8 of a cell), and in two lattice cells of three
+// a granule set at random within it, of one of three kinds by the same hash: one in two a speck, a soft round dot
+// whose brightness is a steep draw (most near invisible, a dust over the floor; a minority readable; a few bright, the
+// brighter the smaller, from 0.42 of a cell down to 0.18, only the brightest near white); 3 in 100 a vesicle, a ring
+// with a dark middle (0.22-0.44 of a cell); 15 in 100 out of focus, a broad soft blob, dim. Specks jiggle by up to jig
+// cells (two triangle waves of their own phases on the real clock: no sines); in a pigmented cell (photo) they are its
+// plastids instead, broader, evener and still. Most are in the body's color, one in twelve warm and one in twelve
+// cool. Normalized so a lattice cell's mean light is 1 (specks 0.736, vesicles 0.064, blobs 0.2), split into the
+// body's color (x), a pale white (y) and a tint (z, signed: warm +, cool -).
+fn granules(vIn: vec2f, key: u32, jig: f32, photo: f32) -> vec3f {
+  let v = vIn + 0.8 * abs(fract(vIn.yx * vec2f(0.093, 0.071)) * 2.0 - 1.0);
+  let h = unpack4x8unorm(pcgHash((bitcast<u32>(i32(floor(v.x))) * 1597334677u) ^ (bitcast<u32>(i32(floor(v.y))) * 3812015801u) ^ key));
+  // (a lattice cell with no granule, or a pixel outside its granule, leaves early: a lattice cell spans several
+  // pixels, so neighbors mostly agree)
+  if (h.w >= 0.68) { return vec3f(0.0); }
+  let u = h.z;
+  let ring = h.w >= 0.5 && h.w < 0.53;
+  let soft = h.w >= 0.53;
+  // (whole turns in view.time's 4096 s wrap: 1.25 and 1.5 a second)
+  let tri = abs(fract(view.time * vec2f(1.25, 1.5) + h.zw + h.yx) * 2.0 - 1.0);
+  let wave = (tri * 2.0 - 1.0) * (jig * (1.0 - photo));
+  let r = select(select(mix(0.42 - 0.24 * u, 0.3, photo), 0.22 + 0.22 * h.x, ring), 0.36, soft);
+  let reach = select(mix(0.06 + 0.26 * u, 0.2, photo), 0.06, ring || soft);
+  let d = fract(v) - 0.5 - (h.xy - 0.5) * (2.0 * reach) - wave;
+  // one profile for all three, (1 - ((e - c) k)^2)^3 of e = (d / r)^2: a speck's c 0, k 1 (a round dot), a vesicle's
+  // c 0.6, k 3.3 (a ring), a blob's c 0, k 0.7 (broad and soft)
+  let e = dot(d, d) / (r * r);
+  let t = 1.0 - sqr((e - select(0.0, 0.6, ring)) * select(select(1.0, 3.3, ring), 0.7, soft));
+  if (t <= 0.0) { return vec3f(0.0); }
+  // (over its cell a speck gives 1.436 r^2 its brightness, u^8 by its radius 0.006715 on average, 1.472 in one cell of
+  // two; a plastid (u - 0.25) / 0.75 squared there, 0.0174 at 0.22 of a cell; a vesicle 0.870 r^2, 0.35 + 0.65 u, 0.0663, 2.143 in 3 cells
+  // of 100; a blob 2.05 r^2, 0.4 + 0.6 u, 0.186, 1.333 in 15 of 100)
+  let u2 = u * u;
+  let bs = select(0.0, mix(sqr(u2 * u2) * 219.2, sqr(max(u - 0.25, 0.0) / 0.75) * 45.5, photo), h.w < 0.5);
+  let light = t * t * t * select(select(bs, (0.35 + 0.65 * u) * 32.3, ring), (0.4 + 0.6 * u) * 7.16, soft);
+  let white = (1.0 - photo) * select(saturate(u * 6.7 - 5.7), 0.35, ring);
+  let tc = fract((h.x + h.y) * 23.0);
+  let tint = select(0.0, 1.0, tc > 0.92) - select(0.0, 1.0, tc < 0.08);
+  return light * vec3f((1.0 - white) * (1.0 - abs(tint)), white, (1.0 - white) * tint);
+}
+// The granules seen from further off, a coarser lattice of the same rule (v in its cells, cpx: their pixels, 2.8 to 10,
+// of 2 or 4 a radius; the same bend and hash): half its light an even haze (granules too fine to part) and half drawn
+// into a point in every lattice cell, set at random in it, its brightness an even draw squared (most dim, a few
+// bright), never under about a pixel and a half across; so a small cell shows a handful of points and its light hardly
+// strays. They hold still, in the body's color. A lattice cell's mean light is 1.
+fn coarseGranules(vIn: vec2f, key: u32, cpx: f32) -> f32 {
+  let v = vIn + 0.8 * abs(fract(vIn.yx * vec2f(0.093, 0.071)) * 2.0 - 1.0);
+  let h = unpack4x8unorm(pcgHash((bitcast<u32>(i32(floor(v.x))) * 1597334677u) ^ (bitcast<u32>(i32(floor(v.y))) * 3812015801u) ^ key));
+  let r = clamp(1.2 / cpx, 0.16, 0.42);
+  let d = fract(v) - 0.5 - (h.xy - 0.5) * (2.0 * (0.48 - r));
+  let t = max(1.0 - dot(d, d) / (r * r), 0.0);
+  // (a bump (1 - e/r^2)^3 holds pi r^2 / 4; 3 u^2 averages 1)
+  return 0.5 + 0.5 * t * t * t * 3.0 * h.z * h.z * (4.0 / 3.14159265) / (r * r);
+}
+// How far out in the nucleus a point of the cell's frame q lies (1 its edge), its edge wavering by the cell's seed,
+// pinched in two while a bud is still joined to the cell (its widest neck, vsPoint's 0.12 and up to 0.55 more)
+fn nucleusAt(q: vec2f, s: vec2f, seed: f32, plan: u32, neckMax: f32) -> f32 {
+  let division = smoothstep(0.0, 0.25, neckMax - 0.12);
+  var center = vec2f((s.x - 0.5) * 0.22, (seed - 0.5) * 0.26);
+  if (plan == 8u) { center = vec2f(-0.43, -0.06); }
+  if (plan == 3u) { center = vec2f(-0.35, 0.02); }
+  if (plan == 9u) { center = vec2f(0.2, 0.0); }
+  let nq = q - center;
+  let wob = abs(fract(nq.yx * vec2f(5.3, 4.1) + seed * vec2f(7.0, 3.0)) * 2.0 - 1.0);
+  return length(vec2f(abs(nq.x) - division * 0.17, nq.y) / vec2f(0.17 + division * 0.04, 0.21 - division * 0.055))
+    + 0.1 * (wob.x + wob.y - 1.0);
+}
+// one lattice of the granules, coarse (cpx its cells' pixels) or fine (cpx 0)
+fn lattice(v: vec2f, key: u32, jig: f32, photo: f32, cpx: f32) -> vec3f {
+  if (cpx > 0.0) { return vec3f(coarseGranules(v, key, cpx), 0.0, 0.0); }
+  return granules(v, key, jig, photo);
+}
 fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
   let lod = detailLOD(min(i.geom.x, view.pointSize));
   let seed = renderHash(p.id);
   let aa = max(0.003, 0.75 / i.geom.x);
   let myPlan = i.shape & 255u;
-  var f = 0.0;
   // coverage of a resolved cell or grain, written to alpha: the composite divides overlapping light
   // by it, so stacked cells and matter average into one translucent layer instead of summing
   var cover = 0.0;
@@ -8914,8 +9053,8 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
     let swimmer = resolved > 0.0 && g.swim > 0.05 && still < 0.99;
     let hairRange = membraneSD < 0.035 + 4.0 * (0.018 + aa);
     // Well clear of the membrane (contacts only cut the body back, and the partners were skipped out
-    // here) and of any hairs or tail, the pixel is empty: leave before the rest. The margin keeps
-    // whole 2x2 quads together wherever the outline's derivatives are used.
+    // here) and of any hairs or tail, the pixel is empty: leave before the rest (with a
+    // margin for the outline's antialiasing).
     if (membraneSD > max(neckMax, 0.035 + 4.0 * (0.018 + aa)) + 3.0 * aa) {
       var tail = false;
       if (swimmer) {
@@ -8943,11 +9082,6 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
       sd = max(sd, cutAt) + h * h * planeSoft * 0.25;
     }
     let body = 1.0 - smoothstep(-aa, aa, sd);
-    // The outline's outward direction on screen, before any pixel leaves: a soft dome lit from the
-    // upper left, bright along the facing membrane and shadowed opposite.
-    let sdGrad = vec2f(dpdx(sd), dpdy(sd));
-    let outward = sdGrad / max(length(sdGrad), 1e-6);
-    let lightQ = localPoint(TO_LIGHT, i.geom.zw);
     // Reconstruct motion only after the partner loop; no partner structs or
     // unneeded hair coordinates stay live across the organelle loop.
     let aspect = bodyAspect(s, g.swim, max(pace, 0.0));
@@ -8959,88 +9093,210 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
     }
     let appendages = swimmer && (body > 0.0 || hairRange || tailRange);
     if (body <= 0.0 && !appendages) { return vec4f(i.col * far * (1.0 - lod), far * SPRITE_COVER * (1.0 - lod)); }
-    // Flat cytoplasm is cheap at silhouette LOD. Detail is a small modulation of
-    // that same normalized light, so there is no bright jump when the nucleus appears.
-    var tissue = 1.0;
-    var hue = vec3f(1.0);
-    // The insides: a cosmetic layer of light over the cell, kept cheap (docs/performance.md, Zoomed in on the M1): soft
-    // bumps (insideBump) for gaussians, sines of the cell's seed for noise, four organelles close up.
+    // The cell's light in parts, each a share of its even fill (1): lc in the species' color, lw in a pale, cool
+    // white of the same brightness, lt a granule's warm (+) or cool (-) tint. Flat cytoplasm is cheap at silhouette
+    // LOD; the membrane and the insides only move that light about.
+    var lc = 1.0;
+    var lw = 0.0;
+    var lt = 0.0;
+    // The membrane, in both pipelines from 4 px a radius (so a small cell is a bright outline about a dim middle, as
+    // darkfield shows one): a hairline just inside the outline (1.2% of the radius, never under a pixel), bright on
+    // the side toward the light (TO_LIGHT, every cell's: the square of how far toward it) and fading to almost nothing
+    // on the far one, and brighter and dimmer in stretches along it (a triangle wave of the cell's own frame); a
+    // cyst's or a calcified cell's wall doubled (with the insides). What it takes, the haze gives up: its share of the
+    // whole by the plan's outline against its area (bodyEdge), so a cell's light holds as it resolves (render.test).
+    // (Cheap on purpose: a normalized flank and a second wave along it cost 4% of the scene pass on an RTX 2080.)
+    let dim = 1.0 - 0.6 * dying;
+    let photo = clamp(g.photo, 0.0, 1.0);
+    // (the granules show from 2.8 px a lattice cell of 8 to 5, with the insides: smaller, the ring holds their light)
+    let shown = smoothstep(2.8, 5.0, i.geom.x / 8.0) * inside;
+    // (what the granules carry of the body's light above its floor: from 5.6 px a radius, where the coarsest lattice's
+    // cells are 2.8 px, SMALL_POINTS of it, then all of it as the granules proper show; none with insides left out)
+    let insides = select(0.0, 1.0, INTERIOR || (view.interiorFrom > 0.0 && view.interiorFrom < 1e8));
+    // (the nucleus, a dim hollow the granules stop at, from 7 px: nucleusAt)
+    let nucleus = smoothstep(7.0, 14.0, i.geom.x) * insides;
+    let given = max(shown, SMALL_POINTS * smoothstep(SMALL_INSIDE, 10.0, i.geom.x)) * insides;
+    let base = mix(0.12, CELL_FLOOR, photo);
+    // (the body's floor: a small cell's, SMALL_BODY, falling to the granules' floor as they show, so it stays as dark
+    // through the hand-over)
+    let bodyFloor = mix(mix(SMALL_BODY, SMALL_BODY_PHOTO, photo), base, shown);
+    // (under 2.8 px, the sprite: the even fill, the haze whole; a branch the whole quad takes alike)
+    var haze = 1.0;
+    if (i.geom.x > 2.8) {
+      let side = clamp(dot(i.uv, TO_LIGHT) * 1.5, -1.0, 1.0);
+      let along = abs(fract(dot(q, vec2f(1.9, 2.3)) + seed * 3.1) * 2.0 - 1.0);
+      // (wider and narrower with its brightness, where it is wider than its pixel: 0.7 to 1.3 of itself, about as
+      // wide on the whole)
+      let w = max(0.012 * (0.7 + 0.6 * along), 1.1 * aa);
+      let wm = max(0.012, 1.1 * aa);
+      let rimK = 0.7 * sqr(1.0 + 0.95 * side) * (0.5 + along);
+      // (the plan's outline, packed by vsPoint above its area: bodyEdge)
+      let code = floor(i.geom.y);
+      let e8 = floor(code * (1.0 / 64.0));
+      let edge = mix(e8, code - 64.0 * e8, smoothstep(8.0, 18.0, i.geom.x)) * 0.04;
+      // A small cell is a bright ring round a dark middle: from 2.8 px a radius to 7 the line takes the body's light
+      // until the body is down to its floor (its share of the whole, by the plan's outline), then hands it to the
+      // granules as they show, keeping at least CELL_RIM's
+      let take = RIM_TAKE * edge * wm;
+      let ring = (1.0 - bodyFloor) * smoothstep(2.8, 7.0, i.geom.x) * (1.0 - given);
+      let wall = max(CELL_RIM * smoothstep(2.8, 12.0, i.geom.x), ring / take) * (1.0 + 0.5 * novel) * dim;
+      let wall2 = CELL_RIM2 * max(clamp(g.calcify, 0.0, 1.0), sleep) * inside * dim;
+      // (where it is pressed flat against a neighbor the line lies on the outline itself, not inside it: each cell
+      // draws the half on its side, so a shared wall is one line, not two with a dark seam between)
+      let flat = smoothstep(-w, w, pressed - membraneSD);
+      let line = (wall * insideBump((sd + w * (1.0 - flat)) / w) + wall2 * (1.0 - flat) * insideBump((sd + 4.5 * w) / w)) * rimK;
+      // (once the granules show, the clear margin they leave inside the wall gives back what the line takes)
+      haze = max(0.05, 1.0 - take * (wall + wall2) + RIM_TAKE * edge * given * (1.0 - bodyFloor) * (0.045 + 0.018 * photo));
+      // (the line in the species' color while the cell is small, turning to a pale cool white as its insides resolve)
+      let pw = 0.15 + 0.4 * shown;
+      lc = haze + (1.0 - pw) * line;
+      lw = pw * line;
+    }
+    let calm = 1.0 - still;
+    // The cytoplasm's light is its granules once they resolve (granules: one lattice in the cell's own frame, q, so they
+    // ride with it; seen from further off, from 5.6 px, as coarse points, then shown from 22 px a radius to 40, given):
+    // they carry all of the haze's light but a faint floor (CELL_FLOOR
+    // in a pigmented cell, in its color; 0.12 in an unpigmented one, a dim cool grey, its color in its granules and its
+    // line), kept off the wall (a clearer margin), dimmed in the nucleus and crowded in clusters and bands (triangle
+    // waves of the cell's own). They take from the haze exactly what they add on average, so they show with no jump,
+    // taking it from the ring that held it below them. The floor thins once the insides are in (from 26 px a radius to
+    // 0.6 of itself by 130), so a large cell is dark and translucent.
+    if (INTERIOR && body > 0.0 && (given > 0.0 || nucleus > 0.0)) {
+      // (the lattice in the cell's own frame, which turns with its heading, set off by its seed, and its stretch along
+      // its length undone, so granules are round)
+      let a0 = bodyAspect(s, g.swim, 0.0);
+      let gq = q * vec2f(a0, 1.0 / a0);
+      // Their size follows the magnification, as a microscope resolves finer granules the closer it looks: a lattice
+      // of n a radius, n doubling (8, 16, 32, 64) each time a lattice cell grows past 9 px, the next taking over as it
+      // grows to 12, so a pixel works out two only in those narrow bands.
+      let rpx = i.geom.x;
+      // Below 8 a radius the coarser octaves of the same rule, 2 and 4, each handing over to the next as its own cells
+      // grow from 5.6 to 8 px (a band as narrow, so a pixel seldom works out two), so a small cell shows a few points
+      // that split as it grows.
+      let n = select(select(select(select(select(2.0, 4.0, rpx >= 16.0), 8.0, rpx >= 32.0), 16.0, rpx >= 144.0), 32.0, rpx >= 288.0), 64.0, rpx >= 576.0);
+      let next = select(select(smoothstep(9.0, 12.0, rpx / n), 0.0, n > 32.0), smoothstep(5.6, 8.0, rpx / n), n < 8.0);
+      // (granules kept off the wall leave a clear margin, its light the floor's alone: what that leaves out, about
+      // 0.1 of the radius along the whole outline, the haze takes back from the line's share above, by the plan's
+      // outline again)
+      let gw = 0.3 + 0.7 * smoothstep(0.03, 0.17 + 0.08 * photo, -sd);
+      let share = max(haze - bodyFloor, 0.0);
+      let hz = (haze - share) * (1.0 - 0.4 * smoothstep(26.0, 130.0, rpx));
+      // unpigmented, the haze a dim cool grey once the granules show; a pigmented cell's in its color
+      let pale = (1.0 - photo) * 0.8 * shown;
+      // the nucleus (from 7 px), a dim hollow the granules stop at (its haze half, its granules a faint dust), its faint
+      // outline with the insides (from 12 px)
+      var hole = 0.0;
+      if (nucleus > 0.0) {
+        let nr = nucleusAt(q, s, seed, myPlan, neckMax);
+        hole = nucleus * (1.0 - smoothstep(0.7, 1.0 + aa * 3.0, nr));
+        lw += 0.2 * inside * dim * hz * insideBump((nr - 1.0) / (0.1 + aa * 3.0));
+      }
+      // (eased in from the few haze; a dying cell's insides fade back toward it. The haze and the granules are each
+      // folded in as soon as they are known, so little stays alive across the granules and the organelles below)
+      let hzn = dim * hz * (1.0 - 0.5 * hole);
+      lc += hzn * (1.0 - pale) - dim * haze;
+      lw += hzn * pale;
+      let gk = dim * share * gw * (1.0 - 0.8 * hole);
+      if (gk > 0.0) {
+        var gl = vec3f(0.0);
+        var clump = 1.0;
+        {
+          // (two triangle waves across the cell at odd angles and rates: crowds and bands; none among the coarse points,
+          // each a crowd already)
+          let cw = abs(fract(vec2f(dot(gq, vec2f(1.33, 0.5)), dot(gq, vec2f(-0.53, 1.41))) + seed * vec2f(3.7, 5.1)) * 2.0 - 1.0);
+          clump = 1.0 + 2.0 * shown * clamp(cw.x + cw.y - 1.0, -0.5, 1.0);
+          // (the floor mottled with the crowds too)
+          let mott = hzn * 0.6 * shown * (clump - 1.0);
+          lc += mott * (1.0 - pale);
+          lw += mott * pale;
+          let level = p.id * 2654435769u + u32(n);
+          // (the finer lattice turned against the coarser, so the two never line up while both show; those of 16 and 64
+          // a radius turned, so a lattice keeps its turn as it passes from finer to coarser)
+          let gr = vec2f(0.8 * gq.x - 0.6 * gq.y, 0.6 * gq.x + 0.8 * gq.y);
+          let turned = n == 4.0 || n == 16.0 || n == 64.0;
+          if (next < 1.0) { gl += lattice(select(gq, gr, turned) * n, level, 0.1 * calm, photo, select(0.0, rpx / n, n < 8.0)) * (1.0 - next); }
+          if (next > 0.0) { gl += lattice(select(gr, gq, turned) * (2.0 * n), level + u32(n), 0.1 * calm, photo, select(0.0, rpx / (2.0 * n), n < 4.0)) * next; }
+        }
+        gl *= gk * clump;
+        lc += gl.x;
+        lw += gl.y;
+        lt = gl.z;
+      }
+    }
+    // Drawn small without the insides' pipeline (from SMALL_INSIDE to its 12 px, listMain's plain list), the coarsest
+    // lattice alone, as the insides draw it there: no more than its light, in place of an even share of the haze's.
+    if (!INTERIOR && body > 0.0 && (given > 0.0 || nucleus > 0.0)) {
+      let a0 = bodyAspect(s, g.swim, 0.0);
+      let gw = 0.3 + 0.7 * smoothstep(0.03, 0.17 + 0.08 * photo, -sd);
+      let share = max(haze - bodyFloor, 0.0);
+      var hole = 0.0;
+      if (nucleus > 0.0) { hole = nucleus * (1.0 - smoothstep(0.7, 1.0 + aa * 3.0, nucleusAt(q, s, seed, myPlan, neckMax))); }
+      lc += dim * (share * (gw * (1.0 - 0.8 * hole) * coarseGranules(q * vec2f(2.0 * a0, 2.0 / a0), p.id * 2654435769u + 2u, i.geom.x * 0.5) - 1.0) - 0.5 * hole * (haze - share));
+    }
+    // The insides as darkfield shows them (docs/look.md, Cells), from 12 px: only what scatters light, a cosmetic layer
+    // kept cheap (docs/performance.md, Zoomed in on the M1): vacuoles and pyrenoids rings, a meal's food vacuole.
     if (INTERIOR && inside > 0.0 && body > 0.0) {
-      // the wall, bright, and the cortex just inside it, darker
-      let rim = insideBump((sd + 0.025 + 0.02 * sleep) / (0.025 + 0.03 * sleep + aa));
-      let innerRim = insideBump((sd + 0.10 + 0.04 * sleep) / (0.07 + aa));
-      var detail = (0.44 + g.calcify * 0.12 + 0.2 * sleep) * rim - 0.21 * innerRim;
-      // mottled cytoplasm (light unchanged on average) and a warm stain where it stores or digests, each cell its own
-      let ph = seed * vec4f(40.0, 23.0, 61.0, 17.0);
-      detail += 0.06 * (sin(q.x * 9.0 + ph.x) * sin(q.y * 8.0 + ph.y) + sin((q.x - q.y) * 13.0 + ph.z));
-      let stain = sin(q.x * 3.1 + ph.w) * sin(q.y * 2.7 + ph.y) + 0.4 * sin((q.x + q.y) * 4.3 + ph.x);
-      hue = mix(vec3f(1.0), vec3f(1.25, 1.0, 0.65), inside * smoothstep(0.35, 0.95, stain));
-      // relief: the dome near the membrane, then the nucleus's and each organelle's bulge or hollow
-      var relief = 0.45 * dot(outward, TO_LIGHT) * (1.0 - smoothstep(0.0, 0.13, -sd));
-      // the nucleus, pinching in two as the cell nears division
-      let division = smoothstep(0.55, 1.0, i.neck.w);
-      var center = vec2f((s.x - 0.5) * 0.22, (seed - 0.5) * 0.26);
-      if (myPlan == 8u) { center = vec2f(-0.43, -0.06); }
-      if (myPlan == 3u) { center = vec2f(-0.35, 0.02); }
-      if (myPlan == 9u) { center = vec2f(0.2, 0.0); }
-      let nq = q - center;
-      let nr = length(vec2f(abs(nq.x) - division * 0.17, nq.y) / vec2f(0.17 + division * 0.04, 0.21 - division * 0.055));
-      relief += 0.3 * insideBump((nr - 0.8) / 0.3) * dot(nq, lightQ) / max(length(nq), 1e-4);
-      detail += -0.34 * (1.0 - smoothstep(0.75, 1.0 + aa * 3.0, nr)) + 0.22 * insideBump((nr - 1.0) / (0.16 + aa));
-      // a calcified cell's plates
-      if (g.calcify > 0.05) { detail += g.calcify * 0.12 * sin(q.x * (8.0 + s.x * 6.0) + sin(q.y * 5.0 + s.y * 3.0)) * smoothstep(0.2, 0.6, length(q)); }
-      // close up: four organelles in the species' own scatter (organDirs), chloroplasts as much as it photosynthesizes,
-      // vacuoles as much as it eats
-      if (fine > 0.0) {
-        let photo = clamp(g.photo, 0.0, 1.0);
+      let k = inside * dim;
+      // close up: four organelles in the species' own scatter (organDirs), rings with dark middles: pyrenoids in its
+      // pigment as much as it photosynthesizes, else vacuoles as much as it eats, the first of an eater's contractile
+      // (swelling over 8 s, then snapping shut)
+      // (none lies farther out than 0.78)
+      if (fine > 0.0 && dot(q, q) < 0.61) {
         let eat = (1.0 - g.photo * 0.65) * clamp(g.dGlint + g.dHusk + g.dFlesh, 0.0, 1.0);
+        let cyc = fract(view.time * 0.125 + seed);
+        let pulse = 0.025 + 0.045 * calm * smoothstep(0.0, 0.85, cyc) * (1.0 - smoothstep(0.88, 1.0, cyc));
         for (var j = 0u; j < ORGANS; j++) {
           let h = fract(seed * (7.0 + f32(j) * 13.0));
           let oq = q - unpack2x16snorm(organDir[p.kind * ORGANS + j]) * (0.22 + h * 0.45);
           let d2 = dot(oq, oq);
           if (d2 > 0.11 * 0.11) { continue; }
           let o = sqrt(d2);
-          let oDir = dot(oq, lightQ) / max(o, 1e-4);
           let chl = smoothstep(f32(j) * 0.25, f32(j) * 0.25 + 0.25, photo);
           let vac = smoothstep(h - 0.05, h + 0.05, eat * 0.7) * (1.0 - chl);
-          relief += fine * (0.35 * chl - 0.3 * vac) * insideBump((o - 0.05) / 0.03) * oDir;
-          detail += fine * (chl * (-0.3 * (1.0 - smoothstep(0.04, 0.07 + aa, o)) + 0.12 * insideBump((o - 0.085) / (0.012 + aa)))
-            + vac * (0.18 * insideBump((o - 0.065) / (0.012 + aa)) - 0.10 * (1.0 - smoothstep(0.03, 0.06 + aa, o))));
+          let r = select(0.055, pulse, j == 0u && chl < 0.5);
+          let ring = fine * insideBump((o - r) / (0.012 + aa));
+          let od = 1.0 - 0.7 * fine * (chl + vac) * (1.0 - smoothstep(r * 0.4, r, o));
+          lc = lc * od + 1.1 * chl * ring;
+          lw = lw * od + 0.8 * vac * ring;
         }
       }
-      // a meal just taken: a food vacuole, pinched in at the front, drifting inward as it is digested
+      // a meal just taken: a food vacuole, a ring pinched in at the front, drifting inward as it is digested
       if (i.tile.y < DIGEST_T) {
         let u = i.tile.y / DIGEST_T;
         let vc = q - mix(vec2f(0.5, 0.0), vec2f(-0.05, 0.12 * (seed - 0.5)), 1.0 - (1.0 - u) * (1.0 - u));
         let vr = length(vc) / (0.15 * (1.0 - 0.45 * u));
         let show = smoothstep(0.0, 0.08, i.tile.y) * (1.0 - smoothstep(0.55, 1.0, u));
-        detail += show * (0.3 * insideBump((vr - 1.0) / 0.25) - 0.15 * (1.0 - smoothstep(0.6, 1.0, vr)));
-        relief -= show * 0.25 * insideBump((vr - 0.9) / 0.3) * dot(vc, lightQ) / max(length(vc), 1e-4);
-        hue = mix(hue, vec3f(1.3, 1.05, 0.7), show * (1.0 - smoothstep(0.5, 1.0, vr)) * 0.6);
+        let od = 1.0 - 0.6 * k * show * (1.0 - smoothstep(0.5, 0.9, vr));
+        let ring = show * insideBump((vr - 1.0) / 0.2);
+        lc = lc * od + 0.4 * k * ring;
+        lw = lw * od + 0.5 * k * ring;
       }
-      // its membrane fresh and bright
-      if (novel > 0.0) { hue *= 1.0 + 0.3 * novel * rim; }
-      tissue += inside * (detail + relief) * (1.0 - 0.6 * dying);
     }
-    f = body * tissue * spriteMean(myPlan) / i.geom.y;
+    let even = body * spriteMean(myPlan) / fract(i.geom.y);
+    var fw = even * lw;
     if (appendages && body < 1.0) {
       let a = atan2z(q.y, q.x);
       var motion = localPoint(i.uv / swell, i.geom.zw) * vec2f(1.0 / aspect, aspect);
       motion.y -= bendShift(motion.x, bend);
       let beat = view.time * 2.5 + seed * TAU;
-      // Fade subpixel hairs before widening them with the footprint; no sparkling fringe.
+      // Fade subpixel hairs before widening them with the footprint; no sparkling fringe. Thin rods scatter: in
+      // darkfield they glow faintly, pale.
       let hairs = exp(-sqr((membraneSD - 0.035) / (0.018 + aa)))
         * pow(max(0.0, cos(a * 23.0 + sin(a * 5.0 + beat))), 8.0)
         * (1.0 - smoothstep(-0.15, 0.0, pressed));
       let tailY = 0.13 * sin(motion.x * 7.0 + beat) * smoothstep(0.65, 1.6, -motion.x);
       let tail = (1.0 - smoothstep(0.009, 0.018 + aa, abs(motion.y - tailY)))
         * smoothstep(0.60, 0.9, -motion.x) * (1.0 - smoothstep(1.55, 1.9, -motion.x));
-      f += min(g.swim, 1.0) * resolved * (1.0 - body) * (0.05 * hairs + 0.08 * tail) * (1.0 - still);
+      fw += min(g.swim, 1.0) * resolved * (1.0 - body) * (CELL_HAIR * hairs + CELL_TAIL * tail) * (1.0 - still);
     }
     cover = body;
+    let lum = dot(i.col, vec3f(0.2126, 0.7152, 0.0722));
+    let white = mix(i.col, vec3f(lum) * vec3f(0.89, 1.0, 1.26), 0.6);
     // (coverage eased from the unresolved sprite's, as the light is: trails scale it, and a step from 0 at 2.8 px
     // jumped the view's brightness on a zoom)
-    return vec4f(i.col * hue * mix(far, max(0.0, f), lod), mix(far * SPRITE_COVER, cover, lod));
+    // (a granule's tint as bright as the body's color would be)
+    let tint = lum * even * select(GRAIN_COOL, GRAIN_WARM, lt > 0.0) * abs(lt);
+    return vec4f(mix(i.col * far, i.col * max(0.0, even * lc) + white * max(0.0, fw) + tint, lod), mix(far * SPRITE_COVER, cover, lod));
   }
 }
 // A husk: a folded membrane, with missing arcs and torn ends, that retains the dead particle's color.
@@ -9069,7 +9325,7 @@ fn huskLight(v: vec2f, seed: f32, aa: f32, dir: vec2f) -> vec2f {
 // How far into the light wp lies as the composite shows it (sceneLit's r, without the duckweed's shade): 0 in the open
 // water's light, 1 in a summer band, more under the lamp; 0 in views shown unlit (the close-up, the stone cache).
 fn sunAt(wp: vec2f) -> f32 {
-  if (view.lit == 0u) { return 0.0; }
+  if ((view.flags & 1u) == 0u) { return 0.0; }
   let base = (view.sun.y + (1.0 - view.sun.y) * tideAt(wp, view.world, view.sun.w, view.tide, view.tidePh) * view.sun.x) * view.sun.z;
   return clamp(litR(withLamp(base, lampOf(wp, view.lamp, view.world)), view.sun.y), 0.0, 1.2);
 }
@@ -10631,12 +10887,11 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32, dh: f32) -> vec
     // the more the deeper, by the grain's cobble's place in the pile (fsStoneLit: stoneTex holds it here)
     let st = vec2f(textureDimensions(stoneTex));
     let sa = textureLoad(stoneTex, vec2i(clamp(uv * st, vec2f(0.0), st - 1.0)), 0).a;
-    // (the living's share from their own layer: the scene's alpha holds silt, husks and sprites too, which were
-    // left sharp by it, their outlines crisp round a blurred grain)
-    let cover = textureSampleLevel(src, samp, uv, 0.0).a;
-    let lv = textureSampleLevel(liveTex, samp, uv, 0.0).a;
-    bare = 1.0 - min(1.0, lv);
-    if (sa > 1.0 && bare > 0.0 && cover - lv < 0.5) {
+    // (only the stone takes it: whatever is drawn over it, the living, silt and husks, and the trails a moving cell
+    // leaves in the scene (the last frames' image carried over, which the living's own layer does not hold), keeps
+    // the wave's and the rim's blur alone, as over water)
+    bare = 1.0 - min(1.0, textureSampleLevel(src, samp, uv, 0.0).a);
+    if (sa > 1.0 && bare > 0.0) {
       let below = 1.0 - clamp((sa - 1.27) / 0.49, 0.0, 1.0); // cobbleZ runs 0.27 to 0.76; a framboid's and the selected grain's lie on top
       let pileBlur = post.look[3].x * smoothstep(0.2, 0.8, below) * smoothstep(start, start * 2.5, post.ppu) * 9.6;
       blur += pileBlur;
@@ -10656,8 +10911,11 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32, dh: f32) -> vec
       let a = turn + f32(t) * 2.39996;
       let tq = uv + vec2f(cos(a), sin(a)) * sqrt((f32(t) + 0.5) / f32(n)) * blur * px;
       let s = textureSampleLevel(src, samp, tq, 0.0);
+      // (none from any pixel anything is drawn on: weighed by what the living leave bare, a cell's antialiased edge,
+      // where its bright hairline lies, and the trail it leaves as it moves, which their layer does not hold, were
+      // gathered and scattered over the stone about it as speckles in its color)
       var w = 1.0;
-      if (deep > 0.0) { w = select(1.0 - coverAt(tq), 0.0, textureSampleLevel(stoneTex, samp, tq, 0.0).a > deep + 0.02); }
+      if (deep > 0.0) { w = select(1.0, 0.0, s.a > 0.004 || textureSampleLevel(stoneTex, samp, tq, 0.0).a > deep + 0.02); }
       b += s.rgb / max(1.0, s.a) * w;
       wsum += w;
     }
@@ -10858,7 +11116,7 @@ fn lookScene(hdrIn: vec3f, uv: vec2f, bl: vec3f, ppu: f32, res: vec2f, sun: f32,
   // sharp scene, so where the optics spread the image (out of focus, toward the rim) they fade as a blurred edge's
   // contrast would (as the square of rp over the blur's width, a high-pass's), or what the shallow focus softened
   // would keep crisp outlines, bright on a crest the sea focuses the lamp onto
-  let rp = clamp(ppu * 0.012, 0.75, 3.0);
+  let rp = clamp(ppu * 0.012, 0.75, 1.5);
   let near = smoothstep(25.0, 70.0, ppu) * sqr(rp) / (sqr(rp) + sqr(2.0 * spread));
   if (L0.x + L0.y + L0.z + L0.w > 0.0 && near > 0.0) {
     let r = rp / res;
@@ -10876,14 +11134,18 @@ fn lookScene(hdrIn: vec3f, uv: vec2f, bl: vec3f, ppu: f32, res: vec2f, sun: f32,
     let sh = clamp(dot(grad, -TO_LIGHT) / norm, -1.0, 1.0);
     let rel = L0.y * near;
     hdr = hdr * max(0.0, 1.0 + 2.4 * rel * sh) + rel * 0.5 * max(sh, 0.0) * blur;
-    // darkfield: light scatters at edges, a flat inside lets it pass
-    let rim = L0.z * near;
+    // darkfield: light scatters at edges, a flat inside lets it pass. A point of light (a granule: brighter than all
+    // four taps about it, little gradient) is no edge: the rims and fringes left it ringed in color and every faint
+    // granule lit up, a busy glitter
+    let hl = lookL(hp);
+    let edgy = 1.0 - smoothstep(0.3, 0.8, max(hl, 0.0) / (abs(hl) + 2.0 * length(grad) + 1e-4));
+    let rim = L0.z * near * edgy;
     // (what a membrane scatters is nearly white, a little cool; on the bright side of an edge only, the membrane's,
     // not as a halo over the dark water a few pixels outside it)
     let edge = max(hp, vec3f(0.0));
     hdr = hdr * (1.0 - 0.4 * rim) + rim * 1.4 * mix(edge, vec3f(lookL(edge)) * vec3f(0.9, 1.0, 1.15), 0.35);
     // an achromat's fringes: purple just outside a bright edge, yellow-green just inside
-    let fl = lookL(hp);
+    let fl = hl * edgy;
     hdr += L0.w * near * (max(-fl, 0.0) * vec3f(0.55, 0.12, 1.0) + max(fl, 0.0) * vec3f(0.3, 0.55, 0.0)) * 1.5;
     // rainbow rims (Rheinberg's sector colors): each edge takes a hue from the side it faces, by its own light, so
     // the dark field stays dark
@@ -12861,7 +13123,7 @@ fn loupeScene(r: vec2f) -> vec3f {
 // looks the same wherever it was caught.
 @fragment fn fsPlain(i: VO) -> @location(0) vec4f {
   let wp = microView.cam + (i.uv - 0.5) * microView.res / microView.ppu;
-  let live = microView.lit == 1u;
+  let live = (microView.lit & 1u) == 1u;
   var lit = sceneLit(wp, 1.0);
   var bl = vec3f(0.0);
   if (live) { bl = textureSampleLevel(bloomTex, samp, i.uv, 0.0).rgb; }
@@ -18292,7 +18554,7 @@ struct SV {
   // src/look.js
   var LOOK = ["prism", "relief", "rims", "fringe", "halation", "veil", "film", "grain", "sat", "density", "contrast", "black", "dof", "iris", "waves"];
   var LOOK_WORDS = 16;
-  var DARKFIELD = { prism: 0.4, relief: 0.4, rims: 0.45, fringe: 0.2, halation: 0.45, veil: 0.5, film: 0.25, grain: 0.25, sat: 0.1, density: 0.25, contrast: 0.3, black: 0.6, dof: 0.9, iris: 0.2, waves: 0.6 };
+  var DARKFIELD = { prism: 0.3, relief: 0.12, rims: 0.3, fringe: 0.1, halation: 0.45, veil: 0.5, film: 0.25, grain: 0.25, sat: 0.1, density: 0.25, contrast: 0.3, black: 0.6, dof: 0.9, iris: 0.2, waves: 0.6 };
   var FOCUS = [{ dof: 0, waves: 0 }, { dof: 0.7, waves: 0.4 }, { dof: 0.9, waves: 0.6 }, { dof: 1, waves: 0.8 }];
   function packLook(p2, s = 1) {
     const w = new Float32Array(LOOK_WORDS);
@@ -18357,7 +18619,7 @@ struct SV {
   var SEA_U_BYTES = 16 * (SEA_CASCADES + SEA.systems.length + 4 + SEA_LAYERS);
   var FLOOR_MS = 2;
   var REAL_WRAP = 4096;
-  function viewWords(data, K2, { cam, W: W3, H: H3, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false, split = false, crumble = null }, w) {
+  function viewWords(data, K2, { cam, W: W3, H: H3, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false, split = false, crumble = null, trails = false }, w) {
     const ppu = cam.ppu;
     const pointSize = Math.max(1.1 * dpr, 0.085 * ppu);
     const perArea = K2.density / (ppu * ppu);
@@ -18391,7 +18653,7 @@ struct SV {
     v[22] = splat;
     v[23] = K2.tightFrom;
     v[24] = w.level;
-    vu[25] = lit ? 1 : 0;
+    vu[25] = (lit ? 1 : 0) | (trails ? 2 : 0);
     v[26] = split ? -1 : w.interiors ? 12 : 1e9;
     v[27] = K2.tightSpan;
     v.set(w.tide, 28);
@@ -21565,9 +21827,9 @@ ${e.message}` : String(e?.message || e));
       pass.end();
     }
     // detail: resolve cells as they grow on screen (false keeps the distant sprite at every zoom)
-    _writeView(buf, data, cam, W3, H3, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false, split = false, crumble) {
+    _writeView(buf, data, cam, W3, H3, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false, split = false, crumble, trails = false) {
       const clk = this._clock();
-      viewWords(data, this.K, { cam, W: W3, H: H3, dpr, time, selId, detail, culled, splat, lit, split, crumble }, {
+      viewWords(data, this.K, { cam, W: W3, H: H3, dpr, time, selId, detail, culled, splat, lit, split, crumble, trails }, {
         grid: this.grid,
         exposure: this.settings.exposure,
         focus: this.focus,
@@ -21806,7 +22068,7 @@ ${e.message}` : String(e?.message || e));
         lit.length = Math.min(lit.length, 8);
       }
       const crumble = lit.flatMap((c) => [this.simTime - c.drawn, this.simTime - c.lit]);
-      this._writeView(this.b.view, this.viewData, cam, W3, H3, dpr, time, selId, lod, culled[0], listed ? -1 : splat, true, false, crumble);
+      this._writeView(this.b.view, this.viewData, cam, W3, H3, dpr, time, selId, lod, culled[0], listed ? -1 : splat, true, false, crumble, this.settings.trails > 0);
       if (listed) {
         d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0]));
         d.queue.writeBuffer(this.b.smallArgs, 0, new Uint32Array([4, 0, 0, 0]));
@@ -39688,9 +39950,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "cfc99d31f3b0a0b7") return;
+      if (localStorage.getItem(key) === "8525d5dbf5c0654f") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "cfc99d31f3b0a0b7");
+      if (res) localStorage.setItem(key, "8525d5dbf5c0654f");
     } catch {
     }
   }

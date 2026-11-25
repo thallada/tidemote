@@ -98,7 +98,8 @@ as out of focus as the glass about them: the pipette comes into the water aslant
 and more out of focus the farther up it, and all of it raised over the water before a press (`PIPETTE_DOF`, in the
 composite's `toolAt` for the glass and in each record's vel for its cells; each pixel the mean of sixteen samples
 over a disc that wide, turned and spread anew at every pixel and frame, so they blend to a fine grain the trails
-smooth). Out of focus, the glass's walls spread as wide as the blur and dim as they spread. The readout names the mode in a chip, Load, Dispense or Full (⇧ held, the other, before the
+smooth; each sample a cell's even fill once it is a third of its radius out of focus, `evenFill`: its hairline and
+granules, a few bright points, glittered through so few samples). Out of focus, the glass's walls spread as wide as the blur and dim as they spread. The readout names the mode in a chip, Load, Dispense or Full (⇧ held, the other, before the
 press), a bar under it filling with the pressure.
 
 Setting down: with Dispense on (beside the pipette's strip, and on a phone's held strip; Load, the default, draws up),

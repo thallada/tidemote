@@ -115,7 +115,7 @@ const REAL_WRAP = 4096;
 // water's light, the sky, the simulated clock, the hand's lamp; crumble: how long ago in sim time the stone cache the view is
 // served from was drawn and lit, its last eight lightings newest first, for grains crumbling, crumbleAt; none where stone is
 // drawn every frame). Engine._writeView, and the card page's studio.
-export function viewWords(data, K, { cam, W, H, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false, split = false, crumble = null }, w) {
+export function viewWords(data, K, { cam, W, H, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false, split = false, crumble = null, trails = false }, w) {
   const ppu = cam.ppu;
   // a cell keeps one world size at every zoom, so zooming in only resolves it
   const pointSize = Math.max(1.1 * dpr, 0.085 * ppu);
@@ -137,8 +137,9 @@ export function viewWords(data, K, { cam, W, H, dpr, time, selId, detail = true,
   v[22] = splat;
   v[23] = K.tightFrom;
   v[24] = w.level;
-  // the world's light, as the composite shows it, for silt's sparkle (sunAt); none in views shown unlit
-  vu[25] = lit ? 1 : 0;
+  // the world's light, as the composite shows it, for silt's sparkle (sunAt), none in views shown unlit (1); trails kept
+  // (2: the scene keeps cells' granules evened out, fsPointLive)
+  vu[25] = (lit ? 1 : 0) | (trails ? 2 : 0);
   // the radius from which listMain gives cells their insides (none when the tuner leaves them out); split: below 0, a
   // view without listMain whose cells are drawn without their insides but a new species' sparkle (_drawScene)
   v[26] = split ? -1 : w.interiors ? 12 : 1e9;
@@ -2972,9 +2973,9 @@ class Engine {
   }
 
   // detail: resolve cells as they grow on screen (false keeps the distant sprite at every zoom)
-  _writeView(buf, data, cam, W, H, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false, split = false, crumble) {
+  _writeView(buf, data, cam, W, H, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false, split = false, crumble, trails = false) {
     const clk = this._clock();
-    viewWords(data, this.K, { cam, W, H, dpr, time, selId, detail, culled, splat, lit, split, crumble }, {
+    viewWords(data, this.K, { cam, W, H, dpr, time, selId, detail, culled, splat, lit, split, crumble, trails }, {
       grid: this.grid, exposure: this.settings.exposure, focus: this.focus, level: this.K.pond ? this.level : 1,
       interiors: this.fx.interiors, tide: this.tide, tidePh: clk.tidePh, season: this.season, ambient: this.ambient,
       sky: this.K.pond ? this.sky : 1, t: clk.t, hand: this.hand });
@@ -3190,7 +3191,7 @@ class Engine {
     if (stonePart === 0 || stonePart === 1) this._stoneDrawnAt = this.simTime;
     if (stonePart === 0 || stonePart === 3) { lit.unshift({ drawn: this._stoneDrawnAt, lit: this.simTime }); lit.length = Math.min(lit.length, 8); }
     const crumble = lit.flatMap((c) => [this.simTime - c.drawn, this.simTime - c.lit]);
-    this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId, lod, culled[0], listed ? -1 : splat, true, false, crumble);
+    this._writeView(this.b.view, this.viewData, cam, W, H, dpr, time, selId, lod, culled[0], listed ? -1 : splat, true, false, crumble, this.settings.trails > 0);
     if (listed) {
       d.queue.writeBuffer(this.b.quads, 0, new Uint32Array([4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0]));
       d.queue.writeBuffer(this.b.smallArgs, 0, new Uint32Array([4, 0, 0, 0]));

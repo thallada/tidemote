@@ -118,7 +118,9 @@ under plain node), on a 78k world (`slow-mac-world.tidemote`, 32k living) in a 1
   lean point pipeline (`INTERIOR` false, listed by `listMain` from the quad list's end): the interior detail's
   registers cost every resolved cell's pixels (`slow-mac-world` at 71 pixels a unit: the scene's fragments 4.9 → 4.3
   ms). There the cost is the outlines: the fused partners' (`cellOutline` again for each, 1.2 ms) and the contact
-  planes' seams (1.0 ms).
+  planes' seams (1.0 ms). They keep the membrane's line (docs/look.md, Cells), a few operations from the outline's
+  distance with nothing held across the outline loops, and the insides' coarsest points and the nucleus (one
+  coarse lattice evaluation from 5.6 px, `coarseGranules`, `nucleusAt` from 7; below).
 - **`lifeMain` reads its genome through a pointer** (`let g = &genomes[p.kind]`): `genomes` is read_write in the
   sim, so a copy had every field the kernel uses loaded at its start and held; read where used, 5% faster (2.86 →
   2.72 ms, coarse 4.23 → 3.99). Then only on Apple's GPUs (`genomePtr`, simWGSL; everywhere since the step's two kernels, 2026-11-13, below): on an RTX 4070 Ti in Chrome on D3D12
@@ -442,6 +444,83 @@ Half the grid cells now search each frame, by an alternating checkerboard, the r
 (vsPoint places each where it is now); every one searches the first frame the cells gathered change. 40 px a unit
 −1.5 ms, 80 −0.7, 150 −1.1. (Those contacts read back by sorted index were mostly someone else's after each step's
 sort; since 2026-11-13 they are kept by id and carried through the sort: below, Doing less work.)
+
+Then the insides as darkfield shows them (2026-11, docs/look.md, Cells), under the rule that they cost no more (the
+scene pass, `tools/perf/cellab.mjs`, an RTX 2080 SUPER at 300 and 600 px a unit): a hairline membrane, a haze,
+granules on one hashed lattice in the cell's own frame, the nucleus a void and the organelles rings. The old insides
+cost 18.5 / 15.3% of the scene pass (base with them emptied). A first try with three lattices (droplets, specks and
+a dust of finer ones, jiggling by sines) cost 12-19% more than base though Mesa's register count for an Adreno 630 was
+under base: hashes, discs and windows on every interior pixel. One lattice evaluation a pixel behind a real
+branch (none near the wall, at small sizes or in the nucleus), the jiggle and the clusters from triangle waves, the
+organelle loop skipped where no organelle reaches (past 0.78 of the radius) and the relief's `dpdx`/`dpdy` gone
+brought it back to base (16 blocks: +0.3% [-3.1, +3.9] at 300 px a unit, -0.3% [-4.2, +3.8] at 600). Then, a little
+cost allowed for a clear gain in the look, granules whose size follows the magnification: a lattice of 8, 16, 32 or
+64 a radius, each handing over to the next only while a lattice cell grows from 9 to 12 px, so a pixel works out
+two only in those bands (when the first hand-over spanned 35-72 px a radius, most cells at 300 px a unit were in it:
++4.7%), and the lattice turned and bent per cell to hide its rows: +1.0% [-2.1, +4.2] at 300 and -0.2% [-2.5, +2.3]
+at 600. Mesa's count for an Adreno 630 stays under base at its widest (41.8 of 48), with 13262
+instructions (12382): it did not predict the first try's cost, so both are measured.
+
+Then the tells a blind judge still found (2026-11, docs/look.md, Cells): granules of three kinds (specks, vesicles as
+rings, soft blobs) with warm and cool ones and crowds, a dim grainy nucleus, a membrane lit on one side and fading on the
+other, a dim grey floor in unpigmented cells, the line on small cells in the lean pipeline, and a cell in four a little
+out of focus. The first build cost 12.9% [11.2, 14.6] at 300 px a unit, and taking it apart by pieces did not add up:
+each of several small additions (the normalized flank, the plan's outline looked up by a switch in the fragment, the
+second granule kinds, the out-of-focus cells' granules) measured 3-4%, yet removing any one alone often measured
+nothing. The fragment shader sits at an edge of what the RTX 2080's compiler keeps resident, and what crosses it is
+what stays alive across the granules and the organelles, not the work: a constant changed from 0.8 to 0.5 (how much an
+out-of-focus cell thins its granules) took the final build from -1.2% to +6.9%. So the plan's outline is a table read
+once per vertex and packed into the area vsPoint hands the fragment (`bodyEdge`, `geom.y`), the flank is a clamp
+rather than a normalized direction, one triangle wave runs along the line, the light is folded in as soon as each part
+is known, and the granules' extra kinds are selects in one profile. The final build against base (16 blocks):
+-1.3% [-2.6, +0.1] at 300 px a unit and -2.9% [-4.6, -1.0] at 600; at 80 and 150 (the lean pipeline's line, 20
+blocks) -0.5% [-1.4, +0.3] and -2.0% [-3.8, -0.2]. At 1 px a unit (all sprites) the scene pass is 0.05 ms dearer
+(+10%, the frame unchanged), not traced. Mesa's widest for an Adreno 630 stays at or under base everywhere (41.8 of
+48). Measure every change to `cellColor` or `granules` with `tools/perf/cellab.mjs`: an edit that looks free may not
+be.
+
+Then the cells from mid zoom made of a piece with the close-up (2026-11-24, docs/look.md, Cells). A first try put a
+few points in small cells and cost 4-6% of the scene pass (granules drawn there, in both pipelines, +28%); what was
+kept carries a small cell's light in its line (a share of the body's taken by the plan's outline, `bodyEdge`, from
+2.8 px a radius, where the sprite gives way to the shape), which is no more work than the line was. Against base
+(16 blocks, look off): +1.1% [+0.4, +1.9] at 80 px a unit, +0.5% [-1.5, +2.4] at 150, -0.8% [-1.4, -0.2] at 300 and
+-2.7% [-3.0, -2.4] at 600; look on (12 blocks, frame): +1.8%, +1.7%, +0.4%, -1.1% (all intervals span 0). At 1 px a
+unit the scene pass is +8.6% (traced below).
+
+Then the insides further out (2026-11-24, docs/look.md, Cells): coarse points from 5.6 px a radius and the nucleus
+from 7, in the plain pipeline too (one coarse lattice evaluation, `coarseGranules`, no organelles), and in the pipelines
+with insides the coarse lattices of 2 and 4 a radius below the granules'. What it cost moved with the code's presence
+more than its work, as before: the same pages with the points and the nucleus held off by their LODs (the code
+compiled, nothing drawn) cost about as much as with them drawn (against the build before, 10 blocks, look off, scene pass at 150 px a
+unit: the code alone +5.9%, with the nucleus +7.9%, with the points +6.9%, both +7.4%; frame +2.0 to +2.7%; this
+machine's load made the 80 px spot unreadable, ±25% between identical pages, through these runs). Things tried and
+dropped: the 5.6-12 px cells given the bare pipeline (insides, no necks) instead (+26% at 150, +13% at 300: that
+pipeline's registers on most pixels); one call site for the two lattices in a loop (+10% at 300, +5.5% at 600); the
+trails' even fill written from inside cellColor, or worked out after it from the sprite's ease (Mesa's count for the
+Adreno 630 +0.4 to +0.7 in every pipeline: what it read had to stay alive across cellColor; it is now chosen by the
+alpha and liveShare fsPointLive has anyway, the color from the cell's own varyings). Mesa's widest stays where it was (41.8, 39.0, 41.2, 38.5, 34.0,
+37.5 of 42.0, 39.5, 41.5, 38.8, 34.2, 37.8 before the new insides).
+Against base (16 blocks), look off, the scene pass: +12.7% [+11.7, +13.6] at 80 px a unit, +8.3% [+5.9, +10.7] at
+150, +4.7% [+3.2, +6.2] at 300, +2.4% [+0.3, +4.5] at 600, +5.1% [+3.4, +6.7] at 1; the frame +3.1%, +3.4%, +2.6%,
++2.1%, +1.3%. Look on, the frame: +2.7% [+2.4, +3.0], +2.2% [+1.8, +2.7], +1.9% [+0.4, +3.5], +0.4% [-1.8, +2.7], and
++0.8% [-1.1, +2.8] at 1 (the scene pass +13.5%, +8.6%, +3.9%, +0.1%, +5.4%). Of that, the trails' even fill (below)
+is about 1.5-2% of the scene pass at every zoom (the same page without it, 8 blocks: -1.6% at 80, -2.0% at 150, -1.5%
+at 300, -1.6% [-2.6, -0.6] at 600, -2.1% at 1). At 300 the cells of 12 to 32 px now draw points where they drew none,
+the 2 to 4 and 4 to 8 hand-overs (two lattices a pixel) narrowed to bands as narrow as the granules' to bring it to
+this.
+
+The view of the whole world's +8.6%: its `fsPointLive` draws only the cells just past 2.8 px a radius (most
+sprites go to the slim pipeline), yet that is about 30% of its scene pass (0.19 of 0.64 ms: with fsPointLive drawing
+nothing, -29%). The plain pipeline's line, new with these insides, made each of those pixels dearer, though the line itself is
+next to nothing there (its weight from 2.8 px is a smoothstep's foot): drawn only from 3.4 px it cost as much, without
+the plain pipeline's line it was +2.9% [-0.2, +6.0] (all registers, not work). Now the cells to 3.1 px go to the
+slim sprites (`SPRITE_UNTIL`: their shape is under 3% of how they are drawn there, detailLOD), about half the cost.
+
+The trails' spreading (four diagonal taps of the history every frame) went (docs/look.md, Trails): `fsReproj` is
+as it was again, one tap, and with trails on fsPointLive writes a resolved cell's even fill where it covers a pixel whole
+(a branch on a uniform after the color is known).
+A permanent blur of the floor's silt and husks (widened quads, a coverage mark about each, its own taps) cost +36%
+of the scene pass at 80 px a unit at its widest and +2-3% of the frame at its leanest, and went.
 
 Then the outline and its flattening, keeping every shape:
 - **The shape atlas** (`shapeDirty`, `shapeBake`, `shapeAt` in DRAW_WGSL; `Engine._shapes`): each species slot's bodies
