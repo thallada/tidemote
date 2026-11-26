@@ -1,5 +1,5 @@
 import {
-  simWGSL, senseWords, SIM_CLOCK, EDGE_SWAY_W, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, LERP_WGSL, POST_WGSL, GLASS_WGSL, SEA_WGSL, ICE_SHOW_WGSL, ICE_SHOWN, ICE_SHOWN_ANY, SHIFT_W, SHIFT_H, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
+  simWGSL, senseWords, SIM_CLOCK, EDGE_SWAY_W, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, LERP_WGSL, POST_WGSL, GLASS_WGSL, SEA_WGSL, ICE_SHOW_WGSL, ICE_SHOWN, ICE_SHOWN_ANY, ICE_WORDS, SHIFT_W, SHIFT_H, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
   MAXK, FIRST_LIFE, MAX_CELLS, THERMAL_WORDS, TILES, HEAT_WG, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, NOTE_WORDS, NOTE_WGSL, NOTE_HEAD, NOTE_REC, PIPE_MAX, PIPE_TAKE, PIPE_TAKE_W, PIPE_SP, PIPE_IDS, H_TAKEN, H_CUTS, H_RIDE, RIDE_MAX, H_IN, H_SP, H_CELLS, H_IDS, H_LINKS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, JELLY_FROM, FOCUS_MAX, BOND_SP_AT, MIND_BYTES, SWAY_BYTES, TUBE_N, TUBE_K, STUDIO_N,
 } from './shaders.js';
 import {
@@ -266,7 +266,7 @@ class Engine {
     // src/geography.js), the order a frost freezes it in, its ice, how many cells hold ice (THERMAL_WORDS,
     // shaders.js); and heatMain's next temperatures and ice
     // (then the ice as drawn, ICE_SHOWN, past what saves keep)
-    b.thermal = d.createBuffer({ size: (ICE_SHOWN_ANY + 4) * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
+    b.thermal = d.createBuffer({ size: ICE_WORDS * 4, usage: U.STORAGE | U.COPY_DST | U.COPY_SRC });
     b.iceShowU = d.createBuffer({ size: 16, usage: U.UNIFORM | U.COPY_DST });
     b.iceArgs = d.createBuffer({ size: 12, usage: U.STORAGE | U.INDIRECT });
     // the tiles of the water holding ice and hot water after the last step, and ice still drawn (TILES; heatMain,
@@ -524,6 +524,7 @@ class Engine {
     const iceShowModule = shader({ code: ICE_SHOW_WGSL, label: 'iceShow' });
     this.cpIceShow = cp(iceShowModule, 'iceShowMain');
     this.cpIceArgs = cp(iceShowModule, 'iceArgsMain');
+    this.cpIceAxes = cp(iceShowModule, 'iceAxesMain');
     b.shiftMap = d.createBuffer({ size: SHIFT_W * SHIFT_H * 8, usage: U.STORAGE | U.COPY_SRC });
     this.shiftRead = [0, 1, 2].map(() => ({ buf: d.createBuffer({ size: SHIFT_W * SHIFT_H * 8, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST }), busy: false }));
     // the last two grids read back: { data (pixels of the view drawn then), cam: { x, y, ppu, w, h }, at (ms) }
@@ -744,6 +745,8 @@ class Engine {
       { binding: 27, resource: { buffer: b.heatTiles } }] });
     this.iceShowBG = d.createBindGroup({ layout: this.cpIceShow.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.thermal } }, { binding: 1, resource: { buffer: b.iceShowU } }, { binding: 2, resource: { buffer: b.heatTiles } }] });
+    this.iceAxesBG = d.createBindGroup({ layout: this.cpIceAxes.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: b.thermal } }, { binding: 1, resource: { buffer: b.iceShowU } }] });
     this.iceArgsBG = d.createBindGroup({ layout: this.cpIceArgs.getBindGroupLayout(0), entries: [
       { binding: 0, resource: { buffer: b.thermal } }, { binding: 1, resource: { buffer: b.iceShowU } }, { binding: 3, resource: { buffer: b.iceArgs } }] });
     this._wave1 = Promise.all([this._leanP(), this._partsP()]);
@@ -1746,7 +1749,9 @@ class Engine {
     this.device.queue.writeBuffer(this.b.iceShowU, 0, u);
     const cp = enc.beginComputePass();
     cp.setPipeline(this.cpIceArgs); cp.setBindGroup(0, this.iceArgsBG); cp.dispatchWorkgroups(1);
-    cp.setPipeline(this.cpIceShow); cp.setBindGroup(0, this.iceShowBG); cp.dispatchWorkgroupsIndirect(this.b.iceArgs, 0); cp.end();
+    cp.setPipeline(this.cpIceShow); cp.setBindGroup(0, this.iceShowBG); cp.dispatchWorkgroupsIndirect(this.b.iceArgs, 0);
+    // (each grain's stem axis after it, iceAxesMain: as many workgroups serve, the grains being fewer than the cells)
+    cp.setPipeline(this.cpIceAxes); cp.setBindGroup(0, this.iceAxesBG); cp.dispatchWorkgroupsIndirect(this.b.iceArgs, 0); cp.end();
   }
 
   _seaPost(pd) {

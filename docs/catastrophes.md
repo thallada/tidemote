@@ -204,7 +204,16 @@ wrap puts them and show no seam at the world's edges. Raindrop ripples bend the 
   has faded out). An edge wanders as its cells freeze and thaw in turn: slow at real time, but at fast speeds a frame
   spans a second or more of it, and drawn as it stood the edge and its dendrites flickered in and out (on a cold
   probe's patch, consecutive frames at ×64: 1.4-2.4 pixels in 1000 reversing brightness each frame, 0.00-0.04 eased;
-  `runs/ice/flicker2.mjs`, a one-off kept outside the repo). Remembering each grain's stem axis was tried too and made no difference once eased.
+  `runs/ice/flicker2.mjs`, a one-off kept outside the repo). Each grain's stem axis is kept (`iceAxesMain`, after the
+  easing; `ICE_AXES`, past `ICE_SHOWN`, never saved) and turns only once the share's slope points `ICE_TURN` (a fifth
+  of a sixth) past the middle between its axis and the next; where the slope is flat a grain keeps what it had, where
+  no ice is drawn about it, and in a world just made or loaded, it takes the slope's at once. Chosen afresh each frame
+  (until 2026-11-26) the stems of a few grains along a holding frost's edge swung back and forth every frame or few:
+  the edge freezes and thaws cell by cell in turn, and even eased its slope at a grain's center wavered across that
+  middle (CPU replay: 51-57 swings back in 120 frames at the edge), and on a Mac a slope straight along a row or
+  column (x exactly 0, where full ice meets open water) came out of Metal's fast `atan2` half round in some frames,
+  so the axis is found by dot products with the six, not an angle (a frost held at 60 px a unit: about 1,300 ice
+  pixels changing a frame, none after).
   Fixed in the world, so ice once formed stays put and the
   front grows outward (a thaw draws it back the same way): a point is ice once that front has come within `lead` of
   it, `lead` being how far ahead of the front the dendrites reach there; that reach grows with the ice (none where

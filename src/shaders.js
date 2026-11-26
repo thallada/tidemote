@@ -16,6 +16,12 @@ export const THERMAL_WORDS = 4 * MAX_CELLS + 4;
 // of MAX_CELLS, then whether any is drawn
 export const ICE_SHOWN = THERMAL_WORDS;
 export const ICE_SHOWN_ANY = ICE_SHOWN + MAX_CELLS;
+// then each ice grain's stem axis as drawn (iceAxesMain; iceGrain), a block of MAX_CELLS (the grains are fewer than
+// the grid's cells: ICE_GS is over a unit)
+export const ICE_AXES = ICE_SHOWN_ANY + 4;
+export const ICE_WORDS = ICE_AXES + MAX_CELLS;
+// the ice's grains' spacing (world units; iceLook's ICE_GS)
+const ICE_GRAIN = 1.5;
 // The water seen in tiles (TILES × TILES of them over the world, a word a row and a bit a column): which hold ice and
 // which water warm enough that bubbles may show near it, ice's rows then hot water's (b.heatTiles; heatMain, and the
 // ice still drawn, ICE_SHOW_WGSL; compPick)
@@ -10140,7 +10146,7 @@ fn ridge(x: f32, w: f32, px: f32, g: vec2f, L: vec2f) -> vec2f {
 // the farther the point lies from the grain's center; the farthest reach wins and owns the point. So grains compete
 // as real ones do: a stem is never cut off, a neighbor's ice simply catches up with it, and where two grains' ice
 // meets is their boundary.
-const ICE_GS = 1.5;    // grain spacing (world units)
+const ICE_GS = ${f(ICE_GRAIN)};    // grain spacing (world units)
 const ICE_LEAD = 1.4;  // how far the longest stems run ahead
 const ICE_OWN = 0.45;  // lead a grain gains at its center ...
 const ICE_FALL = 0.55; // ... and loses per unit away from it
@@ -10180,19 +10186,9 @@ fn iceGrain(wp: vec2f, cu: vec2f, N: vec2f, Sv: vec2f, near: f32) -> IceGrain {
   let cell = wrapL(cu, N);
   g.id = hash12(cell + 0.37);
   let ctr = (cu + vjit(cell + 31.0)) * Sv;
-  // its six axes; the stems grow along the one nearest the way the ice grows at its center: down the frozen share,
-  // from the ice toward the water it freezes (not up the water's temperature: ice and the water at its edge are held
-  // at 0°, where that slope is nothing but each step's noise and the stems flickered from axis to axis); where the
-  // share is flat (deep in the ice, far out in the water) the grain keeps its own
-  let th = g.id * 6.2832;
-  // (bilinear, between the cells about its center: the grain needs only which way)
-  let uc = ctr - 0.5;
-  let ic = vec2i(floor(uc));
-  let tc = uc - floor(uc);
-  let s00 = gridPost(${ICE_SHOWN}u, ic.x, ic.y); let s10 = gridPost(${ICE_SHOWN}u, ic.x + 1, ic.y);
-  let s01 = gridPost(${ICE_SHOWN}u, ic.x, ic.y + 1); let s11 = gridPost(${ICE_SHOWN}u, ic.x + 1, ic.y + 1);
-  let gr = -vec2f(mix(s10 - s00, s11 - s01, tc.y), mix(s01 - s00, s11 - s10, tc.x));
-  let aa = th + select(0.0, round((atan2z(gr.y, gr.x) - th) / 1.0472) * 1.0472, dot(gr, gr) > 1e-6);
+  // its six axes; the stems grow along the one nearest the way the ice grows at its center, as iceAxesMain keeps it
+  // (which of the six, from the grain's own)
+  let aa = g.id * 6.2832 + heatField[${ICE_AXES}u + u32(cell.y * N.x + cell.x)] * 1.0472;
   g.ax = vec2f(cos(aa), sin(aa));
   let d = wp - ctr;
   let u = dot(d, g.ax);
@@ -11939,6 +11935,61 @@ struct IceShow { k: f32, cells: u32, w: u32, h: u32 };
     let t = min(vec2u((vec2f(f32(c % u.w), f32(c / u.w)) + 0.5) * ${TILES}.0 / vec2f(f32(u.w), f32(u.h))), vec2u(${TILES - 1}u));
     atomicOr(&tiles[t.y], 1u << t.x);
   }
+}
+// Each ice grain's stem axis (iceGrain: which of its six, from its own, kept at ICE_AXES), after iceShowMain: the one
+// nearest the way the ice grows at its center, down the frozen share, from the ice toward the water it freezes (not up
+// the water's temperature: ice and the water at its edge are held at 0°, where that slope is each step's noise). Kept,
+// it turns only once the share's slope points ICE_TURN of a sixth past the middle between its axis and the next: a
+// frost's edge, holding, freezes and thaws cell by cell in turn, and even eased its slope at a grain's center wavered
+// across that middle, where the grain's stems swung sixty degrees back and forth every frame. Where the share is flat
+// (deep in the ice, out in the water) the grain keeps what it had, as a grown crystal keeps its orientation; where no
+// ice is drawn about it, and in a world just made or loaded (k 1), it takes the slope's at once, or its own.
+const ICE_GS = ${f(ICE_GRAIN)};
+const ICE_TURN = 0.2;
+fn shownAt(x: i32, y: i32) -> f32 {
+  let g = vec2i(i32(u.w), i32(u.h));
+  let w = (vec2i(x, y) % g + g) % g;
+  return bitcast<f32>(atomicLoad(&heat[${ICE_SHOWN}u + u32(w.y) * u.w + u32(w.x)]));
+}
+fn hashI(p: vec2f) -> f32 {
+  var p3 = fract(vec3f(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+@compute @workgroup_size(64) fn iceAxesMain(@builtin(global_invocation_id) gid: vec3u) {
+  let world = vec2f(f32(u.w), f32(u.h));
+  let N = max(max(round(world / ICE_GS), vec2f(1.0)), vec2f(3.0));
+  let n = u32(N.x) * u32(N.y);
+  if (gid.x >= n) { return; }
+  let cell = vec2f(f32(gid.x % u32(N.x)), f32(gid.x / u32(N.x)));
+  let th = hashI(cell + 0.37) * 6.2832;
+  let ctr = (cell + vec2f(hashI(cell + 31.0), hashI(cell + 48.3)) * 0.8 + 0.1) * (world / N);
+  // (bilinear, between the cells about its center: the grain needs only which way)
+  let uc = ctr - 0.5;
+  let ic = vec2i(floor(uc));
+  let tc = uc - floor(uc);
+  let s00 = shownAt(ic.x, ic.y); let s10 = shownAt(ic.x + 1, ic.y);
+  let s01 = shownAt(ic.x, ic.y + 1); let s11 = shownAt(ic.x + 1, ic.y + 1);
+  let gr = -vec2f(mix(s10 - s00, s11 - s01, tc.y), mix(s01 - s00, s11 - s10, tc.x));
+  let at = ${ICE_AXES}u + gid.x;
+  var m = bitcast<f32>(atomicLoad(&heat[at]));
+  let fresh = u.k >= 1.0 || s00 + s10 + s01 + s11 == 0.0;
+  if (fresh) { m = 0.0; }
+  let gl = length(gr);
+  if (gl > 1e-3) {
+    // (the axis nearest the slope's way by dot products, not its angle: Metal's fast atan2 turned a slope straight
+    // along a row or column, x exactly 0, half round in some frames, and the stems swung back and forth)
+    var best = 0.0;
+    var bd = -1e9;
+    for (var k = 0; k < 6; k++) {
+      let a = th + f32(k) * 1.0472;
+      let dk = dot(gr, vec2f(cos(a), sin(a)));
+      if (dk > bd) { bd = dk; best = f32(k); }
+    }
+    let ak = th + m * 1.0472;
+    if (fresh || dot(gr, vec2f(cos(ak), sin(ak))) < gl * cos((0.5 + ICE_TURN) * 1.0472)) { m = best; }
+  }
+  atomicStore(&heat[at], bitcast<u32>(m));
 }
 `;
 
