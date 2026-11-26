@@ -236,9 +236,10 @@ tissue (0 at `tightFrom`, 1 at `tightFrom + tightSpan`):
 | 4 hypha | a tree that does not beat (mother to daughter), or a tail that does not | an even pale strand from the mother to the daughter's back pole, a living hypha faintly tinted, a producer's wall strand clear and its daughter in a faint clear cup; no neck (Hypha and stalk, below) |
 | 5 stalk | a tree that beats, or a beating tail | a glassy hair far fainter than the bells, a sheath round a darker core up close, kinking (zig-zag or coil) as the beat contracts it; no neck (Hypha and stalk, below) |
 | 6 net | a loose eater (grazer, hunter or scavenger) | whitened strands of uneven width leaving as pseudopods, granules streaming both ways in bursts (Nets, below) |
-| 7 jelly | a producer (`photo` > 0.55) | no line or strip; one hull round the whole body from 20 px a unit: a faint pale cloud from afar, a cool hairline rim close up (Jelly, below) |
+| 7 jelly | a producer (`photo` > 0.55) with the jelly gene (`sheathOf`: then always jelly, and the simulation's wall; docs/ecosystem.md, Jelly) | no line or strip; one hull round the whole body from 20 px a unit: a faint pale cloud from afar, a cool hairline rim close up (Jelly, below) |
 
-Walls and trees come first; any other body takes one of the kinds its species qualifies for, picked by a hash of its
+Walls and trees come first, then jelly for a producer with the jelly gene; any other body takes one of the kinds its
+species qualifies for (a loose producer without jelly that qualifies for none is a bridge), picked by a hash of its
 serial so a world shows a mix (a loose calcifying eater with long cells may be a thread, a pad or a net). Until
 2026-11-25 no tube was drawn past `tight` 0.5; the bodies between 0.5 and 0.9, mostly producers, are now bridges or
 jelly, so bridges show where none did. In grown worlds producers are mostly tissue (adhesion about 0.9) or jelly, and
@@ -406,6 +407,11 @@ the rim draws a quad over each tile it or a neighbor stamped (`vsJellyTile`; the
 pixel, so a pixel reads at most a texel past its tile), so it shades the same pixels a full-view triangle would but
 none of the empty water: with no jelly in view it draws nothing.
 Below `JELLY_FROM`, with bonds hidden or with cells kept as sprites (detail off) neither pass runs.
+A hungry eater able to pierce jelly (`pierceOf`; bit 12 of its species' word in the focus buffer, `JELLY_SP_PIERCE`)
+adds a negative kernel to the field where it is (`jellyHole`: `JELLY_HOLE` 3 times its radius, weight `JELLY_HOLE_W`
+2), so a hull it presses on tears open round it, and once it is in, a cavity of clear water with a rim of its own
+travels with it through the jelly (docs/ecosystem.md, Jelly: the simulation lets it through the wall while it is
+hungry). In open water the field is under the level already, so nothing shows; the hole stamps no tile.
 
 ### Threads
 

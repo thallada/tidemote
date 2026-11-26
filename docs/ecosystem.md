@@ -64,12 +64,14 @@ only eaters able to pierce it get in.
   a sheathed producer's loose body is drawn as jelly (a loose producer without it as a bridge), no longer by a
   hash of its species.
 - **The wall** (`contactMain`, `K.sheath`): as cells are sorted, a cell of a sheathed species' loose body (bonded, no
-  tree, no tail's cell, not tissue, not a cyst) is marked a wall (`JELLY_WALL` in `Lite.kr`), and an eater that
-  pierces and is hungry (short of `sated` × the energy it divides at, as `senseMain` has it) is marked a piercer
-  (`JELLY_PIERCE`). Between two cells of different species whose signatures are not kin (`K.kin`, so a mutant bud
-  is not shut out by its mother's jelly), each wall that the other cell does not pierce holds it off at
-  `sheathHull` (0.13) from the wall cell's center instead of at the cell's own radius: the drawn hull's edge,
-  about 0.67 of the jelly kernel's reach. The overlap rules are as before, so strangers bounce off the hull and
+  tree, no tail's cell, not tissue, not a cyst) is marked a wall (`JELLY_WALL` in `Lite.kr`, and in `Lite.pad`'s
+  two lowest bits, `JELLY_PAD`, which `contactMain` reads already). An eater that pierces and is hungry (short of
+  `sated` × the energy it divides at, as `senseMain` has it) is marked a piercer (`JELLY_PIERCE`). Between two cells
+  of different species, each wall that the other cell does not pierce holds it off at `sheathHull` (0.13) from the
+  wall cell's center instead of at the cell's own radius: the drawn hull's edge, about 0.67 of the jelly kernel's
+  reach. (Species are told apart by kind alone: a mutant bud of a jelly species is mostly a wall too, and two walls
+  hold each other hull to hull, nearer than a jelly body's bonds rest. A signature test there cost the walk a fifth
+  of its time on an RTX.) The overlap rules are as before, so strangers bounce off the hull and
   cannot be pushed through it. Two jelly bodies hold each other off hull to hull. A hungry piercer passes, and
   once it is fed it is a stranger again, so the wall squeezes it out.
 - **Food**: a wall cell is no food (no target, no appetite pull) to an eater that cannot pierce it now
@@ -83,7 +85,39 @@ only eaters able to pierce it get in.
   bodies, piercers (hungry or fed) and strangers' cells inside a hull, and with `{"sheath":0}` the same with no wall.
   The headless samples carry the jelly gene's share by guild (`jelly` in each sample).
 
-RESULTS
+**Results** (32k, 30 min, 32 seeds on the farm, 2026-11-26):
+
+- *The wall holds.* `tools/jellylab.mjs` at 16k, seed 1: with the wall, 0 to 4 strangers' cells were inside a hull over
+  the first 7 minutes. With `{"sheath":0}` it was 19 to 65 in the same moments.
+- *A first try let jelly sweep.* Piercers then counted as hungry only below `reproE`, which eaters seldom are, so
+  almost none pierced, and jelly was 92% of producers' cells by 12 minutes (23% with no wall). With hunger as
+  `senseMain` has it, piercers get in (hundreds inside hulls at once), and jelly and piercing evolve against each
+  other.
+- *The arms race.* Jelly's share of producers in the gate's worlds (median, 10-90%): 9% at 5 min, 58% (7-86%) at 10,
+  64-67% at 15-25, 53% (0-94%) at 30, falling as piercers spread through the grazers (17% at 5 min, 74% at 20, 84%
+  at 30). Some worlds lose their jelly altogether, and others keep 90%.
+- *Each invades the other.* With no founders carrying the gene (`foundJelly` 0, 16 seeds), jelly arises by mutation
+  and spreads (a median of 0% at 10 min, 67% at 20, 71% at 30), and piercers follow it in (5% of grazers at 20
+  min, 74% at 30). The reverse shows in the default gate's later minutes: as piercers take over, jelly's share falls.
+- *The gate* passes against the baseline and against main's own gate on the same farm (`runs/gate-main`): every
+  metric "same", in the first version (`runs/gate-j1`) and the final one (`runs/gate-j2`). In the final one the food web
+  is more often whole (94% against main's 88%) and late guilds a little up (3.56 against 3.28). Diversity leans lower:
+  Hill-2 27.9 against main's 35.3 (ungated; p 0.011 alone, "same" once corrected), effective species 98 against 108
+  (p 0.11): where jelly and piercers sweep, their lineages take more of each guild. More worlds end as producer+grazer
+  (modalOutcome 0.53 against 0.41, p 0.22). A jelly cost of 0.02 trended worse (outcomes p 0.05), so `sheathCost`
+  stays 0.008.
+- *Coarse steps* (`--step 6`, 32 seeds): same as the 1-tick gate on every metric (foodWeb 0.97 → 0.84, p 0.10;
+  lateGuilds 3.41 → 3.13, p 0.05) and same as main's own 6-tick ensemble. Jelly's share runs a little higher at 6
+  ticks (68-75% at 10-30 min against 53-67%), piercers too (89-92% of grazers).
+- *Cost* (1M particles, about 550k living, a world grown on the branch; three page loads of each build in ABBA order,
+  RTX 4070 Ti): the step +1.6 to +3.2%, all of it `contactMain` (+0.05 to +0.09 ms, about +12%; the same with the
+  wall switched off, so it is the code, not the walls' work). Rendering is the same within page-to-page noise at
+  fit, 40, 150, 400 and 1000 px a unit (the jelly field and rim 0.42 ms at 40 px on both builds). Frame about +1 to 3%.
+  On an Adreno 630 (`tools/adreno/regs.sh`) no kernel widened: `contactMain` 14.9 registers (main 14.4) and 12 waves,
+  `scatterMain`, `senseMain` and `lifeMain` as main. The first version (the bits in `Lite.kr` and a signature test in
+  the walk) cost `contactMain` +25 to 30%.
+- *Seen* (`tools/jellyfilm.mjs`): piercers sit in clear water where the hull bends in round them, and where many
+  hungry piercers have broken into a colony they crowd it, grazing it down, the hull's lines faint among them.
 
 ## Boom and bust: bigger bites and an Allee effect (2026-10-17)
 
