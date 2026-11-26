@@ -498,8 +498,13 @@ cell's mean, falling off smoothly behind it. Until 2026-11-25 the coverage count
 cell's whole mean light until it had faded to a seventh (at Exposure), a flat pale slab brighter than the dim cell
 itself, and the pixels the cell covered only in part kept its hairline, a comb along the slab's edges (only pixels
 covered whole took the fill); a still scene's cells' edges were also brighter with trails than without (by about a tenth
-of the view's light at 300 to 1500 px a unit), and are now as they are without. For a while (2026-11) the history was
-spread instead, four diagonal taps 1.5 px out every frame: the wake was smooth, but everything still was low-passed
-again every frame, and far out, where cells are dots and splats, the whole view turned blurrier and up to twice as
-bright about a second after it came to rest (the composite divides light by coverage, and spread coverage divides less).
+of the view's light at 300 to 1500 px a unit), and are now as they are without. A swimmer's hairs and tail lie outside
+its body, where it covers nothing and the composite shows the scene alone, so their own light goes into the scene at the
+same weight as the fill: as bright as without trails where they stay, a faint smear of their own where they beat. (For
+a day, 2026-11-25, the scene took the fill alone, and hairs and tails showed only where they crossed another cell.)
+Before the fill's weighting the scene took them at full weight, and trails brightened them (nearly twice as bright at
+Short). For a while (2026-11) the history was spread instead, four diagonal taps 1.5 px out every frame: the wake was
+smooth, but everything still was low-passed again every frame, and far out, where cells are dots and splats, the whole
+view turned blurrier and up to twice as bright about a second after it came to rest (the composite divides light by
+coverage, and spread coverage divides less).
 The history is carried unspread again, one tap.

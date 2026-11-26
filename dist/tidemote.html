@@ -8613,11 +8613,13 @@ struct PointOut { @location(0) all: vec4f, @location(1) live: vec4f };
   // leaves a smooth smear of its light, not a copy of its hairline and granules at each frame's place (a comb of
   // outlines and a trail of dots). Its coverage is weighted by that share, so where a cell has stayed the history holds
   // it once, and where it has moved on the composite does not divide its fading light back up: the wake is a long
-  // exposure's, each pixel as bright as the time the cell lay over it, never brighter than the cell's mean.
+  // exposure's, each pixel as bright as the time the cell lay over it, never brighter than the cell's mean. Its hairs
+  // and tail, outside the body (no coverage, so the composite shows the scene there), keep their own light in the
+  // scene at the same weight: as bright as without trails where they stay, a faint smear where they beat.
   let share = liveShare(i);
   let ts = f32(view.flags >> 16u) * (1.0 / 65535.0);
   let smear = ts > 0.0 && share >= 1.0 && min(i.geom.x, view.pointSize) >= 6.0;
-  if (smear) { return PointOut(vec4f(i.col * (LIVING_MEAN / fract(i.geom.y)), 1.0) * (c.a * ts), c); }
+  if (smear) { return PointOut(vec4f(i.col * (LIVING_MEAN / fract(i.geom.y)) * c.a + cellWhite(i.col) * cellHairs, c.a) * ts, c); }
   return PointOut(c, c * share);
 }
 // A resolved cell's even fill where cellColor drew it with coverage a (its alpha, the sprite's eased into the cell's:
@@ -8864,6 +8866,11 @@ const SMALL_POINTS = 0.25;
 // hairs and a tail
 const CELL_HAIR = 0.18;
 const CELL_TAIL = 0.25;
+// (their light as cellColor added it to the cell's, for fsPointLive's trails: they lie outside the body, where the even
+// fill it keeps in the scene has none)
+var<private> cellHairs: f32;
+// the pale, cool white of a cell's line, hairs and tail: as bright as its color
+fn cellWhite(col: vec3f) -> vec3f { return mix(col, vec3f(dot(col, vec3f(0.2126, 0.7152, 0.0722))) * vec3f(0.89, 1.0, 1.26), 0.6); }
 // the granules' levels (grainSlot): the first shows from a cell this many pixels a radius (its lattice 2 a radius, its
 // cells 4.5 px); past this many levels on (a cell of 576 px, the lattice 64 a radius) they hold and only magnify; their
 // light against the haze they take it from (what the wall's margin and the nucleus cut from a few points against an
@@ -9315,11 +9322,13 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
       let tailY = 0.13 * sin(motion.x * 7.0 + beat) * smoothstep(0.65, 1.6, -motion.x);
       let tail = (1.0 - smoothstep(0.009, 0.018 + aa, abs(motion.y - tailY)))
         * smoothstep(0.60, 0.9, -motion.x) * (1.0 - smoothstep(1.55, 1.9, -motion.x));
-      fw += min(g.swim, 1.0) * resolved * (1.0 - body) * (CELL_HAIR * hairs + CELL_TAIL * tail) * (1.0 - still);
+      let ap = min(g.swim, 1.0) * resolved * (1.0 - body) * (CELL_HAIR * hairs + CELL_TAIL * tail) * (1.0 - still);
+      fw += ap;
+      cellHairs = ap * lod;
     }
     cover = body;
     let lum = dot(i.col, vec3f(0.2126, 0.7152, 0.0722));
-    let white = mix(i.col, vec3f(lum) * vec3f(0.89, 1.0, 1.26), 0.6);
+    let white = cellWhite(i.col);
     // (coverage eased from the unresolved sprite's, as the light is: trails scale it, and a step from 0 at 2.8 px
     // jumped the view's brightness on a zoom)
     // (a granule's tint as bright as the body's color would be)
@@ -39978,9 +39987,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "53546ed58922d55d") return;
+      if (localStorage.getItem(key) === "7a93836b20cee833") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "53546ed58922d55d");
+      if (res) localStorage.setItem(key, "7a93836b20cee833");
     } catch {
     }
   }
