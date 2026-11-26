@@ -92,7 +92,8 @@ their colors.
 The guide above the Highlights slider (above it, so a thumb on the slider does not hide it) is a canvas of its own in
 extended range, on black: a grey disc at the headroom chosen inside a thin white ring at 64× white (any display clips
 it at its brightest). Below the display's own headroom the disc shows dimmer than its ring; raised until it just
-disappears into it, Highlights meets the headroom. On a display with its own tone mapping (an OLED in a "peak 1000"
+disappears into it, Highlights meets the headroom (the lowest setting at which it disappears: every setting above
+the headroom looks the same, so the guide asks for the lowest). On a display with its own tone mapping (an OLED in a "peak 1000"
 mode) the disc fades rather than vanishing; the point where it stops changing is the setting. The guide shows only
 while Highlights is being set (held, dragged, or keyed while focused, and 2.5 s after): its ring is the panel at its
 brightest, which beside the settings' words was blinding, and a ring rather than a field keeps that glare small.
