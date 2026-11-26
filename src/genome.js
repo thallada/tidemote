@@ -40,11 +40,12 @@ export function bondKindLike(g, h, infoP = 0, infoQ = 0, K = DEFAULT_K) {
   const plan = cellShape(g, 0);
   if (plan === 3 || plan === 5 || plan === 6) m |= 1 << 3;
   const producer = g.photo > 0.55;
-  if (producer) m |= 1 << 7;
+  if (sheathOf(g)) return 7;
   if (tight <= 0.5) {
     if (g.calcify > 0.3) m |= 1 << 2;
     if (!producer) m |= 1 << 6;
   }
+  if (!m) return 1;
   let bits = 0;
   for (let x = m; x; x &= x - 1) bits++;
   for (let k = (visualHash((g.serial ^ 0x5bd1e995) >>> 0) % bits); k > 0; k--) m &= m - 1;
@@ -146,6 +147,11 @@ const THERMO_FOUNDERS = new Set(['crawler', 'grazer', 'filament']);
 // Reefs are anchored and cannot follow it.
 const PHOTO_P = [0.35, 0.3, 0.9], PHOTO_A = [0.25, -0.5, 0.9];
 const PHOTOTAXIS = { plankton: PHOTO_P, filament: PHOTO_P, grazer: PHOTO_A, crawler: PHOTO_A, hunter: PHOTO_A, scavenger: PHOTO_A };
+// Founders with the jelly gene (sheathOf, pierceOf): the share of each body plan that starts with it
+const JELLY_FOUNDERS = { reef: 0.4, plankton: 0.3, grazer: 0.25, crawler: 0.25, hunter: 0.15, scavenger: 0.15 };
+/** A producer's jelly, a wall to strangers (sheathOf in shaders.js), and an eater's piercing of one (pierceOf). */
+export const sheathOf = (g) => g.photo > 0.55 && (g.jelly || 0) >= 0.5;
+export const pierceOf = (g) => g.photo <= 0.4 && (g.jelly || 0) >= 0.5;
 const gaussOf = (r) => (r() + r() + r() - 1.5) * 2;
 const unorm8 = (v) => Math.round(clamp(v, 0, 1) * 255) / 255;
 
@@ -201,6 +207,9 @@ export function archetypeGenome(type, r = Math.random, K = DEFAULT_K, t0 = 19) {
   // phototaxis (drawn after the tails): some drifting producers follow the light, and some animals seek or shun it
   const [ptOn, pt] = [r(), r()], [odds, lo, hi] = PHOTOTAXIS[type] || [0];
   g.phototaxis = ptOn < odds ? mix(lo, hi, pt) : 0;
+  // the jelly gene (drawn last): a share of the producers that may form loose bodies start sheathed, of the eaters able to pierce
+  const [jOn, jv] = [r(), r()];
+  g.jelly = jOn < (JELLY_FOUNDERS[type] ?? 0) * (K.foundJelly ?? 1) ? mix(0.5, 1, jv) : 0;
   return finalizeGenome(g, K);
 }
 
@@ -228,6 +237,9 @@ export function randomGenome(r = Math.random, K = DEFAULT_K, t = 19) {
     thermo: 0, grow: [devs[0][3], devs[1][3], devs[2][3], tail[1], tail[2], tail[3]].map(unorm8),
     parent: 0, serial: 0, born: 0, depth: 0,
   };
+  // a third with the jelly gene (drawn last, as randomInto does)
+  const [jOn, jv] = [r(), r()];
+  g.jelly = jOn < 0.3 * (K.foundJelly ?? 1) ? mix(0.5, 1, jv) : 0;
   return finalizeGenome(g, K);
 }
 
@@ -267,6 +279,7 @@ export function finalizeGenome(g, K = DEFAULT_K) {
   g.metab = (0.012 + 0.0032 * g.force + 0.012 * g.radius + 0.00012 * g.lifespan
     + (K.anchorCost ?? 0) * (1 - g.advect) + 0.004 * g.size + (K.swimCost ?? 0.018) * g.swim * (1 - g.photo) + 0.006 * g.align + 0.004 * (g.adhesion || 0) + (K.calcCost ?? 0) * (g.calcify || 0)
     + (K.phototaxisCost ?? 0) * Math.abs(g.phototaxis || 0)
+    + (sheathOf(g) ? K.sheathCost ?? 0 : 0) + (pierceOf(g) ? K.pierceCost ?? 0 : 0)
     + (K.beatWill ? 0 : K.beatCost ?? 0) * (g.beat?.[0] ?? 0) * (g.beat?.[1] ?? 0) * (growPlan(g, K) || hasTails(g, K) ? 1 : 0)) * K.metab;
   g.col = packUnorm(...roleColor(g, 0));
   return g;
@@ -324,6 +337,8 @@ export function mutateLike(g, r = Math.random, K = DEFAULT_K) {
   h.tail = [odds, clamp(tl[1] + gauss() * m * 0.2, 0, 1)];
   h.phototaxis = clamp((h.phototaxis || 0) + gauss() * m * 0.15, -1, 1);
   if (r() < m * 0.1) h.phototaxis = Math.abs(h.phototaxis) < 0.05 ? mix(-0.6, 1, r()) : 0;
+  h.jelly = clamp((h.jelly || 0) + gauss() * m * 0.1, 0, 1);
+  if (r() < m * 0.1) h.jelly = h.jelly < 0.5 ? mix(0.5, 1, r()) : 0;
   h.parent = g.serial; h.serial = (g.serial || 0) + 1; h.depth = (g.depth || 0) + 1;
   return finalizeGenome(h, K);
 }
@@ -350,7 +365,7 @@ export function writeGenome(u32, f32, slot, g) {
   const b = g.beat || [0, 1, 0.6, 0];
   f32[o + 48] = b[0]; f32[o + 49] = b[1]; f32[o + 50] = b[2]; f32[o + 51] = b[3] ?? 0;
   const tl = g.tail || [0, 0];
-  f32[o + 52] = tl[0]; f32[o + 53] = tl[1]; f32[o + 54] = g.phototaxis || 0; f32[o + 55] = 0;
+  f32[o + 52] = tl[0]; f32[o + 53] = tl[1]; f32[o + 54] = g.phototaxis || 0; f32[o + 55] = g.jelly || 0;
 }
 
 export const genomeSerial = (u32, slot) => u32[slot * G_WORDS + 41];
@@ -371,7 +386,7 @@ export function readGenome(u32, f32, slot) {
     shape: F(16), pulse: F(17), roleHue: F(18), advect: F(19), swim: F(20), align: F(21), photo: F(22),
     col: u32[o + 39], parent: u32[o + 40], serial: u32[o + 41], born: f32[o + 42], depth: u32[o + 43],
     adhesion: f32[o + 44], calcify: f32[o + 45],
-    topt: f32[o + 46], tol: f32[o + 47], beat: [f32[o + 48], f32[o + 49], f32[o + 50], f32[o + 51]], tail: [f32[o + 52], f32[o + 53]], phototaxis: f32[o + 54], thermo: (u32[o + 15] & 255) / 255, grow,
+    topt: f32[o + 46], tol: f32[o + 47], beat: [f32[o + 48], f32[o + 49], f32[o + 50], f32[o + 51]], tail: [f32[o + 52], f32[o + 53]], phototaxis: f32[o + 54], jelly: f32[o + 55], thermo: (u32[o + 15] & 255) / 255, grow,
   };
 }
 

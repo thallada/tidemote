@@ -1,4 +1,4 @@
-import { roleShares, roleColor, affinity, CELL_SHAPES, cellShape, thermalPerf, thermalGuild, divEnergy, growPlan, describeGrowth, hasTails } from './genome.js';
+import { roleShares, roleColor, affinity, CELL_SHAPES, cellShape, thermalPerf, thermalGuild, divEnergy, growPlan, describeGrowth, hasTails, sheathOf, pierceOf } from './genome.js';
 import { FIRST_LIFE } from './engine.js';
 import { FRAMBOID, CYST, stoneGrain } from './shaders.js';
 import { tagsOf } from './facets.js';
@@ -425,6 +425,9 @@ export function createSpecimen(api) {
     b += trait(tr('spec.body.adhesion', 'Adhesion'), g.adhesion || 0, 0, 1, tr('spec.body.adhesion-value', '{p}%{bonds, select, yes { · bonds} other {}}', { p: Math.round((g.adhesion || 0) * 100), bonds: (g.adhesion || 0) > K.adhMin ? 'yes' : 'no' }), 'adhesion');
     if ((g.adhesion || 0) > K.adhMin) b += kv(tr('spec.body.growth', 'Growth'), describeGrowth(growPlan(g, K), g, K), 'growth');
     if (g.calcify > 0.005) b += trait(tr('spec.body.calcify', 'Calcifying'), g.calcify, 0, 1, `${Math.round(g.calcify * 100)}%`, 'calcify');
+    // a producer's jelly (a wall to strangers' cells) or an eater's piercing of one (docs/ecosystem.md, Jelly)
+    if (sheathOf(g)) b += kv(tr('spec.body.jelly', 'Jelly'), (g.adhesion || 0) > K.adhMin && !growPlan(g, K) && ((g.adhesion || 0) - K.tightFrom) / K.tightSpan <= 0.9 ? tr('spec.body.jelly-value', 'lives in jelly that keeps strangers out') : tr('spec.body.jelly-latent', 'makes jelly, but no body to fill'), 'jelly');
+    else if (pierceOf(g)) b += kv(tr('spec.body.pierce', 'Pierces jelly'), tr('spec.body.pierce-value', 'bursts into jelly bodies when hungry'), 'jelly');
     b += trait(tr('spec.body.size', 'Size'), g.size, 0.45, 2.6, fmtLen(0.17 * g.size), 'size');
     b += kv(tr('spec.body.shape', 'Shape'), CELL_SHAPES[cellShape(g, role)], 'size');
     h += blk(tr('spec.body', 'Body'), b);

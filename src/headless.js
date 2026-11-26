@@ -29,7 +29,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
     const rng = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
     Math.random = rng; // Archetype initialization also uses Math.random.
     const E = await import('./engine.js');
-    const { genomeSerial, readGenome, dietGuild: guildOfG } = await import('./genome.js');
+    const { genomeSerial, readGenome, dietGuild: guildOfG, sheathOf, pierceOf } = await import('./genome.js');
     const { communitySample, summarizeRun, packing, spatial } = await import('./ecostats.js');
     const { bodyCensus, morphMix } = await import('./bodies.js');
     let spatialPrev = null, spatialT = 0, latestSpatial = null;
@@ -82,11 +82,19 @@ export async function runHeadless(device, config, { print, width = 640, height =
         a.n += p; a.mean += p * (g.phototaxis || 0); if (Math.abs(g.phototaxis || 0) > 0.05) a.share += p;
       }
       for (const a of Object.values(photoTaxis)) { a.mean /= a.n || 1; a.share /= a.n || 1; delete a.n; }
+      // the jelly gene per guild, population-weighted: the share of producers living in jelly (in bodies: sheathOf and
+      // bonded) and of eaters able to pierce it (docs/ecosystem.md, Jelly)
+      const jelly = {};
+      for (const { pop: p, genome: g } of species) {
+        const a = (jelly[guildOfG(g)] ??= { n: 0, share: 0 });
+        a.n += p; if (sheathOf(g) ? (g.adhesion || 0) > eng.K.adhMin : pierceOf(g)) a.share += p;
+      }
+      for (const a of Object.values(jelly)) { a.share /= a.n || 1; delete a.n; }
       latest = { t, silt: pop[0], glint: pop[1], husk: pop[2], stone: pop[3], framboid: pop[4], ...community,
         ambient: eng.ambient, season: eng.season,
         // the pool (docs/catastrophes.md): its water level (the dry share of the floor is 1 - level), rain, the event's phase
         pond: { level: eng.level, rain: eng.rain, sky: eng.sky, frost: eng.frost, phase: climate.phase ?? null },
-        era: climate.name, photoTaxis,
+        era: climate.name, photoTaxis, jelly,
         thermal: { tbg: eng.tbg, temp: eng.temp, excursion: eng.excursion, toptMean, toptSD: n ? Math.sqrt(Math.max(0, sq / n - toptMean ** 2)) : null, makerShare: n ? makers / n : 0, tolMean: n ? tol / n : null } };
       if (t - lastSample >= config.sample - 1e-6 || c.frameNo === frames) record(c);
       if (t - lastPrint >= config.print - 1e-6) {

@@ -46,6 +46,45 @@ the movement mix (swimmers 15-19%, sessile life near 2%), and worlds resemble ea
 did. Glint and the omnivore label are gone. The sections below are the history, newest first, then the
 original brainstorm.
 
+## Jelly: a wall strangers must pierce (2026-11-26)
+
+A loose producer's colony may live in a shared clear jelly (Gloeocapsa, Eudorina, Sphaerocystis), drawn as one hull round
+the body (docs/look.md, Jelly). Since this work the jelly is also a wall. Real sheaths are a defense against grazers:
+Sphaerocystis' colonies pass through Daphnia's gut alive, and few grazers can eat a Gloeocapsa colony. The animals
+that do are specialists. Vampyrella bores through walls and sucks out the cells inside, and some rotifers and ciliates
+break into colonies or engulf them. So the jelly keeps out every species but the producer's own kind and kin, and
+only eaters able to pierce it get in.
+
+- **One gene, read by diet** (`tail.w`, the genome's spare word, so a genome's layout and saves are unchanged; `jelly`
+  on the CPU). It is a habit, expressed from 0.5, that drifts and is now and then gained or lost, as calcifying and
+  phototaxis are. In a producer (`photo` > 0.55, `sheathOf`) it is the jelly. In an eater (`photo` ≤ 0.4, `pierceOf`)
+  it is the means to pierce one. Each costs upkeep (`sheathCost`, `pierceCost`, × metab). About a third of the
+  sparks, and of the founders 40% of reefs, 30% of plankton, 25% of grazers and crawlers and 15% of hunters and
+  scavengers start with it (`foundJelly` scales both; 0: it must arise by mutation). The bond look follows the gene:
+  a sheathed producer's loose body is drawn as jelly (a loose producer without it as a bridge), no longer by a
+  hash of its species.
+- **The wall** (`contactMain`, `K.sheath`): as cells are sorted, a cell of a sheathed species' loose body (bonded, no
+  tree, no tail's cell, not tissue, not a cyst) is marked a wall (`JELLY_WALL` in `Lite.kr`), and an eater that
+  pierces and is hungry (short of `sated` × the energy it divides at, as `senseMain` has it) is marked a piercer
+  (`JELLY_PIERCE`). Between two cells of different species whose signatures are not kin (`K.kin`, so a mutant bud
+  is not shut out by its mother's jelly), each wall that the other cell does not pierce holds it off at
+  `sheathHull` (0.13) from the wall cell's center instead of at the cell's own radius: the drawn hull's edge,
+  about 0.67 of the jelly kernel's reach. The overlap rules are as before, so strangers bounce off the hull and
+  cannot be pushed through it. Two jelly bodies hold each other off hull to hull. A hungry piercer passes, and
+  once it is fed it is a stranger again, so the wall squeezes it out.
+- **Food**: a wall cell is no food (no target, no appetite pull) to an eater that cannot pierce it now
+  (`senseMain`), so grazers turn to producers they can reach rather than pressing on jelly. A piercer inside grazes
+  and hunts as anywhere.
+- **Seen**: a hungry piercer adds a negative kernel to the jelly's field (`jellyHole`, `JELLY_HOLE` 2.4 times its
+  radius, weight `JELLY_HOLE_W` 1.6), so the hull tears open where it presses in, and inside the jelly a cavity with a
+  rim of its own closes round it as it moves and feeds. In open water the field is below the level already, so
+  nothing shows there (and the hole stamps no tile, so it costs no rim).
+- **Measured** with `tools/jellylab.mjs`, which reads a growing world every so often. It counts jelly cells and
+  bodies, piercers (hungry or fed) and strangers' cells inside a hull, and with `{"sheath":0}` the same with no wall.
+  The headless samples carry the jelly gene's share by guild (`jelly` in each sample).
+
+RESULTS
+
 ## Boom and bust: bigger bites and an Allee effect (2026-10-17)
 
 Tissue's worlds kept all four guilds far more often than main's, but watched over minutes to hours they
