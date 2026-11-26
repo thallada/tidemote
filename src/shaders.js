@@ -1665,6 +1665,8 @@ const LIVE_BIT = 0x80000000u;
 // Lite.kr: a jelly body's cell, a wall to strangers' (K.sheath), and a hungry eater that pierces jelly
 const JELLY_WALL = 1u << 16u;
 const JELLY_PIERCE = 1u << 17u;
+// the same two in Lite.pad's lowest bits (JELLY_WALL >> 16, JELLY_PIERCE >> 16)
+const JELLY_PAD = 3u;
 // Intent: x bits 0..1 action (0 none, 1 eat, 2 birth, 3 bite),
 // 2..11 child kind (birth) or observed target kind (eat/bite),
 // 12..13 child role, 14..25 child generation, 26..29 its bud; y child energy, z/w bond neighbors.
@@ -2718,15 +2720,20 @@ fn scatterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocat
     // a cell of a jelly body, a wall to strangers (bit 16: a sheathed producer's, of a loose body that is no tree,
     // bonded, not a tail's), and a hungry eater able to pierce one (bit 17) (docs/ecosystem.md, Jelly)
     var jelly = 0u;
-    if (${f(K.sheath)} > 0.0 && p.kind >= FIRST_LIFE && !cyst) {
-      let g = genomes[p.kind];
+    // (the genome's fields read one by one, as sheathOf and pierceOf have them: held whole it costs a phone registers)
+    if (${f(K.sheath)} > 0.0 && p.kind >= FIRST_LIFE && !cyst && genomes[p.kind].tail.w >= 0.5) {
+      let g = &genomes[p.kind];
+      let photo = g.photo;
+      let adh = g.adhesion;
       let bonded = partners.x != NONE || partners.y != NONE;
-      if (sheathOf(g) && bonded && g.adhesion > ${f(K.adhMin)} && g.dev.x < 0x80000000u && tailBit == 0u
-          && (g.adhesion - ${f(K.tightFrom)}) / ${f(K.tightSpan)} <= 0.9) { jelly = JELLY_WALL; }
+      if (photo > 0.55 && bonded && adh > ${f(K.adhMin)} && g.dev.x < 0x80000000u && tailBit == 0u
+          && (adh - ${f(K.tightFrom)}) / ${f(K.tightSpan)} <= 0.9) { jelly = JELLY_WALL; }
       // (hungry as senseMain has it, short of sated × the energy it divides at: so it seeks food it can reach)
-      if (pierceOf(g) && p.energy < (g.reproE + ${bodyOf(K, 'g')} + max(0.0, ${f(K.provision)} * g.metab / g.share - g.reproE)) * ${f(K.sated)}) { jelly = JELLY_PIERCE; }
+      if (photo <= 0.4 && p.energy < (g.reproE + ${bodyOf(K, 'g')} + max(0.0, ${f(K.provision)} * g.metab / g.share - g.reproE)) * ${f(K.sated)}) { jelly = JELLY_PIERCE; }
     }
-    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant | hunter | tailBit | jelly | select(0u, 1u << 13u, cyst), p.col, pack2x16float(p.vel), sig.x, sig.y, bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role))));
+    // (and in pad's two lowest bits, the radius barely changed, which contactMain reads already: JELLY_PAD)
+    sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant | hunter | tailBit | jelly | select(0u, 1u << 13u, cyst), p.col, pack2x16float(p.vel), sig.x, sig.y,
+      (bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role))) & ~JELLY_PAD) | (jelly >> 16u));
     if (p.kind >= FIRST_LIFE) { slot = atomicAdd(&wgCount, 1u); }
   }
   workgroupBarrier();
@@ -3344,17 +3351,19 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
   let i = livingList[gid.x];
   if (i == NONE) { return; }
   let p = sortedFull[i];
-  let myR = bitcast<f32>(sortedLite[i].pad);
+  let myPad = sortedLite[i].pad;
+  let myR = bitcast<f32>(myPad);
   // a jelly body's cell holds strangers off at its hull, sheathHull from its center, and a hungry piercer passes
-  // any jelly (JELLY_WALL, JELLY_PIERCE; docs/ecosystem.md, Jelly)
-  let myJ = sortedLite[i].kr & (JELLY_WALL | JELLY_PIERCE);
+  // any jelly (JELLY_WALL, JELLY_PIERCE, read from pad's lowest bits: JELLY_PAD; docs/ecosystem.md, Jelly)
+  let myJ = (myPad & JELLY_PAD) << 16u;
+  let myHull = select(myR, max(myR, ${f(K.sheathHull)}), myJ == JELLY_WALL);
   let gw = i32(sim.grid.x);
   let gh = i32(sim.grid.y);
   let world = sim.world;
   let cc = clamp(vec2i(floor(p.pos)), vec2i(0), vec2i(gw - 1, gh - 1));
   let inCell = p.pos - vec2f(cc);
   // as far as this cell can touch another (its radius and a large cell's, with viscosity's margin)
-  let reach = ${f(K.crowdVisc > 0 ? 1.25 : 1)} * (select(myR, max(myR, ${f(K.sheathHull)}), myJ == JELLY_WALL) + ${f(K.contactReach)});
+  let reach = ${f(K.crowdVisc > 0 ? 1.25 : 1)} * (myHull + ${f(K.contactReach)});
   var mask = 0u;
   // the living crowd here, varying smoothly over the water (the grid cells' counts interpolated between
   // their centers): the walk's step follows it, not the count in the grid cells it walks, which jumps
@@ -3418,20 +3427,19 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
       var d = qpos - p.pos;
       d -= world * round(d / world);
       let r2 = dot(d, d);
-      var touchQ = myR + bitcast<f32>(q.pad);
-      // a jelly between strangers (unlike signatures: a mutant bud is kin): each wall not pierced from the other side
-      // holds the other off at its hull
-      let qJ = q.kr & (JELLY_WALL | JELLY_PIERCE);
-      if (((myJ | qJ) & JELLY_WALL) != 0u && (q.kr & 1023u) != p.kind) {
-        // (this cell's signature read again here, rarely, rather than held through the walk)
-        let me = sortedLite[i];
-        let far = sdot(q.s0, q.s0) + sdot(q.s1, q.s1) - 2.0 * (sdot(q.s0, me.s0) + sdot(q.s1, me.s1)) + sdot(me.s0, me.s0) + sdot(me.s1, me.s1);
-        if (far > ${f(K.kin)}) {
-          touchQ = select(myR, max(myR, ${f(K.sheathHull)}), myJ == JELLY_WALL && qJ != JELLY_PIERCE)
-            + select(bitcast<f32>(q.pad), max(bitcast<f32>(q.pad), ${f(K.sheathHull)}), qJ == JELLY_WALL && myJ != JELLY_PIERCE);
-        }
-      }
-      if (r2 >= ${f(K.crowdVisc > 0 ? 1.5625 : 1)} * touchQ * touchQ || r2 < 1e-12) { continue; }
+      let qR = bitcast<f32>(q.pad);
+      // (first against the farthest a jelly could hold it, its hull only if it is a wall's cell, so the walk's many cells
+      // out of reach cost hardly more than before)
+      let far = myHull + select(qR, max(qR, ${f(K.sheathHull)}), (q.pad & 1u) != 0u);
+      if (r2 >= ${f(K.crowdVisc > 0 ? 1.5625 : 1)} * far * far || r2 < 1e-12) { continue; }
+      // a jelly between cells of two species: each wall not pierced from the other side holds the other off at its
+      // hull (a mutant bud of a jelly species is mostly a wall too, held hull to hull, nearer than their bonds rest;
+      // its kind read only beside a jelly)
+      let qJ = (q.pad & JELLY_PAD) << 16u;
+      let strange = (myJ | qJ) != 0u && (q.kr & 1023u) != p.kind;
+      let touchQ = select(myR, myHull, strange && qJ != JELLY_PIERCE)
+        + select(qR, max(qR, ${f(K.sheathHull)}), strange && qJ == JELLY_WALL && myJ != JELLY_PIERCE);
+      if (r2 >= ${f(K.crowdVisc > 0 ? 1.5625 : 1)} * touchQ * touchQ) { continue; }
       let r = sqrt(r2);
       let touch = ${f(K.bodyGive)} * touchQ;
       if (r < touch) {
