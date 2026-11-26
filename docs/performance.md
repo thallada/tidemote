@@ -516,11 +516,57 @@ next to nothing there (its weight from 2.8 px is a smoothstep's foot): drawn onl
 the plain pipeline's line it was +2.9% [-0.2, +6.0] (all registers, not work). Now the cells to 3.1 px go to the
 slim sprites (`SPRITE_UNTIL`: their shape is under 3% of how they are drawn there, detailLOD), about half the cost.
 
+Then the granules carried on from one level of their lattice to the next, so zooming reveals them rather than
+replacing them (2026-11-25, docs/look.md, Cells), at no more than the lattice that handed over each octave in a
+narrow band: a pixel works out one lattice cell, whose granule is its own or (in the one child of four its parent
+reserves, a cheap hash) its parent's speck, found with one hash either way. Every try that drew more than one lattice
+cell a pixel all the time cost far more than it looked: granules in classes drawn together (three lattice cells a
+pixel, each class living three octaves) +15% of the scene pass at 300 and 600 px a unit, the same with two of the
+three lean (no kinds, no jiggle) +15%, as a loop +30%, the hash's bytes turned to floats by their bits instead of
+`unpack4x8unorm` +29%; four classes, each pixel of a 2x2 quad looking up one and taking the others from its
+neighbors by `dpdxFine`/`dpdyFine` (which needs every pixel of the quad running, so before the cell's early exits)
++40%, and +35% without the derivatives. The scene pass is a few hundred instructions a fragment with the cells'
+overdraw, and what a pixel does for its granules counts in full. The single lookup itself cost 10% while each speck
+jiggled (two triangle waves of the real clock and its own phases): without it, level. Two hash call sites (the
+parent's in one branch, the cell's in the other) were no dearer than one. Against the build before (12 blocks, look
+on, the scene pass, the frame after): +2.6% [+2.3, +2.9] at 80 px a unit (+0.5%), +2.1% [-0.1, +4.4] at 150
+(+0.6%), +0.6% [-2.3, +3.5] at 300 (+0.4%), -1.2% [-3.8, +1.4] at 600 (-1.0%), +3.5% [-4.3, +11.9] at 1200 (+1.4%);
+against base (12 blocks): -2.6% [-3.6, -1.5] at 80 (frame -0.8%), -0.1% [-3.6, +3.4] at 150 (-0.3%), +5.5% [+2.9,
++8.1] at 300 (+2.5%), +2.6% [+1.2, +4.0] at 600 (+1.8%), +4.3% [-4.2, +13.5] at 1200 (+1.8%). The 80 px spot's
+2.6% against the build before is not traced (its cells are mostly under 18 px, where the granules' share is small).
+Mesa's widest for an Adreno 630 is unchanged (41.8, 39.0, 41.2, 38.5, 34.0, 37.5), with fewer instructions (13645
+in the full pipeline, 14941 with the classes).
+
 The trails' spreading (four diagonal taps of the history every frame) went (docs/look.md, Trails): `fsReproj` is
 as it was again, one tap, and with trails on fsPointLive writes a resolved cell's even fill where it covers a pixel whole
 (a branch on a uniform after the color is known).
+
 A permanent blur of the floor's silt and husks (widened quads, a coverage mark about each, its own taps) cost +36%
 of the scene pass at 80 px a unit at its widest and +2-3% of the frame at its leanest, and went.
+
+Then the cost won back (2026-11-25), keeping the look. The plain pipeline (no insides, no necks) now draws every cell
+under 32 px a radius (`PLAIN_UNTIL`, was 12), not budding or sparkling: there a cell's insides are the coarse points of
+2 and 4 a radius, which it draws as the insides' pipelines would (the hand-over, the nucleus and its outline, the crowds
+and the grey haze as the granules begin), and a bond's neck changes the outline by under a pixel. The granules proper
+(the lattice of 8) take over from the coarse points from 32 to 36 px instead of 22 to 32, so the full and bare pipelines
+need the coarse lattice at one call site only, of 4 a radius (a loupe's or close-up's cells under 16 px, which they draw
+unlisted, show 4 a radius rather than 2); hairs, tail and teeth (from 30 px) are compiled out of the plain pipeline
+(`SMALL`), and a meal's food vacuole, drawn only by the insides' pipelines, shows from 32 px. The trails' fill became a
+long exposure's (docs/look.md, Trails) and is now an early return on its own path. Against the build before the new look
+(12 blocks, look on), the scene pass and the frame: 80 px a unit -6.1% / -1.4%, 150 -2.7% / -1.0%, 300 +4.3% / +2.2%,
+600 +3.0% / +1.8%, the whole world -2.4% / +0.5%; look off, the scene pass -5.3%, -2.2%, +3.2%, +1.6%, -2.0%. Against
+the build before this (look on, the scene pass): -16.5%, -8.2%, -2.3%, -1.4%, -8.5%. What is left at 300 and 600 is the
+trails' fill (the same page without it 2.4% [0.9, 3.9] cheaper at 300, 8 blocks) and the coarse points' steepening
+below; a build without the steepening measured +2.4% / +1.3% at 300 and +0.4% / +0.5% at 600, but its coarse points from
+22 to 32 px read as a milky, evenly dotted fill beside the fine granules they replaced. Tried and dropped (6-8 blocks,
+scene pass): a fifth point pipeline for cells from 22 to 30 px with the fine detail compiled out (organelles, hairs,
+teeth, sparkle; `FINE`, a fourth list) gained about 4% at 150, noise elsewhere: the fine granules, not the organelles,
+are what cost there (the plain pipeline taking the cells to 40 px instead: -27% at 150); the same without necks about 5%
+more; the coarse-to-fine hand-over's width (8 to 11 or 9.5 px a lattice cell) changed nothing measurable; the trails'
+fill without its per-cell scale, or with its condition reduced to the uniform: nothing (its cost is its presence); the
+coarse points' steepening (docs/look.md, Cells) passed in as an argument, `shown`, +3% at 150, 300 and 600 (8 blocks),
+and worked out from the lattice cell's size it already has, about +1% (within the noise). Mesa's widest for an Adreno
+630 is where it was in every pipeline (41.8, 39.0, 41.2, 38.5, 34.0, 37.5).
 
 Then the outline and its flattening, keeping every shape:
 - **The shape atlas** (`shapeDirty`, `shapeBake`, `shapeAt` in DRAW_WGSL; `Engine._shapes`): each species slot's bodies
