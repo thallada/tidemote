@@ -8134,8 +8134,8 @@ struct JF { @builtin(position) pos: vec4f, @location(0) off: vec2f, @location(1)
 // JELLY_HOLE times its radius, takes JELLY_HOLE_W from the field, so a hull it presses on tears open about it and,
 // once it is in, closes round it as a cavity in the jelly, a rim of its own (none in open water: the field is below
 // the level there already, and the hole stamps no tile)
-const JELLY_HOLE = 2.4;
-const JELLY_HOLE_W = 1.6;
+const JELLY_HOLE = 3.0;
+const JELLY_HOLE_W = 2.0;
 fn jellyHole(i: u32, vi: u32) -> JF {
   var o: JF;
   o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
