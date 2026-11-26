@@ -8373,15 +8373,18 @@ fn boulder(uv: vec2f, wp: vec2f, ppu: f32) -> vec3f {
 }
 
 // Stone lit under the cells, into the scene everything after reads (engine pStoneLit): the cells' light as drawn
-// (src), and the stone's beneath it where they leave it bare, scaled so scene() still divides out their cover. So
-// the optics and the look take stone as they take cells (the lens's fringes and blur, its shallow focus, the
-// darkfield rims and relief, the glow), and it is lit once a pixel however many times they read it.
-fn underCells(t: vec4f, st: vec3f) -> vec4f { return vec4f(t.rgb + st * (1.0 - min(1.0, t.a)) * max(1.0, t.a), t.a); }
+// (src), and the stone's beneath it where the living leave it bare (cells: their share of the pixel's light,
+// cellShare), scaled so scene() still divides out their cover. Silt and husks lying on a grain hide none of it: in
+// darkfield a chip on the bed is lit as the grain under it is, so the grain shows through it whole and the chip adds
+// its own faint light (laid as a dim opaque chip, a pale grain read as cut through by a hole). So the optics and the
+// look take stone as they take cells (the lens's fringes and blur, its shallow focus, the darkfield rims and relief,
+// the glow), and it is lit once a pixel however many times they read it.
+fn underCells(t: vec4f, st: vec3f, cells: f32) -> vec4f { return vec4f(t.rgb + st * (1.0 - min(1.0, t.a) * cells) * max(1.0, t.a), t.a); }
 // Every view's (the main view's, the loupe's, the close-up's), with the living over what lies beneath them (l: liveTex,
 // the living alone, fsPointLive): where they cover a pixel they show alone, not averaged with the grains they sit on
 // (or the stone beside them), as their coverage has it; still scaled so scene() divides out the cover.
-fn overCells(t: vec4f, l: vec4f, st: vec3f) -> vec4f {
-  let under = underCells(t, st);
+fn overCells(t: vec4f, l: vec4f, st: vec3f, cells: f32) -> vec4f {
+  let under = underCells(t, st, cells);
   if (l.a <= 0.0) { return under; }
   let a = max(1.0, t.a);
   return vec4f(mix(under.rgb / a, l.rgb / max(1.0, l.a), min(1.0, l.a)) * a, t.a);
@@ -8398,22 +8401,30 @@ fn overCells(t: vec4f, l: vec4f, st: vec3f) -> vec4f {
   }
   return vec4f(boulder(i.uv, microView.cam + (i.pos.xy - microView.res * 0.5) / microView.ppu, microView.ppu), select(0.0, sa, sa > 1.0));
 }
-// each frame: the cached stone under the view's cells, and each pixel's place in the pile
+// each frame: the cached stone under the view's cells, and each pixel's place in the pile (a), with how much of it
+// the living cover (r: the scene's cover by their share of its light), for the composite's focus (lensScene)
 struct LitOut { @location(0) scene: vec4f, @location(1) pile: vec4f };
 @fragment fn fsStoneLit(i: VO) -> LitOut {
   let cuv = i.uv * stoneXf.xy + stoneXf.zw;
   let cs = vec2f(textureDimensions(stoneCacheTex));
   let pile = textureLoad(stoneCacheTex, vec2i(clamp(cuv * cs, vec2f(0.0), cs - 1.0)), 0).a;
-  return LitOut(overCells(textureLoad(src, vec2i(i.pos.xy), 0), textureLoad(liveTex, vec2i(i.pos.xy), 0), textureSampleLevel(stoneCacheTex, samp, cuv, 0.0).rgb), vec4f(0.0, 0.0, 0.0, pile));
+  let t = textureLoad(src, vec2i(i.pos.xy), 0);
+  let l = textureLoad(liveTex, vec2i(i.pos.xy), 0);
+  let cells = cellShare(t, l);
+  return LitOut(overCells(t, l, textureSampleLevel(stoneCacheTex, samp, cuv, 0.0).rgb, cells), vec4f(min(1.0, t.a) * cells, 0.0, 0.0, pile));
 }
 // (the scene alone, where the composite reads no pile: its focus deep in a pile is for views past lensScene's start)
 @fragment fn fsStoneLitScene(i: VO) -> @location(0) vec4f {
   let cuv = i.uv * stoneXf.xy + stoneXf.zw;
-  return overCells(textureLoad(src, vec2i(i.pos.xy), 0), textureLoad(liveTex, vec2i(i.pos.xy), 0), textureSampleLevel(stoneCacheTex, samp, cuv, 0.0).rgb);
+  let t = textureLoad(src, vec2i(i.pos.xy), 0);
+  let l = textureLoad(liveTex, vec2i(i.pos.xy), 0);
+  return overCells(t, l, textureSampleLevel(stoneCacheTex, samp, cuv, 0.0).rgb, cellShare(t, l));
 }
 // (the loupe's and the close-up's, lit as they are drawn, at their own scale)
 @fragment fn fsStoneLitMicro(i: VO) -> @location(0) vec4f {
-  return overCells(textureLoad(src, vec2i(i.pos.xy), 0), textureLoad(liveTex, vec2i(i.pos.xy), 0), boulder(i.uv, microView.cam + (i.pos.xy - microView.res * 0.5) / microView.ppu, microView.ppu));
+  let t = textureLoad(src, vec2i(i.pos.xy), 0);
+  let l = textureLoad(liveTex, vec2i(i.pos.xy), 0);
+  return overCells(t, l, boulder(i.uv, microView.cam + (i.pos.xy - microView.res * 0.5) / microView.ppu, microView.ppu), cellShare(t, l));
 }
 
 @fragment fn fsDown(i: VO) -> @location(0) vec4f {
@@ -8587,11 +8598,13 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32, dh: f32) -> vec
     // than a grain is what a microscope holds in focus, so the grains on top are sharp and those under them soft,
     // the more the deeper, by the grain's cobble's place in the pile (fsStoneLit: stoneTex holds it here)
     let st = vec2f(textureDimensions(stoneTex));
-    let sa = textureLoad(stoneTex, vec2i(clamp(uv * st, vec2f(0.0), st - 1.0)), 0).a;
-    // (only the stone takes it: whatever is drawn over it, the living, silt and husks, and the trails a moving cell
-    // leaves in the scene (the last frames' image carried over, which the living's own layer does not hold), keeps
-    // the wave's and the rim's blur alone, as over water)
-    bare = 1.0 - min(1.0, textureSampleLevel(src, samp, uv, 0.0).a);
+    let pq = textureLoad(stoneTex, vec2i(clamp(uv * st, vec2f(0.0), st - 1.0)), 0);
+    let sa = pq.a;
+    // (only the stone and what lies on it take it: the living keep the wave's and the rim's blur alone, as over water;
+    // silt and husks, through which the stone shows (overCells), and the trails a moving cell leaves in the scene (the
+    // last frames' image carried over, which the living's own layer does not hold), blur with the grain beneath:
+    // fsStoneLit leaves how much of the pixel the living cover beside its place in the pile)
+    bare = 1.0 - pq.r;
     if (sa > 1.0 && bare > 0.0) {
       let below = 1.0 - clamp((sa - 1.27) / 0.49, 0.0, 1.0); // cobbleZ runs 0.27 to 0.76; a framboid's and the selected grain's lie on top
       let pileBlur = post.look[3].x * smoothstep(0.2, 0.8, below) * smoothstep(start, start * 2.5, post.ppu) * 9.6;
@@ -8612,11 +8625,11 @@ fn lensScene(uv: vec2f, q: vec2f, wp: vec2f, pos: vec2f, k: f32, dh: f32) -> vec
       let a = turn + f32(t) * 2.39996;
       let tq = uv + vec2f(cos(a), sin(a)) * sqrt((f32(t) + 0.5) / f32(n)) * blur * px;
       let s = textureSampleLevel(src, samp, tq, 0.0);
-      // (none from any pixel anything is drawn on: weighed by what the living leave bare, a cell's antialiased edge,
-      // where its bright hairline lies, and the trail it leaves as it moves, which their layer does not hold, were
-      // gathered and scattered over the stone about it as speckles in its color)
+      // (none from any pixel the living are drawn on, however little of it they cover: weighed by what they leave bare,
+      // a cell's antialiased edge, where its bright hairline lies, was gathered and scattered over the stone about it as
+      // speckles in its color; silt and husks lying on the grain are gathered with it)
       var w = 1.0;
-      if (deep > 0.0) { w = select(1.0, 0.0, s.a > 0.004 || textureSampleLevel(stoneTex, samp, tq, 0.0).a > deep + 0.02); }
+      if (deep > 0.0) { let o = textureSampleLevel(stoneTex, samp, tq, 0.0); w = select(1.0, 0.0, o.r > 0.004 || o.a > deep + 0.02); }
       b += s.rgb / max(1.0, s.a) * w;
       wsum += w;
     }
@@ -10650,8 +10663,8 @@ fn fieldWater(c: vec4f) -> vec3f { return vec3f(c.z, c.w, 0.0); }
   uv += keepInView(bend * post.ppu, i.pos.xy) / post.res;
   uv += toolBend(wp) / post.res;
   // Cells lie over what is beneath them: where the living cover a pixel they show alone, not averaged
-  // with the grains they sit on, and cells and grains both hide the stone under them (the scene as fsStoneLit
-  // lays it, overCells, which the optics and the bloom read too).
+  // with the grains they sit on, and they hide the stone under them where silt and husks let it show (the scene as
+  // fsStoneLit lays it, overCells, which the optics and the bloom read too).
   let all = textureSampleLevel(src, samp, uv, 0.0);
   let live = textureSampleLevel(liveTex, samp, uv, 0.0);
   var hdr: vec3f;

@@ -86,7 +86,8 @@ Until 2026-11 the depth was a value noise fixed in the world, unrelated to anyth
 in patches, sharp ones right at the edge beside soft ones in the middle.
 
 Silt and husks take exactly the blur a cell at the same place takes: the waves' and the rim's (a permanent blur of
-the floor's matter, tried in 2026-11, kept them soft whatever the waves did and went).
+the floor's matter, tried in 2026-11, kept them soft whatever the waves did and went). Lying on a grain deep in a pile,
+they take its blur with it (Stone, below).
 
 ## How it was chosen
 
@@ -270,7 +271,16 @@ Sharp and clean, the grains still looked rendered beside the cells: the cells co
 and the look, and stone was added after them, so it took neither. Now:
 
 - Stone is lit once a frame into the scene under the cells (engine `pStoneLit`, `sceneTex`; scaled by the cells'
-  cover so `scene()` still divides it out), and the composite, the bloom, the loupe and the close-up read that. So
+  cover so `scene()` still divides it out), and the composite, the bloom, the loupe and the close-up read that. Only
+  the living hide it (their share of the pixel's light, `cellShare`, of the scene's cover: `underCells`); silt and
+  husks lying on a grain add their light over it. In darkfield a chip on the bed is lit as the grain under it is and
+  scatters a little more at its edges, so it does not black out what lies beneath; laid opaque, as it was until
+  2026-11, a silt chip (dim: `siltCol` by `matterGain`, about 26 levels against open water's 16 and a pale foraminifer's
+  49) cut a straight-sided hole in a pale grain (a foraminifer's chambers seen outlined but filled only in part), and a
+  husk's film dimmed the grain to its own brown. Now a chip on a pale grain barely shows (a faint pale
+  patch, its facets), on a darker one it reads as a faint translucent chip, and a husk as its faint ring; over open
+  water both are as they were, and so are the living over stone. The trails a moving cell leaves over stone, which
+  the living's layer does not hold, are matter to it too: added over the grain rather than covering it. So
   the lens's color fringes and soft rim, the look's darkfield rims, relief, rainbow edges and halation fall on stone as on
   cells (the stone's own scattering rim no longer grows with the look's rims, which now add theirs). The loupe lights
   stone once a pixel instead of once per tap of its fringes and softening.
@@ -282,14 +292,16 @@ and the look, and stone was added after them, so it took neither. Now:
   or from the living (both in focus, in front), and only the share of a pixel the living leave bare takes it: the
   taps once gathered cells too, which spread each cell's light over the pile round it as a wide speckled fringe in
   its color (seen on an M1 and on Windows alike, there since the pile blur came in), where over water a cell keeps
-  its thin rim and its bloom. A tap is left out wherever anything is drawn (the scene's alpha): weighed by what the
+  its thin rim and its bloom. A tap is left out wherever the living are drawn at all (the scene's alpha by their share
+  of its light, which `fsStoneLit` leaves beside each pixel's place in the pile): weighed by what the
   living leave bare (until 2026-11), a cell's antialiased edge, where its bright hairline lies, still gave up to a
   quarter of the line's light, scattered over the stone about small crisp cells at mid zoom as speckles in their
-  color; and only bare stone takes the pile's blur, not the trails a moving cell leaves over it. The living's share comes from their own layer (`liveTex`, `coverAt`), not the scene's
+  color. Silt and husks, which the grain shows through, take its blur with it and are gathered by the taps (kept out,
+  the stone seen through a chip was sharp in the chip's shape on a soft grain), and so do the trails a moving cell
+  leaves over it, which the living's own layer does not hold. The living's share comes from their own layer (`liveTex`, `coverAt`), not the scene's
   alpha, which holds the matter drawn as points too (husks, silt, sprites; bonds): read from the scene's alpha, a
   husk's faint outline over a blurred grain stayed sharp by its share and left the taps, a crisp dashed ring round
-  nothing in particular. Matter keeps the rule it had (blurred where it covers under half the pixel, gathered by the
-  taps). Taken first from height alone and at a quarter of the strength, it did not show (a
+  nothing in particular. Taken first from height alone and at a quarter of the strength, it did not show (a
   grain's own dome outweighs its place in the pile, so every grain softened alike, slightly); `tools/stonelab.mjs
   --looks nofocus` photographs the same frames with `dof` at 0 to compare.
 - The look's edges (relief, rims, fringe, rainbow rims) are read from the sharp scene, a pixel or a few apart, and laid
