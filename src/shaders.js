@@ -5189,6 +5189,10 @@ const SPLAT_FIX = 4096.0;
 // where sprites pile up (a packed mat, a small view far out, trails) their light averages instead of
 // summing to white. A lone sprite's peak (the compact profile's 1/0.7225) stays just under 1.
 const SPRITE_COVER = 0.7;
+// how much brighter a newborn (or a cell waking from a cyst) flashes when seen from afar, at its first moment, fading
+// over 0.4 s (spriteOf; up close it is seen budding instead). Kept low: at 2.5 every bud in a mat flared toward an
+// HDR display's peak, louder than the light's own highlights (tools/anim/farfilm.mjs films builds side by side).
+const BIRTH_FLASH = 1.2;
 var<workgroup> quadN: atomic<u32>;
 var<workgroup> quadBase: u32;
 
@@ -5792,7 +5796,7 @@ fn spriteOf(p: Particle, ii: u32) -> Sprite {
     if (!th.torpid) { b *= 1.0 + (1.0 - sleep) * (1.0 - select(0.0, gh.t, dead)) * g.pulse * 0.6 * sin(view.time * (0.8 + g.pulse * 4.0) + f32(p.id % 1024u) * 0.37); }
     // a birth (or a waking) flashes, seen from afar; up close a newborn is seen budding and growing
     // instead, with a soft glow, and a cell waking from a cyst does not flash
-    if (!dead && (cause == 9u || cause == WOKE)) { b *= 1.0 + max(0.0, 1.0 - p.age * 2.5) * mix(2.5, select(0.0, 0.35, a.born), select(0.0, close, a.seen)); }
+    if (!dead && (cause == 9u || cause == WOKE)) { b *= 1.0 + max(0.0, 1.0 - p.age * 2.5) * mix(BIRTH_FLASH, select(0.0, 0.35, a.born), select(0.0, close, a.seen)); }
     // life sparked from silt glows as it grows
     if (!dead && cause == 8u) { b *= 1.0 + 2.0 * max(0.0, 1.0 - p.age / BIRTH_T); }
     col = unpack4x8unorm(p.col).rgb;
