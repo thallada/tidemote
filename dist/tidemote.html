@@ -9786,7 +9786,13 @@ fn grainLine(d: f32, nat: f32, k: f32, pxw: f32) -> f32 { let w = max(nat, k * p
 // cube): widened to a pixel at least and dimmed for it, so a rim finer than a pixel adds what it would, spread over
 // the pixel, instead of lighting it whole or not at all
 fn grainRim(sd: f32, nat: f32, pxw: f32) -> f32 { let w = max(nat, pxw); return (1.0 - smoothstep(0.0, w, -sd)) * pow(nat / w, 1.0 / 3.0); }
-fn grainHash(seed: vec2f, k: f32) -> f32 { return fract(sin(dot(seed * 91.7 + k * 1.618, vec2f(12.9898, 78.233))) * 43758.5453); }
+// A grain's k-th random draw, 0..1, hashed as integers (the seed is grainSeed's two 16-bit halves, every k whole): a
+// sin-hash rounded differently in each pipeline Metal's fast math compiled, so the fill and edge passes (STONE_EDGE)
+// drew different shapes for one grain (a foraminifer's edge another spiral than its fill).
+fn grainHash(seed: vec2f, k: f32) -> f32 {
+  let s = vec2u(seed * 65536.0 + 0.5);
+  return renderHash((s.x | (s.y << 16u)) ^ pcgHash(u32(k + 0.5) * 0x9e3779b9u));
+}
 
 // A pyrite framboid: a cluster of tiny crystals packed on a rough sphere, seen from above. The
 // cluster is a little squashed and lumpy; the crystals are laid on it (the lattice taken in arc
@@ -40000,9 +40006,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "99a71ef975725845") return;
+      if (localStorage.getItem(key) === "a92d2dccc6672809") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "99a71ef975725845");
+      if (res) localStorage.setItem(key, "a92d2dccc6672809");
     } catch {
     }
   }
