@@ -108,6 +108,31 @@ const median = (a) => { const s = [...a].sort((x, y) => x - y); return s[s.lengt
 const phone = () => innerWidth <= 720;
 // the intro's animation while the shaders compile and the GPU is measured (drawn on the CPU)
 const stopLoader = startLoader($('intro-anim'));
+// Full screen: the browser's, or in the desktop app the window's (F11's too). The intro has a button of its own
+// from the first moment, so the shaders' compile can be waited out full screen; the rail's (run) follows it.
+const deskFs = globalThis.tidemoteDesktop?.fullscreen || null;
+// (an app installed in full screen, src/pwa.js, has no window to leave; nor has an iPhone a full screen to ask for)
+const canFullscreen = !!deskFs || (!!document.fullscreenEnabled && !matchMedia('(display-mode: fullscreen)').matches);
+function flipFullscreen() {
+  if (deskFs) deskFs.toggle().catch(() => {});
+  else if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
+  else document.exitFullscreen?.();
+}
+{
+  const b = $('intro-fs');
+  b.hidden = !canFullscreen;
+  b.addEventListener('click', () => { flipFullscreen(); b.blur(); });
+  const show = (on) => {
+    b.setAttribute('aria-pressed', String(on));
+    b.setAttribute('aria-label', on ? tr('intro.fs.aria-exit', 'Exit full screen') : tr('intro.fs.aria', 'Full screen'));
+    b.dataset.hint = on ? tr('intro.fs.hint-exit', 'Exit full screen') : tr('intro.fs.hint', 'Full screen');
+    b.innerHTML = `<svg><use href="#i-${on ? 'unfull' : 'full'}"/></svg>`; // i18n-ignore (icon ids)
+  };
+  if (deskFs) { deskFs.on(show); deskFs.get().then(show).catch(() => {}); }
+  else document.addEventListener('fullscreenchange', () => show(!!document.fullscreenElement));
+  // (under gamescope the window fills the screen anyway)
+  deskFs?.forced?.().then((on) => { if (on) b.hidden = true; }).catch(() => {});
+}
 // the intro's note: where the desktop app is (not in the desktop app itself), and on a phone (or a GPU Auto measures
 // short of AUTO_60, calibrate) what a small GPU gives up
 const gpuNote = (on) => { $('intro-gpu').hidden = !on; $('intro-note').hidden = !on && !!globalThis.tidemoteDesktop; };
@@ -3607,18 +3632,10 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       world, frameMs: per(gpu), passes: Object.fromEntries(Object.entries(passes).sort((x, y) => y[1] - x[1]).map(([k, x]) => [k, per(x)])), step });
     try { await navigator.clipboard.writeText(json); flash(tr('flash.profile-copied', 'Profile copied')); } catch { prompt(tr('settings.perf.profile-prompt', 'The profile, to copy:'), json); }
   }
-  // In the desktop app full screen is the window's (F11's too), so the button toggles and follows it.
-  const deskFs = desk?.fullscreen || null;
-  function toggleFullscreen() {
-    if (fsBtn.hidden) return;
-    if (deskFs) deskFs.toggle().catch(() => {});
-    else if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
-    else document.exitFullscreen?.();
-  }
-  // full screen from the rail, where the browser allows it (not on iPhone)
+  // full screen from the rail, where it can be had (canFullscreen; flipFullscreen), the button following it
   const fsBtn = $('fs');
-  // (an app installed in full screen, src/pwa.js, has no window to leave)
-  fsBtn.hidden = !deskFs && (!document.fullscreenEnabled || matchMedia('(display-mode: fullscreen)').matches);
+  fsBtn.hidden = !canFullscreen;
+  function toggleFullscreen() { if (!fsBtn.hidden) flipFullscreen(); }
   fsBtn.addEventListener('click', toggleFullscreen);
   function showFullscreen(on) {
     fsBtn.setAttribute('aria-pressed', String(on));
@@ -5133,9 +5150,9 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       const hide = () => (state.phase === 'running' ? hideIntro() : setTimeout(hide, 150));
       hide();
     }
-    // (the menu and the note under it, whose store links open and leave the world waiting)
+    // (the menu, the note under it, whose store links open and leave the world waiting, and the full screen button)
     const note = $('intro-note');
-    const inMenu = (t) => t instanceof Node && (el.contains(t) || note.contains(t));
+    const inMenu = (t) => t instanceof Node && (el.contains(t) || note.contains(t) || $('intro-fs').contains(t));
     const MODS = new Set(['Tab', 'Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'ContextMenu']); // i18n-ignore (key names)
     // A click anywhere but the menu begins (a click outside an open panel closes it first); so does a key,
     // but those a menu control uses (Enter, Space, arrows), Escape (closes the panel) and Tab. While the

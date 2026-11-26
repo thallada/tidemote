@@ -1399,6 +1399,8 @@ canvas.niches { width: 100%; height: 160px; display: block; }
   transition: opacity 1.2s ease;
 }
 .intro.gone { opacity: 0; pointer-events: none; }
+.intro-fs { position: absolute; top: calc(10px + var(--safe-t)); right: calc(12px + var(--safe-r)); width: 36px; height: 36px; }
+.intro-fs svg { width: 18px; height: 18px; }
 .intro-in { margin: auto 0; display: flex; flex-direction: column; align-items: center; gap: 18px; text-align: center; max-width: 640px; }
 .intro h1 { font-size: clamp(30px, 8vw, 84px); font-weight: 200; letter-spacing: .34em; margin-right: -.34em; text-transform: uppercase; font-stretch: 125%; line-height: 1; }
 .intro-anim { width: min(560px, 88vw); height: clamp(150px, 26vh, 200px); display: block; }
@@ -2043,6 +2045,8 @@ Double-tap: real time"><span><span id="t-speed-v">×1</span></span><small id="t-
 <div class="padbar off" id="padbar" aria-hidden="true"></div>
 
 <div class="intro" id="intro">
+  <!-- full screen while the shaders compile and the menu waits (main.js; the rail's own button comes with the world) -->
+  <button data-i18n="intro.fs" type="button" class="ghost intro-fs" id="intro-fs" aria-label="Full screen" aria-pressed="false" data-hint="Full screen" hidden><svg><use href="#i-full"/></svg></button>
   <div class="intro-in">
     <canvas class="intro-anim" id="intro-anim" aria-hidden="true"></canvas>
     <h1 translate="no">Tidemote</h1>
@@ -41068,6 +41072,38 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
   };
   var phone = () => innerWidth <= 720;
   var stopLoader = startLoader($2("intro-anim"));
+  var deskFs = globalThis.tidemoteDesktop?.fullscreen || null;
+  var canFullscreen = !!deskFs || !!document.fullscreenEnabled && !matchMedia("(display-mode: fullscreen)").matches;
+  function flipFullscreen() {
+    if (deskFs) deskFs.toggle().catch(() => {
+    });
+    else if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {
+    });
+    else document.exitFullscreen?.();
+  }
+  {
+    const b = $2("intro-fs");
+    b.hidden = !canFullscreen;
+    b.addEventListener("click", () => {
+      flipFullscreen();
+      b.blur();
+    });
+    const show = (on) => {
+      b.setAttribute("aria-pressed", String(on));
+      b.setAttribute("aria-label", on ? tr("intro.fs.aria-exit", "Exit full screen") : tr("intro.fs.aria", "Full screen"));
+      b.dataset.hint = on ? tr("intro.fs.hint-exit", "Exit full screen") : tr("intro.fs.hint", "Full screen");
+      b.innerHTML = `<svg><use href="#i-${on ? "unfull" : "full"}"/></svg>`;
+    };
+    if (deskFs) {
+      deskFs.on(show);
+      deskFs.get().then(show).catch(() => {
+      });
+    } else document.addEventListener("fullscreenchange", () => show(!!document.fullscreenElement));
+    deskFs?.forced?.().then((on) => {
+      if (on) b.hidden = true;
+    }).catch(() => {
+    });
+  }
   var gpuNote = (on) => {
     $2("intro-gpu").hidden = !on;
     $2("intro-note").hidden = !on && !!globalThis.tidemoteDesktop;
@@ -44902,17 +44938,11 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         prompt(tr("settings.perf.profile-prompt", "The profile, to copy:"), json);
       }
     }
-    const deskFs = desk?.fullscreen || null;
-    function toggleFullscreen() {
-      if (fsBtn.hidden) return;
-      if (deskFs) deskFs.toggle().catch(() => {
-      });
-      else if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {
-      });
-      else document.exitFullscreen?.();
-    }
     const fsBtn = $2("fs");
-    fsBtn.hidden = !deskFs && (!document.fullscreenEnabled || matchMedia("(display-mode: fullscreen)").matches);
+    fsBtn.hidden = !canFullscreen;
+    function toggleFullscreen() {
+      if (!fsBtn.hidden) flipFullscreen();
+    }
     fsBtn.addEventListener("click", toggleFullscreen);
     function showFullscreen(on) {
       fsBtn.setAttribute("aria-pressed", String(on));
@@ -46721,7 +46751,7 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
         hide();
       }
       const note = $2("intro-note");
-      const inMenu = (t) => t instanceof Node && (el2.contains(t) || note.contains(t));
+      const inMenu = (t) => t instanceof Node && (el2.contains(t) || note.contains(t) || $2("intro-fs").contains(t));
       const MODS = /* @__PURE__ */ new Set(["Tab", "Shift", "Control", "Alt", "Meta", "CapsLock", "ContextMenu"]);
       function onAny(e) {
         if (!$2("nogpu").hidden || introHidden) return;

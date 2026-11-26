@@ -44,10 +44,19 @@ for (const size of [{ tag: 'laptop', viewport: { width: 1366, height: 768 } }, {
 
   // a first visit, left alone: measured, then held on Begin
   await page.goto(url);
+  // the corner's full screen button, there before the world is (while the shaders compile)
+  const early = await page.waitForSelector('#intro-fs', { state: 'visible', timeout: 5000 }).then(() => page.evaluate(() => !globalThis.__tidemote?.state)).catch(() => false);
+  check(`${tag} full screen shown while compiling`, early);
   await held();
   await page.waitForTimeout(1000);
   let s = await st();
   check(`${tag} first visit held on Begin`, !s.live && s.paused && s.kept == null, JSON.stringify(s));
+  // and a click on it does not begin
+  await page.click('#intro-fs'); await page.waitForTimeout(400);
+  const full = await page.evaluate(() => ({ full: !!document.fullscreenElement, pressed: document.getElementById('intro-fs').getAttribute('aria-pressed') }));
+  s = await st();
+  check(`${tag} full screen does not begin`, !s.live && s.paused, JSON.stringify({ ...s, ...full }));
+  if (full.full) { await page.click('#intro-fs'); await page.waitForTimeout(400); }
   await shot('ready');
   await page.click('#menu-n');
   let f = await fits();
