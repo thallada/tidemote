@@ -2473,6 +2473,9 @@ fn swaySlot2(id: u32, n: u32) -> u32 {
     // the adhesion where bodies start to close into tissue...
     tightSpan: 0.4,
     // ...and how much more until they are tissue through and through
+    bondLook: -1,
+    // view only: how bonds are drawn (docs/look.md, Bonds): below 0 each species' own kind (bondKind), 0..7
+    // every bond as that kind (0 wall, 1 bridge, 2 thread, 3 pad, 4 hypha, 5 stalk, 6 net, 7 jelly; tools/bondlab.mjs)
     // a bonded species whose growth plan says so grows as a tree, bonded mother to daughter only, from its
     // tips at the angles its plan sets (growOf), so it branches, curls, forks and zigzags
     growStiff: 2,
@@ -7423,6 +7426,9 @@ fn lerpRestore(@builtin(global_invocation_id) gid: vec3u) {
 }
 `
   );
+  var FOCUS_MAX = 65536;
+  var BOND_SP_AT = MAXK / 32 + FOCUS_MAX;
+  var JELLY_FROM = 20;
   var DRAW_WGSL = "diagnostic(off, derivative_uniformity);\n" + COMMON + ANIM_WGSL + /* wgsl */
   `
 // Unresolved views use the cheap sprite profile; resolved cells share one outline path.
@@ -7463,6 +7469,14 @@ struct View {
   // sim time it was drawn (a grain worn away since is still shown whole in it) and lit; unused ones 1e9; the first
   // below 0 where stone is drawn every frame
   crumble: array<vec4f, 4>,
+  // bonds (docs/look.md, Bonds): the kind every bond is drawn as (K.bondLook: 0..7, BOND_*; below 0 each species'
+  // own, bondKind); a jelly envelope's field's frame stamp (never 0) and its tiles across (Engine._jellyField, which
+  // writes them)
+  bond: f32,
+  jellyStamp: u32,
+  jellyCols: u32,
+  // the simulation clock's wraps (SIM_CLOCK) so far, as the simulation's sim.wraps.x (stalkFold)
+  wraps: u32,
 };
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
@@ -7799,6 +7813,8 @@ fn shapeDirty(@builtin(global_invocation_id) gid: vec3u) {
   if (k >= arrayLength(&genomes) || k >= arrayLength(&shapeBaked)) { return; }
   let serial = genomes[k].serial;
   if (serial == shapeBaked[k]) { return; }
+  // (its bonds' kind too: bondSp, written until its shape is listed for baking)
+  bondKinds(k);
   let n = atomicAdd(&shapeArgs[2], 1u);
   if (n < atomicLoad(&shapeList[0])) { atomicStore(&shapeList[1u + n], k); shapeBaked[k] = serial; }
   else { atomicSub(&shapeArgs[2], 1u); }
@@ -8483,7 +8499,16 @@ struct PO {
     o.shape = shape | (k << 8u);
     let species = morphOf(g);
     o.morph = species;
-    o.jelly.y = pace;
+    // (a tree's cell hanging from its mother, or a tail's, trails no flagellum: it would run down the stalk or strand
+    // beside it, docs/look.md, Hypha and stalk; its cilia stay. Said by a negative pace, which every other use takes as
+    // 0: an anchored cell does not stretch as a swimmer does)
+    // (read only for a tree's or a tail's cell: every cell's vertices run this)
+    var hung = false;
+    if (alive && (g.dev.x >= 0x80000000u || tailCell(g, p.info))) {
+      let mom = intent[ii].z;
+      hung = mom < arrayLength(&parts) && mom != ii && parts[mom].kind == k;
+    }
+    o.jelly.y = select(pace, -pace - 1e-6, hung);
     o.geom.y = bodyArea(shape, species) + bodyEdge(shape);
     // (a new species' sparkle, in place of sleep, which a newborn never is: negative)
     o.fx.x = select(an.sleep, -an.novel, an.novel > 0.0);
@@ -8501,6 +8526,9 @@ struct PO {
       let inN = min(bondsIn[ii * 5u], 4u);
       var used = 0u;
       var picked = vec2u(NONE);
+      // (the kind its bonds to its kin are drawn as, for those that fuse a neck: neckKind)
+      var own = BOND_JELLY;
+      if (px >= 6.0 && NECKS) { own = bondKind(p, p); }
       // (only from 6 px, where fsPoint starts drawing the fused neck)
       for (var c = 0u; c < 6u && used < 3u && px >= 6.0 && NECKS; c++) {
         var index = NONE;
@@ -8508,7 +8536,7 @@ struct PO {
         else if (c - 2u < inN) { index = bondsIn[ii * 5u + c - 1u]; }
         if (index == NONE || index == ii || index == picked.x || index == picked.y) { continue; }
         let partner = parts[index];
-        if (partner.kind != k) { continue; }
+        if (partner.kind != k || !neckKind(own, k, partner)) { continue; }
         let ratio = cellRadius(partner, g, index) / px;
         let offset = wrapd(drawnPos(partner) - at) * view.ppu / px;
         let reach = 1.65 * (1.0 + ratio) + 0.12 * min(1.0, ratio);
@@ -8690,11 +8718,12 @@ fn soloCell(p: Particle, ii: u32) -> PO {
   var plans = 0x7fffu;
   var seeds = vec3f(0.0);
   var used = 0u;
+  let own = select(bondKindOf(p.kind, p.kind, p.info, p.info), min(u32(view.bond), 7u), view.bond >= 0.0);
   for (var c = 0u; c < 3u && px >= 6.0; c++) {
     let index = (p.id >> (10u * c)) & 1023u;
     if (index == 1023u || index == ii || index >= arrayLength(&parts)) { continue; }
     let q = parts[index];
-    if (q.kind != p.kind) { continue; }
+    if (q.kind != p.kind || !neckKindOf(own, p.kind, q)) { continue; }
     let ratio = soloPx(g, q.info) / px;
     let offset = (q.pos - p.pos) * view.ppu / px;
     let reach = 1.65 * (1.0 + ratio) + 0.12 * min(1.0, ratio);
@@ -9322,7 +9351,7 @@ fn cellColor(i: PO, p: Particle, kind: u32, far: f32) -> vec4f {
       let tailY = 0.13 * sin(motion.x * 7.0 + beat) * smoothstep(0.65, 1.6, -motion.x);
       let tail = (1.0 - smoothstep(0.009, 0.018 + aa, abs(motion.y - tailY)))
         * smoothstep(0.60, 0.9, -motion.x) * (1.0 - smoothstep(1.55, 1.9, -motion.x));
-      let ap = min(g.swim, 1.0) * resolved * (1.0 - body) * (CELL_HAIR * hairs + CELL_TAIL * tail) * (1.0 - still);
+      let ap = min(g.swim, 1.0) * resolved * (1.0 - body) * (CELL_HAIR * hairs + select(CELL_TAIL, 0.0, pace < 0.0) * tail) * (1.0 - still);
       fw += ap;
       cellHairs = ap * lod;
     }
@@ -9437,6 +9466,143 @@ fn matterColor(i: PO, p: Particle, far: f32) -> vec4f {
   return vec4f(i.col * mix(far, max(0.0, f), lod), mix(far * SPRITE_COVER, cover, lod));
 }
 
+// ---- Bonds (docs/look.md, Bonds). Each species' bonds are drawn as one of eight kinds, after what holds real colonies
+// together (the micrographs and what to aim for in each: ~/.cache/tidemote-refs/bonds/README.md). In darkfield whatever
+// joins two cells is flush with them (a shared wall) or far fainter than they are, and colorless (glass glows a cool
+// blue-white); only the streaming net glows in the cells' own color. A visual choice alone: the bonds' physics is the
+// same whatever they are drawn as. Each kind keeps its own functions (bondFarX for the far line, bondAnchorX for where
+// it leaves each cell, bondVtxX for a strip's width and light, bondFragX for its shading), so the kinds are worked on
+// apart; vsLine and vsBridge keep what they share (the partner, culling, the cubic centerline).
+const BOND_WALL = 0u;   // tissue: the cells share a wall, which is the bond; nothing drawn between them (cellColor's flattened membranes)
+const BOND_BRIDGE = 1u; // Volvox's cytoplasmic bridge: a neck between cells within about a cell width
+const BOND_THREAD = 2u; // a secreted glassy thread or silica spine (Thalassiosira, Skeletonema, Chaetoceros)
+const BOND_PAD = 3u;    // a mucilage pad gluing cell ends (Tabellaria, Asterionella): a joint, nothing between
+const BOND_HYPHA = 4u;  // a still tree's mother-to-daughter strand (Hyphomicrobium's hypha, Dictyosphaerium's old wall)
+const BOND_STALK = 5u;  // a beating tree's contractile stalk (Zoothamnium, Vorticella)
+const BOND_NET = 6u;    // a streaming pseudopodial net (Reticulomyxa, foraminifera)
+const BOND_JELLY = 7u;  // a shared jelly envelope (Eudorina, Gloeocapsa, Nostoc): no line, a hull round the body
+// The kind a bond kept by p (to its partner q) is drawn as, from both species' genomes; or the one K.bondLook forces
+// (view.bond, 0..7). By how far the lesser adhesion has closed its bodies toward tissue (tight, as the simulation
+// reckons it: 0 at tightFrom, 1 at tightFrom + tightSpan): tissue (past BOND_WALL_FROM) shares walls; a tree's bonds
+// (mother to daughter; a tail's too) are stalks when it beats, else hyphae; any other body's bonds are one of the kinds
+// its species qualifies for, picked by a hash of the species so a world shows a mix: a bridge where its cells sit
+// close (past BOND_BRIDGE_FROM), a pad for a long cell (desmid, spindle, slipper), a jelly envelope for a producer, and
+// where its cells hang apart (to BOND_LOOSE_UNTIL) a thread for a calcifier (a mineral user) and a net for an eater
+// (grazer, hunter or scavenger: Reticulomyxa's eats algae and bacteria alike). Mirrored on the CPU by bondKindLike
+// (src/genome.js) for tools/bondlab.mjs: change both together.
+const BOND_WALL_FROM = 0.9;
+const BOND_BRIDGE_FROM = 0.25;
+const BOND_LOOSE_UNTIL = 0.5;
+// (the genes read one by one from the table, each only once it is needed: most bonds are tissue's, decided by the
+// adhesions alone)
+fn bondTail(k: u32, info: u32) -> bool {
+  return genomes[k].dev.x < 0x80000000u && genomes[k].adhesion > ${f(DEFAULT_K.adhMin)} && genomes[k].tail.x > 0.0 && orderOf(info) == 2u;
+}
+// bondKind reckoned from the genomes, for a bond kept by a cell of species kp (info word infoP) to one of kq (infoQ)
+fn bondKindOf(kp: u32, kq: u32, infoP: u32, infoQ: u32) -> u32 {
+  let tight = (min(genomes[kp].adhesion, genomes[kq].adhesion) - view.tightFrom) / view.tightSpan;
+  if (tight > BOND_WALL_FROM) { return BOND_WALL; }
+  if (genomes[kp].dev.x >= 0x80000000u || bondTail(kp, infoP) || bondTail(kq, infoQ)) {
+    return select(BOND_HYPHA, BOND_STALK, genomes[kp].beat.x > 0.0);
+  }
+  var m = select(0u, 1u << BOND_BRIDGE, tight > BOND_BRIDGE_FROM);
+  let plan = choosePlan(genomes[kp], 0u);
+  if (plan == 3u || plan == 5u || plan == 6u) { m |= 1u << BOND_PAD; }
+  let producer = genomes[kp].photo > 0.55;
+  if (producer) { m |= 1u << BOND_JELLY; }
+  if (tight <= BOND_LOOSE_UNTIL) {
+    if (genomes[kp].calcify > 0.3) { m |= 1u << BOND_THREAD; }
+    if (!producer) { m |= 1u << BOND_NET; }
+  }
+  // (the pick-th of the kinds it qualifies for; a closing body of an eater of round cells has only the bridge, a loose
+  // producer that neither calcifies nor has long cells only the jelly)
+  for (var k = pcgHash(genomes[kp].serial ^ 0x5bd1e995u) % countOneBits(m); k > 0u; k--) { m &= m - 1u; }
+  return firstTrailingBit(m);
+}
+// Each species' bonds within itself as bondKinds reckons them, before the views are drawn, whenever its slot's
+// genome changes, as its shape is baked again (shapeDirty, in Engine._shapes' pass, which bakes every slot afresh
+// when the tight tunables change): the kind of a bond between two of its cells neither of which is a tail's (bits
+// 0-7, BOND_*), whether its cells may be a tail's (bit 8: a tail's cell, bondTail, by its order) and the kind its
+// strands are then (bits 9-11, a hypha or a stalk); a slot no species has held keeps 0, and no cell is of it. So a
+// bond within a species, as nearly all are, reads one word for its kind rather than the genome's genes and two hashes
+// (vsBridge runs bondKind at each of a strip's 30 vertices, vsPoint for each cell's necks). In the focus buffer from
+// BOND_SP_AT (read by the views' draws as focus, written here as 34).
+fn bondSp(k: u32) -> u32 { return focus[${BOND_SP_AT}u + k]; }
+@group(0) @binding(34) var<storage, read_write> bondSpW: array<u32>;
+fn bondKinds(k: u32) {
+  if (k >= MAXK || ${BOND_SP_AT}u + k >= arrayLength(&bondSpW)) { return; }
+  if (k < FIRST_LIFE || k >= arrayLength(&genomes)) { bondSpW[${BOND_SP_AT}u + k] = 0xffu; return; }
+  let g = genomes[k];
+  let tail = g.dev.x < 0x80000000u && g.adhesion > ${f(DEFAULT_K.adhMin)} && g.tail.x > 0.0;
+  bondSpW[${BOND_SP_AT}u + k] = bondKindOf(k, k, 0u, 0u) | select(0u, 1u << 8u, tail) | (select(BOND_HYPHA, BOND_STALK, g.beat.x > 0.0) << 9u);
+}
+// The kind a bond kept by p (to its partner q) is drawn as (above)
+fn bondKind(p: Particle, q: Particle) -> u32 {
+  if (view.bond >= 0.0) { return min(u32(view.bond), 7u); }
+  if (p.kind != q.kind) { return bondKindOf(p.kind, q.kind, p.info, q.info); }
+  let e = bondSp(p.kind);
+  let own = e & 0xffu;
+  // (a tail's cell's bonds are its strand's, but tissue's walls, which come first)
+  if (own != BOND_WALL && (e & (1u << 8u)) != 0u && (orderOf(p.info) == 2u || orderOf(q.info) == 2u)) { return (e >> 9u) & 7u; }
+  return own;
+}
+// Which bonds fuse a neck in vsPoint (their cells' outlines joined by a smooth union where they nearly touch): a bit
+// per kind (BOND_*). Bridges, whose neck it is; walls, for tissue's cells not yet pressed flat (pressed, a tile meets
+// its kin at a shared wall instead); a net's pseudopods at their base. Not threads (glass holds its cells apart), pads
+// (a joint at the cells' ends, bondFragPad; a union would fuse long cells side to side), jelly (nothing joins cell to
+// cell) or trees' strands (hypha, stalk: Dictyosphaerium's, Dinobryon's and Zoothamnium's cells are each a cell of
+// their own, joined by a strand or set in a cup; fused, a tree read as a lumpy tube; a budding daughter still pinches
+// off her mother).
+const NECK_KINDS = (1u << BOND_WALL) | (1u << BOND_BRIDGE) | (1u << BOND_NET);
+// own: bondKind(p, p) for a cell p of species k; a bond to its kin q is drawn as that, but a tail's (bondKind)
+// (neckKindOf reckons it from the genomes, for the studio, whose genomes are its own: bondSp is the world's)
+fn neckKind(own: u32, k: u32, q: Particle) -> bool {
+  let tail = view.bond < 0.0 && own != BOND_WALL && (bondSp(k) & (1u << 8u)) != 0u && orderOf(q.info) == 2u;
+  return !tail && ((NECK_KINDS >> own) & 1u) != 0u;
+}
+fn neckKindOf(own: u32, k: u32, q: Particle) -> bool {
+  let tail = view.bond < 0.0 && own != BOND_WALL && bondTail(k, q.info);
+  return ((NECK_KINDS >> select(own, select(BOND_HYPHA, BOND_STALK, genomes[k].beat.x > 0.0), tail)) & 1u) != 0u;
+}
+// A colorless bond's light from the cells' color: glass (silica, chitin, an old wall) scatters a cool blue-white, as
+// bright as the tint it replaces.
+fn bondGlass(c: vec3f) -> vec3f { return vec3f(0.90, 1.01, 1.19) * dot(c, vec3f(0.2126, 0.7152, 0.0722)); }
+
+// -- The far line (vsLine: a native line, a pixel wide, below bondLOD's 30 px cells; crossfaded with the strip from 6).
+// bondFarX: the line's color at one end from the cells' there (col: the keeper's at its start, the partner's at its
+// end), strength the bond's hold (1 - length / linkR); the shared code scales it by the line's gain and the focus.
+fn bondFar(kind: u32, col: vec3f, strength: f32) -> vec3f {
+  switch (kind) {
+    case BOND_THREAD: { return bondFarThread(col, strength); }
+    case BOND_PAD: { return bondFarPad(col, strength); }
+    case BOND_HYPHA: { return bondFarHypha(col, strength); }
+    case BOND_STALK: { return bondFarStalk(col, strength); }
+    case BOND_NET: { return bondFarNet(col, strength); }
+    default: { return bondFarBridge(col, strength); }
+  }
+}
+// A thread from afar: glass, far under a pixel wide, so a faint cool hair whatever its pull (the shared ramp by
+// strength divided out); the cells read as a chain of beads with gaps. As bright as the strip's floor width
+// (THREAD_MIN_PX) at the strip's light, so the crossfade holds.
+fn bondFarThread(col: vec3f, strength: f32) -> vec3f { return bondGlass(col) * (THREAD_GAIN * THREAD_MIN_PX / (0.35 + 0.65 * strength)); }
+// A bridge from afar: a faint web between bright cells (Volvox's lattice), a little paler than they are. (Walls take
+// it too, until their cells resolve: a beaded string.)
+fn bondFarBridge(col: vec3f, strength: f32) -> vec3f { return bridgeTint(col) * BRIDGE_FAR; }
+// A pad from afar: next to nothing between the cells (the joint is a point; the cells' angles draw the colony).
+fn bondFarPad(col: vec3f, strength: f32) -> vec3f { return padGel(col) * PAD_STRAND; }
+// A tree's strand from afar: a faint pale hair, a little of the cells' tint (a living hypha's; a wall strand is clear,
+// but a pixel-wide line cannot tell the two apart), well under the cells' light.
+fn bondFarHypha(col: vec3f, strength: f32) -> vec3f { return mix(bondGlass(col), col, 0.2) * HYPHA_FAR; }
+// A stalk from afar: a colorless hair barely brighter than the field (darkfield Vorticella's)
+fn bondFarStalk(col: vec3f, strength: f32) -> vec3f { return bondGlass(col) * STALK_FAR; }
+// A net from afar: whiter and brighter than the cells (its many fine edges scatter), a hint of their tint kept.
+// (faded as its strip comes in, netLOD, sooner than the shared bondLOD fade vsLine applies, which this divides out)
+fn bondFarNet(col: vec3f, strength: f32) -> vec3f {
+  var hand = 1.0;
+  if (view.pointSize > 6.0) { hand = (1.0 - netLOD()) / max(1.0 - bondLOD(view.pointSize), 0.001); }
+  return netWhite(col) * (NET_FAR * hand);
+}
+
 struct LO { @builtin(position) pos: vec4f, @location(0) col: vec3f };
 
 @vertex fn vsLine(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> LO {
@@ -9455,23 +9621,25 @@ struct LO { @builtin(position) pos: vec4f, @location(0) col: vec3f };
   if (abs(bp.x) > view.res.x * 0.5 + 60.0 || abs(bp.y) > view.res.y * 0.5 + 60.0) { return o; }
   let q = parts[n];
   if (p.kind < FIRST_LIFE || q.kind < FIRST_LIFE) { return o; }
+  let kind = bondKind(p, q);
+  // a jelly envelope draws no line: its hull holds the body
+  if (kind == BOND_JELLY) { return o; }
   let dq = wrapd(q.pos - p.pos);
   let t = clamp(1.0 - length(dq) / view.linkR, 0.0, 1.0);
   let isEnd = (vi & 1u) == 1u;
   o.pos = toClip((base + select(vec2f(0.0), dq, isEnd)) * view.ppu);
   let fade = select(view.mute, 1.0, focusPass(p, i));
-  o.col = unpack4x8unorm(select(p.col, q.col, isEnd)).rgb * ((0.35 + 0.65 * t) * view.lineGain * fade);
+  o.col = bondFar(kind, unpack4x8unorm(select(p.col, q.col, isEnd)).rgb, t) * ((0.35 + 0.65 * t) * view.lineGain * fade);
   if (view.pointSize > 6.0) { o.col *= 1.0 - bondLOD(view.pointSize); }
   // tissue shows no bond once its cells take shape (vsBridge): its line goes as they resolve
-  let adhesion = min(genomes[p.kind].adhesion, genomes[q.kind].adhesion);
-  if ((adhesion - view.tightFrom) / view.tightSpan > 0.5) { o.col *= 1.0 - detailLOD(view.pointSize); }
+  if (kind == BOND_WALL) { o.col *= 1.0 - detailLOD(view.pointSize); }
   return o;
 }
 
 @fragment fn fsLine(i: LO) -> @location(0) vec4f { return vec4f(i.col, 0.0); }
 
-// One strip per partner, joined by two degenerate vertices: six segments per bridge.
-// The native line entry points above remain the cheap, identical distant path.
+// -- The strip (vsBridge, from 6 px cells): one strip per partner, joined by two degenerate vertices, six segments a
+// bond along a cubic from p to q (bodyTangent bends it along the body up close). Walls and jelly draw none.
 struct BO {
   @builtin(position) pos: vec4f,
   @location(0) col: vec3f,
@@ -9479,6 +9647,8 @@ struct BO {
   @location(2) cover: f32,
   @location(3) across: vec2f, // the neck's sideways direction on screen
   @location(4) along: vec2f, // fraction of the way from p to q, and world distance from p
+  @location(5) @interpolate(flat) kind: u32, // BOND_*
+  @location(6) aux: vec4f, // the kind's own, from its bondVtxX (BondLook.aux) to its bondFragX
 };
 fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f {
   let len = length(chord);
@@ -9495,6 +9665,464 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
   if (dot(offset, chord) < -0.5 * length(offset) * len || length(tangent) < 0.001) { return straight; }
   return normalize(tangent) * reach;
 }
+// What a bond's two cells are, for where it leaves them (bondAnchorX): the keeper p (at index) and its partner q (at
+// n) as drawn, their radii in pixels as drawn (cellRadius), and the chord from p to q (world units).
+struct BondEnds { p: Particle, q: Particle, index: u32, n: u32, rp: f32, rq: f32, dq: vec2f };
+// Where a bond leaves each cell, as offsets from the cells' centers in world units (xy at p, zw at q); none for a
+// bond drawn center to center. (A cell's heading: bodyDirection, which for a tree's cell points away from its
+// mother, intent.z; its plan: choosePlan(genomes[p.kind], roleOf(p.info)); outlines are along the heading.)
+// Threads, nets and trees' strands leave each cell where its outline lies along the way out (bondReach, found once
+// for every such kind, so vsBridge holds one copy of bodySD): each kind gives the ways, then places its ends.
+fn bondAnchor(kind: u32, e: BondEnds) -> vec4f {
+  bondPair = renderHash((min(e.p.id, e.q.id) * 0x9e3779b9u) ^ max(e.p.id, e.q.id));
+  var ways = vec4f(0.0);
+  switch (kind) {
+    case BOND_THREAD, BOND_NET: {
+      if (select(bondLOD(view.pointSize), netLOD(), kind == BOND_NET) <= 0.0) { return vec4f(0.0); }
+      ways = threadNetWays(e, kind == BOND_NET);
+    }
+    case BOND_HYPHA, BOND_STALK: { ways = treeWays(e); }
+    case BOND_PAD: { return bondAnchorPad(e); }
+    // (a bridge from the cells' middles; its neck's own shape by the pair's hash, bondVtxBridge)
+    default: { return vec4f(0.0); }
+  }
+  let reach = bondReach(e, ways);
+  switch (kind) {
+    case BOND_THREAD, BOND_NET: { return threadNetAt(e, ways, reach, kind == BOND_NET); }
+    case BOND_HYPHA: { return treeAt(e, reach, true); }
+    default: { return bondAnchorStalk(e, treeAt(e, reach, false)); }
+  }
+}
+// What bondAnchor leaves the kinds' vertex functions about the bond (vsBridge calls it before bondVtx, per vertex,
+// and BondSeg carries no ids): a hash of the pair, the same either way round.
+var<private> bondPair: f32;
+// Where a thread or a net leaves each cell (one function for both, so vsBridge holds one copy of bodySD):
+// - a thread from the middle of a valve face, as Thalassiosira's chitin thread does: the pole of the cell's long axis
+//   (its heading, along which its outline is laid) on the side toward its partner, not aimed through the center;
+// - a net's strand from the membrane straight toward its partner, where its pseudopod leaves the cell.
+// Either at the membrane: the outline (bodySD of its plan, as cellOutline lays it along the heading and draws it out
+// by the cell's pace; its small shears, a squash and a turn's bend left out) found from inside by two Newton steps
+// on the ray. Eased in with the strip (bondLOD; a net's netLOD), so where the strip starts it lies on the far line.
+// Several threads leaving one cell spread over a small arc round its pole (THREAD_ARC either side, by a hash of the
+// pair and the end), as a valve's processes ring its middle, rather than all from one point.
+// the ways out of each cell (xy from p, zw from q): a thread's along the heading, a net's along the chord
+fn threadNetWays(e: BondEnds, net: bool) -> vec4f {
+  let u = e.dq / max(length(e.dq), 0.00001);
+  var ways = vec4f(0.0);
+  for (var j = 0u; j < 2u; j++) {
+    let index = select(e.index, e.n, j == 1u);
+    let h = bodyDirection(index, parts[index]);
+    let out = select(u, -u, j == 1u);
+    let pole = h * select(-1.0, 1.0, dot(h, out) >= 0.0);
+    let arc = THREAD_ARC * (2.0 * fract(bondPair * (5.17 + 3.71 * f32(j))) - 1.0);
+    let way = select(vec2f(pole.x * cos(arc) - pole.y * sin(arc), pole.x * sin(arc) + pole.y * cos(arc)), out, net);
+    if (j == 0u) { ways = vec4f(way, ways.zw); } else { ways = vec4f(ways.xy, way); }
+  }
+  return ways;
+}
+// How far each cell's outline lies from its middle along its way out (ways: xy from p, zw from q), in world units:
+// its shape (bodySD) stretched by its aspect at its pace, found from inside by two Newton steps on the ray
+fn bondReach(e: BondEnds, ways: vec4f) -> vec2f {
+  var reach = vec2f(0.0);
+  for (var j = 0u; j < 2u; j++) {
+    let index = select(e.index, e.n, j == 1u);
+    // (e.p and e.q as read: parts at index and n)
+    let c = parts[index];
+    let rpx = select(e.rp, e.rq, j == 1u);
+    let g = genomes[c.kind];
+    let h = bodyDirection(index, c);
+    let way = select(ways.xy, ways.zw, j == 1u);
+    let st = swayOf(c);
+    let radii = length(select(c.vel, unpack2x16float(st.vel), st.id == c.id)) * view.ppu / rpx;
+    let pace = (1.0 - exp(-radii * 0.25)) * (1.0 - 0.75 * min(g.calcify, 1.0)) * select(1.0, 0.0, (c.info & 15u) == CYST);
+    let s = morphOf(g);
+    let aspect = bodyAspect(s, g.swim, pace);
+    let m = localPoint(way, h) * vec2f(1.0 / aspect, aspect);
+    let mm = max(length(m), 0.05);
+    let plan = choosePlan(g, roleOf(c.info));
+    var r = 0.6;
+    for (var k = 0u; k < 2u; k++) { r = clamp(r - bodySD(m * r, plan, s, view.time) / mm, 0.15, 1.6); }
+    if (j == 0u) { reach.x = r * rpx / view.ppu; } else { reach.y = r * rpx / view.ppu; }
+  }
+  return reach;
+}
+fn threadNetAt(e: BondEnds, ways: vec4f, reach: vec2f, net: bool) -> vec4f {
+  // (a net's strand from a little inside, NET_INSET of the smaller radius, so its foot grows out of the cell)
+  let inset = select(0.0, NET_INSET * min(e.rp, e.rq) / view.ppu, net);
+  return vec4f(ways.xy * (reach.x - inset), ways.zw * (reach.y - inset)) * select(bondLOD(view.pointSize), netLOD(), net);
+}
+// A pad sits on each cell's end toward its partner: a long cell's pole (along its heading), a round one's edge.
+fn bondAnchorPad(e: BondEnds) -> vec4f { return vec4f(padPole(e.index, e.p, e.rp, e.dq), padPole(e.n, e.q, e.rq, -e.dq)); }
+fn padPole(index: u32, p: Particle, r: f32, toward: vec2f) -> vec2f {
+  let g = genomes[p.kind];
+  let rw = r / view.ppu;
+  let pole = padPoleOf(choosePlan(g, roleOf(p.info)));
+  if (pole > 0.0) {
+    let dir = bodyDirection(index, p);
+    return dir * (rw * pole * bodyAspect(morphOf(g), g.swim, 0.0) * select(-1.0, 1.0, dot(dir, toward) >= 0.0));
+  }
+  return dirz(toward) * (rw * 0.75);
+}
+// How far along its heading a long plan's outline reaches, of the radius before bodyAspect stretches it (bodySD:
+// desmid, spindle, slipper, bead chain, lattice), the gel centered on the tip; 0 for a plan that is not long.
+fn padPoleOf(plan: u32) -> f32 {
+  switch (plan) {
+    case 3u: { return 0.8; }
+    case 5u: { return 0.92; }
+    case 6u: { return 0.88; }
+    case 10u: { return 0.88; }
+    case 11u: { return 1.0; }
+    default: { return 0.0; }
+  }
+}
+// -- Trees' strands (hypha and stalk): mother to daughter only. A tree's cell keeps one bond, to its mother (intent.z;
+// a tail's base keeps the body's cell it grew from, which may keep it too), and faces away from her (bodyDirection), so
+// a strand leaves the daughter at her back pole, the one she keeps for her mother, and the mother where the chord
+// leaves her, drawn partway toward her front pole for a daughter grown at a turn (turnOf), so a mother's daughters
+// leave her from points near one another, like twigs (Dictyosphaerium's forks, Dinobryon's cups set in the mouth of the
+// one below). Where the cells touch, as a tree's mostly do (its bonds rest where its cells touch), the strand shrinks
+// to nothing between them. Each end lies where the cell's outline does along its way (bondReach), a little inside
+// it (TREE_INSET), so a strand always grows from the cell: a long cell's outline lies far nearer its middle across it
+// than a fixed share of its radius, and strands left across one ended in the water short of it. treeWays and treeAt
+// reckon it for both kinds and leave what their vertices need in treeBond (each strip vertex runs bondAnchor first).
+// treeBond: x the end the mother is at (1: q, t = 1; 0: p), y the strand's length between the outlines in pixels, z the
+// daughter's radius in pixels (a stalk's: its contraction, bondAnchorStalk), w 1 for a producer's (a clear wall strand
+// and cups), 0 a living hypha
+var<private> treeBond: vec4f;
+const TREE_TWIG = 0.5;
+// (what treeWays leaves treeAt: the mother's end (1: q), and her way out (zw))
+var<private> treeWay: vec4f;
+// a strand's end lies this share of its cell's radius inside its outline, so it grows from the cell, never short of it
+const TREE_INSET = 0.08;
+// the ways out (xy from p, zw from q): the mother's where the chord leaves her (toward her front pole for a daughter
+// grown at a turn), the daughter's back along the chord to her mother
+fn treeWays(e: BondEnds) -> vec4f {
+  // the mother: a tree's cell (the keeper) keeps her; else the keeper is the mother of a partner keeping it (a body's
+  // cell keeping its tail's base), or of nothing (a body forced to a tree's kind: the strand runs along the chord)
+  let qMom = intent[e.index].z == e.n;
+  let related = qMom || intent[e.n].z == e.index;
+  var m = e.p;
+  var d = e.q;
+  if (qMom) { m = e.q; d = e.p; }
+  let mi = select(e.index, e.n, qMom);
+  let md = select(e.dq, -e.dq, qMom);
+  let dist = max(length(md), 1e-6);
+  let hD = md / dist;
+  // the mother's heading, if she is a tree's cell (a tail's base grows from a body's cell, which holds no heading)
+  let gm = genomes[m.kind];
+  var hM = hD;
+  if (related && (gm.dev.x >= 0x80000000u || tailCell(gm, m.info))) { hM = bodyDirection(mi, m); }
+  // where the chord leaves her; for a daughter grown at a turn, drawn partway back toward her front pole (twigs leave
+  // near it, by at most TREE_TWIG radians, so a bending beat never pulls a strand across her)
+  let side = atan2z(hM.x * hD.y - hM.y * hD.x, dot(hM, hD));
+  let a = select(0.0, -clamp(0.4 * side, -TREE_TWIG, TREE_TWIG), turnOf(d.info) != 0u);
+  let dirM = vec2f(hD.x * cos(a) - hD.y * sin(a), hD.x * sin(a) + hD.y * cos(a));
+  treeWay = vec4f(select(0.0, 1.0, qMom), 0.0, dirM);
+  return select(vec4f(dirM, -hD), vec4f(-hD, dirM), qMom);
+}
+// the ends, from the outlines' reach along the ways (bondReach: xy p's, zw q's)
+fn treeAt(e: BondEnds, reach: vec2f, cup: bool) -> vec4f {
+  let qMom = treeWay.x > 0.5;
+  let dirM = treeWay.zw;
+  let dist = max(length(e.dq), 1e-6);
+  let hD = select(e.dq, -e.dq, qMom) / dist;
+  let rM = select(reach.x, reach.y, qMom);
+  let rD = select(reach.y, reach.x, qMom);
+  // (the radii as drawn, world units)
+  let wM = select(e.rp, e.rq, qMom) / view.ppu;
+  let wD = select(e.rq, e.rp, qMom) / view.ppu;
+  // (cells pressed closer than their outlines: the ends meet between them, a strand of nothing)
+  let k = min(1.0, dist / max(rM + rD, 1e-6));
+  let atM = dirM * (max(rM - TREE_INSET * wM, 0.0) * k);
+  // (a producer's cup reaches past the daughter's middle to its mouth: CUP_AHEAD of her radius)
+  let clear = genomes[select(e.q.kind, e.p.kind, qMom)].photo > 0.55;
+  let atD = select(-hD * (max(rD - TREE_INSET * wD, 0.0) * k), hD * (wD * CUP_AHEAD), cup && clear);
+  treeBond = vec4f(select(0.0, 1.0, qMom), max(0.0, dist - rM - rD) * view.ppu, wD * view.ppu, select(0.0, 1.0, clear));
+  return select(vec4f(atM, atD), vec4f(atD, atM), qMom);
+}
+// A stalk leaves the bell at its base, as a hypha does, and contracts with the beat the simulation drives (beatPull):
+// each cell's lateral speed is a cosine of the beat's clock less beat.z a generation, so a bond's muscle pulls hardest
+// as that wave passes between its two cells (half a generation behind the daughter). It fires quickly and lets go
+// more slowly and rests straight half the beat, as Vorticella's spasmoneme does, as hard as its two cells' will to beat (willOf) and the species' amplitude:
+// a resting body's stalks hang straight. (view.sun.w is the simulation's clock as the GPU has it, folded across its
+// wraps as the simulation's beat is: stalkFold)
+// The cycles a beat of f a second has run through in the time wrapped off the clock (view.wraps wraps of SIM_CLOCK),
+// as a fraction: beatFold's exact reckoning (f a float M × 2^(E − 150), times 2^15 times the wraps n, its fraction
+// the low 135 − E bits of M × n)
+fn stalkFold(f: f32) -> f32 {
+  // (reckoned from the very float beatFold folds, growOf's beat.y * TAU over TAU, so the two agree bit for bit)
+  let b = bitcast<u32>(abs(f * TAU) / TAU);
+  let k = 135 - i32(b >> 23u);
+  if (k <= 0 || k >= 32) { return 0.0; }
+  return ldexp(f32((((b & 0x7fffffu) | 0x800000u) * view.wraps) & ((1u << u32(k)) - 1u)), -k);
+}
+fn bondAnchorStalk(e: BondEnds, at: vec4f) -> vec4f {
+  var d = e.q;
+  if (treeBond.x > 0.5) { d = e.p; }
+  let g = genomes[d.kind];
+  let cyc = fract(g.beat.y * view.sun.w + stalkFold(g.beat.y) - g.beat.z * (f32(genOf(d.info)) - 0.5) * (1.0 / TAU));
+  let fire = smoothstep(0.0, 0.08, cyc) * (1.0 - smoothstep(0.15, 0.55, cyc));
+  treeBond.z = fire * 0.5 * (willOf(e.p.info) + willOf(e.q.info)) * clamp(g.beat.x * 2.5, 0.0, 1.0);
+  // (z's sign: a coil for an unbranched stalk or a tail, Vorticella's and Carchesium's; positive, a zig-zag fold for a
+  // branching tree's shared stalk, Zoothamnium's)
+  if (growAt(g, d.info).every == 0u) { treeBond.z = -treeBond.z; }
+  return at;
+}
+// One vertex of a bond's strip, as every kind sees it.
+struct BondSeg {
+  t: f32,         // the station: the fraction of the way from p to q (0, 1/6, ... 1)
+  side: f32,      // which edge of the strip (-1, 1)
+  len: f32,       // the bond's length in world units, anchor to anchor
+  rest: f32,      // the length a bond rests at (world units)
+  lod: f32,       // bondLOD: 0 where the strip starts (6 px cells, the far line's look), 1 resolved (30 px)
+  ends: f32,      // the smaller of the two cells' radii as drawn, in pixels
+  strength: f32,  // how hard the bond holds: 1 - its length / linkR, 0..1
+  fade: f32,      // 1, or less where the focus passes p by (view.mute)
+  colP: vec3f,    // the cells' colors, p's and q's
+  colQ: vec3f,
+  normal: vec2f,  // the centerline's sideways direction (unit)
+  tangent: vec2f, // and its direction along (world units per unit of t)
+};
+// What a kind makes of a vertex: the strip's half width in pixels, the light it adds (col), the coverage it writes
+// (alpha: 0 adds light only), a shift in pixels beyond the centerline (a kink, a wobble) and its own payload (BO.aux).
+struct BondLook { halfWidth: f32, col: vec3f, cover: f32, shift: vec2f, aux: vec4f };
+fn bondVtx(kind: u32, s: BondSeg) -> BondLook {
+  switch (kind) {
+    case BOND_THREAD: { return bondVtxThread(s); }
+    case BOND_PAD: { return bondVtxPad(s); }
+    case BOND_HYPHA: { return bondVtxHypha(s); }
+    case BOND_STALK: { return bondVtxStalk(s); }
+    case BOND_NET: { return bondVtxNet(s); }
+    default: { return bondVtxBridge(s); }
+  }
+}
+// A cytoplasmic bridge (Volvox). Real ones are short and finer than the microscope resolves at the power a world is
+// viewed at: a bridged sheet reads as evenly spaced bright cells joined by a faint fine web. So a bridge is a strand a
+// pixel wide, much fainter than the cells and a little paler (the far line's light, bondFarBridge, which it carries on
+// as the cells resolve), and only where its cells nearly touch (a gap up to about a radius, gone before a cell width) a
+// fine neck: flared where it leaves each membrane, pinched between, its edges the membranes running on, granules
+// streaming along it. The neck's outline is drawn per pixel (bondFragBridge), so the strip is only as wide as its flare.
+const BRIDGE_FAR = 0.3;       // the strand's light against a full far line's
+const BRIDGE_TINT = 0.6;      // how much of the cells' color it keeps (the rest their brightness, grey)
+const BRIDGE_FLARE = 0.2;     // the neck's half width where it leaves a membrane, of the smaller cell's radius
+const BRIDGE_PINCH = 0.022;   // and at its waist (never under half a pixel): a fine strand of cytoplasm, not a tube
+const BRIDGE_REACH = 0.2;     // how far from the membrane the flare narrows to the waist (e-folding), of the radius
+const BRIDGE_SPREAD = 1.6;    // how far its uneven, flowing edge reaches past the even flare (the strip holds it)
+const BRIDGE_WAVE = 0.03;     // its slow sway across itself, of its length, pinned at the cells (netWave)
+const BRIDGE_MEMBRANE = 0.7;  // where a membrane is reckoned to lie, of the radius (outlines reach about 0.5 to 1)
+fn bridgeTint(col: vec3f) -> vec3f { return mix(vec3f(dot(col, vec3f(0.2126, 0.7152, 0.0722))), col, BRIDGE_TINT); }
+// aux: the bond's length in pixels, center to center; the smaller cell's radius in pixels; how much of a neck it has
+// (0..1) plus twice the pair's hash in 1024ths (bridgeNeck); the strand's light (per pixel, of its color)
+fn bondVtxBridge(s: BondSeg) -> BondLook {
+  let lenPx = s.len * view.ppu;
+  let neck = s.lod * (1.0 - smoothstep(2.8, 3.6, lenPx / max(s.ends, 0.5)));
+  var l: BondLook;
+  l.halfWidth = bridgeHalfWidth(s.ends, neck, lenPx);
+  l.col = mix(s.colP, s.colQ, s.t) * (s.fade * s.lod);
+  l.cover = 0.0;
+  l.aux = vec4f(lenPx, s.ends, neck + 2.0 * floor(bondPair * 1023.0), BRIDGE_FAR * (0.35 + 0.65 * s.strength) * view.lineGain);
+  return l;
+}
+// the neck (0..1) and the pair's hash from aux.z
+fn bridgeNeck(z: f32) -> vec2f { let k = floor(z * 0.5); return vec2f(z - 2.0 * k, k / 1023.0); }
+fn bridgeHalfWidth(ends: f32, neck: f32, lenPx: f32) -> f32 {
+  return select(1.0, max(1.0, BRIDGE_FLARE * BRIDGE_SPREAD * ends + 1.0) + BRIDGE_WAVE * lenPx, neck > 0.0);
+}
+// A glassy thread (silica, chitin): secreted, not alive, so colorless, a cool blue-white far fainter than the cells,
+// and a hair of one width all along (THREAD_W world units, never under THREAD_MIN_PX: under a pixel it is drawn a
+// pixel and a half wide and faded by its coverage, bondFragThread), with no taper, neck or streaming. Straight when
+// taut; slack, it bows a little to one side (the pair's hash picks which), as a fine fibre does in still water. A
+// tiny bright point where it meets each cell (THREAD_DOT). Adds light only (glass is seen by what it scatters).
+const THREAD_W = 0.0009;
+const THREAD_MIN_PX = 0.35;
+const THREAD_GAIN = 0.42;
+const THREAD_DOT = 0.05;
+const THREAD_ARC = 0.45;
+fn bondVtxThread(s: BondSeg) -> BondLook {
+  let w = max(view.ppu * THREAD_W, THREAD_MIN_PX);
+  let dot = min(THREAD_DOT * s.ends, 2.5) * s.lod;
+  let atEnd = s.t < 0.01 || s.t > 0.99;
+  var l: BondLook;
+  l.halfWidth = select(0.5 * w + 1.0, max(0.5 * w + 1.0, dot * 1.8), atEnd);
+  l.col = bondGlass(mix(s.colP, s.colQ, s.t)) * (THREAD_GAIN * view.lineGain * s.fade * s.lod);
+  l.cover = 0.0;
+  let slack = smoothstep(0.0, 0.5, (s.rest - s.len) / s.rest);
+  l.shift = s.normal * (select(-1.0, 1.0, bondPair > 0.5) * 0.09 * s.len * view.ppu * slack * 4.0 * s.t * (1.0 - s.t) * s.lod);
+  l.aux = vec4f(s.side * l.halfWidth, s.len * view.ppu, dot, w);
+  return l;
+}
+// A mucilage pad (Tabellaria's zig-zags, Asterionella's stars): a joint, not a line. A small, soft, slightly brighter
+// blob of clear gel on each cell's end (bondAnchorPad), the two one where the ends meet; between ends held apart, at most
+// a barely visible strand. The strip runs end to end, pushed out past each by a blob's radius (shift), and the blobs are
+// drawn per pixel (bondFragPad). aux: pixels along from p's end, across from the centerline, the length end to end,
+// and a blob's radius.
+const PAD_BLOB = 0.15;     // a blob's radius, of the smaller cell's (never under a pixel)
+const PAD_LIGHT = 0.3;     // its light, of the cells' (pointGain)
+const PAD_STRAND = 0.08;   // the strand's, of a full far line's
+// mucilage is clear: its light is the cells' brightness, a faint warm grey, none of their color
+fn padGel(col: vec3f) -> vec3f { return vec3f(1.0, 0.97, 0.92) * dot(col, vec3f(0.2126, 0.7152, 0.0722)); }
+fn bondVtxPad(s: BondSeg) -> BondLook {
+  let lenPx = s.len * view.ppu;
+  let blob = max(1.0, PAD_BLOB * s.ends) * s.lod;
+  let out = (blob + 1.0) * (step(0.999, s.t) - step(s.t, 0.001));
+  var l: BondLook;
+  l.halfWidth = max(1.0, blob + 1.0);
+  l.shift = dirz(s.tangent) * out;
+  l.col = padGel(mix(s.colP, s.colQ, s.t)) * (s.fade * s.lod);
+  l.cover = 0.0;
+  l.aux = vec4f(s.t * lenPx + out, s.side * l.halfWidth, lenPx, blob);
+  return l;
+}
+// A hypha or a mother's old wall: an even strand a tenth of the cell's width or so (HYPHA_WIDTH of the smaller radius
+// each side), a little wider where it leaves the mother, paler than the cells: a living hypha (an eater's,
+// Hyphomicrobium's) keeps a faint tint, a producer's wall strand is clear glass. A pixel's line from afar, as bright as
+// the far line (HYPHA_FAR); resolved (HYPHA_LIGHT, a share of a cell's light) a tube lit at its edges, as darkfield
+// shows one. Gone where the cells touch (treeBond.y, the strand's length between the poles), as a tree's mostly do,
+// so a producer's daughter sits in a clear cup too, Dinobryon's lorica, set in her mother's mouth (on the strand's tip
+// where they hang apart): from her back it widens round her to CUP_R of her radius and reaches CUP_AHEAD of it past
+// her middle, drawn only as its rim, which glows faintly as phase contrast shows Dinobryon's (CUP_LIGHT), and only
+// once a cell is large enough on screen to hold one (CUP_FROM pixels).
+const HYPHA_FAR = 0.4;
+const HYPHA_WIDTH = 0.09;
+const HYPHA_LIGHT = 0.07;
+const CUP_R = 0.8;
+const CUP_AHEAD = 0.45;
+const CUP_LIGHT = 0.06;
+const CUP_FROM = vec2f(10.0, 22.0);
+// a cup's half width at sm pixels from the mother (sB its foot, rD the daughter's radius): a vase closed at its foot in
+// a blunt point (Dinobryon's lorica), widening to its full width by her middle; and its slope there (d half / d sm)
+fn cupHalf(sm: f32, sB: f32, rD: f32) -> f32 {
+  let x = clamp((sm - sB) / rD, 0.0, 1.0);
+  return CUP_R * rD * pow(x * (2.0 - x), 0.75);
+}
+fn cupSlope(sm: f32, sB: f32, rD: f32) -> f32 {
+  let x = clamp((sm - sB) / rD, 0.0, 1.0);
+  return CUP_R * 1.5 * (1.0 - x) * pow(max(x * (2.0 - x), 1e-4), -0.25);
+}
+// A strand's distance across from a capsule along it (x pixels of len from its start, across pixels from its middle,
+// r its radius): its ends rounded, and a strand shorter than its width only a bead as wide as it is long, not a
+// square block of strand
+fn strandCapsule(x: f32, len: f32, across: f32, r: f32) -> vec2f {
+  let rr = min(r, 0.5 * max(len, 0.0));
+  return vec2f(length(vec2f(across, x - clamp(x, rr, len - rr))), rr);
+}
+// A living strand's shape (x pixels along it from the mother, len long, across pixels from its middle, r its radius):
+// a capsule (strandCapsule) a little wider at the mother than at the daughter, its width wandering gently along it as
+// a fibril's does, its edge soft; its cover, and how far across it the pixel lies (0 its middle, 1 its edge). The
+// strip holds STRAND_SWELL of r each side.
+const STRAND_SWELL = 1.35;
+fn strandShape(x: f32, len: f32, across: f32, r: f32) -> vec2f {
+  let u = clamp(x / max(len, 1e-3), 0.0, 1.0);
+  let k = x / max(r, 0.5);
+  let rw = r * mix(1.12, 0.82, u) * (1.0 + 0.09 * sin(0.7 * k + 0.4) + 0.05 * sin(1.9 * k + 2.1));
+  let c = strandCapsule(x, len, across, rw);
+  let soft = max(0.5, 0.3 * c.y);
+  return vec2f(1.0 - smoothstep(c.y - soft, c.y + 0.5, c.x), c.x / max(c.y, 1e-3));
+}
+fn bondVtxHypha(s: BondSeg) -> BondLook {
+  let atMom = select(1.0 - s.t, s.t, treeBond.x > 0.5);
+  let w = max(0.5, HYPHA_WIDTH * s.ends) * (1.0 + 0.35 * smoothstep(0.7, 1.0, atMom));
+  var l: BondLook;
+  let stem = mix(0.5, w, s.lod);
+  let tube = smoothstep(1.5, 4.0, stem);
+  let c = mix(s.colP, s.colQ, s.t);
+  let line = HYPHA_FAR * (0.35 + 0.65 * s.strength) * view.lineGain / (stem * 1.6);
+  let light = mix(line, HYPHA_LIGHT * view.pointGain, tube);
+  let seen = smoothstep(0.5, 3.0, treeBond.y) * s.fade * s.lod;
+  l.halfWidth = stem * STRAND_SWELL + 0.5;
+  l.col = mix(bondGlass(c), c, select(0.25, 0.0, treeBond.w > 0.5)) * seen * light;
+  l.cover = seen * tube * 0.5;
+  // (z below 0 marks a strand, not a cup: -1 the mother at p, -2 at q)
+  l.aux = vec4f(stem, tube, select(-1.0, -2.0, treeBond.x > 0.5), s.len * view.ppu);
+  if (treeBond.w > 0.5) {
+    // (a producer's: the strand to the cup's base, then the cup; the strip runs on to the cup's mouth and is as wide
+    // as the cup is a sixth further on, so it holds the cup's curve between its stations)
+    let rD = treeBond.z;
+    let L = s.len * view.ppu;
+    let sm = (1.0 - atMom) * L;
+    let sB = max(0.0, L - rD * (CUP_AHEAD + 1.0));
+    let cup = smoothstep(CUP_FROM.x, CUP_FROM.y, rD) * s.lod;
+    l.halfWidth = select(stem, max(stem * STRAND_SWELL, cupHalf(min(L, sm + L / 6.0), sB, rD)) + 1.5, cup > 0.0);
+    l.col = bondGlass(c) * (s.fade * s.lod) * light;
+    l.cover = s.fade * s.lod * tube * 0.4;
+    l.aux = vec4f(s.side * l.halfWidth, sm, sB, rD * cup);
+  }
+  return l;
+}
+// A contractile stalk: a hair (STALK_WIDTH of the smaller radius each side, a pixel from afar), glassy and far fainter
+// than the bell at its end (STALK_FAR, STALK_LIGHT); up close a clear sheath, lit at its edges, round a darker core
+// (the spasmoneme). As it contracts (treeBond.z, bondAnchorStalk) it thickens a little and kinks: a zig-zag fold for a
+// branching tree, a coil (seen side on, a sinusoid that tightens) for an unbranched stalk, as wide as STALK_KINK of the
+// radius at full contraction, folds STALK_FOLD of the radius long. The kink is drawn by bondFragStalk inside a strip
+// widened to hold it (a strip has six segments a bond, too few for a fold, so BondLook.shift would draw it coarse).
+const STALK_FAR = 0.45;
+const STALK_WIDTH = 0.035;
+const STALK_LIGHT = 0.05;
+const STALK_KINK = 0.18;
+const STALK_FOLD = 0.3;
+fn bondVtxStalk(s: BondSeg) -> BondLook {
+  let c = abs(treeBond.z);
+  let coil = treeBond.z < 0.0;
+  let hair = mix(0.5, max(0.5, STALK_WIDTH * s.ends) * (1.0 + 0.3 * c), s.lod);
+  let kink = STALK_KINK * s.ends * c * s.lod;
+  let fold = max(4.0, STALK_FOLD * s.ends * select(1.0, 1.0 - 0.3 * c, coil));
+  var l: BondLook;
+  l.halfWidth = hair + kink + 1.0;
+  let sheath = smoothstep(1.5, 4.0, hair);
+  let seen = smoothstep(0.5, 3.0, treeBond.y) * s.fade * s.lod;
+  let line = STALK_FAR * (0.35 + 0.65 * s.strength) * view.lineGain / (hair * 1.6);
+  l.col = bondGlass(mix(s.colP, s.colQ, s.t)) * seen * mix(line, STALK_LIGHT * view.pointGain, sheath);
+  l.cover = seen * sheath * 0.3;
+  // (the hair's half width, the kink's, the folds along the strand and a fold's length, negative for a coil)
+  l.aux = vec4f(hair, kink, s.len * view.ppu / fold, select(fold, -fold, coil));
+  return l;
+}
+// A strand of a streaming net (Reticulomyxa's reticulopodia): living, so the cells' color, but whitened (in darkfield
+// the web's many fine edges scatter, netWhite) and bright. Uneven: the pair's hash sets each strand's width, most
+// hair-thin (NET_W at the thinnest a fifth of a trunk's, under a pixel faded by coverage), a few trunks; each leaves
+// its cell as a pseudopod, wide at the membrane and thinning fast (NET_FOOT of the smaller cell's radius, falling off
+// over NET_FALL of it), a small webbed sheet where strands meet a cell. Granules (bondFragNet) ride it both ways.
+const NET_W = 0.0025;
+const NET_MIN_PX = 0.45;
+const NET_GAIN = 0.7;
+const NET_FAR = 0.5;
+const NET_FOOT = 0.16;
+const NET_FALL = 0.13;
+const NET_GRAIN = 0.0011;
+const NET_BOW = 0.07;
+// A net's strip takes over from its far line sooner than other kinds' (from 6 px cells to 14, not 30), so from mid
+// zooms its strands are already the faint, slightly bowed hairs they are up close, a haze rather than a ruled graph.
+fn netLOD() -> f32 { return smoothstep(6.0, 14.0, view.pointSize) * f32(view.detail); }
+fn netWhite(c: vec3f) -> vec3f { let l = dot(c, vec3f(0.2126, 0.7152, 0.0722)); return mix(vec3f(l * 1.1), c, 0.3); }
+const NET_INSET = 0.15;
+// the pseudopod's half width beyond the strand's at d pixels from the strip's end (which lies NET_INSET of the radius
+// inside the cell, threadNetAt), and how far it has come out of the cell (faded in from the end to the membrane)
+fn netFoot(d: f32, ends: f32) -> f32 { return NET_FOOT * ends * exp(-max(d - NET_INSET * ends, 0.0) / (NET_FALL * ends + 0.5)); }
+fn netEmerge(d: f32, ends: f32) -> f32 { return smoothstep(0.0, NET_INSET * ends + 0.5, d); }
+fn bondVtxNet(s: BondSeg) -> BondLook {
+  let h = bondPair;
+  let w = max(view.ppu * NET_W * mix(0.2, 1.0, h * h * h), NET_MIN_PX);
+  let lenPx = s.len * view.ppu;
+  let lod = netLOD();
+  let ends = s.ends * lod;
+  let d = min(s.t, 1.0 - s.t) * lenPx;
+  let grain = max(view.ppu * NET_GRAIN, 0.5) * 1.3;
+  var l: BondLook;
+  l.halfWidth = max(0.5 * w + netFoot(d, ends), grain) + 1.0;
+  l.col = netWhite(mix(s.colP, s.colQ, s.t)) * (NET_GAIN * view.lineGain * s.fade * lod);
+  l.cover = 0.5 * lod;
+  // (a slight bow, its way and depth by the pair's hash: strands are never ruler-straight)
+  l.shift = s.normal * ((fract(h * 13.7) * 2.0 - 1.0) * NET_BOW * lenPx * 4.0 * s.t * (1.0 - s.t));
+  // (aux: the offset across in pixels, the length in pixels, the ends' radius in eighths of a pixel and the pair's
+  // hash below 1, the strand's width in pixels)
+  l.aux = vec4f(s.side * l.halfWidth, lenPx, floor(ends * 8.0) + 0.02 + 0.96 * h, w);
+  return l;
+}
+// a strand's slow wave across itself (-1..1 times its amplitude), pinned at its ends: t the way along, h a hash
+fn netWave(t: f32, h: f32) -> f32 {
+  return sin(3.14159265 * t) * (0.65 * sin(TAU * t * (1.0 + 1.5 * h) + h * 30.0 + view.time * 0.3)
+    + 0.35 * sin(TAU * t * (2.3 + h) + h * 11.0 - view.time * 0.21));
+}
 @vertex fn vsBridge(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> BO {
   var o: BO;
   o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
@@ -9508,13 +10136,26 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
   let q = parts[n];
   if (p.kind < FIRST_LIFE || q.kind < FIRST_LIFE) { return o; }
   // (a newborn buds from its mother's side, vsPoint)
-  let at = drawnPos(p);
-  let base = wrapd(at - view.cam);
-  let dq = wrapd(drawnPos(q) - at);
-  let len = length(dq);
+  var at = drawnPos(p);
+  var dq = wrapd(drawnPos(q) - at);
+  var len = length(dq);
   if (len < 0.00001) { return o; }
   let margin = view.res * 0.5 + vec2f((len + 0.1) * view.ppu);
-  if (any(abs(base * view.ppu) > margin)) { return o; }
+  if (any(abs(wrapd(at - view.cam) * view.ppu) > margin)) { return o; }
+  let kind = bondKind(p, q);
+  // tissue: its cells share a wall, which is the bond, so no tube shows through them; a jelly envelope's hull is
+  // drawn about the body, nothing between its cells
+  if (kind == BOND_WALL || kind == BOND_JELLY) { return o; }
+  let strength = clamp(1.0 - len / view.linkR, 0.0, 1.0);
+  let g = genomes[p.kind];
+  let h = genomes[q.kind];
+  let rp = cellRadius(p, g, index);
+  let rq = cellRadius(q, h, n);
+  let anchor = bondAnchor(kind, BondEnds(p, q, index, n, rp, rq, dq));
+  at += anchor.xy;
+  dq += anchor.zw - anchor.xy;
+  len = max(length(dq), 0.00001);
+  let base = wrapd(at - view.cam);
   // vi 14 repeats A's last vertex; vi 15 repeats B's first vertex.
   let v = select(min(vi, 13u), select(vi - 16u, 0u, vi == 15u), second);
   let t = f32(v / 2u) / 6.0;
@@ -9522,52 +10163,370 @@ fn bodyTangent(index: u32, exclude: u32, chord: vec2f, outgoing: bool) -> vec2f 
   let lod = bondLOD(view.pointSize);
   let rest = view.linkR * 0.55;
   let straight = dq * (min(len, rest) / (len * 3.0));
-  let t0 = mix(straight, bodyTangent(index, n, dq, true), lod);
-  let t1 = mix(straight, bodyTangent(n, index, dq, false), lod);
+  // (how far up close the centerline bends along the body: not at all for glass, a thread runs straight)
+  let bend = select(lod, 0.0, kind == BOND_THREAD);
+  let t0 = mix(straight, bodyTangent(index, n, dq, true), bend);
+  let t1 = mix(straight, bodyTangent(n, index, dq, false), bend);
   let c1 = t0;
   let c2 = dq - t1;
   let u = 1.0 - t;
   let center = 3.0 * u * u * t * c1 + 3.0 * u * t * t * c2 + t * t * t * dq;
   let tangent = 3.0 * u * u * c1 + 6.0 * u * t * (c2 - c1) + 3.0 * t * t * (dq - c2);
   let normal = vec2f(-tangent.y, tangent.x) / max(length(tangent), 0.00001);
-  let adhesion = min(genomes[p.kind].adhesion, genomes[q.kind].adhesion);
-  // tissue: its cells share a wall, which is the bond; no tube shows through them
-  if ((adhesion - view.tightFrom) / view.tightSpan > 0.5) { return o; }
-  let taper = 0.55 + 0.45 * sqr(2.0 * t - 1.0);
-  let tension = pow(min(1.0, rest / len), 3.0);
-  // a neck is never wider than the cells it joins (cells shrink to fit dense bodies)
-  let ends = min(cellRadius(p, genomes[p.kind], index), cellRadius(q, genomes[q.kind], n));
-  let neck = min(view.ppu * (0.012 + adhesion * 0.025), 0.3 * ends);
-  // up close a bond between neighboring cells reads as a neck; one reaching across a crowd past
-  // several cell widths stays the thin thread it is from afar, so zooming never hides a bond
-  let neckness = lod * (1.0 - smoothstep(3.5, 5.0, len * view.ppu / ends));
-  let halfWidth = mix(0.5, max(0.5, neck * taper * tension), neckness);
-  o.pos = toClip((base + center) * view.ppu + normal * side * halfWidth);
-  let strength = clamp(1.0 - len / view.linkR, 0.0, 1.0);
-  let fade = select(view.mute, 1.0, focusPass(p, index));
-  // Thin bridges carry the old line's light (soft-edge integral 0.8); resolved ones are shaded as
-  // membrane, a little dimmer than cytoplasm, so a wide neck between bonded cells stays visible.
-  let line = (0.35 + 0.65 * strength) * view.lineGain / (halfWidth * 1.6);
-  let membrane = 0.18 * view.pointGain * (0.6 + 0.4 * strength);
-  o.col = mix(unpack4x8unorm(p.col).rgb, unpack4x8unorm(q.col).rgb, t)
-    * (fade * lod * mix(1.0, tension * tension, neckness) * mix(line, membrane, neckness));
-  o.cover = lod * neckness;
+  let s = BondSeg(t, side, len, rest, lod, min(rp, rq), strength,
+    select(view.mute, 1.0, focusPass(p, index)), unpack4x8unorm(p.col).rgb, unpack4x8unorm(q.col).rgb, normal, tangent);
+  let l = bondVtx(kind, s);
+  o.pos = toClip((base + center) * view.ppu + normal * side * l.halfWidth + l.shift);
+  o.col = l.col;
+  o.cover = l.cover;
   o.side = side;
   o.across = normal;
   o.along = vec2f(t, t * len);
+  o.kind = kind;
+  o.aux = l.aux;
   return o;
 }
 @fragment fn fsBridge(i: BO) -> @location(0) vec4f {
-  let edge = 1.0 - smoothstep(0.6, 1.0, abs(i.side));
-  // a resolved neck is a tube of membrane: lit along the side toward the light
-  let n = normalize(vec3f(i.across * i.side, sqrt(max(1.0 - i.side * i.side, 0.05))));
-  let tube = 0.45 + 0.75 * max(dot(n, normalize(vec3f(TO_LIGHT, 0.7))), 0.0);
-  let resolved = clamp(i.cover * 3.0, 0.0, 1.0);
-  // up close it dissolves into the cells it joins rather than ending in a cut, and granular
-  // cytoplasm streams along it
-  let ends = mix(1.0, smoothstep(0.0, 0.25, i.along.x) * smoothstep(1.0, 0.75, i.along.x), resolved);
-  let stream = 1.0 + 0.3 * resolved * cellGrain(vec2f(i.along.y * 50.0 / view.linkR - view.time * 1.2, i.side * 1.5), 7u);
-  return vec4f(i.col * edge * ends * stream * mix(1.0, tube, resolved), i.cover * edge * ends);
+  switch (i.kind) {
+    case BOND_THREAD: { return bondFragThread(i); }
+    case BOND_PAD: { return bondFragPad(i); }
+    case BOND_HYPHA: { return bondFragHypha(i); }
+    case BOND_STALK: { return bondFragStalk(i); }
+    case BOND_NET: { return bondFragNet(i); }
+    default: { return bondFragBridge(i); }
+  }
+}
+// A thread's hair: the share of each pixel its width covers (a box of w pixels seen through a pixel's box), so under
+// a pixel it fades rather than thinning, and never steps into dashes along the pixel grid; and the bright point where
+// it meets each cell. No coverage written: glass adds light only.
+fn bondFragThread(i: BO) -> vec4f {
+  let x = abs(i.aux.x);
+  let w = i.aux.w;
+  let line = max(0.0, min(x + 0.5, 0.5 * w) - max(x - 0.5, -0.5 * w));
+  let r = i.aux.z;
+  var dot = 0.0;
+  if (r > 0.05) {
+    let d = min(i.along.x, 1.0 - i.along.x) * i.aux.y;
+    dot = exp(-(d * d + x * x) / (r * r)) * 0.9;
+  }
+  return vec4f(i.col * (line + dot), 0.0);
+}
+// A bridge's light (bondVtxBridge): the strand, a pixel wide, ending at the membranes once the cells resolve; and the
+// neck where there is one, its outline from the membranes' flare to its waist, its edges lit as membrane (brighter on
+// the flank toward the light), its inside dim, granules streaming along it.
+fn bondFragBridge(i: BO) -> vec4f {
+  let lenPx = i.aux.x;
+  let ends = i.aux.y;
+  let nh = bridgeNeck(i.aux.z);
+  let neck = nh.x;
+  let h = nh.y;
+  let lod = bondLOD(view.pointSize);
+  let x = i.along.x * lenPx;
+  // (a neck sways in a slow wave pinned at its cells, netWave; across it from its wandering middle)
+  let ys = i.side * bridgeHalfWidth(ends, neck, lenPx) - select(0.0, BRIDGE_WAVE * lenPx * netWave(i.along.x, h), neck > 0.0);
+  let y = abs(ys);
+  // pixels past the nearer membrane (negative inside a cell)
+  let d = min(x, lenPx - x) - BRIDGE_MEMBRANE * ends;
+  let strand = i.aux.w * (1.0 - smoothstep(0.0, 1.0, y)) * mix(1.0, smoothstep(-0.15 * ends, 0.1 * ends, d), lod);
+  var c = bridgeTint(i.col) * strand;
+  var cover = 0.0;
+  if (neck > 0.0) {
+    let pinch = max(0.5, BRIDGE_PINCH * ends);
+    // (a neck fading out as its cells part narrows into the strand, rather than thinning to a ghost)
+    let flare = mix(pinch, BRIDGE_FLARE * ends, neck);
+    // (living, so never even: each side its own flare by the pair's hash, its edge flowing slowly along it)
+    let way = sign(ys);
+    let flow = 1.0 + 0.25 * sin(x / max(0.22 * ends, 1.0) + h * 40.0 + way * 1.9 - view.time * 0.35)
+      + 0.1 * sin(x / max(0.08 * ends, 1.0) + h * 13.0 - way * 0.7 + view.time * 0.2);
+    let w = (pinch + (flare - pinch) * exp(-max(d, 0.0) / (BRIDGE_REACH * ends))) * (1.0 + 0.3 * (fract(h * 7.3) * 2.0 - 1.0) * way) * flow;
+    let soft = max(0.5, 0.25 * w);
+    let inside = (1.0 - smoothstep(w - soft, w + 0.5, y)) * smoothstep(-0.4 * ends, -0.1 * ends, d) * neck;
+    let rim = smoothstep(w - 2.0 * soft, w - 0.3, y);
+    let lit = 0.35 + 0.65 * sqr(max(dot(i.across * sign(i.side), TO_LIGHT), 0.0));
+    let stream = 1.0 + 0.5 * cellGrain(vec2f((x - view.time * 0.4 * ends) / max(0.12 * ends, 1.0), y / max(0.12 * ends, 1.0)), 7u);
+    c += (bridgeTint(i.col) * (BRIDGE_RIM * rim * lit) + i.col * (BRIDGE_BODY * stream * (1.0 - rim))) * (view.pointGain * inside);
+    cover = 0.22 * inside * lod;
+  }
+  return vec4f(c, cover);
+}
+const BRIDGE_RIM = 0.32;  // the neck's edge light, of the cells' (pointGain): a soft glow, translucent
+const BRIDGE_BODY = 0.045; // and its inside's
+// A pad's light (bondVtxPad): a soft disc of gel at each end, brighter toward its middle, and the faint strand between.
+fn bondFragPad(i: BO) -> vec4f {
+  let blob = i.aux.w;
+  let y = abs(i.aux.y);
+  let ends = min(length(vec2f(i.aux.x, y)), length(vec2f(i.aux.x - i.aux.z, y)));
+  let gel = (1.0 - smoothstep(0.2 * blob, blob + 0.5, ends)) * step(0.01, blob);
+  let strand = (1.0 - smoothstep(0.0, 1.0, y)) * step(0.0, i.aux.x) * step(i.aux.x, i.aux.z);
+  let light = PAD_LIGHT * view.pointGain * gel + PAD_STRAND * view.lineGain * strand * (1.0 - gel);
+  return vec4f(i.col * light, 0.5 * gel * bondLOD(view.pointSize));
+}
+// A strand's light across it: a soft pixel's line, or resolved (tube) one pale strand, its flanks only a little
+// brighter than its core (a thin clear cylinder scatters most at its edges in darkfield; drawn as two bright lines
+// about a dark middle it read as a pipe or a pair of rails), softening to its edges; nothing streams along it.
+// a (0 the middle, 1 the edge) of a resolved strand (about as bright on the whole as the pixel's line it was)
+fn hyphaAcross(a: f32) -> f32 { return (0.72 + 0.22 * exp(-sqr((a - 0.7) / 0.25))) * (1.0 - smoothstep(0.5, 1.0, a)) * 1.25; }
+fn bondFragHypha(i: BO) -> vec4f {
+  if (i.aux.z >= 0.0) { return bondFragCup(i); }
+  let hw = i.aux.x;
+  // (aux.w the strand's length in pixels, measured here from the mother: strandShape)
+  let len = i.aux.w;
+  let x = select(i.along.x, 1.0 - i.along.x, i.aux.z < -1.5) * len;
+  let c = strandShape(x, len, abs(i.side) * (hw * STRAND_SWELL + 0.5), hw);
+  let light = mix(1.0, hyphaAcross(c.y), i.aux.y);
+  return vec4f(i.col * light * c.x, i.cover * c.x);
+}
+// A producer's: its wall strand up to the cup's foot (rounded at both ends, none where the cells touch), then the
+// cup's rim, a hairline on either side closing round the foot, fading in with the cell's size on screen (aux.w, the
+// daughter's radius by then).
+fn bondFragCup(i: BO) -> vec4f {
+  let across = abs(i.aux.x);
+  let sm = i.aux.y;
+  let sB = i.aux.z;
+  let rD = max(i.aux.w, 1e-3);
+  let stem = max(0.5, HYPHA_WIDTH * rD);
+  let c = strandShape(sm, sB, across, stem);
+  let stemCover = select(0.0, c.x, sB > 0.0);
+  var col = stemCover * mix(1.0, hyphaAcross(c.y), smoothstep(1.5, 4.0, stem));
+  var cover = stemCover;
+  if (i.aux.w > 0.0) {
+    // (the rim's distance: from the foot's point below it, else across from the vase's side, measured square to it)
+    let th = max(0.6, 0.02 * rD);
+    let slope = min(cupSlope(sm, sB, rD), 40.0);
+    let d = select(abs(across - cupHalf(sm, sB, rD)) * inverseSqrt(1.0 + slope * slope), length(vec2f(across, sB - sm)), sm < sB);
+    let rim = 1.0 - smoothstep(th - 0.5, th + 0.5, d);
+    col = max(col, rim * CUP_LIGHT * view.pointGain / max(HYPHA_LIGHT * view.pointGain, 1e-4));
+    cover = max(cover, rim);
+  }
+  return vec4f(i.col * col, i.cover * cover);
+}
+// The stalk's hair along its kinked centerline (the fold's offset across the strip, pinned at both ends), measured
+// square to the kink's slope so a steep zig-zag keeps its width; resolved, a clear sheath lit at its edges round a
+// darker core.
+fn bondFragStalk(i: BO) -> vec4f {
+  let hw = i.aux.x;
+  let kink = i.aux.y;
+  let fold = abs(i.aux.w);
+  let x = i.along.x * i.aux.z;
+  var wave = sin(TAU * x);
+  var slope = TAU * cos(TAU * x);
+  if (i.aux.w > 0.0) {
+    let f = fract(x + 0.25);
+    wave = 1.0 - 4.0 * abs(f - 0.5);
+    slope = select(4.0, -4.0, f > 0.5);
+  }
+  let pin = smoothstep(0.0, 0.18, i.along.x) * smoothstep(1.0, 0.82, i.along.x);
+  let off = kink * pin * wave;
+  let dist = abs(i.side * (hw + kink + 1.0) - off) / sqrt(1.0 + sqr(kink * pin * slope / fold));
+  let cover = 1.0 - smoothstep(hw - 0.5, hw + 0.5, dist);
+  let a = dist / hw;
+  let sheath = 0.3 * (1.0 - 0.8 * exp(-sqr(a / 0.3))) + exp(-sqr((a - 0.8) / 0.16));
+  let light = mix(1.0, sheath, smoothstep(1.5, 4.0, hw));
+  return vec4f(i.col * light * cover, i.cover * cover);
+}
+// A net's strand: its width (and the pseudopod's flare at each end, netFoot) as the share of each pixel it covers, the
+// flare's sheet a little dimmer inside than at its edges (thin cytoplasm scatters at its rims), and granules
+// streaming along it both ways, saltatory: four trains, two each way, each moving in bursts and stopping on its own
+// clock (a step of NET_STEP world units, then a rest), their specks fine, faint and closely, irregularly spaced and
+// sized, the strand's own grain sliding both ways up close; from 800 px a unit down they sink into its texture.
+const NET_STEP = 0.02;
+const NET_SPACING = 0.0065;
+fn bondFragNet(i: BO) -> vec4f {
+  let x = abs(i.aux.x);
+  let w = i.aux.w;
+  let ends = floor(i.aux.z) / 8.0;
+  let h = fract(i.aux.z);
+  let d = min(i.along.x, 1.0 - i.along.x) * i.aux.y;
+  let foot = netFoot(d, ends);
+  let hw = 0.5 * w + foot;
+  let cov = max(0.0, min(x + 0.5, hw) - max(x - 0.5, -hw));
+  // (the flare's sheet: dimmer inside, its edges bright)
+  let sheet = mix(1.0, 0.45 + 0.55 * smoothstep(hw - 1.5, hw - 0.3, x), smoothstep(1.0, 3.0, foot));
+  let grain = max(view.ppu * NET_GRAIN, 0.5);
+  var beads = 0.0;
+  for (var k = 0u; k < 4u; k++) {
+    let kh = renderHash(u32(h * 8388608.0) ^ (k * 0x85ebca6bu));
+    let way = select(-1.0, 1.0, (k & 1u) == 0u);
+    // the train's clock: a burst (under half of each beat), then a rest
+    let beat = view.time * (0.35 + 0.4 * kh) + kh * 7.0;
+    let moved = (floor(beat) + smoothstep(0.0, 0.45, fract(beat))) * NET_STEP * way;
+    let u = (i.along.y - moved) / NET_SPACING;
+    let cell = floor(u);
+    let ch = renderHash((bitcast<u32>(i32(cell)) * 0x27d4eb2du) ^ u32(kh * 16777216.0));
+    if (ch < 0.4) {
+      let at = (u - cell - 0.5 - 0.9 * (fract(ch * 97.0) - 0.5)) * NET_SPACING * view.ppu;
+      let r = grain * (0.45 + 0.85 * fract(ch * 57.0));
+      beads += (0.3 + 0.7 * fract(ch * 31.0)) * exp(-(at * at + x * x) / (r * r));
+    }
+  }
+  // (from 800 px a unit down the specks sink into the strand's texture)
+  beads *= mix(0.3, 1.0, smoothstep(700.0, 1500.0, view.ppu));
+  let out = netEmerge(d, ends);
+  return vec4f(i.col * ((cov * sheet + beads) * out), i.cover * max(cov, beads * 0.5) * out);
+}
+
+// -- The jelly envelope (BOND_JELLY): no line and no strip, one faint hull round the whole body, as Eudorina's ball
+// shows in darkfield: from afar a faint pale cloud about the cells, brightest toward its edge (the gel's limb), and
+// close up a thin, cool, refractive rim, lit on the side toward the light, with next to nothing inside it.
+// The draw shaders know no bodies, so the hull is a level line of a field built from the bonds themselves: each cell
+// of a jelly body adds a kernel (1 - d²/ρ²)², d its distance to the triangle it makes with its two kept partners (a
+// segment with one), and its gradient, into a target a quarter of the view's size each way (vsJellyField,
+// fsJellyField; Engine._jellyField, ahead of the view's scene pass). A body's triangles fan over all of it, so its hull
+// is whole and filled however long its bonds, and lies only about 0.45 ρ out from the triangles; a neighbor that
+// shares no bond adds nothing between them but its own falloff, so bodies a little apart keep hulls of their own (a
+// disc about each cell, sized to reach its partners, fused neighboring bodies into continents). Where two falloffs
+// barely meet the field is flat, and there the level is raised (JELLY_NECK), so the thin necks between bodies open.
+// The scene pass draws the hull from it (fsJellyRim: the distance to the level line in pixels from the field and its
+// gradient) over the tiles of the view the field reaches (vsJellyTile: each fragment of the field stamps its tile,
+// jellyTiles, and a tile is drawn if it or a neighbor was stamped this frame, as the rim's bilinear reads reach a
+// texel past its tile; elsewhere the field is clear and the rim draws nothing), so the scene, the trails, the look,
+// the bloom and the loupe and close-up (each with its field) take it as they take the bonds.
+const JELLY_REACH = 0.45; // ρ, the kernel's reach beyond a cell's triangle, times linkR
+const JELLY_LEVEL = 0.3;  // the field's level the hull's edge lies on: about 0.45 ρ out from the triangles
+const JELLY_NECK = vec2f(1.2, 0.5); // the level raised by up to y where the field's slope (per linkR) is under x
+const JELLY_FULL = ${f(JELLY_FROM * 2)}; // px a unit where the hull has faded in (from JELLY_FROM; none nearer than that)
+const JELLY_RIM = vec2f(150.0, 350.0); // px a unit over which the cloud gives way to the rim
+const JELLY_TINT = vec3f(0.80, 0.93, 1.12); // cool and colorless (gel scatters as glass does)
+@group(0) @binding(29) var jellyField: texture_2d<f32>;
+@group(0) @binding(30) var jellySamp: sampler;
+// the frame each tile of JELLY_TILE field texels a side was last reached by the field (view.jellyStamp), a row
+// view.jellyCols tiles across: written by the field (31), read by the rim (32)
+@group(0) @binding(31) var<storage, read_write> jellyTiles: array<u32>;
+@group(0) @binding(32) var<storage, read> jellyTilesR: array<u32>;
+const JELLY_TILE = 8u;
+// off: the fragment from the cell (world units); tri: its partners from it (the second the first again with one)
+struct JF { @builtin(position) pos: vec4f, @location(0) off: vec2f, @location(1) @interpolate(flat) tri: vec4f,
+  @location(2) @interpolate(flat) fade: f32 };
+// A cell's partners for its kernel: the two it keeps (intent.zw), or for a cell that keeps none, the two of lowest
+// index among those keeping it (bondsIn). The keepers are listed by atomics in whatever order the GPU runs them,
+// different each frame even with the world paused, so taking the first listed made the hull jump between shapes.
+fn jellyPartners(i: u32) -> vec2u {
+  let it = intent[i];
+  if (it.z != NONE || it.w != NONE) { return select(it.zw, it.wz, it.z == NONE); }
+  var m = vec2u(NONE);
+  for (var c = 0u; c < min(bondsIn[i * 5u], 4u); c++) {
+    let n = bondsIn[i * 5u + 1u + c];
+    if (n >= arrayLength(&parts) || n >= m.y) { continue; }
+    let back = intent[n];
+    if (back.z != i && back.w != i) { continue; }
+    m = select(vec2u(m.x, n), vec2u(n, m.x), n < m.x);
+  }
+  return m;
+}
+@vertex fn vsJellyField(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> JF {
+  var o: JF;
+  o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
+  let i = livingAt(ii);
+  if (i == NONE) { return o; }
+  // (a cell that keeps no bond and is kept by none first, as most are, read from its bonds alone)
+  let pn = jellyPartners(i);
+  let n = pn.x;
+  if (n == NONE) { return o; }
+  let p = parts[i];
+  if (p.kind < FIRST_LIFE) { return o; }
+  // (only a producer's bodies are jelly, unless K.bondLook forces the kind)
+  if (view.bond < 0.0 && genomes[p.kind].photo <= 0.55) { return o; }
+  let q = parts[n];
+  if (q.kind < FIRST_LIFE || bondKind(p, q) != BOND_JELLY) { return o; }
+  // (the cells' own positions, not drawnPos: a newborn's bud offset needs the animation records, which this pass's
+  // bind group leaves out; a hull is soft enough not to show it)
+  let at = p.pos;
+  let a = wrapd(q.pos - at);
+  var b = a;
+  // the second partner only if it is a living cell this cell's bond to is jelly too (else the hull would reach for it)
+  if (pn.y != NONE && pn.y != n) {
+    let w = parts[pn.y];
+    if (w.kind >= FIRST_LIFE && bondKind(p, w) == BOND_JELLY) { b = wrapd(w.pos - at); }
+  }
+  let r = JELLY_REACH * view.linkR;
+  let lo = min(min(a, b), vec2f(0.0)) - r;
+  let hi = max(max(a, b), vec2f(0.0)) + r;
+  let base = wrapd(at - view.cam);
+  if (any(base + hi < -view.res * 0.5 / view.ppu) || any(base + lo > view.res * 0.5 / view.ppu)) { return o; }
+  o.off = select(lo, hi, vec2u(vi & 1u, vi >> 1u) == vec2u(1u));
+  o.pos = toClip((base + o.off) * view.ppu);
+  o.tri = vec4f(a, b);
+  o.fade = select(view.mute, 1.0, focusPass(p, i));
+  return o;
+}
+// the nearest point to x on the segment from u to v
+fn jellyNearest(x: vec2f, u: vec2f, v: vec2f) -> vec2f {
+  let e = v - u;
+  return u + e * clamp(dot(x - u, e) / max(dot(e, e), 1e-12), 0.0, 1.0);
+}
+// the kernel, its gradient (per world unit) and the kernel weighted by the focus's fade
+@fragment fn fsJellyField(i: JF) -> @location(0) vec4f {
+  let x = i.off;
+  let a = i.tri.xy;
+  let b = i.tri.zw;
+  // (the nearest point of the triangle 0, a, b: x itself inside it)
+  let n0 = jellyNearest(x, vec2f(0.0), a);
+  let n1 = jellyNearest(x, a, b);
+  let n2 = jellyNearest(x, b, vec2f(0.0));
+  var e = x - n0;
+  if (dot(x - n1, x - n1) < dot(e, e)) { e = x - n1; }
+  if (dot(x - n2, x - n2) < dot(e, e)) { e = x - n2; }
+  let s0 = a.x * x.y - a.y * x.x;
+  let s1 = (b.x - a.x) * (x.y - a.y) - (b.y - a.y) * (x.x - a.x);
+  let s2 = -b.x * (x.y - b.y) + b.y * (x.x - b.x);
+  if ((s0 > 0.0 && s1 > 0.0 && s2 > 0.0) || (s0 < 0.0 && s1 < 0.0 && s2 < 0.0)) { e = vec2f(0.0); }
+  let r = JELLY_REACH * view.linkR;
+  let k = 1.0 - dot(e, e) / (r * r);
+  if (k <= 0.0) { discard; }
+  let tile = vec2u(i.pos.xy) / JELLY_TILE;
+  jellyTiles[tile.y * view.jellyCols + tile.x] = view.jellyStamp;
+  return vec4f(k * k, e * (-4.0 * k / (r * r)), k * k * i.fade);
+}
+// A tile of the rim (instance ii, a row view.jellyCols across, over the field's texels): a quad over its texels where
+// it or a neighbor was reached by the field this frame, else nothing. The tiles partition the view, so each pixel the
+// full view's rim would have drawn is drawn once.
+@vertex fn vsJellyTile(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> @builtin(position) vec4f {
+  let cols = view.jellyCols;
+  let dims = textureDimensions(jellyField);
+  let rows = (dims.y + JELLY_TILE - 1u) / JELLY_TILE;
+  let t = vec2u(ii % cols, ii / cols);
+  var hit = false;
+  for (var y = max(t.y, 1u) - 1u; y <= min(t.y + 1u, rows - 1u); y++) {
+    for (var x = max(t.x, 1u) - 1u; x <= min(t.x + 1u, cols - 1u); x++) {
+      hit = hit || jellyTilesR[y * cols + x] == view.jellyStamp;
+    }
+  }
+  if (!hit) { return vec4f(2.0, 2.0, 0.0, 1.0); }
+  let uv = vec2f((t + vec2u(vi & 1u, vi >> 1u)) * JELLY_TILE) / vec2f(dims);
+  return vec4f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 0.0, 1.0);
+}
+// The hull, over the view: how far the pixel lies inside the level line, in pixels, from the field and its gradient
+// (read between the field's texels). From afar a faint cloud with a soft edge, brightest toward it (the limb) and
+// lighter toward the light; close up a hairline at the edge, lit on its flank toward the light, a faint glow inside.
+@fragment fn fsJellyRim(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+  let f = textureSampleLevel(jellyField, jellySamp, pos.xy / view.res, 0.0);
+  if (f.x < JELLY_LEVEL * 0.3) { discard; }
+  let slope = max(length(f.yz), 1e-3);
+  let level = JELLY_LEVEL + JELLY_NECK.y * sqr(clamp(1.0 - slope * view.linkR / JELLY_NECK.x, 0.0, 1.0));
+  let s = (f.x - level) / slope * view.ppu;
+  let out = -f.yz / slope;
+  let lit = 0.4 + 0.6 * sqr(0.5 + 0.5 * dot(out, TO_LIGHT));
+  // (each reckoned only where the zoom shows it)
+  let toRim = smoothstep(JELLY_RIM.x, JELLY_RIM.y, view.ppu);
+  // (the cloud: a soft edge a few pixels wide, a faint fill and the limb, which like the rim's glow inside it fades
+  // with the field's rise above the level rather than the distance, which saddles in the field leave undefined)
+  var cloud = 0.0;
+  if (toRim < 1.0) {
+    let edge = max(2.5, 0.02 * view.ppu);
+    let inside = 1.0 / (1.0 + exp(-clamp(2.0 * s / edge, -30.0, 30.0)));
+    let limb = inside * exp(-max(f.x - level, 0.0) / 0.35);
+    cloud = 0.006 * inside + 0.028 * limb * (0.6 + 0.4 * lit);
+  }
+  // (the rim: a hairline, wider close up)
+  var rim = 0.0;
+  if (toRim > 0.0) {
+    let hair = clamp(view.ppu * 0.0016, 0.75, 2.2);
+    let line = exp(-s * s / (hair * hair));
+    let glow = select(0.0, exp(-(f.x - level) / 0.25), s > 0.0);
+    rim = 0.22 * line * lit + 0.03 * glow;
+  }
+  let fade = f.w / f.x * smoothstep(${f(JELLY_FROM)}, JELLY_FULL, view.ppu);
+  return vec4f(JELLY_TINT * (view.pointGain * fade * mix(cloud, rim, toRim)), 0.0);
 }
 
 // Reef stone and bedrock. Each grain is a cobble, an irregular dome; where cobbles overlap the higher
@@ -18623,7 +19582,7 @@ struct SV {
   // src/engine.js
   var POST_LAMP = 104 + 4 * SEA_CASCADES;
   var POST_LOOK = POST_LAMP + 16;
-  var VIEW_BYTES = 288;
+  var VIEW_BYTES = 304;
   var POST_MURK = POST_LOOK + LOOK_WORDS;
   var POST_EDGE = POST_MURK + 8;
   var POST_FOCUS = POST_EDGE + 4;
@@ -18640,7 +19599,6 @@ struct SV {
   var U = globalThis.GPUBufferUsage ?? {};
   var PICK_MAX = 131072;
   var NOTE_CAP = 16384;
-  var FOCUS_MAX = 65536;
   var PICK_BYTES = 56 + PICK_MAX * PICK_WORDS * 4;
   var LEDGER_HEAD = META_CLAIM * 4;
   var CENSUS_BYTES = LEDGER_HEAD + MAXK * G_BYTES;
@@ -18722,6 +19680,10 @@ struct SV {
     v.fill(1e9, 56, 72);
     if (crumble) v.set(crumble, 56);
     else v[56] = -1;
+    v[72] = K2.bondLook ?? -1;
+    vu[73] = 0;
+    vu[74] = 0;
+    vu[75] = (w.wraps ?? 0) >>> 0;
   }
   var Engine = class {
     constructor(device, format, hasTimestamps, K2, late = false) {
@@ -18824,7 +19786,7 @@ struct SV {
         d.queue.writeBuffer(u, 0, new Float32Array([...band, 0, 0]));
         return u;
       });
-      b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
+      b.focus = d.createBuffer({ size: (BOND_SP_AT + MAXK) * 4, usage: U.STORAGE | U.COPY_DST });
       b.post = d.createBuffer({ size: POST_WORDS * 4, usage: U.UNIFORM | U.COPY_DST });
       b.postPlain = d.createBuffer({ size: POST_WORDS * 4, usage: U.UNIFORM | U.COPY_DST });
       b.seaU = d.createBuffer({ size: SEA_U_BYTES, usage: U.UNIFORM | U.COPY_DST });
@@ -19170,8 +20132,17 @@ struct SV {
         reproj: rpLive(this.postModule, "vsFull", "fsReproj", "triangle-list", void 0, false),
         tube: defer(rpLiveDesc(this.drawModule, "vsTube", "fsTubeLive", "triangle-strip", trail, true, { SHAPE_ATLAS: 0 }), false, (p2) => {
           this.main.tube = p2;
-        })
+        }),
+        // a jelly envelope's rim, over the tiles of the view its field reaches (vsJellyTile, fsJellyRim, _jellyField)
+        jelly: defer(rpLiveDesc(this.drawModule, "vsJellyTile", "fsJellyRim", "triangle-strip", trail, false), false, (p2) => {
+          this.main.jelly = p2;
+        }, true)
       };
+      this.pJellyField = defer(rpDesc(this.drawModule, "vsJellyField", "fsJellyField", "triangle-strip", additive, "rgba16float"), false, (p2) => {
+        this.pJellyField = p2;
+      }, true);
+      this.jelly = [null, null, null];
+      this._jellyStamp = 0;
       this.pStudio = defer({ ...rpLiveDesc(this.drawModule, "vsStudio", "fsPoint", "triangle-strip", additive, false, { SHAPE_ATLAS: 0 }), label: "fsPoint" }, false, (p2) => {
         this.pStudio = p2;
       });
@@ -19551,6 +20522,8 @@ ${e.message}` : String(e?.message || e));
         ...this._shapeEntries()
       ] });
       this.shapeDirtyBG = d.createBindGroup({ layout: this.cpShapeDirty.getBindGroupLayout(0), entries: [
+        { binding: 0, resource: { buffer: b.view } },
+        { binding: 34, resource: { buffer: b.focus } },
         { binding: 2, resource: { buffer: b.genomes } },
         { binding: 26, resource: { buffer: b.shapeList } },
         { binding: 27, resource: { buffer: b.shapeBaked } },
@@ -21862,12 +22835,15 @@ ${e.message}` : String(e?.message || e));
       ];
     }
     // Bakes the shapes of the species slots whose genome changed since they were baked (shapeDirty, shapeBake): a few
-    // a frame, every one for a new world
+    // a frame, every one for a new world; and their bonds' kinds (bondSp in DRAW_WGSL), every one again when the tight
+    // tunables they are reckoned by change
     _shapes(enc) {
       const d = this.device, b = this.b;
-      const fresh = this._shapeGen !== this.worldGeneration;
+      const tight = `${this.K.tightFrom},${this.K.tightSpan}`;
+      const fresh = this._shapeGen !== this.worldGeneration || this._shapeTight !== tight;
       if (fresh) {
         this._shapeGen = this.worldGeneration;
+        this._shapeTight = tight;
         enc.clearBuffer(b.shapeBaked);
       }
       const cap2 = fresh ? MAXK : SHAPE_CAP;
@@ -21897,7 +22873,8 @@ ${e.message}` : String(e?.message || e));
         ambient: this.ambient,
         sky: this.K.pond ? this.sky : 1,
         t: clk.t,
-        hand: this.hand
+        hand: this.hand,
+        wraps: Math.floor(this.simTime / SIM_CLOCK)
       });
       this.device.queue.writeBuffer(buf, 0, data);
     }
@@ -21947,6 +22924,12 @@ ${e.message}` : String(e?.message || e));
           if (culled) pass.drawIndirect(culled, 32);
           else pass.drawIndirect(this.b.bridgeDraw, 0);
         }
+        if (bg.jelly?.on) {
+          const j = this.jelly[k];
+          pass.setPipeline(pl.jelly);
+          pass.setBindGroup(0, j.rim);
+          pass.draw(4, j.cols * j.rows);
+        }
       }
       if (this.settings.nodes) {
         if (v[22] < 0) {
@@ -21977,6 +22960,58 @@ ${e.message}` : String(e?.message || e));
           pass.drawIndirect(quads, 32);
         }
       }
+    }
+    // A jelly envelope's field for view k (data: its view words), ahead of its scene pass, in which _drawScene draws the
+    // rim from it (BOND_JELLY in DRAW_WGSL): each jelly body's cells add their kernels into a target a quarter of the
+    // view's size each way, stamping the tiles they reach with this frame's stamp (in the view's words), and the rim is
+    // drawn only over the tiles stamped and their neighbors (vsJellyTile). None with bonds hidden, cells kept as sprites
+    // (detail off) or the view too far out for a hull to show (JELLY_FROM).
+    _jellyField(enc, k, data) {
+      const d = this.device, v = new Float32Array(data), u = new Uint32Array(data), s = this.sceneBG[k], b = this.b;
+      s.jelly ??= { on: false, bg: null };
+      s.jelly.on = false;
+      if (!this.settings.links || u[20] !== 1 || v[6] < JELLY_FROM || !this.pJellyField || !this.main.jelly) return;
+      const step = v[6] >= 400 ? 8 : 4, w = Math.ceil(v[4] / step), h = Math.ceil(v[5] / step);
+      let j = this.jelly[k];
+      const viewBuf = [b.view, b.viewL, b.viewS][k];
+      if (!j || j.w !== w || j.h !== h) {
+        j?.tex.destroy();
+        j?.tiles.destroy();
+        const tex = d.createTexture({ size: [w, h], format: "rgba16float", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING, label: "jelly" });
+        const view = tex.createView();
+        const cols = Math.ceil(w / 8), rows = Math.ceil(h / 8);
+        const tiles = d.createBuffer({ size: cols * rows * 4, usage: U.STORAGE, label: "jellyTiles" });
+        j = this.jelly[k] = { w, h, tex, view, cols, rows, tiles, rim: d.createBindGroup({ layout: this.main.jelly.getBindGroupLayout(0), entries: [
+          { binding: 0, resource: { buffer: viewBuf } },
+          { binding: 29, resource: view },
+          { binding: 30, resource: this.sampler },
+          { binding: 32, resource: { buffer: tiles } }
+        ] }) };
+      }
+      if (s.jelly.j !== j) {
+        s.jelly.j = j;
+        s.jelly.bg = d.createBindGroup({ layout: this.pJellyField.getBindGroupLayout(0), entries: [
+          [0, viewBuf],
+          [1, b.parts],
+          [2, b.genomes],
+          [3, b.intent],
+          [4, b.livingList],
+          [5, b.focus],
+          [6, b.bondsIn],
+          [11, b.thermal],
+          [12, this.cull[k].segs],
+          [31, j.tiles]
+        ].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
+      }
+      this._jellyStamp = this._jellyStamp % 4294967294 + 1;
+      d.queue.writeBuffer(viewBuf, 73 * 4, new Uint32Array([this._jellyStamp, j.cols]));
+      const pass = enc.beginRenderPass({ colorAttachments: [{ view: j.view, loadOp: "clear", clearValue: [0, 0, 0, 0], storeOp: "store" }] });
+      pass.setPipeline(this.pJellyField);
+      pass.setBindGroup(0, s.jelly.bg);
+      if (u[21] === 1) pass.drawIndirect(this.cull[k].args, 16);
+      else pass.drawIndirect(b.frameCtr, 16);
+      pass.end();
+      s.jelly.on = true;
     }
     // The micro-suspension's specks for the main view (MICRO_WGSL): for each phase and resolved octave
     // of pondMicro, the block of lattice slots whose objects can land in view.
@@ -22248,6 +23283,7 @@ ${e.message}` : String(e?.message || e));
         pass2.dispatchWorkgroups(Math.ceil(MAXK * ORGANS / 64));
         pass2.end();
       } else this._gatherKey = this._carry = null;
+      this._jellyField(enc, 0, this.viewData);
       {
         const clear = this.clearAccum || this.settings.trails <= 0 || !this.lastCam;
         this.clearAccum = false;
@@ -22336,6 +23372,7 @@ ${e.message}` : String(e?.message || e));
         const lppu = loupe.ppu * (L / span2);
         this._writeView(this.b.viewL, this.viewDataL, { x: loupe.cx, y: loupe.cy, ppu: lppu }, L, L, dpr * (L / span2), time, selId, lod, culled[1], 0, true, bare);
         d.queue.writeBuffer(this.b.loupeU, 0, new Float32Array([loupe.x, loupe.y, loupe.r, 1, W3, H3, loupe.ppu, 0]));
+        this._jellyField(enc, 1, this.viewDataL);
         const pass2 = scenePass(this.loupeView);
         this._drawScene(pass2, this.viewDataL, 1);
         pass2.end();
@@ -22347,6 +23384,7 @@ ${e.message}` : String(e?.message || e));
         this._ensureSpecTex(specimen.w, specimen.h);
         const live = !!specimen.live;
         this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId, specLod, culled[2], 0, live, bare && live);
+        if (!specimen.studio) this._jellyField(enc, 2, this.viewDataS);
         let pass2 = scenePass(this.specView);
         if (specimen.studio) {
           pass2.setPipeline(this.pStudio);
@@ -40006,9 +41044,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "a92d2dccc6672809") return;
+      if (localStorage.getItem(key) === "2da9c1a7295eeb65") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "a92d2dccc6672809");
+      if (res) localStorage.setItem(key, "2da9c1a7295eeb65");
     } catch {
     }
   }

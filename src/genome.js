@@ -24,6 +24,33 @@ export function cellShape(g, role = 0) {
   return gene;
 }
 
+/** The kinds a bond is drawn as (docs/look.md, Bonds), by their number in DRAW_WGSL (BOND_*). */
+export const BOND_KINDS = ['wall', 'bridge', 'thread', 'pad', 'hypha', 'stalk', 'net', 'jelly'];
+/**
+ * The kind a bond kept by a cell of genome g (info word infoP) to one of h (infoQ) is drawn as: bondKind in DRAW_WGSL
+ * by species (K.bondLook below 0), for tools (tools/bondlab.mjs). Change the two together.
+ */
+export function bondKindLike(g, h, infoP = 0, infoQ = 0, K = DEFAULT_K) {
+  const tight = (Math.min(g.adhesion || 0, h.adhesion || 0) - K.tightFrom) / K.tightSpan;
+  if (tight > 0.9) return 0;
+  const tree = (x) => x.grow?.[0] >= 0.5;
+  const tailCell = (x, info) => !tree(x) && (x.adhesion || 0) > DEFAULT_K.adhMin && (x.tail?.[0] ?? 0) > 0 && (info >>> 30) === 2;
+  if (tree(g) || tailCell(g, infoP) || tailCell(h, infoQ)) return g.beat[0] > 0 ? 5 : 4;
+  let m = tight > 0.25 ? 1 << 1 : 0;
+  const plan = cellShape(g, 0);
+  if (plan === 3 || plan === 5 || plan === 6) m |= 1 << 3;
+  const producer = g.photo > 0.55;
+  if (producer) m |= 1 << 7;
+  if (tight <= 0.5) {
+    if (g.calcify > 0.3) m |= 1 << 2;
+    if (!producer) m |= 1 << 6;
+  }
+  let bits = 0;
+  for (let x = m; x; x &= x - 1) bits++;
+  for (let k = (visualHash((g.serial ^ 0x5bd1e995) >>> 0) % bits); k > 0; k--) m &= m - 1;
+  return 31 - Math.clz32(m & -m);
+}
+
 // ------------------------------------------------------------ genome helpers
 export function hsl2rgb(h, s, l) {
   const k = [0, 8, 4].map((o) => (o + h * 12) % 12);

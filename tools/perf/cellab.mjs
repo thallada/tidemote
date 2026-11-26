@@ -2,6 +2,8 @@
 // pages compared on the GPU closely enough to see a few percent. Both draw the same saved world, paused, from the same
 // camera spots (the densest living, and the densest unbonded, at each zoom), uncapped (no vsync, no frame-rate limit:
 // the GPU never idles, its clock steady), at a fixed render scale with the tuner's dressing fixed and adaptation off.
+// --bond Z,...: scenes of the most bonds in view at those zooms too, for timing how bonds are drawn (vsLine, vsBridge:
+// docs/look.md, Bonds), whose passes are in the scene pass; --zooms none --free none leave the others out.
 // Pages are loaded in ABBA order (A B B A A B B A ...), one page at a time in one headless Chromium, every scene
 // measured in every load, so drift and the GPU's clock cancel and the load-to-load spread (buffer placement, ±1-2%)
 // is in the interval. Per scene: the median GPU ms of the main view's scene pass (where fsPointLive draws, beside the
@@ -10,28 +12,33 @@
 //   flock ~/.cache/tidemote-heavy.lock env TIDEMOTE_VK=1 ~/.local/bin/capped node tools/perf/cellab.mjs \
 //     --a runs/cells/builds/base.html --b dist/tidemote.html [--out runs/perf/cellab/NAME.json] [--blocks 12]
 //     [--seconds 3] [--settle 1] [--zooms 80,150,300,600] [--free 300] [--width 1920] [--height 1080] [--scale 2]
-//     [--look off] [--world runs/perf/worlds/cells128k.bin] [--n 131072] [--margin 1] [--k '{...}']
+//     [--look off] [--world runs/perf/worlds/cells128k.bin] [--n 131072] [--margin 1] [--k '{...}'] [--bond 50,150,300,800]
+//   tools/gpu-node.sh tools/perf/cellab.mjs ... (under WSL: Windows Chrome, shown, on the GPU through D3D12)
 // --margin: the percent under which a difference counts as none (the verdict: B slower / faster / indistinguishable).
 // The spots are chosen from the world once and kept beside it (WORLD.cellab.json; --spots: only that, no browser). Linux headless on the GPU only
-// (TIDEMOTE_VK=1); about 35 s a block at the defaults (12 blocks: about 7 minutes).
+// (TIDEMOTE_VK=1), or installed Chrome on Windows (tools/gpu-node.sh from WSL) or macOS; about 35 s a block at the
+// defaults (12 blocks: about 7 minutes).
 import fs from 'node:fs'; import path from 'node:path'; import http from 'node:http'; import os from 'node:os';
 import { chromium } from 'playwright-core';
 import { cliArgs } from '../lib/args.mjs';
-import { launchOptions } from '../lib/browser.mjs';
+import { launchOptions, UNTHROTTLED } from '../lib/browser.mjs';
 import { viewPrefs } from '../lib/prefs.mjs';
 import { retryAdapter } from '../vk.mjs';
 import { unpackWorld, loadBinWorld } from '../lib/world.mjs';
 import { aim } from '../pagelab.mjs';
 
 const v = { a: 'runs/cells/builds/base.html', b: 'dist/tidemote.html', world: 'runs/perf/worlds/cells128k.bin', n: 131072, blocks: 12, seconds: 3, settle: 1,
-  zooms: '80,150,300,600', free: '300', width: 1920, height: 1080, scale: 2, look: 'off', margin: 1, out: null, k: '{"lowEras":0,"eventPlan":"none@1000000000"}', ...cliArgs() };
-if (!process.env.TIDEMOTE_VK && !v.spots) { console.error('cellab: Linux headless on the GPU only (TIDEMOTE_VK=1)'); process.exit(2); }
+  zooms: '80,150,300,600', free: '300', bond: '', width: 1920, height: 1080, scale: 2, look: 'off', margin: 1, out: null, k: '{"lowEras":0,"eventPlan":"none@1000000000"}', ...cliArgs() };
+const desktop = process.platform === 'win32' || process.platform === 'darwin';
+if (!process.env.TIDEMOTE_VK && !desktop && !v.spots) { console.error('cellab: on the GPU only: Linux headless (TIDEMOTE_VK=1), or tools/gpu-node.sh'); process.exit(2); }
 const W = +v.width, H = +v.height;
 for (const f of [v.a, v.b, v.world]) if (!fs.existsSync(f)) { console.error(`cellab: no ${f}`); process.exit(2); }
 
-// ---- the spots: windows of the view's size (at each zoom) holding the most living cells, or the most unbonded ones
+// ---- the spots: windows of the view's size (at each zoom) holding the most living cells, the most unbonded ones, or
+// the most bonds
 const spotFile = v.world.replace(/\.bin$/, '') + '.cellab.json';
-const want = [...v.zooms.split(',').map((z) => ['dense', +z]), ...(v.free ? v.free.split(',').map((z) => ['free', +z]) : [])];
+const list = (s, kind) => (s && s !== 'none' ? String(s).split(',').map((z) => [kind, +z]) : []);
+const want = [...list(v.zooms, 'dense'), ...list(v.free, 'free'), ...list(v.bond, 'bond')];
 let spots = fs.existsSync(spotFile) ? JSON.parse(fs.readFileSync(spotFile, 'utf8')) : {};
 const key = ([kind, z]) => `${kind}${z}@${W}x${H}`;
 if (want.some((w) => !spots[key(w)])) {
@@ -40,13 +47,14 @@ if (want.some((w) => !spots[key(w)])) {
   const [gw, gh] = world.cpu.grid, cnt = world.cpu.count, PW = P_BYTES / 4, NONE = 0xffffffff;
   const pu = new Uint32Array(world.gpu.parts), pf = new Float32Array(world.gpu.parts), it = new Uint32Array(world.gpu.intent);
   const R = 4, cw = gw * R, ch = gh * R; // a quarter unit's bins
-  const bins = { dense: new Float64Array(cw * ch), free: new Float64Array(cw * ch) };
+  const bins = { dense: new Float64Array(cw * ch), free: new Float64Array(cw * ch), bond: new Float64Array(cw * ch) };
   for (let i = 0; i < cnt; i++) {
     const o = i * PW;
     if (pu[o + 4] < FIRST_LIFE) continue;
     const bx = ((Math.floor(pf[o] * R) % cw) + cw) % cw, by = ((Math.floor(pf[o + 1] * R) % ch) + ch) % ch;
     bins.dense[by * cw + bx]++;
     if (it[i * 4 + 2] === NONE && it[i * 4 + 3] === NONE) bins.free[by * cw + bx]++;
+    else bins.bond[by * cw + bx] += (it[i * 4 + 2] !== NONE) + (it[i * 4 + 3] !== NONE);
   }
   // (the world's fit: the page never zooms out past it, nor does aim)
   const fit = Math.max(W / gw, H / gh);
@@ -64,7 +72,7 @@ if (want.some((w) => !spots[key(w)])) {
       if (s > best) { best = s; at = [(x + bw / 2) / R, (y + bh / 2) / R]; }
     }
     spots[key(w)] = { kind, zoom: z, at: at.map((c) => +c.toFixed(2)), cells: best };
-    console.log(`spot ${key(w)}: ${best} ${kind === 'free' ? 'unbonded ' : ''}living cells about (${at.map((c) => c.toFixed(1))})`);
+    console.log(`spot ${key(w)}: ${best} ${kind === 'free' ? 'unbonded living cells' : kind === 'bond' ? 'bonds' : 'living cells'} about (${at.map((c) => c.toFixed(1))})`);
   }
   fs.writeFileSync(spotFile, JSON.stringify(spots, null, 1));
 }
@@ -81,10 +89,10 @@ const server = http.createServer((req, res) => {
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${server.address().port}`;
-const profile = fs.mkdtempSync(path.join(os.homedir(), '.cache', 'cellab-'));
+const profile = fs.mkdtempSync(desktop ? path.join(os.tmpdir(), 'cellab-') : path.join(os.homedir(), '.cache', 'cellab-'));
 const ctx = await chromium.launchPersistentContext(profile, {
   ...launchOptions({ args: ['--disable-gpu-vsync', '--disable-frame-rate-limit', '--enable-webgpu-developer-features', '--mute-audio',
-    '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--no-first-run'] }),
+    ...UNTHROTTLED, '--no-first-run', ...(desktop ? [`--window-size=${W},${H}`, '--window-position=0,0'] : [])] }),
   viewport: { width: W, height: H }, deviceScaleFactor: 1 });
 
 // one block: a fresh page of `side`, the world loaded and held, every scene measured

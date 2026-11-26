@@ -1,6 +1,6 @@
 import {
   simWGSL, senseWords, SIM_CLOCK, EDGE_SWAY_W, CULL_WGSL, CULL_SEGS, PICK_WGSL, LISTEN_WGSL, SURVEY_WGSL, SURVEY_WORDS, SURVEY_MAX_TILES, INBOND_WGSL, LISTEN_CAP, LISTEN_HEAD, LISTEN_REC, WATCH_WGSL, WATCH_MAX, DRAW_WGSL, LERP_WGSL, POST_WGSL, GLASS_WGSL, SEA_WGSL, ICE_SHOW_WGSL, ICE_SHOWN, ICE_SHOWN_ANY, SHIFT_W, SHIFT_H, MICRO_WGSL, MICRO_SPECKS, ORGANS, DEFAULT_K,
-  MAXK, FIRST_LIFE, MAX_CELLS, THERMAL_WORDS, TILES, HEAT_WG, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, NOTE_WORDS, NOTE_WGSL, NOTE_HEAD, NOTE_REC, PIPE_MAX, PIPE_TAKE, PIPE_TAKE_W, PIPE_SP, PIPE_IDS, H_TAKEN, H_CUTS, H_RIDE, RIDE_MAX, H_IN, H_SP, H_CELLS, H_IDS, H_LINKS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, MIND_BYTES, SWAY_BYTES, TUBE_N, TUBE_K, STUDIO_N,
+  MAXK, FIRST_LIFE, MAX_CELLS, THERMAL_WORDS, TILES, HEAT_WG, META_SLOT, META_POP, META_DEATH, META_ENERGY, META_DIAG, META_CLAIM, SPL_WORDS, SPL_RANGE, SPL_RANGE_SAMPLES, HAND_WORDS, NOTE_WORDS, NOTE_WGSL, NOTE_HEAD, NOTE_REC, PIPE_MAX, PIPE_TAKE, PIPE_TAKE_W, PIPE_SP, PIPE_IDS, H_TAKEN, H_CUTS, H_RIDE, RIDE_MAX, H_IN, H_SP, H_CELLS, H_IDS, H_LINKS, H_OUT, P_BYTES, PICK_WORDS, G_BYTES, LITE_BYTES, LOUPE_FIELD, JELLY_FROM, FOCUS_MAX, BOND_SP_AT, MIND_BYTES, SWAY_BYTES, TUBE_N, TUBE_K, STUDIO_N,
 } from './shaders.js';
 import {
   archetypeGenome, randomGenome, writeGenome, parseParticle,
@@ -16,7 +16,7 @@ const POST_LAMP = 104 + 4 * SEA_CASCADES;
 // the look's words (Post.look, src/look.js) after the hand's
 export const POST_LOOK = POST_LAMP + 16;
 // the draw's view uniforms (struct View in DRAW_WGSL), the world's light at their end
-export const VIEW_BYTES = 288;
+export const VIEW_BYTES = 304;
 // then the murk's cameras (Post.murk, murkB: _murkCam)
 const POST_MURK = POST_LOOK + LOOK_WORDS;
 // then the water's edge's phases (Post.edgePh)
@@ -46,7 +46,6 @@ const U = globalThis.GPUBufferUsage ?? {};
 const PICK_MAX = 131072;
 // the most cells the annotations' view reads back (NOTE_WGSL): past it, a steady sample
 const NOTE_CAP = 16384;
-const FOCUS_MAX = 65536;
 const PICK_BYTES = 56 + PICK_MAX * PICK_WORDS * 4;
 const LEDGER_HEAD = META_CLAIM * 4;
 const CENSUS_BYTES = LEDGER_HEAD + MAXK * G_BYTES;
@@ -114,7 +113,7 @@ const REAL_WRAP = 4096;
 // (w: its grid, the exposure, the focus, the pool's level, interiors, the tide and its phases, the season, the open
 // water's light, the sky, the simulated clock, the hand's lamp; crumble: how long ago in sim time the stone cache the view is
 // served from was drawn and lit, its last eight lightings newest first, for grains crumbling, crumbleAt; none where stone is
-// drawn every frame). Engine._writeView, and the card page's studio.
+// drawn every frame; bond: the kind every bond is drawn as, K.bondLook). Engine._writeView, and the card page's studio.
 export function viewWords(data, K, { cam, W, H, dpr, time, selId, detail = true, culled = false, splat = 0, lit = false, split = false, crumble = null, trails = 0 }, w) {
   const ppu = cam.ppu;
   // a cell keeps one world size at every zoom, so zooming in only resolves it
@@ -149,6 +148,10 @@ export function viewWords(data, K, { cam, W, H, dpr, time, selId, detail = true,
   v.set(w.hand.subarray(0, 4), 52);
   v.fill(1e9, 56, 72);
   if (crumble) v.set(crumble, 56); else v[56] = -1;
+  // bonds: the kind every bond is drawn as (K.bondLook), below 0 each species' own (bondKind in DRAW_WGSL)
+  // (73, 74: a jelly envelope's field's stamp and tiles across, written apart by Engine._jellyField; w: the times the
+  // simulation's clock has wrapped, a u32, for a stalk's beat across a wrap: stalkFold in DRAW_WGSL)
+  v[72] = K.bondLook ?? -1; vu[73] = 0; vu[74] = 0; vu[75] = (w.wraps ?? 0) >>> 0;
 }
 
 class Engine {
@@ -284,7 +287,8 @@ class Engine {
       d.queue.writeBuffer(u, 0, new Float32Array([...band, 0, 0]));
       return u;
     });
-    b.focus = d.createBuffer({ size: (MAXK / 32 + FOCUS_MAX) * 4, usage: U.STORAGE | U.COPY_DST });
+    // (and each species' bonds' kind from BOND_SP_AT: bondKinds in DRAW_WGSL)
+    b.focus = d.createBuffer({ size: (BOND_SP_AT + MAXK) * 4, usage: U.STORAGE | U.COPY_DST });
     b.post = d.createBuffer({ size: POST_WORDS * 4, usage: U.UNIFORM | U.COPY_DST });
     b.postPlain = d.createBuffer({ size: POST_WORDS * 4, usage: U.UNIFORM | U.COPY_DST });
     // the sea (SEA_WGSL, src/sea.js): its uniforms, and every cascade's slope and displacement, then their heights,
@@ -658,7 +662,14 @@ class Engine {
       bridge: defer(rpLiveDesc(this.drawModule, 'vsBridge', 'fsBridge', 'triangle-strip', trail, false), false, (p) => { this.main.bridge = p; }, true),
       reproj: rpLive(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined, false),
       tube: defer(rpLiveDesc(this.drawModule, 'vsTube', 'fsTubeLive', 'triangle-strip', trail, true, { SHAPE_ATLAS: 0 }), false, (p) => { this.main.tube = p; }),
+      // a jelly envelope's rim, over the tiles of the view its field reaches (vsJellyTile, fsJellyRim, _jellyField)
+      jelly: defer(rpLiveDesc(this.drawModule, 'vsJellyTile', 'fsJellyRim', 'triangle-strip', trail, false), false, (p) => { this.main.jelly = p; }, true),
     };
+    // a jelly envelope's field: its cells' kernels added at a quarter of a view's size each way (_jellyField), each view's
+    // with the frames its tiles were reached (JELLY_TILE in DRAW_WGSL) and the stamp of the last
+    this.pJellyField = defer(rpDesc(this.drawModule, 'vsJellyField', 'fsJellyField', 'triangle-strip', additive, 'rgba16float'), false, (p) => { this.pJellyField = p; }, true);
+    this.jelly = [null, null, null];
+    this._jellyStamp = 0;
     // the studio's cells alone (a portrait), in the close-up's pass, leaving its living target clear
     this.pStudio = defer({ ...rpLiveDesc(this.drawModule, 'vsStudio', 'fsPoint', 'triangle-strip', additive, false, { SHAPE_ATLAS: 0 }), label: 'fsPoint' }, false, (p) => { this.pStudio = p; });
     this.cpShapeDirty = cPipe({ layout: 'auto', compute: { module: this.drawModule, entryPoint: 'shapeDirty' }, label: 'shapeDirty' });
@@ -933,8 +944,9 @@ class Engine {
       { binding: 8, resource: { buffer: b.touch } }, { binding: 9, resource: { buffer: b.sway } },
       { binding: 10, resource: { buffer: b.organDir } }, { binding: 11, resource: { buffer: b.thermal } }, { binding: 12, resource: { buffer: this.cull[k].segs } },
       { binding: 16, resource: { buffer: b.quads } }, ...this._shapeEntries()] });
+    // (shapeDirty reckons each species' bonds' kind too, into the focus buffer: bondSp in DRAW_WGSL)
     this.shapeDirtyBG = d.createBindGroup({ layout: this.cpShapeDirty.getBindGroupLayout(0), entries: [
-      { binding: 2, resource: { buffer: b.genomes } }, { binding: 26, resource: { buffer: b.shapeList } }, { binding: 27, resource: { buffer: b.shapeBaked } }, { binding: 28, resource: { buffer: b.shapeArgs } }] });
+      { binding: 0, resource: { buffer: b.view } }, { binding: 34, resource: { buffer: b.focus } }, { binding: 2, resource: { buffer: b.genomes } }, { binding: 26, resource: { buffer: b.shapeList } }, { binding: 27, resource: { buffer: b.shapeBaked } }, { binding: 28, resource: { buffer: b.shapeArgs } }] });
     this.shapeBakeBG = d.createBindGroup({ layout: this.cpShapeBake.getBindGroupLayout(0), entries: [
       { binding: 2, resource: { buffer: b.genomes } }, { binding: 26, resource: { buffer: b.shapeList } },
       { binding: 24, resource: this.shapeTex.createView() }, { binding: 25, resource: this.shapePlansTex.createView() }] });
@@ -2958,11 +2970,13 @@ class Engine {
   }
 
   // Bakes the shapes of the species slots whose genome changed since they were baked (shapeDirty, shapeBake): a few
-  // a frame, every one for a new world
+  // a frame, every one for a new world; and their bonds' kinds (bondSp in DRAW_WGSL), every one again when the tight
+  // tunables they are reckoned by change
   _shapes(enc) {
     const d = this.device, b = this.b;
-    const fresh = this._shapeGen !== this.worldGeneration;
-    if (fresh) { this._shapeGen = this.worldGeneration; enc.clearBuffer(b.shapeBaked); }
+    const tight = `${this.K.tightFrom},${this.K.tightSpan}`;
+    const fresh = this._shapeGen !== this.worldGeneration || this._shapeTight !== tight;
+    if (fresh) { this._shapeGen = this.worldGeneration; this._shapeTight = tight; enc.clearBuffer(b.shapeBaked); }
     const cap = fresh ? MAXK : SHAPE_CAP;
     d.queue.writeBuffer(b.shapeList, 0, new Uint32Array([cap]));
     d.queue.writeBuffer(b.shapeArgs, 0, new Uint32Array([SHAPE_TILE / 8, SHAPE_TILE / 8, 0]));
@@ -2978,7 +2992,7 @@ class Engine {
     viewWords(data, this.K, { cam, W, H, dpr, time, selId, detail, culled, splat, lit, split, crumble, trails }, {
       grid: this.grid, exposure: this.settings.exposure, focus: this.focus, level: this.K.pond ? this.level : 1,
       interiors: this.fx.interiors, tide: this.tide, tidePh: clk.tidePh, season: this.season, ambient: this.ambient,
-      sky: this.K.pond ? this.sky : 1, t: clk.t, hand: this.hand });
+      sky: this.K.pond ? this.sky : 1, t: clk.t, hand: this.hand, wraps: Math.floor(this.simTime / SIM_CLOCK) });
     this.device.queue.writeBuffer(buf, 0, data);
   }
 
@@ -3029,6 +3043,7 @@ class Engine {
         pass.setBindGroup(0, bg.bridge);
         if (culled) pass.drawIndirect(culled, 32); else pass.drawIndirect(this.b.bridgeDraw, 0);
       }
+      if (bg.jelly?.on) { const j = this.jelly[k]; pass.setPipeline(pl.jelly); pass.setBindGroup(0, j.rim); pass.draw(4, j.cols * j.rows); }
     }
     if (this.settings.nodes) {
       if (v[22] < 0) { pass.setPipeline(pl.small); pass.setBindGroup(0, this.smallBG); pass.drawIndirect(this.b.smallArgs, 0); }
@@ -3045,6 +3060,46 @@ class Engine {
         pass.setPipeline(pl.pointBare); pass.setBindGroup(0, bg.pointBare); pass.drawIndirect(quads, 32);
       }
     }
+  }
+
+  // A jelly envelope's field for view k (data: its view words), ahead of its scene pass, in which _drawScene draws the
+  // rim from it (BOND_JELLY in DRAW_WGSL): each jelly body's cells add their kernels into a target a quarter of the
+  // view's size each way, stamping the tiles they reach with this frame's stamp (in the view's words), and the rim is
+  // drawn only over the tiles stamped and their neighbors (vsJellyTile). None with bonds hidden, cells kept as sprites
+  // (detail off) or the view too far out for a hull to show (JELLY_FROM).
+  _jellyField(enc, k, data) {
+    const d = this.device, v = new Float32Array(data), u = new Uint32Array(data), s = this.sceneBG[k], b = this.b;
+    s.jelly ??= { on: false, bg: null };
+    s.jelly.on = false;
+    if (!this.settings.links || u[20] !== 1 || v[6] < JELLY_FROM || !this.pJellyField || !this.main.jelly) return;
+    // (an eighth from close up, where a kernel spans hundreds of pixels and the field is smooth over many texels)
+    const step = v[6] >= 400 ? 8 : 4, w = Math.ceil(v[4] / step), h = Math.ceil(v[5] / step);
+    let j = this.jelly[k];
+    const viewBuf = [b.view, b.viewL, b.viewS][k];
+    if (!j || j.w !== w || j.h !== h) {
+      j?.tex.destroy(); j?.tiles.destroy();
+      const tex = d.createTexture({ size: [w, h], format: 'rgba16float', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING, label: 'jelly' });
+      const view = tex.createView();
+      // (JELLY_TILE in DRAW_WGSL)
+      const cols = Math.ceil(w / 8), rows = Math.ceil(h / 8);
+      const tiles = d.createBuffer({ size: cols * rows * 4, usage: U.STORAGE, label: 'jellyTiles' });
+      j = this.jelly[k] = { w, h, tex, view, cols, rows, tiles, rim: d.createBindGroup({ layout: this.main.jelly.getBindGroupLayout(0), entries: [
+        { binding: 0, resource: { buffer: viewBuf } }, { binding: 29, resource: view }, { binding: 30, resource: this.sampler }, { binding: 32, resource: { buffer: tiles } }] }) };
+    }
+    if (s.jelly.j !== j) {
+      s.jelly.j = j;
+      s.jelly.bg = d.createBindGroup({ layout: this.pJellyField.getBindGroupLayout(0), entries: [[0, viewBuf], [1, b.parts], [2, b.genomes],
+        [3, b.intent], [4, b.livingList], [5, b.focus], [6, b.bondsIn], [11, b.thermal], [12, this.cull[k].segs], [31, j.tiles]]
+        .map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
+    }
+    // (a stamp of this frame's, never 0, which a new tile holds; View's jellyStamp and jellyCols)
+    this._jellyStamp = (this._jellyStamp % 0xfffffffe) + 1;
+    d.queue.writeBuffer(viewBuf, 73 * 4, new Uint32Array([this._jellyStamp, j.cols]));
+    const pass = enc.beginRenderPass({ colorAttachments: [{ view: j.view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
+    pass.setPipeline(this.pJellyField); pass.setBindGroup(0, s.jelly.bg);
+    if (u[21] === 1) pass.drawIndirect(this.cull[k].args, 16); else pass.drawIndirect(b.frameCtr, 16);
+    pass.end();
+    s.jelly.on = true;
   }
 
   // The micro-suspension's specks for the main view (MICRO_WGSL): for each phase and resolved octave
@@ -3307,6 +3362,7 @@ class Engine {
       pass.dispatchWorkgroups(Math.ceil((MAXK * ORGANS) / 64));
       pass.end();
     } else this._gatherKey = this._carry = null;
+    this._jellyField(enc, 0, this.viewData);
     {
       const clear = this.clearAccum || this.settings.trails <= 0 || !this.lastCam;
       this.clearAccum = false;
@@ -3398,6 +3454,7 @@ class Engine {
       const lppu = loupe.ppu * (L / span);
       this._writeView(this.b.viewL, this.viewDataL, { x: loupe.cx, y: loupe.cy, ppu: lppu }, L, L, dpr * (L / span), time, selId, lod, culled[1], 0, true, bare);
       d.queue.writeBuffer(this.b.loupeU, 0, new Float32Array([loupe.x, loupe.y, loupe.r, 1, W, H, loupe.ppu, 0]));
+      this._jellyField(enc, 1, this.viewDataL);
       const pass = scenePass(this.loupeView);
       this._drawScene(pass, this.viewDataL, 1);
       pass.end();
@@ -3412,6 +3469,7 @@ class Engine {
       // (live, in the world's light as the main view; a card's portrait unlit)
       const live = !!specimen.live;
       this._writeView(this.b.viewS, this.viewDataS, { x: specimen.cx, y: specimen.cy, ppu: specimen.ppu }, specimen.w, specimen.h, specimen.dpr, time, selId, specLod, culled[2], 0, live, bare && live);
+      if (!specimen.studio) this._jellyField(enc, 2, this.viewDataS);
       let pass = scenePass(this.specView);
       // (the studio: its own cells alone, on no stone)
       if (specimen.studio) { pass.setPipeline(this.pStudio); pass.setBindGroup(0, this.studioBG); pass.draw(4, this.studioN); }

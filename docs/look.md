@@ -214,6 +214,244 @@ other pixel, a checkerboard, gave points a ring instead of a cross but every edg
 `tools/celllab.mjs` photographs the same cells before and after; `~/.cache/tidemote-refs` holds the micrographs and
 `stats.py`, which measures both.
 
+## Bonds
+
+Bonds (each cell's two kept partners, `intent.z`/`.w`) were drawn as tubes in the cells' own color, a neck with
+membrane shading and granules streaming, which read as unreal beside darkfield cells. Real colonies are held together
+by a handful of things, and in darkfield whatever joins two cells is either flush with them (a shared wall) or far
+fainter than they are and colorless (silica and chitin glow a cool blue-white); only a streaming pseudopodial net glows
+in the cells' color. So each species' bonds are drawn as one of eight kinds (`BOND_*` in DRAW_WGSL; the micrographs
+and what to aim for in each: `~/.cache/tidemote-refs/bonds/README.md`). A visual choice alone: bond physics, sharing
+and breaking are the same whatever a bond is drawn as.
+
+`bondKind` picks the kind from both cells' genomes by `tight`, how far the lesser adhesion has closed the body toward
+tissue (0 at `tightFrom`, 1 at `tightFrom + tightSpan`):
+
+| Kind | Who | Drawn as |
+| --- | --- | --- |
+| 0 wall | tissue, `tight` past 0.9 (`BOND_WALL_FROM`) | nothing between the cells (as before); their flattened membranes are the bond (Walls, below) |
+| 1 bridge | a body whose cells sit close, `tight` past 0.25 | a faint pale strand a pixel wide; a fine flared neck only across a gap under a cell width (Bridges, below) |
+| 2 thread | a loose calcifier (`calcify` > 0.3, `tight` to 0.5) | a faint cool-white glass hair of one width from each cell's pole; no fused neck (Threads, below) |
+| 3 pad | long cells (desmid, spindle, slipper: `choosePlan(g, 0)`) | a small blob of clear gel on each cell's end, next to nothing between (Pads, below) |
+| 4 hypha | a tree that does not beat (mother to daughter), or a tail that does not | an even pale strand from the mother to the daughter's back pole, a living hypha faintly tinted, a producer's wall strand clear and its daughter in a faint clear cup; no neck (Hypha and stalk, below) |
+| 5 stalk | a tree that beats, or a beating tail | a glassy hair far fainter than the bells, a sheath round a darker core up close, kinking (zig-zag or coil) as the beat contracts it; no neck (Hypha and stalk, below) |
+| 6 net | a loose eater (grazer, hunter or scavenger) | whitened strands of uneven width leaving as pseudopods, granules streaming both ways in bursts (Nets, below) |
+| 7 jelly | a producer (`photo` > 0.55) | no line or strip; one hull round the whole body from 20 px a unit: a faint pale cloud from afar, a cool hairline rim close up (Jelly, below) |
+
+Walls and trees come first; any other body takes one of the kinds its species qualifies for, picked by a hash of its
+serial so a world shows a mix (a loose calcifying eater with long cells may be a thread, a pad or a net). Until
+2026-11-25 no tube was drawn past `tight` 0.5; the bodies between 0.5 and 0.9, mostly producers, are now bridges or
+jelly, so bridges show where none did. In grown worlds producers are mostly tissue (adhesion about 0.9) or jelly, and
+loose eaters' bodies are mostly trees: worlds differ widely in which kinds they hold (one of 65k particles at an hour
+held only walls, threads and pads), and nets and threads stay rare. `bondKindLike` (src/genome.js) mirrors
+`bondKind` for tools; change the two together.
+
+Each kind keeps its own functions, dispatched by kind from the shared code (the partner, culling, the cubic
+centerline): `bondFarX` the far line's color (`vsLine`, a native line below 30 px cells, crossfading into the strip
+from 6), `bondAnchor` where it leaves each cell (offsets from the centers; a bridge's are its centers), `bondVtxX` a strip vertex's
+width, light, coverage, shift and payload (`BondSeg` in, `BondLook` out), `bondFragX` its shading (`fsBridge`, the
+kind passed flat). Walls and jelly draw no strip at all: their vertices fall outside the view before any shading.
+`K.bondLook` (view only, `view.bond`) forces every bond to one kind (0..7; below 0 each species' own).
+`tools/bondlab.mjs` photographs the same bodies of a saved world (`runs/bonds/world.bin`, 131k particles grown
+90 minutes, which holds every kind) as assigned and forced to each kind, at 50, 150, 300, 800 and 1500 pixels a unit
+(the line alone, the crossfade, the strip alone), and lays two builds' side by side (`--compare`);
+`tools/perf/cellab.mjs --bond 50,150,300,800` times two builds' scene pass where bonds crowd the view (the kinds'
+dispatch cost nothing measurable there on an RTX 4070 Ti: within 1% of the tubes it replaced at every zoom). A bond
+within a species, nearly every bond, reads its kind from one word a species (`bondSp`, in the focus buffer from
+`BOND_SP_AT`, a binding of its own would take vsPoint past ten storage buffers a stage), which `shapeDirty` reckons
+(`bondKinds`) whenever a slot's genome changes, as it bakes its shape again, and for every slot when the tight tunables
+change: vsBridge runs bondKind at each of a strip's 30 vertices and vsPoint for each cell's necks, and the genes and
+two hashes it took cost the scene pass about 1% (2026-11-25, RTX 2080 SUPER). A bond between two species, or the studio
+(whose genomes are its own), reckons it from the genomes (`bondKindOf`).
+
+Necks. Apart from the strip, vsPoint fuses a cell's outline with its bonded kin's where they nearly touch (a smooth
+union, fsPoint's partner loop). Which kinds keep it is one table, `NECK_KINDS` (a bit per `BOND_*`, read through
+`neckKind` from the kind of the cell's own bonds, `bondKind(p, p)`, worked out once per vertex, a tail's bonds
+apart): walls (tissue's cells not yet pressed flat; pressed, a tile meets its kin at a shared wall), bridges and nets
+(a pseudopod's base), and not threads (glass holds its cells apart), pads (a union fuses long cells side to side; the
+pad is drawn at their ends), trees' strands (Hypha and stalk, below) or jelly. The card portraits (`vsStudio`) follow the same table.
+
+### Walls
+
+Tissue's bond is the wall its cells share, drawn by the cells themselves (Cells, above: where cells press flat the
+membrane's line lies on the outline and each draws its half, so a seam is one thin line, as bright as the lit
+membrane and brighter than either cell's dim middle, as the darkfield filaments show their cross-walls). Nothing
+changed there. From afar the far line between tissue's cells is the bridge's faint one (`bondFarBridge`), so a
+filament or sheet reads as a row of bright dots joined faintly, a beaded string, until its cells take shape and the
+line goes (`detailLOD`).
+
+### Bridges
+
+Volvox's cytoplasmic bridges are real but short, and at the power a world is viewed at finer than the microscope
+resolves: a bridged sheet is evenly spaced bright cells and a faint web (`bondFarBridge`, `bondVtxBridge`,
+`bondFragBridge`):
+
+- The far line and the strand it becomes are 0.3 of the old line's light (`BRIDGE_FAR`), keeping 60% of the cells'
+  color (`BRIDGE_TINT`, the rest their grey), so from afar a body is its cells and a fine web between them. Up close
+  the strand stays a pixel wide (its profile drawn per pixel across a strip two pixels wide) and ends at the
+  membranes once the cells resolve, so it never runs through a cell's body.
+- Only where the cells nearly touch (centers within 2.8 of the smaller radius, fading out by 3.6: a gap of up to
+  about a radius, gone well before a cell width) a neck: flared to 0.2 of the radius where it leaves each membrane (reckoned at 0.7
+  of the radius, the flare running on 0.4 of it into the cell, so it meets a lobed or armed outline too), pinched to 0.022 (never under half a
+  pixel) between, narrowing with an e-folding of 0.2 of the radius, so a short bridge is a waist and a longer one
+  a fine thread of cytoplasm with flared feet. Living, it is never even: each side flares its own width by the pair's
+  hash, its edge flows slowly along it (up to `BRIDGE_SPREAD`, 1.6, of the even flare), and the whole neck sways in a
+  slow wave pinned at its cells (`BRIDGE_WAVE`, 0.03 of its length; `netWave`). It is translucent: edges a soft glow
+  (`BRIDGE_RIM` 0.32 of the cells' light, brighter on the flank toward the light), its inside dim (`BRIDGE_BODY`
+  0.045) with granules streaming along it, and it hides only 22% of what lies behind it. (At 0.24/0.06/0.3, lit at
+  0.6 and covering 60%, a neck up close was a thick dark band of the cells' color, stiff as a ribbon.) As the cells
+  part it narrows into the strand rather than fading to a ghost.
+- The outline is drawn per pixel from the bond's length and the smaller radius (aux), so the strip is only as wide
+  as the flare; in the saved world most bridges are long, and draw as the strand.
+
+### Pads
+
+Tabellaria and Asterionella are glued at their ends by a small pad of mucilage: a joint, not a line, and the cells do
+the drawing. `bondAnchorPad` puts each end of the bond on the cell's tip toward its partner: for a long plan
+(desmid, spindle, slipper, bead chain, lattice: `padPoleOf`, the outline's reach along the heading, stretched by
+`bodyAspect`) the pole on that side, for any other the edge facing it. `bondVtxPad` runs the strip from tip to tip,
+pushed out past each by a blob's radius (`shift`), and `bondFragPad` draws a soft disc of gel on each tip (0.13 of the
+smaller radius, never under a pixel; 0.22 of the cells' light), colorless (the cells' brightness in a faint warm
+grey: mucilage is clear, nothing glows in the cells' color). Where the ends meet the two discs are one; held apart,
+a barely visible strand (0.08 of a line) joins them, and from afar the far line is that faint too, so a pad body
+reads as its cells' angles.
+
+### Hypha and stalk
+
+A tree's bonds run mother to daughter only (a tree's cell keeps one, to its mother at `intent.z`; a tail's base keeps
+the body's cell it grew from), and a tree's cell faces away from its mother (`bodyDirection`), so both kinds leave
+the daughter at her back pole, the one she keeps for her mother, and the mother where the chord leaves her, turned
+partway (0.4 of the turn, at most `TREE_TWIG`, 0.5 rad) toward her front pole for a daughter grown at a turn
+(`turnOf`), so a mother's daughters leave her from points near one another, like twigs (`treeWays`, `treeAt`). Each
+end lies where the cell's outline does along its way (`bondReach`, the threads' and nets' search, one copy of
+`bodySD` in vsBridge for all of them), `TREE_INSET` (0.08 of the radius) inside it, so a strand always grows from its
+cell. (At a fixed 0.82 of the drawn radius, a strand leaving a long cell across its narrow side ended in the water
+short of it.) Anchoring on the mother's heading alone pulled strands across her as a beating body bent. Where the
+cells are pressed closer than their outlines, as a tree's mostly are (its bonds rest where its cells
+touch: the median tree bond in the bond lab's world spans 0.9 of its two radii), the anchors meet and the strand is
+nothing. Neither kind fuses vsPoint's neck (`NECK_KINDS`): fused, a tree read as one lumpy tube; Dictyosphaerium's,
+Dinobryon's and Zoothamnium's cells are each a cell of their own (a budding daughter still pinches off her mother).
+Nor does a tree's cell hanging from its mother (or a tail's) trail a flagellum: a swimmer's is drawn behind its
+heading, which for a tree's cell points down the strand, so a bright line ran beside the faint stalk and defeated it;
+its cilia stay, as Vorticella's are at its free end (vsPoint says so by a negative `jelly.y`, the pace, which every
+other use takes as 0, so a hanging cell does not stretch as a swimmer does; free swimmers and a tree's root keep their
+flagella). Kept to one `select` on the tail's weight: reading the flag into the shader's early-outs as well cost the
+cell pass 2-4% under D3D12.
+
+- **Hypha** (`bondVtxHypha`, `bondFragHypha`): a strand `HYPHA_WIDTH` (0.09) of the smaller radius each side,
+  35% wider where it leaves the mother, rounded at both ends (`strandCapsule`: one shorter than it is wide is a small
+  bead, never a square block), a living one tapering a little toward the daughter, its width wandering gently along
+  it and its edge soft (`strandShape`), resolved one soft pale strand whose flanks are only a little brighter than
+  its core (`hyphaAcross`: drawn as two bright edge lines about a dark middle, as a thin clear cylinder scatters in
+  darkfield, it read as a pipe or a pair of rails), nothing streaming; a living hypha (an eater's: Hyphomicrobium's) keeps a quarter of the cells' tint, a
+  producer's wall strand is clear glass. From afar 0.4 of a line's light (as faint as a bridge's web, so a loose tree reads as its cells, not a diagram), a fifth of the cells' tint. A producer's
+  daughter also sits in a clear cup, Dinobryon's lorica (`bondFragCup`): the strip runs on past her to the cup's mouth
+  (`CUP_AHEAD`, 0.45 of her radius past her middle), and the cup, closed at its foot in a blunt point where the strand
+  ends (`cupHalf`), widens from her back to `CUP_R` (0.8) of her radius by her middle, drawn as its rim alone, faint (`CUP_LIGHT`), from 10-22 px cells. In a chain the cells read as set
+  each in a vase at the tip of the strand below; in a packed bush the rims overlap, as Dinobryon's do.
+- **Stalk** (`bondVtxStalk`, `bondFragStalk`): a hair `STALK_WIDTH` (0.035) of the smaller radius each side, glassy and
+  far fainter than the bell at its end (0.45 of a line from afar, as darkfield Vorticella's stalk is barely brighter
+  than the field); resolved, a clear sheath lit at its edges round a darker core, the spasmoneme. It contracts with
+  the beat the simulation drives (`bondAnchorStalk`): each cell's lateral speed is a cosine of the beat's clock less
+  `beat.z` a generation (`beatSpeed`), and a bond's muscle pulls hardest as that wave passes between its cells, so the
+  stalk fires there, quickly (a twelfth of a beat), lets go over the next third and rests straight the other half,
+  as hard as its cells' mean will to beat (`willOf`) times the species' amplitude (full at `beat.x` 0.4): a resting
+  body's stalks hang straight, and the folds run down a beating body with its wave. (The beat's clock is
+  `view.sun.w`, the simulation's as the GPU has it, folded across its wraps of `SIM_CLOCK` as `beatFold` folds the
+  simulation's: `stalkFold`, the wraps counted in `view.wraps`.) Contracting, it thickens 30% and kinks: a zig-zag fold for a branching tree's shared stalk (Zoothamnium), a
+  coil seen side on (a sinusoid that tightens, its folds to 0.7 their length) for an unbranched one or a tail
+  (Vorticella, Carchesium), `STALK_KINK` (0.18) of the radius wide at full contraction, folds `STALK_FOLD` (0.3) of
+  it long (never under 4 pixels), pinned at both ends. The kink is drawn in the fragment shader inside a strip widened to hold it, its
+  distance taken square to the fold's slope: six segments a bond are too few for a fold (`BondLook.shift` would draw
+  it coarse).
+
+Check either with `tools/bondlab.mjs` (the hypha and stalk bodies, `F-tree`, `F-beating`) and, for the stalk's
+motion, consecutive frames of a beating body at a tenth of real time (it kinks only while the world runs).
+
+### Jelly
+
+A loose producer's colony lives in a shared clear jelly (Eudorina, Gloeocapsa, Nostoc), and in darkfield the jelly
+shows only faintly: from afar as a pale cloud about the cells, close up as a thin, faint, colorless rim round the ball
+(Volvox's boundary, Eudorina's envelope), the cells evenly spaced inside it. So a jelly body draws nothing between its
+cells and one hull round it all.
+
+The draw shaders know no bodies, so the hull is the level line of a field built from the bonds: every cell of a jelly
+body (one keeping or kept by a partner whose bond `bondKind` makes jelly) adds a kernel (1 - d²/ρ²)², d its distance
+to the triangle it makes with its two kept partners (a segment with one; a cell that keeps none takes the two of lowest
+index among those keeping it, `jellyPartners`: the keepers are listed by atomics in a different order every frame, even
+paused, and taking the first listed made such a cell's hull jump between two shapes, a flickering double edge;
+ρ = 0.45 `linkR`), and its gradient into an
+`rgba16float` target a quarter of the view's size each way, an eighth past 400 px a unit
+(`vsJellyField`/`fsJellyField`, additive; one quad a cell over its triangle, drawn over the living in view like the
+far line; `Engine._jellyField`, a pass of its own ahead of each view's scene pass). A body's triangles fan over all of
+it, so its hull is whole and filled however long its bonds, and lies about 0.45 ρ beyond them; a neighbor sharing no
+bond adds only its own falloff between them, so bodies a little apart keep hulls of their own. Where two falloffs
+barely meet the field is flat, and there the level is raised (`JELLY_NECK`), so the thin necks between neighbors open.
+Tried first: a disc about each cell (radius 0.8 `linkR`, then 0.85 of its longest kept bond): bodies' cells sit as far
+from their neighbors' as from their own, so discs large enough to bridge a body's bonds fused neighboring bodies into
+continents with deep inlets, outlined like countries on a map.
+
+The scene pass then draws the hull over the view (`fsJellyRim` in `_drawScene` after the bonds, over tiles, below;
+into the scene with the trails' weight, not the living layer, as bonds), from the distance to the level line in pixels
+(the field over its gradient, read between texels). From afar it is a cloud: a soft edge a few pixels wide, a fill
+barely lighter than the water and a limb brightening toward the edge (fading with the field's rise above the level,
+not the distance, which saddles leave undefined), lighter on the side toward `TO_LIGHT`. From 150 px a unit to 350 the
+cloud gives way to the rim: a hairline (0.75 to 2.2 px), cool white, lit on its flank toward the light as the cells'
+membranes are, a faint glow just inside it and nothing further in. All of it fades in from `JELLY_FROM` (20 px a unit)
+to 40. Since it is scene light, the trails, the look's rims, the bloom and the composite take it as they take the
+bonds; the loupe and the live close-up draw their own field; a studio portrait has none (no bonds there either). The
+rim is drawn only where the field reaches: each fragment of the field stamps its tile of `JELLY_TILE` (8) texels a
+side with the frame's stamp (`jellyTiles`; `View.jellyStamp`, never 0, and `jellyCols` written by `_jellyField`), and
+the rim draws a quad over each tile it or a neighbor stamped (`vsJellyTile`; the rim reads the two texels about each
+pixel, so a pixel reads at most a texel past its tile), so it shades the same pixels a full-view triangle would but
+none of the empty water: with no jelly in view it draws nothing.
+Below `JELLY_FROM`, with bonds hidden or with cells kept as sprites (detail off) neither pass runs.
+
+### Threads
+
+Glass a cell secretes (Thalassiosira's chitin thread, Skeletonema's silica rods, Chaetoceros' spines), so nothing of
+the cells' own: `bondGlass`'s cool blue-white at `THREAD_GAIN` of the line's light, far fainter than the cells, and a
+hair of one width all along (`THREAD_W`, 0.0009 world units: about a pixel and a third at 1500 px a unit), no taper,
+neck or streaming. Under a pixel it is drawn a pixel and a half wide and faded by the share of each pixel its width
+covers (`bondFragThread`: a box of its width seen through a pixel's), floored at `THREAD_MIN_PX`; from afar the far
+line carries that floor's light whatever the bond's pull, so a body of threads reads as beads with faint gaps. It runs
+straight: vsBridge's centerline does not bend along the body for a thread (`bend`, the one kind-specific line there),
+and only bows a little to one side when slack. It leaves each cell from the middle of a valve face: the pole of the
+cell's long axis (its heading, along which `cellOutline` lays it) on the side toward its partner, at the membrane, not
+aimed through the center, several threads from one cell spread over a small arc round the pole (`THREAD_ARC`, 0.45 rad
+either side, by a hash of the pair and the end), with a tiny bright point where each meets the cell (`THREAD_DOT`).
+Glass adds light and writes no coverage. Threads are left out of `NECK_KINDS`, so their cells get no fused neck in
+vsPoint: they hang apart, never joined by cytoplasm (budding necks stay).
+
+The anchors (shared with the net and trees' strands, `bondReach`) find the membrane from inside on the ray out of the cell by
+two Newton steps on `bodySD` of its plan, drawn out by its aspect and pace as `cellOutline` does (its small shears, a
+squash and a turn's bend left out, so the end can sit a little in or out; the bright point covers that), eased in with
+the strip so it starts on the center-to-center far line.
+
+### Nets
+
+Reticulomyxa's and the foraminifera's reticulopodia, the one living, glowing kind: the cells' color, whitened toward
+their luminance (`netWhite`, 30% of the tint kept, since in darkfield the web's many fine edges scatter white). Its
+strip takes over from the far line sooner than other kinds' (`netLOD`: from 6 px cells to 14, not 30; `bondFarNet`
+divides out the shared fade), and the far line is faint (`NET_FAR`), so from mid zooms a body's web is a fine haze of
+slightly bowed hairs (`NET_BOW`, by the pair's hash) rather than a ruled graph of straight center-to-center lines.
+Each strand's width is set by a hash of its pair (the same either way round), cubed, so most are hair-thin (a fifth of
+`NET_W`, faded by coverage under a pixel) and a few are trunks. It leaves each cell as a pseudopod toward its partner,
+growing out from a little inside the membrane (`NET_INSET`, faded in), wide there (`NET_FOOT` of the smaller cell's
+radius) and thinning fast (over `NET_FALL` of it), a small webbed sheet dimmer inside than at its edges. Fine specks
+stream along every strand both ways, saltatory: four trains (two each way), each moving a step (`NET_STEP`) in a burst
+on its own clock and resting between, their specks closely and irregularly spaced (`NET_SPACING`), of random size
+(about a pixel at 1500 px a unit, `NET_GRAIN`) and faint, so up close they read as the strand's grain sliding both
+ways, starting and stopping, and from 800 px a unit down they sink into its texture (on the real-time clock, as the
+cells' outlines flow).
+
+Cost (`tools/perf/cellab.mjs --bond 50,150,300,800`, 131k particles, RTX 4070 Ti): as assigned, against main, the scene
+pass within noise at every zoom (-1.7% to +0.8% where resolved) and the frame within 1%; every bond forced to a net
+(`--k '{"bondLook":6}'`, against the old neck) +1 to 2% of the scene pass from 150 to 800 (the frame +0.4 to
+0.8%), forced to threads 1.6 to 2.6% faster. The anchors' `bodySD` runs only for threads', nets' and trees' vertices.
+With the jelly envelope, the frame against main +0.3 to 1.7% (2026-11-25, RTX 2080 SUPER), nearly all of it the
+field and the rim.
+
 ## Stone
 
 Stone is lit in a pass of its own (`boulder`, from the stone targets `fsStone` leaves: the main view's once into a cache,
