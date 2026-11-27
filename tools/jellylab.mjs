@@ -88,19 +88,22 @@ async function look(eng) {
     const o = i * PW, x = f[o], y = f[o + 1], kind = u[o + 4];
     const g = genome(kind), rad = 0.085 * (g.size || 1) * (1 - 0.12 * ((u[o + 9] >>> 30) & 3));
     const cx = Math.floor(x / cell), cy = Math.floor(y / cell);
-    let best = Infinity;
+    let best = Infinity, owner = -1, nA = [Infinity, -1], nB = [Infinity, -1];
     for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
       const L = grid.get(((cx + dx + gx) % gx) + gx * ((cy + dy + gy) % gy));
       if (!L) continue;
       for (const j of L) {
         if (u[j * PW + 4] === kind) continue;
         const ax = wr(f[j * PW] - x, W), ay = wr(f[j * PW + 1] - y, H);
-        if (ax * ax + ay * ay > 0.81) continue;
+        const r2 = ax * ax + ay * ay;
+        if (r2 > 0.81) continue;
+        if (r2 < nA[0]) { nB = nA; nA = [r2, j]; } else if (r2 < nB[0]) nB = [r2, j];
         let bx = ax, by = ay, ccx = ax, ccy = ay;
         const m1 = iu[j * 4 + 2], m2 = iu[j * 4 + 3];
         if (m1 !== NONE && isJ.has(m1) && m1 !== i) { bx = wr(f[m1 * PW] - x, W); by = wr(f[m1 * PW + 1] - y, H); }
         if (m2 !== NONE && isJ.has(m2) && m2 !== i) { ccx = wr(f[m2 * PW] - x, W); ccy = wr(f[m2 * PW + 1] - y, H); }
-        best = Math.min(best, triD(ax, ay, bx, by, ccx, ccy));
+        const t = triD(ax, ay, bx, by, ccx, ccy);
+        if (t < best) { best = t; owner = j; }
       }
     }
     if (best >= margin + rad) continue;
@@ -109,6 +112,10 @@ async function look(eng) {
     else {
       if (pierce) out.inside.piercer++; else { out.inside.other++; if (dietGuild(g) === 'producer') out.inside.otherProducer++; }
       out.inside.depth.push(+((margin + rad - best) / (margin + rad)).toFixed(2));
+      // why the wall let it in: its nearest triangle's cell among its two nearest walls (held off it, a matter of
+      // pressure or the walk's sampling), or not (a third cell's triangle: one keeping both, say), or a wall itself
+      const why = (u[o + 9] & 15) === CYST ? 'cyst' : isJ.has(i) ? "wall" : owner === nA[1] || owner === nB[1] ? 'nearest' : 'third';
+      out.inside.why = out.inside.why || {}; out.inside.why[why] = (out.inside.why[why] || 0) + 1;
     }
   }
   const dp = out.inside.depth.sort((a, b) => a - b);
@@ -128,7 +135,7 @@ try {
       const pc = (a, b) => (b ? Math.round(100 * a / b) : 0);
       console.log(`[${v.seed}] t=${L.t}s living ${L.living}: jelly ${L.jellyCells} cells (${pc(L.jellyCells, L.producers)}% of producers, ${L.jellySpecies} sp, ${L.jellyBodies} bodies)`
         + ` | piercers ${L.piercers} (${pc(L.piercers, L.eaters)}% of eaters, ${L.pierceSpecies} sp), hungry ${L.hungryPiercers}`
-        + ` | crossing a hull: hungry piercers ${L.inside.hungry}, fed piercers ${L.inside.piercer}, others ${L.inside.other} (producers ${L.inside.otherProducer}; ${L.inside.deep} over a quarter in, median ${L.inside.depthMed})`);
+        + ` | crossing a hull: hungry piercers ${L.inside.hungry}, fed piercers ${L.inside.piercer}, others ${L.inside.other} (producers ${L.inside.otherProducer}; ${L.inside.deep} over a quarter in, median ${L.inside.depthMed}; ${JSON.stringify(L.inside.why || {})})`);
       if (v.out) fs.writeFileSync(v.out, JSON.stringify({ n: config.n, k: config.k, seed: config.seed, step: config.step, looks }));
     } },
   });

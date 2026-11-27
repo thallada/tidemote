@@ -67,17 +67,24 @@ only eaters able to pierce it get in.
   tree, no tail's cell, not tissue, not a cyst) is marked a wall (`JELLY_WALL` in `Lite.kr`, and in `Lite.pad`'s
   two lowest bits, `JELLY_PAD`, which `contactMain` reads already). An eater that pierces and is hungry (short of
   `sated` × the energy it divides at, as `senseMain` has it) is marked a piercer (`JELLY_PIERCE`). A plain cell (no wall,
-  not piercing now) beside a wall cell of another species is held off the triangle that wall cell makes with its kept
-  partners of the body (the triangle `vsJellyField` draws its kernel from; `bondsNow` gives them), `sheathHull`
-  (0.15) out from it and its own radius further, unsquashed (no `bodyGive`): its whole body outside the drawn line,
-  which lies 0.67-0.8 of the kernel's reach out from the triangles as one or two kernels overlap. Inside a triangle it
-  is pushed away from its middle, so a fed piercer is squeezed out rather than into the body. A stranger tests the
-  triangles of wall cells within `sheathReach` (0.27, half a long bond) and the hull; nearer cells' triangles cover
-  the rest. (First the wall held strangers `sheathHull` 0.13 from each wall cell's center: discs, with gaps along the
-  bonds between them. A loose body's cells sit a bond apart, so strangers settled in the gaps, well inside the drawn
-  hull, and fed piercers stayed there; seen on a phone, it looked as if every cell were piercing it.) A cell bonded to
-  the wall cell (a mutant bud of its body) is held off its center only, as two walls of different species are,
-  `sheathHull` from each. (Species are told apart by kind alone: a mutant bud of a jelly species is mostly a wall too, and two walls
+  not piercing now) beside wall cells of another species is held off the triangles its two nearest wall cells make
+  with their kept partners of the body (the triangles `vsJellyField` draws its kernels from; `bondsNow` gives them),
+  `sheathEdge` (0.15) out from them and its own radius further, unsquashed (no `bodyGive`): its whole body outside the
+  drawn line, which lies 0.67-0.8 of the kernel's reach out from the triangles as one or two kernels overlap. In a gap
+  between two cells the two nearest are the two whose bond spans it. It is held off the line between those two as
+  well when they are of one body and no farther apart than a bond reaches: the edge of a third cell's triangle that
+  keeps both, which the draw fills (nearly half the strangers still inside were there). Inside a triangle it is pushed
+  away from its middle, so a fed piercer is squeezed out rather than into the body. Only the deepest of these pushes,
+  `sheathPush` (2) times as stiffly as cells push each other (through `pushK` too, so coarse steps take it implicitly):
+  at the softer push, a crowd pressing on a wall squeezed cells a little way in. The walk only notes the two nearest (within
+  `sheathEdge` + `sheathReach`, 0.25, each as one word: distance² in the top 9 bits, index below) and the triangles
+  are tried after it: tried in the walk, the partners' dependent reads held the whole wave beside any wall, and two
+  pairs of words held more registers (each +0.1 ms at 1M cells). (First the wall held strangers `sheathHull` 0.13
+  from each wall cell's center: discs, with gaps along the bonds between them, and none past a large cell's own
+  radius. Strangers settled in the gaps, well inside the drawn hull, and fed piercers stayed there; seen on a phone,
+  it looked as if every cell were piercing it.) A cell bonded to the wall cell (a mutant bud of its body) is held off
+  its center only, and two walls of different species hold each other `sheathHull` from their centers, hull to hull.
+  (Species are told apart by kind alone: a mutant bud of a jelly species is mostly a wall too, and two walls
   hold each other hull to hull, nearer than a jelly body's bonds rest. A signature test there cost the walk a fifth
   of its time on an RTX.) The overlap rules are as before, so strangers bounce off the hull and
   cannot be pushed through it. Two jelly bodies hold each other off hull to hull. A hungry piercer passes, and
