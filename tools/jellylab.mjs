@@ -64,12 +64,24 @@ async function look(eng) {
     if (sheathOf(g) && bonded && (g.adhesion || 0) > K.adhMin && !growPlan(g, K) && !tailCell && tight <= 0.9) { jelly.push(i); spJ.add(kind); }
   }
   out.jellyCells = jelly.length; out.jellySpecies = spJ.size; out.pierceSpecies = spP.size;
+  // its tears (K.tearSpread): cells torn fresh (no wall, a hole drawn, spreading) and dissolved (no jelly drawn)
+  const TORN = 2 ** 30, GONE = 2 ** 31, infoOf = (i) => u[i * PW + 9];
+  out.torn = jelly.filter((i) => (infoOf(i) & TORN) && !(infoOf(i) & GONE)).length;
+  out.gone = jelly.filter((i) => infoOf(i) & GONE).length;
+  const all = jelly.slice();
   // bodies: bonded components of jelly cells of one species
   const root = new Map(), find = (j) => { while (root.get(j) !== j) { root.set(j, root.get(root.get(j))); j = root.get(j); } return j; };
   for (const i of jelly) root.set(i, i);
   for (const i of jelly) for (const m of [iu[i * 4 + 2], iu[i * 4 + 3]]) if (root.has(m) && u[m * PW + 4] === u[i * PW + 4]) root.set(find(i), find(m));
   const roots = new Set(); for (const i of jelly) roots.add(find(i));
   out.jellyBodies = roots.size;
+  // bodies torn somewhere, and bodies whose jelly is all torn
+  const bodyT = new Map();
+  for (const i of all) { const b = find(i), e = bodyT.get(b) || [0, 0]; e[0]++; if (infoOf(i) & TORN) e[1]++; bodyT.set(b, e); }
+  out.tornBodies = [...bodyT.values()].filter(([n, t]) => t > 0 && t < n).length;
+  out.deadBodies = [...bodyT.values()].filter(([n, t]) => t === n).length;
+  // (the walls themselves: the jelly cells still whole)
+  jelly.splice(0, jelly.length, ...all.filter((i) => !(infoOf(i) & TORN)));
   // strangers inside a hull: a cell's body crossing the drawn line, its center nearer a jelly cell's triangle (the cell
   // and its kept partners of the body, as vsJellyField draws it) than that cell's radius, sheathGap and its own radius
   // (the line lies there where two kernels overlap: JELLY_FRAC)
@@ -161,7 +173,7 @@ try {
       const L = await look(eng);
       looks.push(L);
       const pc = (a, b) => (b ? Math.round(100 * a / b) : 0);
-      console.log(`[${v.seed}] t=${L.t}s living ${L.living}: jelly ${L.jellyCells} cells (${pc(L.jellyCells, L.producers)}% of producers, ${L.jellySpecies} sp, ${L.jellyBodies} bodies)`
+      console.log(`[${v.seed}] t=${L.t}s living ${L.living}: jelly ${L.jellyCells} cells (${pc(L.jellyCells, L.producers)}% of producers, ${L.jellySpecies} sp, ${L.jellyBodies} bodies; torn ${L.torn}, dissolved ${L.gone}; bodies torn ${L.tornBodies}, all torn ${L.deadBodies})`
         + ` | piercers ${L.piercers} (${pc(L.piercers, L.eaters)}% of eaters, ${L.pierceSpecies} sp), hungry ${L.hungryPiercers}`
         + ` | crossing a hull: hungry piercers ${L.inside.hungry}, fed piercers ${L.inside.piercer}, others ${L.inside.other} (producers ${L.inside.otherProducer}; ${L.inside.deep} over a quarter in, median ${L.inside.depthMed}; ${JSON.stringify(L.inside.why || {})}) | eaters' speed by a wall ${L.speed.nearMed} (p90 ${L.speed.nearP90}, ${L.speed.near}), anywhere ${L.speed.allMed} (p90 ${L.speed.allP90}) | jelly's gap to its kind ${L.tight.gapMed} (p90 ${L.tight.gapP90}), touching ${L.tight.nearMean}`);
       if (v.out) fs.writeFileSync(v.out, JSON.stringify({ n: config.n, k: config.k, seed: config.seed, step: config.step, looks }));
