@@ -9,14 +9,17 @@ import { viewPrefs } from './lib/prefs.mjs';
 
 export { cliArgs } from './lib/args.mjs';
 
-export async function openPage({ html = 'dist/tidemote.html', k = '{}', n = 262144, w = 1280, h = 800, mature = 120, tmp = 'page-', prefs = {} }) {
+export async function openPage({ html = 'dist/tidemote.html', k = '{}', n = 262144, w = 1280, h = 800, mature = 120, tmp = 'page-', prefs = {}, headless = false }) {
   const file = path.resolve(html);
   const server = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); fs.createReadStream(file).pipe(res); });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   // on Linux without a display (TIDEMOTE_VK=1): Playwright's Chromium, headless, on the GPU through Vulkan (tools/vk.mjs)
   // (the browser's profile, removed on close: on Linux the temporary directory is often memory, kept until deleted)
   const profile = fs.mkdtempSync(path.join(process.env.TEMP || os.tmpdir(), tmp));
-  const ctx = await chromium.launchPersistentContext(profile, { ...launchOptions({ args: windowFlags(w, h) }), viewport: vkOn ? { width: +w, height: +h } : null });
+  // (headless: installed Chrome drawing off any screen, for a machine whose display is off or disconnected, where a shown
+  // window's canvas comes out blank)
+  const hl = !!headless && !vkOn;
+  const ctx = await chromium.launchPersistentContext(profile, { ...launchOptions({ args: [...windowFlags(w, h), ...(process.env.TIDEMOTE_CHROME_ARGS ? process.env.TIDEMOTE_CHROME_ARGS.split(' ') : [])], headless: hl || undefined }), viewport: vkOn || hl ? { width: +w, height: +h } : null });
   const page = ctx.pages()[0];
   if (vkOn) await page.addInitScript(retryAdapter);
   page.setDefaultTimeout(0);

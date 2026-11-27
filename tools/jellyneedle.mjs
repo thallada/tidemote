@@ -68,8 +68,8 @@ if (v.poke) {
     const x0 = pf[b[0] * PW], y0 = pf[b[0] * PW + 1];
     let cx = 0, cy = 0; for (const i of b) { cx += wrap(pf[i * PW] - x0, W); cy += wrap(pf[i * PW + 1] - y0, H); }
     cx = x0 + cx / b.length; cy = y0 + cy / b.length;
-    let R = 0, e = b[0], eb = -Infinity;
-    for (const i of b) { const dx = wrap(pf[i * PW] - cx, W), dy = wrap(pf[i * PW + 1] - cy, H); R = Math.max(R, Math.hypot(dx, dy)); const a = dx * dir[0] + dy * dir[1]; if (a > eb) { eb = a; e = i; } }
+    let R = 0, e = b[0], eb = -Infinity, mid = b[0], md = Infinity;
+    for (const i of b) { const dx = wrap(pf[i * PW] - cx, W), dy = wrap(pf[i * PW + 1] - cy, H); R = Math.max(R, Math.hypot(dx, dy)); if (Math.hypot(dx, dy) < md) { md = Math.hypot(dx, dy); mid = i; } const a = dx * dir[0] + dy * dir[1]; if (a > eb) { eb = a; e = i; } }
     // (how alone it is: other species' living cells within its reach and 0.6 more, for each of its cells)
     let foreign = 0;
     const kind = pu[b[0] * PW + 4], reach = R + 0.6;
@@ -79,11 +79,11 @@ if (v.poke) {
       }
     }
     const alone = foreign / b.length;
-    if (!poke || alone < poke.alone) poke = { n: b.length, alone, x: cx, y: cy, R, ex: cx + wrap(pf[e * PW] - cx, W), ey: cy + wrap(pf[e * PW + 1] - cy, H) };
+    if (!poke || alone < poke.alone) poke = { n: b.length, alone, x: cx, y: cy, R, id: pu[mid * PW + 7], mx: cx + wrap(pf[mid * PW] - cx, W), my: cy + wrap(pf[mid * PW + 1] - cy, H), ex: cx + wrap(pf[e * PW] - cx, W), ey: cy + wrap(pf[e * PW + 1] - cy, H) };
   }
   if (!poke) throw new Error('no middling jelly body without piercers near');
   best = { ...best, x: poke.x, y: poke.y };
-  v.zoom = Math.max(120, Math.min(600, 330 / poke.R));
+  v.zoom = v.pokeZoom ? +v.pokeZoom : Math.max(120, Math.min(600, 330 / poke.R));
   console.log(`poke: a body of ${poke.n} jelly cells, ${poke.R.toFixed(2)} across from its middle, ${poke.alone.toFixed(2)} strangers a cell near, zoom ${v.zoom.toFixed(0)}`);
 }
 console.log(`spot: ${best.j} jelly cells round it, ${best.p} piercers near, at ${best.x.toFixed(1)}, ${best.y.toFixed(1)}`);
@@ -106,12 +106,32 @@ if (v.video) {
   let a = [cxp - 300, cyp - 140], b = [cxp + 260, cyp + 120];
   // (a prick: the needle down on the edge cell, still, for a few frames)
   if (poke) { a = [cxp + (poke.ex - poke.x) * +v.zoom, cyp + (poke.ey - poke.y) * +v.zoom]; b = a; }
+  let follow = poke ? [poke.ex, poke.ey] : null;
   if (!v.piercers) { await page.mouse.move(...a); await page.mouse.down(); }
   for (let f = Math.round(0.5 * fps); f < n; f++) {
     const k = f - Math.round(0.5 * fps);
     if (!v.piercers && k <= strokeN) await page.mouse.move(a[0] + (b[0] - a[0]) * k / strokeN, a[1] + (b[1] - a[1]) * k / strokeN);
     if (!v.piercers && k === strokeN) { await page.mouse.up(); await page.evaluate(() => globalThis.__tidemote.hand.set('none')); await page.mouse.move(5, 5); }
     await step(1 / fps);
+    // (after the prick the camera follows the body, by the cell nearest its middle, as the water carries it)
+    if (poke && k > strokeN) {
+      const now = await page.evaluate(async ([id, at]) => {
+        const res = await globalThis.__tidemote.eng.requestPick(at, 3, 0xffffffff, { maxOut: 20000, raw: true });
+        const { u32, f32, count } = res.raw;
+        // (and how many cells near are torn and pierced, for the log)
+        // (the camera on the pierced cells' middle, where the holes are, else on the body's middle cell)
+        let here = null, torn = 0, pierced = 0, px = 0, py = 0;
+        for (let i = 0; i < count; i++) {
+          if (u32[i * 12 + 7] === id) here = [f32[i * 12], f32[i * 12 + 1]];
+          const info = u32[i * 12 + 9];
+          if (info & (1 << 30)) { torn++; if (info >>> 31) { pierced++; px += f32[i * 12] - at[0]; py += f32[i * 12 + 1] - at[1]; } }
+        }
+        if (pierced) here = [at[0] + px / pierced, at[1] + py / pierced];
+        return here && [...here, torn, pierced];
+      }, [poke.id, follow]);
+      if (now && k % fps === 0) console.log(`t=${(k / fps).toFixed(0)} s: ${now[2]} torn, ${now[3]} pierced within 3`);
+      if (now) { follow = [follow[0] + (now[0] - follow[0]) * 0.2, follow[1] + (now[1] - follow[1]) * 0.2]; await aim(page, follow, +v.zoom); }
+    }
     await page.waitForTimeout(30);
     await page.screenshot({ path: path.join(v.out, `v${String(f).padStart(4, '0')}.png`) });
     if (f % 60 === 0) console.log(`frame ${f}/${n}`);

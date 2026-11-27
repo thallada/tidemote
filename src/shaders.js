@@ -215,7 +215,7 @@ export const DEFAULT_K = {
   tearSpread: 2,    // a hungry piercer at a jelly's hull (or the needle) tears it there, and the tear runs through its body: a fresh tear's
                     // cell tears each of its kind's walls within a bond's reach at this rate a second (0: a piercer passes without tearing).
                     // A torn cell is no wall (any cell passes), its pull gone...
-  tearSpill: 0.1,   // ...for its first 10 s spilling (this of a full overlap's push): where it was pierced on its body's edge, out from its
+  tearSpill: 0.25,  // ...for its first 10 s spilling (this of a full overlap's push): where it was pierced on its body's edge, out from its
                     // kind's middle (a hole within, none); an inner cell after a moving hole of its kind within tearSpillReach, out
                     // through it; the body's edge kept (its hull's shape)...
   tearSpillReach: 0.8,
@@ -1261,8 +1261,8 @@ ${K.tearSpread > 0 ? `      if ((q.kr & JELLY_PIERCE) != 0u && qk != p.kind && r
   // a cell answers its neighbors as a whole, not each one in full: past socialN within reach the pair
   // forces are averaged, so a crowd drives a cell no harder than a neighborhood does
 ${K.tearSpread > 0 ? `  // (a wall's cell only: a jelly torn is no wall)
-  // (or the needle's, at its hull: needleAt)
-  pierced = (sortedLite[i].kr & JELLY_WALL) != 0u && (tear >= 1e4 || needleAt(p.pos, myR + ${f(K.sheathGap)}));
+  // (or the needle's anywhere in its jelly: within a bond's reach of the cell, as the jelly spans its bonds: needleAt)
+  pierced = (sortedLite[i].kr & JELLY_WALL) != 0u && (tear >= 1e4 || needleAt(p.pos, max(myR + ${f(K.sheathGap)}, LINK_R)));
   rend = pierced || ((sortedLite[i].kr & JELLY_WALL) != 0u && tear > 0.0 && rnd(&s) < tear * ${f(K.tearSpread)} * sim.dt);
 ` : ''}  let social = ${f(K.socialN)} / max(${f(K.socialN)}, nIn * stride);
   force *= social; jF *= social;
@@ -3433,6 +3433,9 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
   let spill = (myPad & JELLY_PAD) == JELLY_PAD;
   let myJ = select((myPad & JELLY_PAD) << 16u, 0u, spill);
   let pulls = myJ == JELLY_WALL || spill;
+  // (how far off its kind's cells count toward their middle: a spilling cell looks as far as the spill reaches, its
+  // body's cells loosened)
+  let pullR = select(${f(K.sheathPullReach)}, ${f(K.tearSpillReach)}, spill);
 ${K.sheathPlants < 1 ? '  let myPlant = (sortedLite[i].kr & (1u << 12u)) != 0u;\n' : ''}  let myHull = select(myR, myR + ${f(K.sheathGap)}, myJ == JELLY_WALL);
   // (how far off a wall's cell this cell looks for one: a plain cell, for the two nearest, whose triangles hold it off)
   let wallFar = select(select(select(${f(K.sheathGap)}, ${f(K.sheathPullReach)}, myJ == JELLY_WALL), ${f(K.sheathGap + K.sheathReach)}, myJ == 0u), ${f(K.tearSpillReach)}, spill);
@@ -3536,7 +3539,7 @@ ${K.tearSpread > 0 ? `  // a spilling cell's holes of its kind near it (JELLY_HO
         continue;
       }
       // (jelly's pull, below: its kind's wall cells within sheathPullReach of touching)
-      if (pulls && (qJ & JELLY_WALL) != 0u && !strange && r2 < sqr(myR + qR + ${f(K.sheathPullReach)})) {
+      if (pulls && (qJ & JELLY_WALL) != 0u && !strange && r2 < sqr(myR + qR + pullR)) {
         pullAt += vec3f(d, 1.0);
       }
 ${K.tearSpread > 0 ? `      if (spill && (q.kr & JELLY_HOLE) != 0u && (q.kr & 1023u) == p.kind) { holeAt += vec4f(d, qvel); holeN += 1.0; }
@@ -3584,7 +3587,7 @@ ${K.tearSpread > 0 ? `      if (spill && (q.kr & JELLY_HOLE) != 0u && (q.kr & 10
   // goes (a hole within its body still, none follow it), so the inside streams out behind it; the edge stays.
   if (spill) {
     let mid = select(vec2f(0.0), pullAt.xy / max(pullAt.z, 1.0), pullAt.z > 0.0);
-    let edge = clamp(length(mid) * ${f(2.5 / K.sheathPullReach)} - 0.25, 0.0, 1.0);
+    let edge = clamp(length(mid) * ${f(1 / (0.35 * K.tearSpillReach))} - 0.25, 0.0, 1.0);
 ${K.tearSpread > 0 ? `    if ((sortedLite[i].kr & JELLY_HOLE) != 0u) { push -= dirz(mid) * (${f(K.tearSpill)} * edge); }
     else if (holeN > 0.0) {
       let hv = holeAt.zw / holeN;
@@ -8410,6 +8413,8 @@ fn jellyHoleQuad(p: Particle, i: u32, vi: u32, r: f32) -> JF {
 // where a jelly was pierced (K.tearSpread, JELLY_PIERCED) a hole of TEAR_HOLE times the cell's radius, opening over
 // its first TEAR_WHOLE counts and kept while its jelly withers
 const TEAR_HOLE = 2.4;
+// (and at least this, world units: a small cell's jelly reaches far past it, and a hole its size did not show)
+const TEAR_HOLE_MIN = 0.3;
 // A cell's partners for its kernel: the two it keeps (intent.zw), or for a cell that keeps none, the two of lowest
 // index among those keeping it (bondsIn). The keepers are listed by atomics in whatever order the GPU runs them,
 // different each frame even with the world paused, so taking the first listed made the hull jump between shapes.
@@ -8444,7 +8449,7 @@ fn jellyPartners(i: u32) -> vec2u {
   // a torn jelly's: where it was pierced a hole while it withers; elsewhere its jelly as much as is left (jellyAmp)
   let amp = select(1.0, jellyAmp(p.info), view.bond < 0.0);
   if (view.bond < 0.0 && (p.info & JELLY_PIERCED) != 0u && genOf(p.info) < TEAR_GONE) {
-    return jellyHoleQuad(p, i, vi, TEAR_HOLE * 0.085 * genomes[p.kind].size * min(1.0, f32(genOf(p.info) + 1u) / f32(TEAR_WHOLE)));
+    return jellyHoleQuad(p, i, vi, max(TEAR_HOLE * 0.085 * genomes[p.kind].size, TEAR_HOLE_MIN) * min(1.0, f32(genOf(p.info) + 1u) / f32(TEAR_WHOLE)));
   }
   if (amp <= 0.0) { return o; }
   // (the cells' own positions, not drawnPos: a newborn's bud offset needs the animation records, which this pass's
