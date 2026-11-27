@@ -4,11 +4,11 @@ the gate's diversity and food web against a baseline report (tools/ensemble.mjs)
 the share of producers living in jelly and of grazers able to pierce it (median, 10-90%, and how many worlds it took
 over: past --over), and the bond kinds bodies are drawn with (the effective number of kinds, exp of their entropy, and
 jelly's share among them), where the runs record them.
-  python3 tools/jellysweep.py runs/sweep/* [--baseline runs/gate-main/report.json] [--at 30] [--over 0.8]"""
+  python3 tools/jellysweep.py runs/sweep/* [--baseline runs/sweep/main64/report.json] [--at 30] [--over 0.8]"""
 import json, sys, glob, os, math, subprocess, statistics as st
 
 args = [a for a in sys.argv[1:]]
-opt = {'--baseline': 'runs/gate-main/report.json', '--at': '30', '--over': '0.8'}
+opt = {'--baseline': 'runs/sweep/main64/report.json', '--at': '30', '--over': '0.8'}
 dirs = []
 i = 0
 while i < len(args):
@@ -43,7 +43,7 @@ for d in dirs:
         except Exception: pass
     if not runs: continue
     k = runs[0].get('config', {}).get('k', {})
-    jp, jg, eff, jb = [], [], [], []
+    jp, jg, eff, jb, bs = [], [], [], [], []
     for r in runs:
         s = min(r['samples'], key=lambda x: abs(x['t'] - at))
         j = s.get('jelly') or {}
@@ -52,7 +52,7 @@ for d in dirs:
         b = s.get('bonds')
         if b and sum(b) > 0:
             eff.append(math.exp(-sum(x * math.log(x) for x in b if x > 0)))
-            jb.append(b[7])
+            jb.append(b[7]); bs.append(b)
     c = compare(d)
     rows.append((d, k, len(runs), jp, jg, eff, jb, c))
 
@@ -62,5 +62,8 @@ for d, k, n, jp, jg, eff, jb, c in rows:
     print(f'\n{os.path.basename(d.rstrip("/"))}  {json.dumps(kk)}  ({n} runs)')
     if jp: print(f'  producers in jelly   {st.median(jp):.2f} [{q(jp, .1):.2f}-{q(jp, .9):.2f}]  took over {sum(x > over for x in jp)}/{len(jp)}')
     if jg: print(f'  grazers piercing     {st.median(jg):.2f} [{q(jg, .1):.2f}-{q(jg, .9):.2f}]  took over {sum(x > over for x in jg)}/{len(jg)}')
-    if eff: print(f'  bond kinds           {st.median(eff):.2f} effective [{q(eff, .1):.2f}-{q(eff, .9):.2f}], jelly {st.median(jb):.2f} of bonded')
+    if eff:
+        print(f'  bond kinds           {st.median(eff):.2f} effective [{q(eff, .1):.2f}-{q(eff, .9):.2f}], jelly {st.median(jb):.2f} of bonded'
+              f' (mean {st.mean(jb):.2f}; present past 0.05 in {sum(x > 0.05 for x in jb)}/{len(jb)}, past 0.5 in {sum(x > 0.5 for x in jb)})')
+        print('  mean mix             ' + '  '.join(f'{KINDS[i]} {st.mean(b[i] for b in bs):.2f}' for i in range(8)))
     for m, (a, b, p) in c.items(): print(f'  {m:14} {a:>7} -> {b:<7} p={p}')

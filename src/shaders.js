@@ -211,6 +211,7 @@ export const DEFAULT_K = {
   sheathCap: 0.3,   // ...but no harder than at this share of its margin and radius in (deeper in, it drifts out)
   sheathCost: 0.008, // upkeep of a producer making its jelly (× metab)
   pierceCost: 0.008, // upkeep of an eater able to pierce jelly (× metab)
+  sheathLeak: 0,    // the chance each step that an eater unable to pierce a jelly may still bite its cells in reach (a sheath slows grazers, it does not stop them; 0 compiled out)
   foundJelly: 1,    // the share of founders and sparks with the jelly gene, × theirs (0: none, so it must arise by mutation)
   searchImage: 0.7, // chance a hunter or grazer misses living prey unlike its last catch
   specPow: 2,       // >0: a diet's share d earns d^specPow of a specialist's take; steep: mixing pays little
@@ -976,8 +977,9 @@ ${w ? '' : '    if (sim.hand.more.y > 0.0) { handCut(i, kept, p.pos); }'}
   // food in reach is gathered by hungry cells; in a coarse step also by any that may grow hungry in it
   let seek = hungry || (coarse && eatEff > 0.1 && !th.torpid);
   let seekHunt = canHunt || (seek && (g.dFlesh > DIET_MIN || g.dGlint > DIET_MIN));
-  // a jelly's cells are no food to an eater that cannot pierce it now (JELLY_PIERCE, set as the cells were sorted)
-${scan ? '  let walled = select(JELLY_WALL, 0u, (sortedLite[i].kr & JELLY_PIERCE) != 0u);' : ''}
+  // a jelly's cells are no food to an eater that cannot pierce it now (JELLY_PIERCE, set as the cells were sorted),
+  // but in a share of its steps (K.sheathLeak) it gets a bite of those in reach through the jelly
+${scan ? `  let walled = select(JELLY_WALL, 0u, (sortedLite[i].kr & JELLY_PIERCE) != 0u${K.sheathLeak > 0 ? ` || (pcg(p.id ^ pcg(sim.frame * 2246822519u + sim.seed)) >> 8u) < ${Math.round(Math.min(1, K.sheathLeak) * 16777216)}u` : ''});` : ''}
   var food = NONE; var foodScore = -1e9;
   // a coarse step keeps the four best, for its meals and for claims lost to other eaters
   var fc = vec4u(NONE);
