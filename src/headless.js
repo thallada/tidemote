@@ -29,7 +29,7 @@ export async function runHeadless(device, config, { print, width = 640, height =
     const rng = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
     Math.random = rng; // Archetype initialization also uses Math.random.
     const E = await import('./engine.js');
-    const { genomeSerial, readGenome, dietGuild: guildOfG, sheathOf, pierceOf } = await import('./genome.js');
+    const { genomeSerial, readGenome, dietGuild: guildOfG, sheathOf, pierceOf, bondKindLike } = await import('./genome.js');
     const { communitySample, summarizeRun, packing, spatial } = await import('./ecostats.js');
     const { bodyCensus, morphMix } = await import('./bodies.js');
     let spatialPrev = null, spatialT = 0, latestSpatial = null;
@@ -90,11 +90,20 @@ export async function runHeadless(device, config, { print, width = 640, height =
         a.n += p; if (sheathOf(g) ? (g.adhesion || 0) > eng.K.adhMin : pierceOf(g)) a.share += p;
       }
       for (const a of Object.values(jelly)) { a.share /= a.n || 1; delete a.n; }
+      // the bond kinds bodies are drawn with (bondKindLike, docs/look.md), population-weighted over bonded species: the
+      // share of each of the eight
+      const bonds = new Array(8).fill(0);
+      let bondN = 0;
+      for (const { pop: p, genome: g } of species) {
+        if ((g.adhesion || 0) <= eng.K.adhMin) continue;
+        bonds[bondKindLike(g, g, 0, 0, eng.K)] += p; bondN += p;
+      }
+      for (let k = 0; k < 8; k++) bonds[k] = bondN ? +(bonds[k] / bondN).toFixed(4) : 0;
       latest = { t, silt: pop[0], glint: pop[1], husk: pop[2], stone: pop[3], framboid: pop[4], ...community,
         ambient: eng.ambient, season: eng.season,
         // the pool (docs/catastrophes.md): its water level (the dry share of the floor is 1 - level), rain, the event's phase
         pond: { level: eng.level, rain: eng.rain, sky: eng.sky, frost: eng.frost, phase: climate.phase ?? null },
-        era: climate.name, photoTaxis, jelly,
+        era: climate.name, photoTaxis, jelly, bonds,
         thermal: { tbg: eng.tbg, temp: eng.temp, excursion: eng.excursion, toptMean, toptSD: n ? Math.sqrt(Math.max(0, sq / n - toptMean ** 2)) : null, makerShare: n ? makers / n : 0, tolMean: n ? tol / n : null } };
       if (t - lastSample >= config.sample - 1e-6 || c.frameNo === frames) record(c);
       if (t - lastPrint >= config.print - 1e-6) {

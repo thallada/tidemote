@@ -69,26 +69,36 @@ only eaters able to pierce it get in.
   `sated` × the energy it divides at, as `senseMain` has it) is marked a piercer (`JELLY_PIERCE`). A plain cell (no wall,
   not piercing now) beside wall cells of another species is held off the triangles its two nearest wall cells make
   with their kept partners of the body (the triangles `vsJellyField` draws its kernels from; `bondsNow` gives them),
-  `sheathEdge` (0.15) out from them and its own radius further, unsquashed (no `bodyGive`): its whole body outside the
-  drawn line, which lies 0.67-0.8 of the kernel's reach out from the triangles as one or two kernels overlap. In a gap
-  between two cells the two nearest are the two whose bond spans it. It is held off the line between those two as
-  well when they are of one body and no farther apart than a bond reaches: the edge of a third cell's triangle that
-  keeps both, which the draw fills (nearly half the strangers still inside were there). Inside a triangle it is pushed
-  away from its middle, so a fed piercer is squeezed out rather than into the body. Only the deepest of these pushes,
-  `sheathPush` (2) times as stiffly as cells push each other (through `pushK` too, so coarse steps take it implicitly):
-  at the softer push, a crowd pressing on a wall squeezed cells a little way in. The walk only notes the two nearest (within
-  `sheathEdge` + `sheathReach`, 0.25, each as one word: distance² in the top 9 bits, index below) and the triangles
-  are tried after it: tried in the walk, the partners' dependent reads held the whole wave beside any wall, and two
-  pairs of words held more registers (each +0.1 ms at 1M cells). (First the wall held strangers `sheathHull` 0.13
-  from each wall cell's center: discs, with gaps along the bonds between them, and none past a large cell's own
-  radius. Strangers settled in the gaps, well inside the drawn hull, and fed piercers stayed there; seen on a phone,
-  it looked as if every cell were piercing it.) A cell bonded to the wall cell (a mutant bud of its body) is held off
-  its center only, and two walls of different species hold each other `sheathHull` from their centers, hull to hull.
+  the wall cell's radius and `sheathGap` (0.035) out from them and its own radius further: its whole body outside the
+  drawn line, which lies about that far past the cells' edges (look.md, the jelly envelope). In a gap between two cells
+  the two nearest are the two whose bond spans it. It is held off the line between those two as well when a third
+  cell keeps both (the edge of that cell's triangle, which the draw fills: nearly half the strangers still inside were
+  there; `bondBackMain` lists the keepers, and runs before `contactMain` for it). Inside a triangle it is pushed away
+  from its middle, so a fed piercer comes out rather than going deeper. The deepest of these pushes, with any from the
+  other side against it, so a cell wedged between two walls is held between them (the deepest alone threw it from
+  one to the other each step). The push is `sheathPush` (2) times as stiff as cells push each other (through `pushK`
+  too, so coarse steps take it implicitly; at the softer push a crowd pressing on a wall squeezed cells in) but no
+  stronger than at `sheathCap` (0.3) of the margin in, and its hold only stops the cell closing on the wall, never
+  undoes the overlap: under the contact rule's hold a fed piercer deep in a body was thrown out at several units a
+  second; now it drifts out. The walk only notes the two nearest (within `sheathReach`, 0.25, past the margin, each
+  as one word: distance² in the top 9 bits, index below) and the triangles are tried after it: tried in the walk, the
+  partners' dependent reads held the whole wave beside any wall, and two pairs of words held more registers (each
+  +0.1 ms at 1M cells). (First the wall held strangers 0.13 from each wall cell's center: discs, with gaps along the
+  bonds between them, and none past a large cell's own radius. Strangers settled in the gaps, well inside the drawn
+  hull, and fed piercers stayed there; seen on a phone, it looked as if every cell were piercing it.) A cell bonded to
+  the wall cell (a mutant bud of its body) is held off its center only, and two walls of different species hold each
+  other's cells `sheathGap` past their edges, hull to hull.
   (Species are told apart by kind alone: a mutant bud of a jelly species is mostly a wall too, and two walls
   hold each other hull to hull, nearer than a jelly body's bonds rest. A signature test there cost the walk a fifth
-  of its time on an RTX.) The overlap rules are as before, so strangers bounce off the hull and
-  cannot be pushed through it. Two jelly bodies hold each other off hull to hull. A hungry piercer passes, and
-  once it is fed it is a stranger again, so the wall squeezes it out.
+  of its time on an RTX.) A hungry piercer passes, and once it is fed it is
+  a stranger again, so the wall eases it out.
+- **The jelly's pull** (`contactMain`): a wall cell is pulled toward the middle of its kind's wall cells within
+  `sheathPullReach` (0.25) of touching it, `sheathPull` (0.08 of a full overlap's push) once that middle is
+  `sheathPullReach` off, however many there are: a body's edge is drawn in and its inside hardly at all, so loose
+  sprawls gather into fuller shapes as a contracting gel would, without packing their cells (at 12 min, 3.3-3.6 of its
+  kind within touching of each jelly cell against 2.2-2.5, and the widest gaps closed). A pull toward each neighbor,
+  summed over a crowd, packed bodies into balls of overlapping cells (12-37 within touching). Two bodies of one species
+  that near draw together.
 - **Food**: a wall cell is no food (no target, no appetite pull) to an eater that cannot pierce it now
   (`senseMain`), so grazers turn to producers they can reach rather than pressing on jelly. A piercer inside grazes
   and hunts as anywhere.

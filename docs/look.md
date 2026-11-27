@@ -381,11 +381,13 @@ body (one keeping or kept by a partner whose bond `bondKind` makes jelly) adds a
 to the triangle it makes with its two kept partners (a segment with one; a cell that keeps none takes the two of lowest
 index among those keeping it, `jellyPartners`: the keepers are listed by atomics in a different order every frame, even
 paused, and taking the first listed made such a cell's hull jump between two shapes, a flickering double edge;
-ρ = 0.45 `linkR`), and its gradient into an
+ρ the cell's drawn radius and `sheathGap` over `JELLY_FRAC` 0.78, so the line lies about that far past its cells' edges
+where two kernels overlap, hugging small cells and large alike, as the wall holds strangers off it (docs/ecosystem.md,
+Jelly; a fixed 0.45 `linkR` left small cells in a wide moat)), and its gradient into an
 `rgba16float` target a quarter of the view's size each way, an eighth past 400 px a unit
 (`vsJellyField`/`fsJellyField`, additive; one quad a cell over its triangle, drawn over the living in view like the
 far line; `Engine._jellyField`, a pass of its own ahead of each view's scene pass). A body's triangles fan over all of
-it, so its hull is whole and filled however long its bonds, and lies about 0.45 ρ beyond them; a neighbor sharing no
+it, so its hull is whole and filled however long its bonds, and lies 0.67-0.9 ρ beyond them (one kernel to many); a neighbor sharing no
 bond adds only its own falloff between them, so bodies a little apart keep hulls of their own. Where two falloffs
 barely meet the field is flat, and there the level is raised (`JELLY_NECK`), so the thin necks between neighbors open.
 Tried first: a disc about each cell (radius 0.8 `linkR`, then 0.85 of its longest kept bond): bodies' cells sit as far
