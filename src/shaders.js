@@ -205,6 +205,8 @@ export const DEFAULT_K = {
   sheath: 1,        // a sheathed producer's body (its jelly, docs/ecosystem.md, Jelly) is a wall to strangers' cells: 0 drawn only
   sheathGap: 0.035, // ...its hull this far past its cells' edges (drawn, JELLY_FRAC; held, a plain stranger off the triangles its two nearest jelly cells make with their kept partners, two bodies of different species off each other's cells)
   sheathReach: 0.25, // ...those two sought within this past it (about a bond: in a gap the two whose bond spans it)
+  sheathPull: 0.08, // ...and its jelly draws its cells together: each pulled toward the middle of its kind's wall cells near it, this (of a full overlap's push) at most...
+  sheathPullReach: 0.25, // ...those within this of touching it, the pull full once their middle is this far off
   sheathPush: 2,    // ...and pushed out sheathPush times as stiffly as cells push each other...
   sheathCap: 0.3,   // ...but no harder than at this share of its margin and radius in (deeper in, it drifts out)
   sheathCost: 0.008, // upkeep of a producer making its jelly (× metab)
@@ -3367,11 +3369,13 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
   let myJ = (myPad & JELLY_PAD) << 16u;
   let myHull = select(myR, myR + ${f(K.sheathGap)}, myJ == JELLY_WALL);
   // (how far off a wall's cell this cell looks for one: a plain cell, for the two nearest, whose triangles hold it off)
-  let wallFar = select(${f(K.sheathGap)}, ${f(K.sheathGap + K.sheathReach)}, myJ == 0u);
+  let wallFar = select(select(${f(K.sheathGap)}, ${f(K.sheathPullReach)}, myJ == JELLY_WALL), ${f(K.sheathGap + K.sheathReach)}, myJ == 0u);
   // the two nearest wall cells of another species to a plain cell, tried after the walk: each one word, its distance²
   // in thousandths in the top 9 bits and its sorted index in the 23 below (8M cells), so the nearer is the smaller
   var wallA = NONE;
   var wallB = NONE;
+  // a wall cell's kind's wall cells near it: their offsets summed and their number
+  var pullAt = vec3f(0.0);
   let gw = i32(sim.grid.x);
   let gh = i32(sim.grid.y);
   let world = sim.world;
@@ -3461,6 +3465,10 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
         wallA = min(wallA, w);
         continue;
       }
+      // (jelly's pull, below: its kind's wall cells within sheathPullReach of touching)
+      if (myJ == JELLY_WALL && qJ == JELLY_WALL && !strange && r2 < sqr(myR + qR + ${f(K.sheathPullReach)})) {
+        pullAt += vec3f(d, 1.0);
+      }
       if (r2 >= ${f(K.crowdVisc > 0 ? 1.5625 : 1)} * touchQ * touchQ) { continue; }
       let r = sqrt(r2);
       let n = d / r;
@@ -3494,6 +3502,15 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
   // the wall, so a cell inside drifts out. A cell bonded to that one (a mutant bud of its body) is held off its center
   // only. (Tried after the walk, the two found by a word each: tried in the walk, the partners' dependent reads held
   // the whole wave beside any wall, and kept as two pairs of words the walk held more registers.)
+  // Jelly draws its cells together, as a gel contracting: a wall's cell is pulled toward the middle of its kind's wall
+  // cells near it, sheathPull (of a full overlap's push) as that middle is sheathPullReach off, however many there
+  // are. A cell on a body's edge is drawn in, one within it hardly at all, so a loose body's sprawl gathers into a
+  // fuller shape without its cells pressed together (pulled toward each, the crowd's pulls summed and packed them).
+  // (Any of its kind's walls: two bodies of one species that near draw together.)
+  if (pullAt.z > 0.0) {
+    let mid = pullAt.xy / pullAt.z;
+    push += mid * (${f(K.sheathPull / K.sheathPullReach)} * min(1.0, ${f(K.sheathPullReach)} / max(length(mid), 1e-6)));
+  }
   if (wallA != NONE) {
     // (the deepest push, n × over, and the sum of those against it)
     var top = vec3f(0.0);

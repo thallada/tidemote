@@ -85,6 +85,21 @@ async function look(eng) {
     return Math.sqrt(Math.min(segD2(ax, ay, bx, by), segD2(bx, by, cx, cy), segD2(cx, cy, ax, ay)));
   };
   out.inside.depth = [];
+  // how tight its bodies are: each jelly cell's gap to its nearest jelly cell of its kind (between their edges), and
+  // how many of its kind's jelly cells are within 0.05 of touching it
+  const gaps = [], near = [];
+  for (const i of jelly) {
+    const o = i * PW, x = f[o], y = f[o + 1], kind = u[o + 4], ri = radOf(kind, o);
+    const cx = Math.floor(x / cell), cy = Math.floor(y / cell);
+    let g = Infinity, n = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) for (const j of grid.get(((cx + dx + gx) % gx) + gx * ((cy + dy + gy) % gy)) || []) {
+      if (j === i || u[j * PW + 4] !== kind) continue;
+      const e = Math.hypot(wr(f[j * PW] - x, W), wr(f[j * PW + 1] - y, H)) - ri - radOf(kind, j * PW);
+      g = Math.min(g, e); if (e < 0.05) n++;
+    }
+    if (g < Infinity) gaps.push(g);
+    near.push(n);
+  }
   const speeds = { all: [], near: [] };
   for (const i of living) {
     const o = i * PW, x = f[o], y = f[o + 1], kind = u[o + 4];
@@ -133,6 +148,7 @@ async function look(eng) {
   out.inside.deep = dp.filter((d) => d > 0.25).length;
   delete out.inside.depth;
   const qs = (a, q) => { a.sort((x, y) => x - y); return a.length ? +a[Math.min(a.length - 1, Math.floor(q * a.length))].toFixed(3) : 0; };
+  out.tight = { gapMed: qs(gaps, 0.5), gapP90: qs(gaps, 0.9), nearMean: near.length ? +(near.reduce((a, b) => a + b, 0) / near.length).toFixed(2) : 0 };
   out.speed = { near: speeds.near.length, nearMed: qs(speeds.near, 0.5), nearP90: qs(speeds.near, 0.9), allMed: qs(speeds.all, 0.5), allP90: qs(speeds.all, 0.9) };
   return out;
 }
@@ -147,7 +163,7 @@ try {
       const pc = (a, b) => (b ? Math.round(100 * a / b) : 0);
       console.log(`[${v.seed}] t=${L.t}s living ${L.living}: jelly ${L.jellyCells} cells (${pc(L.jellyCells, L.producers)}% of producers, ${L.jellySpecies} sp, ${L.jellyBodies} bodies)`
         + ` | piercers ${L.piercers} (${pc(L.piercers, L.eaters)}% of eaters, ${L.pierceSpecies} sp), hungry ${L.hungryPiercers}`
-        + ` | crossing a hull: hungry piercers ${L.inside.hungry}, fed piercers ${L.inside.piercer}, others ${L.inside.other} (producers ${L.inside.otherProducer}; ${L.inside.deep} over a quarter in, median ${L.inside.depthMed}; ${JSON.stringify(L.inside.why || {})}) | eaters' speed by a wall ${L.speed.nearMed} (p90 ${L.speed.nearP90}, ${L.speed.near}), anywhere ${L.speed.allMed} (p90 ${L.speed.allP90})`);
+        + ` | crossing a hull: hungry piercers ${L.inside.hungry}, fed piercers ${L.inside.piercer}, others ${L.inside.other} (producers ${L.inside.otherProducer}; ${L.inside.deep} over a quarter in, median ${L.inside.depthMed}; ${JSON.stringify(L.inside.why || {})}) | eaters' speed by a wall ${L.speed.nearMed} (p90 ${L.speed.nearP90}, ${L.speed.near}), anywhere ${L.speed.allMed} (p90 ${L.speed.allP90}) | jelly's gap to its kind ${L.tight.gapMed} (p90 ${L.tight.gapP90}), touching ${L.tight.nearMean}`);
       if (v.out) fs.writeFileSync(v.out, JSON.stringify({ n: config.n, k: config.k, seed: config.seed, step: config.step, looks }));
     } },
   });
