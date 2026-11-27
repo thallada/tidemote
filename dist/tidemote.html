@@ -3629,7 +3629,8 @@ ${K2.tearSpread > 0 ? `      if ((q.kr & JELLY_PIERCE) != 0u && qk != p.kind && 
   // a cell answers its neighbors as a whole, not each one in full: past socialN within reach the pair
   // forces are averaged, so a crowd drives a cell no harder than a neighborhood does
 ${K2.tearSpread > 0 ? `  // (a wall's cell only: a jelly torn is no wall)
-  rend = tear > 0.0 && (sortedLite[i].kr & JELLY_WALL) != 0u && rnd(&s) < tear * ${f(K2.tearSpread)} * sim.dt;
+  // (or the needle's, at its hull: needleAt)
+  rend = (sortedLite[i].kr & JELLY_WALL) != 0u && ((tear > 0.0 && rnd(&s) < tear * ${f(K2.tearSpread)} * sim.dt) || needleAt(p.pos, myR + ${f(K2.sheathGap)}));
 ` : ""}  let social = ${f(K2.socialN)} / max(${f(K2.socialN)}, nIn * stride);
   force *= social; jF *= social;
   crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride; plantN *= stride; animN *= stride;
@@ -4320,6 +4321,19 @@ fn wakeFlow(p: vec2f) -> vec2f {
 // How far the needle and Touch's rod in the water push a cell or a grain at p aside, out of their way: each moved
 // from where it was when the world last stepped to where it is, it sweeps what lies between, so a fast stroke
 // carries along what it passes rather than leaping over it. Nothing in a headless run, where both are out.
+// Whether the needle's shaft lies within margin of p (its push's breadth and more, to the point) or its stroke since the
+// world last stepped crossed p: a jelly it passes through or presses on tears there, as a piercer's does (K.tearSpread)
+fn needleAt(p: vec2f, margin: f32) -> bool {
+  if (IDLE_HAND) { return false; }
+  if (cutAt(p)) { return true; }
+  let nd = sim.hand.needle;
+  let L = length(nd.zw);
+  if (L <= 0.0) { return false; }
+  let ax = nd.zw / L;
+  let a = handD(p, nd.xy);
+  let s = clamp(dot(a, ax), 0.0, L);
+  return dot(a, ax) <= L && length(a - ax * s) < needleW(s) + margin;
+}
 fn handPush(p: vec2f) -> vec2f { if (IDLE_HAND) { return vec2f(0.0); } return needlePush(p) + rodPush(p); }
 // The needle: its shaft, tapering to its point, a cell's breadth wider than the steel as the cells see it. What
 // lies within it is pushed out the near way; what the shaft crossed since the last step (on one side of it then,
@@ -41477,9 +41491,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "256308cd08f3e4a7") return;
+      if (localStorage.getItem(key) === "ef34526bcc72ce8b") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "256308cd08f3e4a7");
+      if (res) localStorage.setItem(key, "ef34526bcc72ce8b");
     } catch {
     }
   }
