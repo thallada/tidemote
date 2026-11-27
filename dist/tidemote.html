@@ -2471,8 +2471,11 @@ fn swaySlot2(id: u32, n: u32) -> u32 {
     // a hungry piercer at a jelly's hull (or the needle) tears it there, and the tear runs through its body: a fresh tear's
     // cell tears each of its kind's walls within a bond's reach at this rate a second (0: a piercer passes without tearing).
     // A torn cell is no wall (any cell passes), its pull gone...
-    tearSpill: 1.5,
-    // ...for its first 10 s pushed out from its kind's middle as hard as the pull drew it in, times this (its body spills)...
+    tearSpill: 0.1,
+    // ...for its first 10 s spilling (this of a full overlap's push): where it was pierced on its body's edge, out from its
+    // kind's middle (a hole within, none); an inner cell after a moving hole of its kind within tearSpillReach, out
+    // through it; the body's edge kept (its hull's shape)...
+    tearSpillReach: 0.8,
     tearFade: 30,
     // ...its jelly withering away over this many seconds (drawn: the hull thinning to nothing; DEFAULT_K's)...
     tearHeal: 60,
@@ -4101,8 +4104,9 @@ const LIVE_BIT = 0x80000000u;
 const JELLY_WALL = 1u << 16u;
 const JELLY_PIERCE = 1u << 17u;
 // (and a jelly body's cell torn fresh, its tear spreading and its cells spilling: its clock short of TEAR_SPILL; in
-// pad's two lowest bits both, 3)
+// pad's two lowest bits both, 3; and one of them pierced, a hole its body spills out of)
 const JELLY_RENT = 1u << 18u;
+const JELLY_HOLE = 1u << 19u;
 // the same two in Lite.pad's lowest bits (JELLY_WALL >> 16, JELLY_PIERCE >> 16)
 const JELLY_PAD = 3u;
 // Intent: x bits 0..1 action (0 none, 1 eat, 2 birth, 3 bite),
@@ -5180,14 +5184,14 @@ fn scatterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocat
       if (photo > 0.55 && bonded && adh > ${f(K2.adhMin)} && g.dev.x < 0x80000000u && tailBit == 0u
           && (adh - ${f(K2.tightFrom)}) / ${f(K2.tightSpan)} <= 0.9) {
         // (a torn cell no wall: a fresh tear marked, to spread)
-        jelly = select(select(0u, JELLY_RENT, genOf(p.info) < TEAR_SPILL), JELLY_WALL, (p.info & JELLY_TORN) == 0u);
+        jelly = select(select(0u, JELLY_RENT | select(0u, JELLY_HOLE, (p.info & JELLY_PIERCED) != 0u), genOf(p.info) < TEAR_SPILL), JELLY_WALL, (p.info & JELLY_TORN) == 0u);
       }
       // (hungry as senseMain has it, short of sated × the energy it divides at: so it seeks food it can reach)
       if (photo <= 0.4 && p.energy < (g.reproE + ${bodyOf(K2, "g")} + max(0.0, ${f(K2.provision)} * g.metab / g.share - g.reproE)) * ${f(K2.sated)}) { jelly = JELLY_PIERCE; }
     }
     // (and in pad's two lowest bits, the radius barely changed, which contactMain reads already: JELLY_PAD)
     sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant | hunter | tailBit | jelly | select(0u, 1u << 13u, cyst), p.col, pack2x16float(p.vel), sig.x, sig.y,
-      (bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role))) & ~JELLY_PAD) | select((jelly >> 16u) & JELLY_PAD, JELLY_PAD, jelly == JELLY_RENT));
+      (bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role))) & ~JELLY_PAD) | select((jelly >> 16u) & JELLY_PAD, JELLY_PAD, (jelly & JELLY_RENT) != 0u));
     if (p.kind >= FIRST_LIFE) { slot = atomicAdd(&wgCount, 1u); }
   }
   workgroupBarrier();
@@ -5821,14 +5825,17 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
   let pulls = myJ == JELLY_WALL || spill;
 ${K2.sheathPlants < 1 ? "  let myPlant = (sortedLite[i].kr & (1u << 12u)) != 0u;\n" : ""}  let myHull = select(myR, myR + ${f(K2.sheathGap)}, myJ == JELLY_WALL);
   // (how far off a wall's cell this cell looks for one: a plain cell, for the two nearest, whose triangles hold it off)
-  let wallFar = select(select(${f(K2.sheathGap)}, ${f(K2.sheathPullReach)}, myJ == JELLY_WALL), ${f(K2.sheathGap + K2.sheathReach)}, myJ == 0u);
+  let wallFar = select(select(select(${f(K2.sheathGap)}, ${f(K2.sheathPullReach)}, myJ == JELLY_WALL), ${f(K2.sheathGap + K2.sheathReach)}, myJ == 0u), ${f(K2.tearSpillReach)}, spill);
   // the two nearest wall cells of another species to a plain cell, tried after the walk: each one word, its distance²
   // in thousandths in the top 9 bits and its sorted index in the 23 below (8M cells), so the nearer is the smaller
   var wallA = NONE;
   var wallB = NONE;
   // a wall cell's kind's wall cells near it: their offsets summed and their number
   var pullAt = vec3f(0.0);
-  let gw = i32(sim.grid.x);
+${K2.tearSpread > 0 ? `  // a spilling cell's holes of its kind near it (JELLY_HOLE): their offsets and velocities summed, and their number
+  var holeAt = vec4f(0.0);
+  var holeN = 0.0;
+` : ""}  let gw = i32(sim.grid.x);
   let gh = i32(sim.grid.y);
   let world = sim.world;
   let cc = clamp(vec2i(floor(p.pos)), vec2i(0), vec2i(gw - 1, gh - 1));
@@ -5901,7 +5908,8 @@ ${K2.sheathPlants < 1 ? "  let myPlant = (sortedLite[i].kr & (1u << 12u)) != 0u;
       let qR = bitcast<f32>(q.pad);
       // (first against the farthest a jelly could hold it, its hull only if it is a wall's cell, so the walk's many cells
       // out of reach cost hardly more than before; for a plain cell, as far as it looks for the nearest walls)
-      let far = myHull + qR + select(0.0, wallFar, (q.pad & JELLY_PAD) == 1u);
+      // (a wall's cell or a spilling one: JELLY_PAD 1 or 3)
+      let far = myHull + qR + select(0.0, wallFar, (q.pad & 1u) != 0u);
       if (r2 >= ${f(K2.crowdVisc > 0 ? 1.5625 : 1)} * far * far || r2 < 1e-12) { continue; }
       // a jelly between cells of two species: each wall not pierced from the other side holds the other off at its
       // hull (a mutant bud of a jelly species is mostly a wall too, held hull to hull, nearer than their bonds rest;
@@ -5921,7 +5929,8 @@ ${K2.sheathPlants < 1 ? "  let myPlant = (sortedLite[i].kr & (1u << 12u)) != 0u;
       if (pulls && (qJ & JELLY_WALL) != 0u && !strange && r2 < sqr(myR + qR + ${f(K2.sheathPullReach)})) {
         pullAt += vec3f(d, 1.0);
       }
-      if (r2 >= ${f(K2.crowdVisc > 0 ? 1.5625 : 1)} * touchQ * touchQ) { continue; }
+${K2.tearSpread > 0 ? `      if (spill && (q.kr & JELLY_HOLE) != 0u && (q.kr & 1023u) == p.kind) { holeAt += vec4f(d, qvel); holeN += 1.0; }
+` : ""}      if (r2 >= ${f(K2.crowdVisc > 0 ? 1.5625 : 1)} * touchQ * touchQ) { continue; }
       let r = sqrt(r2);
       let n = d / r;
       let touch = ${f(K2.bodyGive)} * touchQ;
@@ -5959,9 +5968,21 @@ ${K2.sheathPlants < 1 ? "  let myPlant = (sortedLite[i].kr & (1u << 12u)) != 0u;
   // are. A cell on a body's edge is drawn in, one within it hardly at all, so a loose body's sprawl gathers into a
   // fuller shape without its cells pressed together (pulled toward each, the crowd's pulls summed and packed them).
   // (Any of its kind's walls: two bodies of one species that near draw together.)
-  if (pullAt.z > 0.0) {
+  // A fresh tear's cell spills instead of drawing in. How far its kind's middle near it is off (edge: 0 within its body,
+  // 1 on its edge) says where it is. Where it was pierced on the edge it goes out from that middle, leading; an inner
+  // cell goes after a hole of its kind near it as it moves, to where the hole will be in a second, as fast as the hole
+  // goes (a hole within its body still, none follow it), so the inside streams out behind it; the edge stays.
+  if (spill) {
+    let mid = select(vec2f(0.0), pullAt.xy / max(pullAt.z, 1.0), pullAt.z > 0.0);
+    let edge = clamp(length(mid) * ${f(2.5 / K2.sheathPullReach)} - 0.25, 0.0, 1.0);
+${K2.tearSpread > 0 ? `    if ((sortedLite[i].kr & JELLY_HOLE) != 0u) { push -= dirz(mid) * (${f(K2.tearSpill)} * edge); }
+    else if (holeN > 0.0) {
+      let hv = holeAt.zw / holeN;
+      push += dirz(holeAt.xy / holeN + hv) * (${f(K2.tearSpill)} * (1.0 - edge) * min(1.0, length(hv) * 10.0));
+    }
+` : ""}  } else if (pullAt.z > 0.0) {
     let mid = pullAt.xy / pullAt.z;
-    push += mid * (${f(K2.sheathPull / K2.sheathPullReach)} * min(1.0, ${f(K2.sheathPullReach)} / max(length(mid), 1e-6)) * select(1.0, ${f(-K2.tearSpill)}, spill));
+    push += mid * (${f(K2.sheathPull / K2.sheathPullReach)} * min(1.0, ${f(K2.sheathPullReach)} / max(length(mid), 1e-6)));
   }
   if (wallA != NONE) {
     // (the deepest push, n × over, and the sum of those against it)
@@ -41529,9 +41550,9 @@ onmessage = async ({ data: { id, src, outs, bitmap } }) => {
     const key = "tidemote.shaders";
     try {
       if (globalThis.tidemoteDesktop || !/^https?:$/.test(location.protocol) || false) return;
-      if (localStorage.getItem(key) === "ee1ca60ea6251897") return;
+      if (localStorage.getItem(key) === "c730c2da3838452c") return;
       const res = await Promise.race([fetch("fresh-shaders.txt", { cache: "no-store" }), new Promise((r) => setTimeout(r, 2e3))]);
-      if (res) localStorage.setItem(key, "ee1ca60ea6251897");
+      if (res) localStorage.setItem(key, "c730c2da3838452c");
     } catch {
     }
   }
