@@ -212,9 +212,12 @@ export const DEFAULT_K = {
   sheathCost: 0.008, // upkeep of a producer making its jelly (× metab)
   pierceCost: 0.008, // upkeep of an eater able to pierce jelly (× metab)
   sheathLeak: 0,    // the chance each step that an eater unable to pierce a jelly may still bite its cells in reach (a sheath slows grazers, it does not stop them; 0 compiled out)
-  tearSpread: 0.08, // a hungry piercer at a jelly's hull tears it there (the cell's wall and pull gone, drawn a hole), and a fresh tear spreads
-                    // to the jelly of its kind within a bond's reach at this rate a second each (0: a piercer passes without tearing)...
-  tearFade: 0.15,   // ...till the torn cell's jelly dissolves into the water at this rate a second (spreading no further; drawn: none)
+  tearSpread: 2,    // a hungry piercer at a jelly's hull (or the needle) tears it there, and the tear runs through its body: a fresh tear's
+                    // cell tears each of its kind's walls within a bond's reach at this rate a second (0: a piercer passes without tearing).
+                    // A torn cell is no wall (any cell passes), its pull gone...
+  tearSpill: 1.5,   // ...for its first 10 s pushed out from its kind's middle as hard as the pull drew it in, times this (its body spills)...
+  tearFade: 30,     // ...its jelly withering away over this many seconds (drawn: the hull thinning to nothing; DEFAULT_K's)...
+  tearHeal: 60,     // ...till, this many seconds torn and bonded to its kind, it grows jelly again (over 10 s, then a wall; at most 117)
   sheathPlants: 1,  // a jelly holds off other producers' cells too (0: only animals', the producers of two species pass as plain cells)
   foundJelly: 1,    // the share of founders and sparks with the jelly gene, × theirs (0: none, so it must arise by mutation)
   searchImage: 0.7, // chance a hunter or grazer misses living prey unlike its last catch
@@ -619,9 +622,25 @@ struct Genome {
 
 fn roleOf(info: u32) -> u32 { return (info >> 4u) & 3u; }
 // A jelly's tear (K.tearSpread): in a jelly body's cell (no tree's, no tail's, so never the branch order these bits
-// hold there), torn (no wall to strangers, its jelly a hole) and then dissolved (its jelly gone); a daughter starts whole
+// hold there), torn (no wall to strangers), and where it was pierced (a piercer's or the needle's, drawn a hole); while
+// torn its generation's bits are its clock (JELLY_CLOCK counts a second: since the tear), a daughter's going on from her
+// mother's, torn with her
 const JELLY_TORN = 1u << 30u;
-const JELLY_GONE = 1u << 31u;
+const JELLY_PIERCED = 1u << 31u;
+const JELLY_CLOCK = 2.0;
+// the clock's marks, in its counts: spilling (JELLY_RENT) till; the jelly drawn whole till, then withering till;
+// growing again from, whole (a wall) at
+const TEAR_SPILL = 20u;
+const TEAR_WHOLE = 4u;
+const TEAR_GONE = ${Math.round(4 + 2 * DEFAULT_K.tearFade)}u;
+const TEAR_HEAL = ${Math.min(234, Math.round(2 * DEFAULT_K.tearHeal))}u;
+const TEAR_HEALED = ${Math.min(254, Math.round(2 * DEFAULT_K.tearHeal) + 20)}u;
+// how much of a jelly cell's jelly is drawn (1 whole, 0 none) by its info word: as it withers and grows again
+fn jellyAmp(info: u32) -> f32 {
+  if ((info & JELLY_TORN) == 0u) { return 1.0; }
+  let t = f32(genOf(info));
+  return select(1.0 - smoothstep(f32(TEAR_WHOLE), f32(TEAR_GONE), t), smoothstep(f32(TEAR_HEAL), f32(TEAR_HEALED), t), t >= f32(TEAR_HEAL));
+}
 // One gene (tail.w, 0..1, a habit expressed from 0.5) read by diet: a producer's jelly, the matrix its body lives in, a
 // wall its own kind and kin pass and strangers do not (K.sheath); an eater's means of piercing a jelly (a perforating
 // amoeba's, a rotifer's), so it may burst in to graze or hunt within while it is hungry (docs/ecosystem.md, Jelly)
@@ -923,8 +942,9 @@ function cellWGSL(K, w, part = 'all') {
   var n1 = NONE; var n2 = NONE;
   // (K.diag: kept bonds to its own kind let go for their length)
   var torn = 0u;
-  // its jelly torn this step (K.tearSpread)
+  // its jelly torn this step (K.tearSpread), and whether here (by a piercer or the needle) rather than by its body's tear
   var rend = false;
+  var pierced = false;
 `;
   // the bonds it keeps: found by the scan's kernel; lifeMain takes them (and those the scan took up) from sense[]
   const bonds = scan ? /* wgsl */ `  if (bonding) {
@@ -1239,11 +1259,12 @@ ${K.tearSpread > 0 ? `      if ((q.kr & JELLY_PIERCE) != 0u && qk != p.kind && r
   // forces are averaged, so a crowd drives a cell no harder than a neighborhood does
 ${K.tearSpread > 0 ? `  // (a wall's cell only: a jelly torn is no wall)
   // (or the needle's, at its hull: needleAt)
-  rend = (sortedLite[i].kr & JELLY_WALL) != 0u && ((tear > 0.0 && rnd(&s) < tear * ${f(K.tearSpread)} * sim.dt) || needleAt(p.pos, myR + ${f(K.sheathGap)}));
+  pierced = (sortedLite[i].kr & JELLY_WALL) != 0u && (tear >= 1e4 || needleAt(p.pos, myR + ${f(K.sheathGap)}));
+  rend = pierced || ((sortedLite[i].kr & JELLY_WALL) != 0u && tear > 0.0 && rnd(&s) < tear * ${f(K.tearSpread)} * sim.dt);
 ` : ''}  let social = ${f(K.socialN)} / max(${f(K.socialN)}, nIn * stride);
   force *= social; jF *= social;
   crowd *= stride; pack *= stride; nutr *= stride; kinVel *= stride; kinN *= stride; stoneF *= stride; stoneN *= stride; plantN *= stride; animN *= stride;
-` : /* wgsl */ `  budTurn = (sf >> 5u) & 3u; budBlocked = (sf & 4u) != 0u; tailNear = (sf & 8u) != 0u; hasKid = (sf & 16u) != 0u; threat = (sf & 512u) != 0u; rend = (sf & 1024u) != 0u;
+` : /* wgsl */ `  budTurn = (sf >> 5u) & 3u; budBlocked = (sf & 4u) != 0u; tailNear = (sf & 8u) != 0u; hasKid = (sf & 16u) != 0u; threat = (sf & 512u) != 0u; rend = (sf & 1024u) != 0u; pierced = (sf & 2048u) != 0u;
   // (the rest is read where used: SENSE)
   let stride = 1.0;
   if (DIAG) { crowd = sGet(so + 34u); overlap = sGet(so + 35u); deepOther = sGet(so + 36u); preyNear = sGet2(so + 37u); }
@@ -1254,7 +1275,7 @@ ${K.tearSpread > 0 ? `  // (a wall's cell only: a jelly torn is no wall)
   sPut(so + 7u, crowdP); sPut(so + 8u, nutr); sPut(so + 9u, pack); sPut(so + 10u, stoneN); sPut(so + 11u, plantN); sPut(so + 12u, animN);
   sense[so + 13u] = pack4x8unorm(vec4f(csum / max(wsum, 1e-9), select(0.0, 1.0, wsum > 0.0)));
   sense[so + 14u] = n1; sense[so + 15u] = n2; sense[so + 16u] = food; sense[so + 17u] = silt;
-  sense[so + 18u] = select(0u, 1u, keep1) | select(0u, 2u, keep2) | select(0u, 4u, budBlocked) | select(0u, 8u, tailNear) | select(0u, 16u, hasKid) | (budTurn << 5u) | (min(torn, 3u) << 7u) | select(0u, 512u, threat) | select(0u, 1024u, rend);
+  sense[so + 18u] = select(0u, 1u, keep1) | select(0u, 2u, keep2) | select(0u, 4u, budBlocked) | select(0u, 8u, tailNear) | select(0u, 16u, hasKid) | (budTurn << 5u) | (min(torn, 3u) << 7u) | select(0u, 512u, threat) | select(0u, 1024u, rend) | select(0u, 2048u, pierced);
   if (coarse) {
     sPut2(so + 19u, jF.xy * stride); sPut(so + 21u, jF.z * stride); sPut2(so + 22u, jS.xy * stride); sPut(so + 24u, jS.z * stride);
     sPut2(so + 25u, vN); sPut(so + 27u, wN); sPut(so + 28u, wN2);
@@ -1689,7 +1710,8 @@ const LIVE_BIT = 0x80000000u;
 // Lite.kr: a jelly body's cell, a wall to strangers' (K.sheath), and a hungry eater that pierces jelly
 const JELLY_WALL = 1u << 16u;
 const JELLY_PIERCE = 1u << 17u;
-// (and a jelly body's cell torn fresh, its tear spreading: JELLY_TORN but not JELLY_GONE)
+// (and a jelly body's cell torn fresh, its tear spreading and its cells spilling: its clock short of TEAR_SPILL; in
+// pad's two lowest bits both, 3)
 const JELLY_RENT = 1u << 18u;
 // the same two in Lite.pad's lowest bits (JELLY_WALL >> 16, JELLY_PIERCE >> 16)
 const JELLY_PAD = 3u;
@@ -2768,14 +2790,14 @@ fn scatterMain(@builtin(global_invocation_id) gid: vec3u, @builtin(local_invocat
       if (photo > 0.55 && bonded && adh > ${f(K.adhMin)} && g.dev.x < 0x80000000u && tailBit == 0u
           && (adh - ${f(K.tightFrom)}) / ${f(K.tightSpan)} <= 0.9) {
         // (a torn cell no wall: a fresh tear marked, to spread)
-        jelly = select(select(0u, JELLY_RENT, (p.info & JELLY_GONE) == 0u), JELLY_WALL, (p.info & JELLY_TORN) == 0u);
+        jelly = select(select(0u, JELLY_RENT, genOf(p.info) < TEAR_SPILL), JELLY_WALL, (p.info & JELLY_TORN) == 0u);
       }
       // (hungry as senseMain has it, short of sated × the energy it divides at: so it seeks food it can reach)
       if (photo <= 0.4 && p.energy < (g.reproE + ${bodyOf(K, 'g')} + max(0.0, ${f(K.provision)} * g.metab / g.share - g.reproE)) * ${f(K.sated)}) { jelly = JELLY_PIERCE; }
     }
     // (and in pad's two lowest bits, the radius barely changed, which contactMain reads already: JELLY_PAD)
     sortedLite[dst] = Lite(p.pos, p.kind | (role << 10u) | plant | hunter | tailBit | jelly | select(0u, 1u << 13u, cyst), p.col, pack2x16float(p.vel), sig.x, sig.y,
-      (bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role))) & ~JELLY_PAD) | ((jelly >> 16u) & JELLY_PAD));
+      (bitcast<u32>(0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(role))) & ~JELLY_PAD) | select((jelly >> 16u) & JELLY_PAD, JELLY_PAD, jelly == JELLY_RENT));
     if (p.kind >= FIRST_LIFE) { slot = atomicAdd(&wgCount, 1u); }
   }
   workgroupBarrier();
@@ -3403,7 +3425,10 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
   // a jelly body's cell holds strangers off at its hull (a plain cell off its triangle, below; a wall of another species
   // sheathGap past its edge), and a hungry piercer passes
   // any jelly (JELLY_WALL, JELLY_PIERCE, read from pad's lowest bits: JELLY_PAD; docs/ecosystem.md, Jelly)
-  let myJ = (myPad & JELLY_PAD) << 16u;
+  // (a fresh tear's cell, JELLY_PAD 3, no wall: it spills, pushed out from its kind's middle as a wall's is drawn in)
+  let spill = (myPad & JELLY_PAD) == JELLY_PAD;
+  let myJ = select((myPad & JELLY_PAD) << 16u, 0u, spill);
+  let pulls = myJ == JELLY_WALL || spill;
 ${K.sheathPlants < 1 ? '  let myPlant = (sortedLite[i].kr & (1u << 12u)) != 0u;\n' : ''}  let myHull = select(myR, myR + ${f(K.sheathGap)}, myJ == JELLY_WALL);
   // (how far off a wall's cell this cell looks for one: a plain cell, for the two nearest, whose triangles hold it off)
   let wallFar = select(select(${f(K.sheathGap)}, ${f(K.sheathPullReach)}, myJ == JELLY_WALL), ${f(K.sheathGap + K.sheathReach)}, myJ == 0u);
@@ -3486,7 +3511,7 @@ ${K.sheathPlants < 1 ? '  let myPlant = (sortedLite[i].kr & (1u << 12u)) != 0u;\
       let qR = bitcast<f32>(q.pad);
       // (first against the farthest a jelly could hold it, its hull only if it is a wall's cell, so the walk's many cells
       // out of reach cost hardly more than before; for a plain cell, as far as it looks for the nearest walls)
-      let far = myHull + qR + select(0.0, wallFar, (q.pad & 1u) != 0u);
+      let far = myHull + qR + select(0.0, wallFar, (q.pad & JELLY_PAD) == 1u);
       if (r2 >= ${f(K.crowdVisc > 0 ? 1.5625 : 1)} * far * far || r2 < 1e-12) { continue; }
       // a jelly between cells of two species: each wall not pierced from the other side holds the other off at its
       // hull (a mutant bud of a jelly species is mostly a wall too, held hull to hull, nearer than their bonds rest;
@@ -3503,7 +3528,7 @@ ${K.sheathPlants < 1 ? '  let myPlant = (sortedLite[i].kr & (1u << 12u)) != 0u;\
         continue;
       }
       // (jelly's pull, below: its kind's wall cells within sheathPullReach of touching)
-      if (myJ == JELLY_WALL && qJ == JELLY_WALL && !strange && r2 < sqr(myR + qR + ${f(K.sheathPullReach)})) {
+      if (pulls && (qJ & JELLY_WALL) != 0u && !strange && r2 < sqr(myR + qR + ${f(K.sheathPullReach)})) {
         pullAt += vec3f(d, 1.0);
       }
       if (r2 >= ${f(K.crowdVisc > 0 ? 1.5625 : 1)} * touchQ * touchQ) { continue; }
@@ -3546,7 +3571,7 @@ ${K.sheathPlants < 1 ? '  let myPlant = (sortedLite[i].kr & (1u << 12u)) != 0u;\
   // (Any of its kind's walls: two bodies of one species that near draw together.)
   if (pullAt.z > 0.0) {
     let mid = pullAt.xy / pullAt.z;
-    push += mid * (${f(K.sheathPull / K.sheathPullReach)} * min(1.0, ${f(K.sheathPullReach)} / max(length(mid), 1e-6)));
+    push += mid * (${f(K.sheathPull / K.sheathPullReach)} * min(1.0, ${f(K.sheathPullReach)} / max(length(mid), 1e-6)) * select(1.0, ${f(-K.tearSpill)}, spill));
   }
   if (wallA != NONE) {
     // (the deepest push, n × over, and the sum of those against it)
@@ -4021,13 +4046,21 @@ ${cellWGSL(K, false, 'act')}
   if (tree && budTurn < 3u) { childGen |= (budTurn | (min(orderOf(p.info) + select(1u, 0u, budTurn == 0u), 3u) << 2u)) << 26u; }
   // a tail's base: generation 0, branch order 2 (a tail grows on as a tree's straight daughters do, order kept)
   else if (sprout) { childGen = (2u << 2u) << 26u; }
-${K.beatWill ? willWGSL(K) : ''}  // y: the child's energy on a birth; otherwise how closely packed this cell is, read only by rendering
+${K.tearSpread > 0 ? `  // (a torn jelly's daughter torn with her, her clock going on: JELLY_TORN, branch order 1 in a cell of no tree)
+  else if ((p.info & JELLY_TORN) != 0u && ck == p.kind) { childGen |= (1u << 2u) << 26u; }
+` : ''}${K.beatWill ? willWGSL(K) : ''}  // y: the child's energy on a birth; otherwise how closely packed this cell is, read only by rendering
   intent[i] = vec4u(act | (ck << 2u) | (cr << 12u) | childGen, bitcast<u32>(select(${SENSE.pack}, ce, act == 2u)), n1, n2);
   // (a cell that died this step is not bodyTick's to move)
   if (sub && kind != p.kind) { bondsNow[subMark(i)] = 0u; }
-${K.tearSpread > 0 ? `  // its jelly torn holds torn; in time a torn jelly dissolves into the water (a jelly body's cell: no tree's)
-  if (rend) { info |= JELLY_TORN; }
-  if ((info & (JELLY_TORN | JELLY_GONE)) == JELLY_TORN && (*g).dev.x < 0x80000000u && (*g).tail.w >= 0.5 && rnd(&s) < ${f(K.tearFade)} * sim.dt) { info |= JELLY_GONE; }
+${K.tearSpread > 0 ? `  // its jelly torn, its clock from 0; a torn jelly's clock runs (JELLY_CLOCK counts a second, drawn at random each step),
+  // held at TEAR_HEAL till the cell is bonded to its kind, and at TEAR_HEALED it is a wall again (a jelly body's cell)
+  if (rend) { info = (info & 0x7f00ffffu) | JELLY_TORN | select(0u, JELLY_PIERCED, pierced); }
+  else if ((info & JELLY_TORN) != 0u && (*g).dev.x < 0x80000000u && (*g).tail.w >= 0.5) {
+    let tc = genOf(info);
+    let kin = keep1 || keep2;
+    if (tc < 255u && (tc < ${Math.min(234, Math.round(2 * K.tearHeal))}u || kin) && rnd(&s) < JELLY_CLOCK * sim.dt) { info += 1u << 16u; }
+    if (tc >= ${Math.min(254, Math.round(2 * K.tearHeal) + 20)}u && kin) { info &= ~(JELLY_TORN | JELLY_PIERCED); }
+  }
 ` : ''}  parts[i] = Particle(pos, vel, kind, E, age, p.id, pack4x8unorm(vec4f(clamp(col, vec3f(0.0), vec3f(1.0)), 1.0 - gut / ${f(K.dungE)})), info);
 }
 
@@ -8323,7 +8356,7 @@ const JELLY_TILE = 8u;
 // off: the fragment from the cell (world units); tri: its partners from it (the second the first again with one)
 // (hole: a piercer's hole's radius, or less than zero, a triangle's kernel's reach ρ, negated)
 struct JF { @builtin(position) pos: vec4f, @location(0) off: vec2f, @location(1) @interpolate(flat) tri: vec4f,
-  @location(2) @interpolate(flat) fade: f32, @location(3) @interpolate(flat) hole: f32 };
+  @location(2) @interpolate(flat) fade: f32, @location(3) @interpolate(flat) hole: f32, @location(4) @interpolate(flat) amp: f32 };
 // A hungry eater that pierces jelly (pierceOf, JELLY_SP_PIERCE) bursts into it: where it is, its own kernel, of
 // JELLY_HOLE times its radius, takes JELLY_HOLE_W from the field, so a hull it presses on tears open about it and,
 // once it is in, closes round it as a cavity in the jelly, a rim of its own (none in open water: the field is below
@@ -8353,8 +8386,9 @@ fn jellyHoleQuad(p: Particle, i: u32, vi: u32, r: f32) -> JF {
   o.hole = r;
   return o;
 }
-// a torn jelly (K.tearSpread, JELLY_TORN) a hole of TEAR_HOLE times the cell's radius, none once dissolved (JELLY_GONE)
-const TEAR_HOLE = 1.6;
+// where a jelly was pierced (K.tearSpread, JELLY_PIERCED) a hole of TEAR_HOLE times the cell's radius, opening over
+// its first TEAR_WHOLE counts and kept while its jelly withers
+const TEAR_HOLE = 2.4;
 // A cell's partners for its kernel: the two it keeps (intent.zw), or for a cell that keeps none, the two of lowest
 // index among those keeping it (bondsIn). The keepers are listed by atomics in whatever order the GPU runs them,
 // different each frame even with the world paused, so taking the first listed made the hull jump between shapes.
@@ -8386,20 +8420,21 @@ fn jellyPartners(i: u32) -> vec2u {
   if (view.bond < 0.0 && genomes[p.kind].photo <= 0.55) { return jellyHole(i, vi); }
   let q = parts[n];
   if (q.kind < FIRST_LIFE || bondKind(p, q) != BOND_JELLY) { return o; }
-  if (view.bond < 0.0 && (p.info & JELLY_TORN) != 0u) {
-    if ((p.info & JELLY_GONE) != 0u) { return o; }
-    return jellyHoleQuad(p, i, vi, TEAR_HOLE * 0.085 * genomes[p.kind].size);
+  // a torn jelly's: where it was pierced a hole while it withers; elsewhere its jelly as much as is left (jellyAmp)
+  let amp = select(1.0, jellyAmp(p.info), view.bond < 0.0);
+  if (view.bond < 0.0 && (p.info & JELLY_PIERCED) != 0u && genOf(p.info) < TEAR_GONE) {
+    return jellyHoleQuad(p, i, vi, TEAR_HOLE * 0.085 * genomes[p.kind].size * min(1.0, f32(genOf(p.info) + 1u) / f32(TEAR_WHOLE)));
   }
+  if (amp <= 0.0) { return o; }
   // (the cells' own positions, not drawnPos: a newborn's bud offset needs the animation records, which this pass's
   // bind group leaves out; a hull is soft enough not to show it)
   let at = p.pos;
-  // (a partner torn is no jelly to reach for: K.tearSpread)
-  let a = select(wrapd(q.pos - at), vec2f(0.0), view.bond < 0.0 && (q.info & JELLY_TORN) != 0u);
+  let a = wrapd(q.pos - at);
   var b = a;
   // the second partner only if it is a living cell this cell's bond to is jelly too (else the hull would reach for it)
   if (pn.y != NONE && pn.y != n) {
     let w = parts[pn.y];
-    if (w.kind >= FIRST_LIFE && bondKind(p, w) == BOND_JELLY && (view.bond >= 0.0 || (w.info & JELLY_TORN) == 0u)) { b = wrapd(w.pos - at); }
+    if (w.kind >= FIRST_LIFE && bondKind(p, w) == BOND_JELLY) { b = wrapd(w.pos - at); }
   }
   let r = (0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(roleOf(p.info))) + ${f(DEFAULT_K.sheathGap)}) / JELLY_FRAC;
   let lo = min(min(a, b), vec2f(0.0)) - r;
@@ -8411,6 +8446,7 @@ fn jellyPartners(i: u32) -> vec2u {
   o.tri = vec4f(a, b);
   o.fade = select(view.mute, 1.0, focusPass(p, i));
   o.hole = -r;
+  o.amp = amp;
   return o;
 }
 // the nearest point to x on the segment from u to v
@@ -8444,7 +8480,7 @@ fn jellyNearest(x: vec2f, u: vec2f, v: vec2f) -> vec2f {
   if (k <= 0.0) { discard; }
   let tile = vec2u(i.pos.xy) / JELLY_TILE;
   jellyTiles[tile.y * view.jellyCols + tile.x] = view.jellyStamp;
-  return vec4f(k * k, e * (-4.0 * k / (r * r)), k * k * i.fade);
+  return vec4f(k * k, e * (-4.0 * k / (r * r)), k * k * i.fade) * i.amp;
 }
 // A tile of the rim (instance ii, a row view.jellyCols across, over the field's texels): a quad over its texels where
 // it or a neighbor was reached by the field this frame, else nothing. The tiles partition the view, so each pixel the
