@@ -66,10 +66,18 @@ only eaters able to pierce it get in.
 - **The wall** (`contactMain`, `K.sheath`): as cells are sorted, a cell of a sheathed species' loose body (bonded, no
   tree, no tail's cell, not tissue, not a cyst) is marked a wall (`JELLY_WALL` in `Lite.kr`, and in `Lite.pad`'s
   two lowest bits, `JELLY_PAD`, which `contactMain` reads already). An eater that pierces and is hungry (short of
-  `sated` × the energy it divides at, as `senseMain` has it) is marked a piercer (`JELLY_PIERCE`). Between two cells
-  of different species, each wall that the other cell does not pierce holds it off at `sheathHull` (0.13) from the
-  wall cell's center instead of at the cell's own radius: the drawn hull's edge, about 0.67 of the jelly kernel's
-  reach. (Species are told apart by kind alone: a mutant bud of a jelly species is mostly a wall too, and two walls
+  `sated` × the energy it divides at, as `senseMain` has it) is marked a piercer (`JELLY_PIERCE`). A plain cell (no wall,
+  not piercing now) beside a wall cell of another species is held off the triangle that wall cell makes with its kept
+  partners of the body (the triangle `vsJellyField` draws its kernel from; `bondsNow` gives them), `sheathHull`
+  (0.15) out from it and its own radius further, unsquashed (no `bodyGive`): its whole body outside the drawn line,
+  which lies 0.67-0.8 of the kernel's reach out from the triangles as one or two kernels overlap. Inside a triangle it
+  is pushed away from its middle, so a fed piercer is squeezed out rather than into the body. A stranger tests the
+  triangles of wall cells within `sheathReach` (0.27, half a long bond) and the hull; nearer cells' triangles cover
+  the rest. (First the wall held strangers `sheathHull` 0.13 from each wall cell's center: discs, with gaps along the
+  bonds between them. A loose body's cells sit a bond apart, so strangers settled in the gaps, well inside the drawn
+  hull, and fed piercers stayed there; seen on a phone, it looked as if every cell were piercing it.) A cell bonded to
+  the wall cell (a mutant bud of its body) is held off its center only, as two walls of different species are,
+  `sheathHull` from each. (Species are told apart by kind alone: a mutant bud of a jelly species is mostly a wall too, and two walls
   hold each other hull to hull, nearer than a jelly body's bonds rest. A signature test there cost the walk a fifth
   of its time on an RTX.) The overlap rules are as before, so strangers bounce off the hull and
   cannot be pushed through it. Two jelly bodies hold each other off hull to hull. A hungry piercer passes, and

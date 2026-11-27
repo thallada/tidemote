@@ -472,7 +472,7 @@ class Engine {
     // bonds pull both ways, through the cells that keep a bond to each (bondsNow holds them)
     this.cpDefs.bondBackMain = [0, 2, 12, 20];
     // contact between living cells, in its own pass before lifeMain (contactMain)
-    this.cpDefs.contactMain = [0, 2, 3, 6, 10, 12];
+    this.cpDefs.contactMain = [0, 2, 3, 6, 10, 12, 15];
     // a coarse step's beating trees, a tick at a time (bodyTick: one dispatch a tick, the
     // first listing the cells, bodyArgs sizing the rest)
     this.cpDefs.bodyTick = [0, 1, 2, 10, 11, 12, 15, 18, 25, 26];
