@@ -212,6 +212,7 @@ export const DEFAULT_K = {
   sheathCost: 0.008, // upkeep of a producer making its jelly (× metab)
   pierceCost: 0.008, // upkeep of an eater able to pierce jelly (× metab)
   sheathLeak: 0,    // the chance each step that an eater unable to pierce a jelly may still bite its cells in reach (a sheath slows grazers, it does not stop them; 0 compiled out)
+  sheathPlants: 1,  // a jelly holds off other producers' cells too (0: only animals', the producers of two species pass as plain cells)
   foundJelly: 1,    // the share of founders and sparks with the jelly gene, × theirs (0: none, so it must arise by mutation)
   searchImage: 0.7, // chance a hunter or grazer misses living prey unlike its last catch
   specPow: 2,       // >0: a diet's share d earns d^specPow of a specialist's take; steep: mixing pays little
@@ -3369,7 +3370,7 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
   // sheathGap past its edge), and a hungry piercer passes
   // any jelly (JELLY_WALL, JELLY_PIERCE, read from pad's lowest bits: JELLY_PAD; docs/ecosystem.md, Jelly)
   let myJ = (myPad & JELLY_PAD) << 16u;
-  let myHull = select(myR, myR + ${f(K.sheathGap)}, myJ == JELLY_WALL);
+${K.sheathPlants < 1 ? '  let myPlant = (sortedLite[i].kr & (1u << 12u)) != 0u;\n' : ''}  let myHull = select(myR, myR + ${f(K.sheathGap)}, myJ == JELLY_WALL);
   // (how far off a wall's cell this cell looks for one: a plain cell, for the two nearest, whose triangles hold it off)
   let wallFar = select(select(${f(K.sheathGap)}, ${f(K.sheathPullReach)}, myJ == JELLY_WALL), ${f(K.sheathGap + K.sheathReach)}, myJ == 0u);
   // the two nearest wall cells of another species to a plain cell, tried after the walk: each one word, its distance²
@@ -3457,7 +3458,7 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
       // hull (a mutant bud of a jelly species is mostly a wall too, held hull to hull, nearer than their bonds rest;
       // its kind read only beside a jelly)
       let qJ = (q.pad & JELLY_PAD) << 16u;
-      let strange = (myJ | qJ) != 0u && (q.kr & 1023u) != p.kind;
+      let strange = (myJ | qJ) != 0u && (q.kr & 1023u) != p.kind${K.sheathPlants < 1 ? ' && !(myPlant && (q.kr & (1u << 12u)) != 0u)' : ''};
       let touchQ = select(myR, myHull, strange && qJ != JELLY_PIERCE)
         + qR + select(0.0, ${f(K.sheathGap)}, strange && qJ == JELLY_WALL && myJ != JELLY_PIERCE);
       // a plain cell (no wall, not piercing) only notes the nearest walls of another species here (below)
