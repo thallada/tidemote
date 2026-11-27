@@ -4,7 +4,8 @@
 // --video S: instead, a film of S simulated seconds, a frame every 1/--fps (15) of them, the stroke in it, encoded to
 // OUT/needle.mp4 at --play (30) frames a second (so twice as fast as the world runs at 1x by default); with --piercers 1
 // a body with a few piercers at it instead, and no needle; with --poke 1 the needle pricks the edge of a middling body
-// (40-160 cells, framed whole) once, on its side away from the needle's shaft, so it is pierced there alone
+// (40-160 cells, framed whole) once, on its side away from the needle's shaft, so it is pierced there alone; with
+// --edge 1 as --poke, but the needle held on the edge and drawn slowly along it for 3 s (as a finger on a phone)
 import fs from 'node:fs'; import path from 'node:path';
 import { cliArgs } from './lib/args.mjs';
 import { contactSheet } from './lib/sheet.mjs';
@@ -48,6 +49,7 @@ for (const [key, n] of J) {
 // --poke: the jelly bodies (bonded jelly cells of one species), a middling one with no piercers near, its edge cell
 // farthest along the needle's shaft (so the shaft lies outside it), and a zoom that frames it
 let poke = null;
+if (v.edge) v.poke = 1;
 if (v.poke) {
   const jl = [], isJ = new Set();
   for (let i = 0; i < cnt; i++) {
@@ -99,22 +101,39 @@ const shot = async (f, label) => { const file = `f${String(f).padStart(2, '0')}.
 const run = (dt) => page.evaluate(async (dt) => { const T = globalThis.__tidemote, t0 = T.eng.simTime; T.setSpeed(1); while (T.eng.simTime < t0 + dt) await new Promise((r) => setTimeout(r, 15)); T.setSpeed(0); }, dt);
 if (v.video) {
   // the stroke over its first 1.5 s, the world stepped a frame at a time, then on to --video seconds
-  const fps = +(v.fps || 15), n = Math.round(+v.video * fps), strokeN = Math.round((v.poke ? 0.3 : 1.5) * fps);
+  const fps = +(v.fps || 15), n = Math.round(+v.video * fps), strokeN = Math.round((v.edge ? 3 : v.poke ? 0.3 : 1.5) * fps);
   const step = (dt) => page.evaluate(async (dt) => { const T = globalThis.__tidemote, t0 = T.eng.simTime; T.setSpeed(1); while (T.eng.simTime < t0 + dt - 1e-4) await new Promise((r) => setTimeout(r, 4)); T.setSpeed(0); }, dt);
   for (let f = 0; f < Math.round(0.5 * fps); f++) { await step(1 / fps); await page.screenshot({ path: path.join(v.out, `v${String(f).padStart(4, '0')}.png`) }); }
   if (!v.piercers) await page.evaluate(() => globalThis.__tidemote.hand.set('needle'));
   let a = [cxp - 300, cyp - 140], b = [cxp + 260, cyp + 120];
   // (a prick: the needle down on the edge cell, still, for a few frames)
   if (poke) { a = [cxp + (poke.ex - poke.x) * +v.zoom, cyp + (poke.ey - poke.y) * +v.zoom]; b = a; }
+  // (--edge: along the edge, square to the way from the body's middle to its edge cell, 0.6 either side)
+  if (v.edge) {
+    const ox = poke.ex - poke.x, oy = poke.ey - poke.y, l = Math.hypot(ox, oy) || 1, tx = -oy / l, ty = ox / l, z = +v.zoom;
+    const e = [cxp + ox * z, cyp + oy * z];
+    a = [e[0] - tx * 0.6 * z, e[1] - ty * 0.6 * z]; b = [e[0] + tx * 0.6 * z, e[1] + ty * 0.6 * z];
+  }
   let follow = poke ? [poke.ex, poke.ey] : null;
-  if (!v.piercers) { await page.mouse.move(...a); await page.mouse.down(); }
+  if (!v.piercers) { await page.mouse.move(...a); if (!v.hover) await page.mouse.down(); }
   for (let f = Math.round(0.5 * fps); f < n; f++) {
     const k = f - Math.round(0.5 * fps);
     if (!v.piercers && k <= strokeN) await page.mouse.move(a[0] + (b[0] - a[0]) * k / strokeN, a[1] + (b[1] - a[1]) * k / strokeN);
     if (!v.piercers && k === strokeN) { await page.mouse.up(); await page.evaluate(() => globalThis.__tidemote.hand.set('none')); await page.mouse.move(5, 5); }
     await step(1 / fps);
+    // (--edge: how far the body's middle cell moved each frame, world units, for the log)
+    if (v.edge) {
+      const pos = await page.evaluate(async ([id, at]) => {
+        const res = await globalThis.__tidemote.eng.requestPick(at, 3, 0xffffffff, { maxOut: 20000, raw: true });
+        const { u32, f32, count } = res.raw;
+        for (let i = 0; i < count; i++) if (u32[i * 12 + 7] === id) return [f32[i * 12], f32[i * 12 + 1]];
+        return null;
+      }, [poke.id, [poke.mx, poke.my]]);
+      if (pos && globalThis.lastPos) console.log(`f${f} moved ${Math.hypot(pos[0] - lastPos[0], pos[1] - lastPos[1]).toFixed(3)}`);
+      globalThis.lastPos = pos;
+    }
     // (after the prick the camera follows the body, by the cell nearest its middle, as the water carries it)
-    if (poke && k > strokeN) {
+    if (poke && !v.edge && k > strokeN) {
       const now = await page.evaluate(async ([id, at]) => {
         const res = await globalThis.__tidemote.eng.requestPick(at, 3, 0xffffffff, { maxOut: 20000, raw: true });
         const { u32, f32, count } = res.raw;

@@ -1959,18 +1959,13 @@ fn wakeFlow(p: vec2f) -> vec2f {
 // How far the needle and Touch's rod in the water push a cell or a grain at p aside, out of their way: each moved
 // from where it was when the world last stepped to where it is, it sweeps what lies between, so a fast stroke
 // carries along what it passes rather than leaping over it. Nothing in a headless run, where both are out.
-// Whether the needle's shaft lies within margin of p (its push's breadth and more, to the point) or its stroke since the
-// world last stepped crossed p: a jelly it passes through or presses on tears there, as a piercer's does (K.tearSpread)
+// Whether the needle's point is within margin of p, or its stroke since the world last stepped crossed p: a jelly it
+// pricks tears there, as a piercer's does (K.tearSpread). (Its shaft lies over the water, not through it: tearing all
+// it lay over, every step the needle moved tore cells along it anew, holes popping all along the edge.)
 fn needleAt(p: vec2f, margin: f32) -> bool {
   if (IDLE_HAND) { return false; }
   if (cutAt(p)) { return true; }
-  let nd = sim.hand.needle;
-  let L = length(nd.zw);
-  if (L <= 0.0) { return false; }
-  let ax = nd.zw / L;
-  let a = handD(p, nd.xy);
-  let s = clamp(dot(a, ax), 0.0, L);
-  return dot(a, ax) <= L && length(a - ax * s) < needleW(s) + margin;
+  return any(sim.hand.needle.zw != vec2f(0.0)) && length(handD(p, sim.hand.needle.xy)) < margin;
 }
 fn handPush(p: vec2f) -> vec2f { if (IDLE_HAND) { return vec2f(0.0); } return needlePush(p) + rodPush(p); }
 // The needle: its shaft, tapering to its point, a cell's breadth wider than the steel as the cells see it. What
@@ -8439,6 +8434,15 @@ fn jellyPartners(i: u32) -> vec2u {
   // (a cell that keeps no bond and is kept by none first, as most are, read from its bonds alone)
   let pn = jellyPartners(i);
   let n = pn.x;
+  // where a jelly was pierced, its hole while it withers, whatever partners the cell holds this frame (they change
+  // from frame to frame, and a hole drawn only with one blinked)
+  let pi = parts[i].info;
+  // (both bits: a tail's cell holds branch order 2, bit 31 alone)
+  if (view.bond < 0.0 && (pi & (JELLY_TORN | JELLY_PIERCED)) == (JELLY_TORN | JELLY_PIERCED) && genOf(pi) < TEAR_GONE && parts[i].kind >= FIRST_LIFE && parts[i].kind < MAXK
+      && genomes[parts[i].kind].dev.x < 0x80000000u) {
+    let pp = parts[i];
+    return jellyHoleQuad(pp, i, vi, max(TEAR_HOLE * 0.085 * genomes[pp.kind].size, TEAR_HOLE_MIN) * min(1.0, f32(genOf(pi) + 1u) / f32(TEAR_WHOLE)));
+  }
   if (n == NONE) { return jellyHole(i, vi); }
   let p = parts[i];
   if (p.kind < FIRST_LIFE) { return o; }
@@ -8446,11 +8450,8 @@ fn jellyPartners(i: u32) -> vec2u {
   if (view.bond < 0.0 && genomes[p.kind].photo <= 0.55) { return jellyHole(i, vi); }
   let q = parts[n];
   if (q.kind < FIRST_LIFE || bondKind(p, q) != BOND_JELLY) { return o; }
-  // a torn jelly's: where it was pierced a hole while it withers; elsewhere its jelly as much as is left (jellyAmp)
+  // a torn jelly's as much as is left (jellyAmp)
   let amp = select(1.0, jellyAmp(p.info), view.bond < 0.0);
-  if (view.bond < 0.0 && (p.info & JELLY_PIERCED) != 0u && genOf(p.info) < TEAR_GONE) {
-    return jellyHoleQuad(p, i, vi, max(TEAR_HOLE * 0.085 * genomes[p.kind].size, TEAR_HOLE_MIN) * min(1.0, f32(genOf(p.info) + 1u) / f32(TEAR_WHOLE)));
-  }
   if (amp <= 0.0) { return o; }
   // (the cells' own positions, not drawnPos: a newborn's bud offset needs the animation records, which this pass's
   // bind group leaves out; a hull is soft enough not to show it)
