@@ -203,10 +203,10 @@ export const DEFAULT_K = {
   kinShade: 0.25,   // how much a bonded body shades itself, relative to strangers
   armor: 1,         // bonded bodies resist being killed or bitten
   sheath: 1,        // a sheathed producer's body (its jelly, docs/ecosystem.md, Jelly) is a wall to strangers' cells: 0 drawn only
-  sheathHull: 0.13, // ...two jelly bodies of different species holding each other's cells this far from their centers (0.67 of JELLY_REACH × linkR)
-  sheathEdge: 0.15, // ...a plain stranger held this far out from the triangles its two nearest jelly cells make with their kept partners, where the drawn line lies (0.67-0.8 of JELLY_REACH × linkR as one or two kernels overlap)
-  sheathReach: 0.25, // ...those two sought within this and sheathEdge of it (about a bond: in a gap the two whose bond spans it)
-  sheathPush: 2,    // ...and pushed out sheathPush times as stiffly as cells push each other
+  sheathGap: 0.035, // ...its hull this far past its cells' edges (drawn, JELLY_FRAC; held, a plain stranger off the triangles its two nearest jelly cells make with their kept partners, two bodies of different species off each other's cells)
+  sheathReach: 0.25, // ...those two sought within this past it (about a bond: in a gap the two whose bond spans it)
+  sheathPush: 2,    // ...and pushed out sheathPush times as stiffly as cells push each other...
+  sheathCap: 0.3,   // ...but no harder than at this share of its margin and radius in (deeper in, it drifts out)
   sheathCost: 0.008, // upkeep of a producer making its jelly (× metab)
   pierceCost: 0.008, // upkeep of an eater able to pierce jelly (× metab)
   foundJelly: 1,    // the share of founders and sparks with the jelly gene, × theirs (0: none, so it must arise by mutation)
@@ -3362,12 +3362,12 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
   let myPad = sortedLite[i].pad;
   let myR = bitcast<f32>(myPad);
   // a jelly body's cell holds strangers off at its hull (a plain cell off its triangle, below; a wall of another species
-  // sheathHull from its center), and a hungry piercer passes
+  // sheathGap past its edge), and a hungry piercer passes
   // any jelly (JELLY_WALL, JELLY_PIERCE, read from pad's lowest bits: JELLY_PAD; docs/ecosystem.md, Jelly)
   let myJ = (myPad & JELLY_PAD) << 16u;
-  let myHull = select(myR, max(myR, ${f(K.sheathHull)}), myJ == JELLY_WALL);
+  let myHull = select(myR, myR + ${f(K.sheathGap)}, myJ == JELLY_WALL);
   // (how far off a wall's cell this cell looks for one: a plain cell, for the two nearest, whose triangles hold it off)
-  let wallFar = select(${f(K.sheathHull)}, ${f(K.sheathEdge + K.sheathReach)}, myJ == 0u);
+  let wallFar = select(${f(K.sheathGap)}, ${f(K.sheathGap + K.sheathReach)}, myJ == 0u);
   // the two nearest wall cells of another species to a plain cell, tried after the walk: each one word, its distance²
   // in thousandths in the top 9 bits and its sorted index in the 23 below (8M cells), so the nearer is the smaller
   var wallA = NONE;
@@ -3445,7 +3445,7 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
       let qR = bitcast<f32>(q.pad);
       // (first against the farthest a jelly could hold it, its hull only if it is a wall's cell, so the walk's many cells
       // out of reach cost hardly more than before; for a plain cell, as far as it looks for the nearest walls)
-      let far = myHull + select(qR, max(qR, wallFar), (q.pad & 1u) != 0u);
+      let far = myHull + qR + select(0.0, wallFar, (q.pad & 1u) != 0u);
       if (r2 >= ${f(K.crowdVisc > 0 ? 1.5625 : 1)} * far * far || r2 < 1e-12) { continue; }
       // a jelly between cells of two species: each wall not pierced from the other side holds the other off at its
       // hull (a mutant bud of a jelly species is mostly a wall too, held hull to hull, nearer than their bonds rest;
@@ -3453,7 +3453,7 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
       let qJ = (q.pad & JELLY_PAD) << 16u;
       let strange = (myJ | qJ) != 0u && (q.kr & 1023u) != p.kind;
       let touchQ = select(myR, myHull, strange && qJ != JELLY_PIERCE)
-        + select(qR, max(qR, ${f(K.sheathHull)}), strange && qJ == JELLY_WALL && myJ != JELLY_PIERCE);
+        + qR + select(0.0, ${f(K.sheathGap)}, strange && qJ == JELLY_WALL && myJ != JELLY_PIERCE);
       // a plain cell (no wall, not piercing) only notes the nearest walls of another species here (below)
       if (strange && myJ == 0u && qJ == JELLY_WALL) {
         let w = (min(u32(r2 * 1000.0), 511u) << 23u) | j;
@@ -3482,76 +3482,103 @@ fn contactMain(@builtin(global_invocation_id) gid: vec3u) {
       if (r < 1.25 * touchQ) { touchV += qvel * cs; touchN += cs; }
     }
   }
-  // A plain cell beside a wall of another species is held off where the hull is drawn: sheathEdge out from the
+  // A plain cell beside a wall of another species is held off where the hull is drawn: sheathGap past the edge of the
+  // wall cell's radius out from the
   // triangle each of its two nearest wall cells makes with its kept partners of the body (vsJellyField's), and from
-  // the line between those two if they are of one body and no farther apart than a bond reaches (the edge of a third
-  // cell's triangle that keeps both, which the draw fills between them: in a gap between cells, the two nearest are
-  // its ends), its whole body outside the line, unsquashed; from inside a triangle, away from its middle. The deepest
-  // of these pushes, sheathPush times as stiff as cells push each other (a crowd pressing on a wall squeezed cells in).
-  // A cell bonded to that one (a mutant bud of its body) is held off its center only. (Tried after the walk, the two
-  // found by a word each: tried in the walk, the partners' dependent reads held the whole wave beside any wall, and
-  // kept as two pairs of words the walk held more registers.)
+  // the line between those two if a third cell keeps both (the edge of its triangle, which the draw fills between
+  // them; bondBackMain lists the keepers first), its whole body outside the line; from inside a triangle, away from its
+  // middle. The deepest of these pushes, and any from the other side against it, so a cell wedged between two walls
+  // is held between them rather than thrown from one to the other each step. The push is sheathPush times as stiff
+  // as cells push each other but no stronger than at sheathCap of the margin in (a crowd pressing on a softer wall
+  // squeezed cells in, and a fed piercer deep in a body was thrown out), and its hold only stops the cell closing on
+  // the wall, so a cell inside drifts out. A cell bonded to that one (a mutant bud of its body) is held off its center
+  // only. (Tried after the walk, the two found by a word each: tried in the walk, the partners' dependent reads held
+  // the whole wave beside any wall, and kept as two pairs of words the walk held more registers.)
   if (wallA != NONE) {
-    var deep = -1.0;
-    var wn = vec2f(0.0);
+    // (the deepest push, n × over, and the sum of those against it)
+    var top = vec3f(0.0);
+    var against = vec2f(0.0);
     var wTouch = 1.0;
+    // (the line's margin, as the nearer cell's)
+    var segTouch = 1.0;
     var wVel = vec2f(0.0);
     var endA = vec2f(0.0);
     var endB = vec2f(0.0);
-    // (their kinds, a bonded one's never matching: in registers, not arrays, which a phone's GPU keeps in memory)
+    // (the two's kinds, a bonded one's never matching: in registers, not arrays, which a phone's GPU keeps in memory)
     var kinds = vec2u(NONE - 1u, NONE - 2u);
-    for (var k = 0u; k < 2u; k++) {
-      let wj = select(wallB, wallA, k == 0u);
-      if (wj == NONE) { break; }
-      let j = wj & 0x7fffffu;
-      let q = sortedLite[j];
-      var d = q.pos - p.pos;
-      d -= world * round(d / world);
-      if (k == 0u) { endA = d; kinds.x = q.kr & 1023u; } else { endB = d; kinds.y = q.kr & 1023u; }
-      let pb = bondsNow[j * BW];
-      let pc = bondsNow[j * BW + 1u];
-      var nr = d;
+    for (var k = 0u; k < 3u; k++) {
+      var nr = vec2f(0.0);
       var r = 0.0;
-      var touchQ = max(bitcast<f32>(q.pad), ${f(K.sheathHull)}) + myR;
-      if (pb == i || pc == i || bondsNow[i * BW] == j || bondsNow[i * BW + 1u] == j) {
-        r = length(d);
-        touchQ *= ${f(K.bodyGive)};
-        kinds = select(vec2u(kinds.x, NONE - 2u), vec2u(NONE - 1u, kinds.y), k == 0u);
+      var touchQ = segTouch;
+      var qvel = wVel;
+      if (k < 2u) {
+        let wj = select(wallB, wallA, k == 0u);
+        if (wj == NONE) { break; }
+        let j = wj & 0x7fffffu;
+        let q = sortedLite[j];
+        var d = q.pos - p.pos;
+        d -= world * round(d / world);
+        if (k == 0u) { endA = d; kinds.x = q.kr & 1023u; } else { endB = d; kinds.y = q.kr & 1023u; }
+        qvel = unpack2x16float(q.vel);
+        touchQ = bitcast<f32>(q.pad) + ${f(K.sheathGap)} + myR;
+        if (k == 0u) { segTouch = touchQ; }
+        let pb = bondsNow[j * BW];
+        let pc = bondsNow[j * BW + 1u];
+        nr = d;
+        if (pb == i || pc == i || bondsNow[i * BW] == j || bondsNow[i * BW + 1u] == j) {
+          r = length(d);
+          touchQ *= ${f(K.bodyGive)};
+          kinds = select(vec2u(kinds.x, NONE - 2u), vec2u(NONE - 1u, kinds.y), k == 0u);
+        } else {
+          var b = d;
+          var c = d;
+          if (pb != NONE) { let w = sortedLite[pb]; if ((w.pad & JELLY_PAD) == 1u) { b = w.pos - p.pos; b -= world * round(b / world); } }
+          if (pc != NONE) { let w = sortedLite[pc]; if ((w.pad & JELLY_PAD) == 1u) { c = w.pos - p.pos; c -= world * round(c / world); } }
+          nr = wallNear(d, b);
+          let n1 = wallNear(b, c);
+          let n2 = wallNear(c, d);
+          if (dot(n1, n1) < dot(nr, nr)) { nr = n1; }
+          if (dot(n2, n2) < dot(nr, nr)) { nr = n2; }
+          let s0 = (b.x - d.x) * d.y - (b.y - d.y) * d.x;
+          let s1 = (c.x - b.x) * b.y - (c.y - b.y) * b.x;
+          let s2 = (d.x - c.x) * c.y - (d.y - c.y) * c.x;
+          let within = (s0 > 0.0 && s1 > 0.0 && s2 > 0.0) || (s0 < 0.0 && s1 < 0.0 && s2 < 0.0);
+          r = select(length(nr), 0.0, within);
+          nr = select(nr, (d + b + c) / 3.0, within);
+        }
       } else {
-        var b = d;
-        var c = d;
-        if (pb != NONE) { let w = sortedLite[pb]; if ((w.pad & JELLY_PAD) == 1u) { b = w.pos - p.pos; b -= world * round(b / world); } }
-        if (pc != NONE) { let w = sortedLite[pc]; if ((w.pad & JELLY_PAD) == 1u) { c = w.pos - p.pos; c -= world * round(c / world); } }
-        nr = wallNear(d, b);
-        let n1 = wallNear(b, c);
-        let n2 = wallNear(c, d);
-        if (dot(n1, n1) < dot(nr, nr)) { nr = n1; }
-        if (dot(n2, n2) < dot(nr, nr)) { nr = n2; }
-        let s0 = (b.x - d.x) * d.y - (b.y - d.y) * d.x;
-        let s1 = (c.x - b.x) * b.y - (c.y - b.y) * b.x;
-        let s2 = (d.x - c.x) * c.y - (d.y - c.y) * c.x;
-        let within = (s0 > 0.0 && s1 > 0.0 && s2 > 0.0) || (s0 < 0.0 && s1 < 0.0 && s2 < 0.0);
-        r = select(length(nr), 0.0, within);
-        nr = select(nr, (d + b + c) / 3.0, within);
-        touchQ = ${f(K.sheathEdge)} + myR;
+        // (the line between the two, of one body, if a cell keeps both: among the first keepers of each)
+        let ab = endB - endA;
+        if (kinds.x != kinds.y || dot(ab, ab) >= ${f((K.bondBreak * K.linkR) ** 2)}) { break; }
+        let ja = wallA & 0x7fffffu;
+        let jb = wallB & 0x7fffffu;
+        var kept = false;
+        for (var x = 0u; x < min(bondsNow[ja * BW + 2u], 2u); x++) {
+          let c = bondsNow[ja * BW + 3u + x];
+          kept = kept || c == bondsNow[jb * BW + 3u] || (bondsNow[jb * BW + 2u] > 1u && c == bondsNow[jb * BW + 4u]);
+        }
+        if (!kept) { break; }
+        nr = wallNear(endA, endB);
+        r = length(nr);
       }
-      let over = (touchQ - r) / touchQ;
-      if (over > deep) { deep = over; wn = nr; wTouch = touchQ; wVel = unpack2x16float(q.vel); }
+      let over = min((touchQ - r) / touchQ, ${f(K.sheathCap)});
+      if (over <= 0.0) { continue; }
+      let n = dirz(nr);
+      // (a deeper one takes the top, and the old top counts against it if it is on the other side)
+      if (over > top.z) {
+        if (dot(n, top.xy) < 0.0) { against += top.xy * top.z; }
+        top = vec3f(n, over);
+        wTouch = touchQ;
+        wVel = qvel;
+      } else if (dot(n, top.xy) < 0.0) { against += n * over; }
     }
-    // (the line between the two, of one body)
-    let ab = endB - endA;
-    if (kinds.x == kinds.y && dot(ab, ab) < ${f((K.bondBreak * K.linkR) ** 2)}) {
-      let nr = wallNear(endA, endB);
-      let touchQ = ${f(K.sheathEdge)} + myR;
-      let over = (touchQ - length(nr)) / touchQ;
-      if (over > deep) { deep = over; wn = nr; wTouch = touchQ; }
-    }
-    if (deep > 0.0) {
-      let n = dirz(wn);
-      push -= n * (${f(K.sheathPush)} * deep);
+    if (top.z > 0.0) {
+      // (wedged, the pushes from either side cancel; the hold stops it closing on the side that wins)
+      let net = top.xy * top.z + against;
+      push -= net * ${f(K.sheathPush)};
+      let n = dirz(net);
       let apartV = dot(wVel - p.vel, n);
-      let want = holdShare * deep * wTouch / sim.dt - apartV;
-      hold -= n * (0.5 * select(0.0, want + select(0.0, 0.5 * apartV, sim.ticks > 1u && sim.ticks < 4u), want > 0.0));
+      hold -= n * (0.5 * select(0.0, max(0.0, -apartV), dot(net, net) > 1e-4));
       holdN += 1.0;
       pushK += ${f(K.sheathPush)} / wTouch;
       touchV += wVel;
@@ -8220,7 +8247,10 @@ fn bondFragNet(i: BO) -> vec4f {
 // jellyTiles, and a tile is drawn if it or a neighbor was stamped this frame, as the rim's bilinear reads reach a
 // texel past its tile; elsewhere the field is clear and the rim draws nothing), so the scene, the trails, the look,
 // the bloom and the loupe and close-up (each with its field) take it as they take the bonds.
-const JELLY_REACH = 0.45; // ρ, the kernel's reach beyond a cell's triangle, times linkR
+// ρ, the kernel's reach beyond a cell's triangle: its drawn radius and sheathGap over JELLY_FRAC, the share of ρ the
+// line lies at where two kernels overlap (0.67 under one, toward 0.9 under many), so the hull hugs its cells, large or
+// small, as the wall holds strangers off it (contactMain; a fixed 0.45 linkR left small cells in a wide moat)
+const JELLY_FRAC = 0.78;
 const JELLY_LEVEL = 0.3;  // the field's level the hull's edge lies on: about 0.45 ρ out from the triangles
 const JELLY_NECK = vec2f(1.2, 0.5); // the level raised by up to y where the field's slope (per linkR) is under x
 const JELLY_FULL = ${f(JELLY_FROM * 2)}; // px a unit where the hull has faded in (from JELLY_FROM; none nearer than that)
@@ -8234,6 +8264,7 @@ const JELLY_TINT = vec3f(0.80, 0.93, 1.12); // cool and colorless (gel scatters 
 @group(0) @binding(32) var<storage, read> jellyTilesR: array<u32>;
 const JELLY_TILE = 8u;
 // off: the fragment from the cell (world units); tri: its partners from it (the second the first again with one)
+// (hole: a piercer's hole's radius, or less than zero, a triangle's kernel's reach ρ, negated)
 struct JF { @builtin(position) pos: vec4f, @location(0) off: vec2f, @location(1) @interpolate(flat) tri: vec4f,
   @location(2) @interpolate(flat) fade: f32, @location(3) @interpolate(flat) hole: f32 };
 // A hungry eater that pierces jelly (pierceOf, JELLY_SP_PIERCE) bursts into it: where it is, its own kernel, of
@@ -8301,7 +8332,7 @@ fn jellyPartners(i: u32) -> vec2u {
     let w = parts[pn.y];
     if (w.kind >= FIRST_LIFE && bondKind(p, w) == BOND_JELLY) { b = wrapd(w.pos - at); }
   }
-  let r = JELLY_REACH * view.linkR;
+  let r = (0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(roleOf(p.info))) + ${f(DEFAULT_K.sheathGap)}) / JELLY_FRAC;
   let lo = min(min(a, b), vec2f(0.0)) - r;
   let hi = max(max(a, b), vec2f(0.0)) + r;
   let base = wrapd(at - view.cam);
@@ -8310,6 +8341,7 @@ fn jellyPartners(i: u32) -> vec2u {
   o.pos = toClip((base + o.off) * view.ppu);
   o.tri = vec4f(a, b);
   o.fade = select(view.mute, 1.0, focusPass(p, i));
+  o.hole = -r;
   return o;
 }
 // the nearest point to x on the segment from u to v
@@ -8338,7 +8370,7 @@ fn jellyNearest(x: vec2f, u: vec2f, v: vec2f) -> vec2f {
   let s1 = (b.x - a.x) * (x.y - a.y) - (b.y - a.y) * (x.x - a.x);
   let s2 = -b.x * (x.y - b.y) + b.y * (x.x - b.x);
   if ((s0 > 0.0 && s1 > 0.0 && s2 > 0.0) || (s0 < 0.0 && s1 < 0.0 && s2 < 0.0)) { e = vec2f(0.0); }
-  let r = JELLY_REACH * view.linkR;
+  let r = -i.hole;
   let k = 1.0 - dot(e, e) / (r * r);
   if (k <= 0.0) { discard; }
   let tile = vec2u(i.pos.xy) / JELLY_TILE;

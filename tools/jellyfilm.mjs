@@ -53,7 +53,7 @@ for (const i of cells) {
   const { best, n } = near(i);
   if (best > 0.4 || n < 4) continue;
   const s = { id: pu[i * PW + 7], x: pf[i * PW], y: pf[i * PW + 1], slot: pu[i * PW + 4], depth: n, gap: +best.toFixed(3) };
-  if (pierceOf(g) && hungry) inside.push({ ...s, what: best < K.sheathHull ? 'piercer inside' : 'piercer at the wall' });
+  if (pierceOf(g) && hungry) inside.push({ ...s, what: best < 0.085 * (g.size || 1) + K.sheathGap ? 'piercer inside' : 'piercer at the wall' });
   else if (!pierceOf(g) && (g.dGlint > 0.3 || g.dFlesh > 0.3)) pressed.push({ ...s, what: 'eater held off' });
 }
 const picked = [];

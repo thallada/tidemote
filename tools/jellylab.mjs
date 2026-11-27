@@ -71,11 +71,12 @@ async function look(eng) {
   const roots = new Set(); for (const i of jelly) roots.add(find(i));
   out.jellyBodies = roots.size;
   // strangers inside a hull: a cell's body crossing the drawn line, its center nearer a jelly cell's triangle (the cell
-  // and its kept partners of the body, as vsJellyField draws it) than the hull's margin and its own radius (the line lies
-  // about 0.67-0.8 of JELLY_REACH x linkR out from the triangles, as one or two kernels overlap: 0.13-0.15)
+  // and its kept partners of the body, as vsJellyField draws it) than that cell's radius, sheathGap and its own radius
+  // (the line lies there where two kernels overlap: JELLY_FRAC)
   const cell = 0.5, gx = Math.ceil(W / cell), grid = new Map(), isJ = new Set(jelly);
   for (const i of jelly) { const k = Math.floor(f[i * PW] / cell) + gx * Math.floor(f[i * PW + 1] / cell); (grid.get(k) || grid.set(k, []).get(k)).push(i); }
-  const gy = Math.ceil(H / cell), margin = 0.13;
+  const gy = Math.ceil(H / cell);
+  const radOf = (k, o) => 0.085 * (genome(k).size || 1) * (1 - 0.12 * ((u[o + 9] >>> 4) & 3));
   const wr = (d, L) => d - L * Math.round(d / L);
   const segD2 = (ux, uy, vx, vy) => { const ex = vx - ux, ey = vy - uy, t = Math.max(0, Math.min(1, -(ux * ex + uy * ey) / Math.max(ex * ex + ey * ey, 1e-12))); const x = ux + ex * t, y = uy + ey * t; return x * x + y * y; };
   const triD = (ax, ay, bx, by, cx, cy) => {
@@ -84,11 +85,12 @@ async function look(eng) {
     return Math.sqrt(Math.min(segD2(ax, ay, bx, by), segD2(bx, by, cx, cy), segD2(cx, cy, ax, ay)));
   };
   out.inside.depth = [];
+  const speeds = { all: [], near: [] };
   for (const i of living) {
     const o = i * PW, x = f[o], y = f[o + 1], kind = u[o + 4];
-    const g = genome(kind), rad = 0.085 * (g.size || 1) * (1 - 0.12 * ((u[o + 9] >>> 30) & 3));
+    const g = genome(kind), rad = radOf(kind, o);
     const cx = Math.floor(x / cell), cy = Math.floor(y / cell);
-    let best = Infinity, owner = -1, nA = [Infinity, -1], nB = [Infinity, -1];
+    let best = -Infinity, margin = 1, owner = -1, nA = [Infinity, -1], nB = [Infinity, -1];
     for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
       const L = grid.get(((cx + dx + gx) % gx) + gx * ((cy + dy + gy) % gy));
       if (!L) continue;
@@ -102,16 +104,24 @@ async function look(eng) {
         const m1 = iu[j * 4 + 2], m2 = iu[j * 4 + 3];
         if (m1 !== NONE && isJ.has(m1) && m1 !== i) { bx = wr(f[m1 * PW] - x, W); by = wr(f[m1 * PW + 1] - y, H); }
         if (m2 !== NONE && isJ.has(m2) && m2 !== i) { ccx = wr(f[m2 * PW] - x, W); ccy = wr(f[m2 * PW + 1] - y, H); }
-        const t = triD(ax, ay, bx, by, ccx, ccy);
-        if (t < best) { best = t; owner = j; }
+        // (how far its body is past the line: the wall cell's radius and sheathGap, its own radius, less the distance)
+        const m = radOf(u[j * PW + 4], j * PW) + K.sheathGap + rad, t = m - triD(ax, ay, bx, by, ccx, ccy);
+        if (t > best) { best = t; margin = m; owner = j; }
       }
     }
-    if (best >= margin + rad) continue;
     const pierce = pierceOf(g), hungry = pierce && f[o + 5] < divEnergy(g, K) * K.sated;
+    // how fast eaters the wall holds move, beside it (within its margin, their radius and a little more) and anywhere:
+    // a cell thrown about between two walls, or out of one, is fast
+    if (!hungry && dietGuild(g) !== 'producer' && !isJ.has(i)) {
+      const sp = Math.hypot(f[o + 2], f[o + 3]);
+      speeds.all.push(sp);
+      if (best > -0.05) speeds.near.push(sp);
+    }
+    if (best <= 0) continue;
     if (hungry) out.inside.hungry++;
     else {
       if (pierce) out.inside.piercer++; else { out.inside.other++; if (dietGuild(g) === 'producer') out.inside.otherProducer++; }
-      out.inside.depth.push(+((margin + rad - best) / (margin + rad)).toFixed(2));
+      out.inside.depth.push(+(best / margin).toFixed(2));
       // why the wall let it in: its nearest triangle's cell among its two nearest walls (held off it, a matter of
       // pressure or the walk's sampling), or not (a third cell's triangle: one keeping both, say), or a wall itself
       const why = (u[o + 9] & 15) === CYST ? 'cyst' : isJ.has(i) ? "wall" : owner === nA[1] || owner === nB[1] ? 'nearest' : 'third';
@@ -122,6 +132,8 @@ async function look(eng) {
   out.inside.depthMed = dp.length ? dp[dp.length >> 1] : 0;
   out.inside.deep = dp.filter((d) => d > 0.25).length;
   delete out.inside.depth;
+  const qs = (a, q) => { a.sort((x, y) => x - y); return a.length ? +a[Math.min(a.length - 1, Math.floor(q * a.length))].toFixed(3) : 0; };
+  out.speed = { near: speeds.near.length, nearMed: qs(speeds.near, 0.5), nearP90: qs(speeds.near, 0.9), allMed: qs(speeds.all, 0.5), allP90: qs(speeds.all, 0.9) };
   return out;
 }
 
@@ -135,7 +147,7 @@ try {
       const pc = (a, b) => (b ? Math.round(100 * a / b) : 0);
       console.log(`[${v.seed}] t=${L.t}s living ${L.living}: jelly ${L.jellyCells} cells (${pc(L.jellyCells, L.producers)}% of producers, ${L.jellySpecies} sp, ${L.jellyBodies} bodies)`
         + ` | piercers ${L.piercers} (${pc(L.piercers, L.eaters)}% of eaters, ${L.pierceSpecies} sp), hungry ${L.hungryPiercers}`
-        + ` | crossing a hull: hungry piercers ${L.inside.hungry}, fed piercers ${L.inside.piercer}, others ${L.inside.other} (producers ${L.inside.otherProducer}; ${L.inside.deep} over a quarter in, median ${L.inside.depthMed}; ${JSON.stringify(L.inside.why || {})})`);
+        + ` | crossing a hull: hungry piercers ${L.inside.hungry}, fed piercers ${L.inside.piercer}, others ${L.inside.other} (producers ${L.inside.otherProducer}; ${L.inside.deep} over a quarter in, median ${L.inside.depthMed}; ${JSON.stringify(L.inside.why || {})}) | eaters' speed by a wall ${L.speed.nearMed} (p90 ${L.speed.nearP90}, ${L.speed.near}), anywhere ${L.speed.allMed} (p90 ${L.speed.allP90})`);
       if (v.out) fs.writeFileSync(v.out, JSON.stringify({ n: config.n, k: config.k, seed: config.seed, step: config.step, looks }));
     } },
   });

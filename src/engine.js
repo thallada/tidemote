@@ -1855,8 +1855,9 @@ class Engine {
       run('scatterMain', wg);
       run('censusMain', Math.ceil(MAXK / 256));
       run('matterMain', wg);
-      run('contactMain', null);
+      // (the keepers listed before contact, which a jelly wall reads: bondBackMain reads only kinds and bonds)
       run('bondBackMain', null);
+      run('contactMain', null);
       run(this.ticks > 1 ? 'senseMainCoarse' : 'senseMain', null);
       if (part === 1) { if (!prof) pass.end(); return; }
     } else if (!prof) pass = enc.beginComputePass({ timestampWrites });
