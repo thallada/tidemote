@@ -664,7 +664,7 @@ class Engine {
       reproj: rpLive(this.postModule, 'vsFull', 'fsReproj', 'triangle-list', undefined, false),
       tube: defer(rpLiveDesc(this.drawModule, 'vsTube', 'fsTubeLive', 'triangle-strip', trail, true, { SHAPE_ATLAS: 0 }), false, (p) => { this.main.tube = p; }),
       // a jelly envelope's rim, over the tiles of the view its field reaches (vsJellyTile, fsJellyRim, _jellyField)
-      jelly: defer(rpLiveDesc(this.drawModule, 'vsJellyTile', 'fsJellyRim', 'triangle-strip', trail, false), false, (p) => { this.main.jelly = p; }, true),
+      jelly: defer(rpLiveDesc(this.drawModule, 'vsJellyTile', 'fsJellyRim', 'triangle-strip', trail, true), false, (p) => { this.main.jelly = p; }, true),
     };
     // a jelly envelope's field: its cells' kernels added at a quarter of a view's size each way (_jellyField), each view's
     // with the frames its tiles were reached (JELLY_TILE in DRAW_WGSL) and the stamp of the last

@@ -8530,7 +8530,9 @@ fn jellyNearest(x: vec2f, u: vec2f, v: vec2f) -> vec2f {
 // The hull, over the view: how far the pixel lies inside the level line, in pixels, from the field and its gradient
 // (read between the field's texels). From afar a faint cloud with a soft edge, brightest toward it (the limb) and
 // lighter toward the light; close up a hairline at the edge, lit on its flank toward the light, a faint glow inside.
-@fragment fn fsJellyRim(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+// (The hairline's light goes to the living's layer too, uncovered: the composite keeps it sharp over a pile of stone,
+// which it softens where nothing living lies over it (fsStoneLit, lensScene), and over the water nothing changes.)
+@fragment fn fsJellyRim(@builtin(position) pos: vec4f) -> PointOut {
   let f = textureSampleLevel(jellyField, jellySamp, pos.xy / view.res, 0.0);
   if (f.x < JELLY_LEVEL * 0.3) { discard; }
   let slope = max(length(f.yz), 1e-3);
@@ -8551,14 +8553,17 @@ fn jellyNearest(x: vec2f, u: vec2f, v: vec2f) -> vec2f {
   }
   // (the rim: a hairline, wider close up)
   var rim = 0.0;
+  var hairline = 0.0;
   if (toRim > 0.0) {
     let hair = clamp(view.ppu * 0.0016, 0.75, 2.2);
     let line = exp(-s * s / (hair * hair));
     let glow = select(0.0, exp(-(f.x - level) / 0.25), s > 0.0);
-    rim = 0.22 * line * lit + 0.03 * glow;
+    hairline = 0.22 * line * lit;
+    rim = hairline + 0.03 * glow;
   }
   let fade = clamp(f.w / f.x, 0.0, 1.0) * smoothstep(${f(JELLY_FROM)}, JELLY_FULL, view.ppu);
-  return vec4f(JELLY_TINT * (view.pointGain * fade * mix(cloud, rim, toRim)), 0.0);
+  let gain = JELLY_TINT * (view.pointGain * fade);
+  return PointOut(vec4f(gain * mix(cloud, rim, toRim), 0.0), vec4f(gain * (hairline * toRim), 0.0));
 }
 
 // Reef stone and bedrock. Each grain is a cobble, an irregular dome; where cobbles overlap the higher
@@ -9743,7 +9748,10 @@ struct LitOut { @location(0) scene: vec4f, @location(1) pile: vec4f };
   let t = textureLoad(src, vec2i(i.pos.xy), 0);
   let l = textureLoad(liveTex, vec2i(i.pos.xy), 0);
   let cells = cellShare(t, l);
-  return LitOut(overCells(t, l, textureSampleLevel(stoneCacheTex, samp, cuv, 0.0).rgb, cells), vec4f(min(1.0, t.a) * cells, 0.0, 0.0, pile));
+  // (and the living's light that covers nothing, a jelly's hairline or a far cell's splat, as in focus: lensScene
+  // leaves it sharp over the pile rather than blurring it with the grains)
+  let lit = select(0.0, 1.0, l.a <= 0.0 && max(l.r, max(l.g, l.b)) > 1e-4);
+  return LitOut(overCells(t, l, textureSampleLevel(stoneCacheTex, samp, cuv, 0.0).rgb, cells), vec4f(max(min(1.0, t.a) * cells, lit), 0.0, 0.0, pile));
 }
 // (the scene alone, where the composite reads no pile: its focus deep in a pile is for views past lensScene's start)
 @fragment fn fsStoneLitScene(i: VO) -> @location(0) vec4f {
