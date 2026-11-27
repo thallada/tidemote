@@ -219,6 +219,7 @@ export const DEFAULT_K = {
                     // kind's middle (a hole within, none); an inner cell after a moving hole of its kind within tearSpillReach, out
                     // through it; the body's edge kept (its hull's shape)...
   tearSpillReach: 0.8,
+  tearSpillSpeed: 0.4, // ...pushed only while slower than this (world units a second): an ooze, not cells thrown out
   tearFade: 30,     // ...its jelly withering away over this many seconds (drawn: the hull thinning to nothing; DEFAULT_K's)...
   tearHeal: 60,     // ...till, this many seconds torn and bonded to its kind, it grows jelly again (over 10 s, then a wall; at most 117)
   sheathPlants: 1,  // a jelly holds off other producers' cells too (0: only animals', the producers of two species pass as plain cells)
@@ -1261,8 +1262,8 @@ ${K.tearSpread > 0 ? `      if ((q.kr & JELLY_PIERCE) != 0u && qk != p.kind && r
   // a cell answers its neighbors as a whole, not each one in full: past socialN within reach the pair
   // forces are averaged, so a crowd drives a cell no harder than a neighborhood does
 ${K.tearSpread > 0 ? `  // (a wall's cell only: a jelly torn is no wall)
-  // (or the needle's anywhere in its jelly: within a bond's reach of the cell, as the jelly spans its bonds: needleAt)
-  pierced = (sortedLite[i].kr & JELLY_WALL) != 0u && (tear >= 1e4 || needleAt(p.pos, max(myR + ${f(K.sheathGap)}, LINK_R)));
+  // (or the needle's prick: its point within a fifth of a unit, or its stroke across the cell: needleAt)
+  pierced = (sortedLite[i].kr & JELLY_WALL) != 0u && (tear >= 1e4 || needleAt(p.pos, max(myR + ${f(K.sheathGap)}, 0.2)));
   rend = pierced || ((sortedLite[i].kr & JELLY_WALL) != 0u && tear > 0.0 && rnd(&s) < tear * ${f(K.tearSpread)} * sim.dt);
 ` : ''}  let social = ${f(K.socialN)} / max(${f(K.socialN)}, nIn * stride);
   force *= social; jF *= social;
@@ -3582,11 +3583,14 @@ ${K.tearSpread > 0 ? `      if (spill && (q.kr & JELLY_HOLE) != 0u && (q.kr & 10
   // goes (a hole within its body still, none follow it), so the inside streams out behind it; the edge stays.
   if (spill) {
     let mid = select(vec2f(0.0), pullAt.xy / max(pullAt.z, 1.0), pullAt.z > 0.0);
+    // (eased off as it nears tearSpillSpeed: a steady ooze; pushed at full strength whatever its speed, every new tear
+    // a held needle made shot cells out about it)
+    let ease = clamp(1.0 - length(p.vel) * ${f(1 / K.tearSpillSpeed)}, 0.0, 1.0);
     let edge = clamp(length(mid) * ${f(1 / (0.35 * K.tearSpillReach))} - 0.25, 0.0, 1.0);
-${K.tearSpread > 0 ? `    if ((sortedLite[i].kr & JELLY_HOLE) != 0u) { push -= dirz(mid) * (${f(K.tearSpill)} * edge); }
+${K.tearSpread > 0 ? `    if ((sortedLite[i].kr & JELLY_HOLE) != 0u) { push -= dirz(mid) * (${f(K.tearSpill)} * edge * ease); }
     else if (holeN > 0.0) {
       let hv = holeAt.zw / holeN;
-      push += dirz(holeAt.xy / holeN + hv) * (${f(K.tearSpill)} * (1.0 - edge) * min(1.0, length(hv) * 10.0));
+      push += dirz(holeAt.xy / holeN + hv) * (${f(K.tearSpill)} * (1.0 - edge) * min(1.0, length(hv) * 10.0) * ease);
     }
 ` : ''}  } else if (pullAt.z > 0.0) {
     let mid = pullAt.xy / pullAt.z;
