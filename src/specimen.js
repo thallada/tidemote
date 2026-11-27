@@ -1,4 +1,4 @@
-import { roleShares, roleColor, affinity, CELL_SHAPES, cellShape, thermalPerf, thermalGuild, divEnergy, growPlan, describeGrowth, hasTails, sheathOf, pierceOf } from './genome.js';
+import { roleShares, roleColor, affinity, CELL_SHAPES, cellShape, thermalPerf, thermalGuild, divEnergy, growPlan, describeGrowth, hasTails, sheathOf, pierceOf, bondKindLike, BOND_KINDS } from './genome.js';
 import { FIRST_LIFE } from './engine.js';
 import { FRAMBOID, CYST, stoneGrain } from './shaders.js';
 import { tagsOf } from './facets.js';
@@ -14,6 +14,13 @@ import { belowRange } from './mind.js';
 import { block, kv, trait, section, subHead } from './ui.js';
 import { setHTML } from './live.js';
 import { tr } from './i18n.js';
+
+// what a bonded species' bonds are drawn as (bondKindLike, BOND_KINDS; docs/look.md, Bonds), as the Body block names it
+const BOND_NAME = {
+  wall: tr('spec.bond.wall', 'shared walls'), bridge: tr('spec.bond.bridge', 'bridges'), thread: tr('spec.bond.thread', 'glass threads'),
+  pad: tr('spec.bond.pad', 'gel pads'), hypha: tr('spec.bond.hypha', 'hyphae'), stalk: tr('spec.bond.stalk', 'stalks'),
+  net: tr('spec.bond.net', 'pseudopod nets'), jelly: tr('spec.bond.jelly', 'jelly'),
+};
 
 /**
  * The specimen panel: whatever was picked in the world (a cell, a grain) or opened by name (a species).
@@ -423,11 +430,18 @@ export function createSpecimen(api) {
     let b = comp(tr('spec.body.plan', 'Body plan'), 'bodyplan', sh, g, tr('spec.body.plan.hint', 'Of every 100 cells it grows: {mix}.', { mix: [0, 1, 2].filter((r) => sh[r] > 0.0005).map((r) => `${(sh[r] * 100).toFixed(sh[r] < 0.01 ? 1 : 0)} ${ROLE[r]}`).join(', ') }));
     // i18n: {p} a percentage; {bonds} yes when it is sticky enough to bond
     b += trait(tr('spec.body.adhesion', 'Adhesion'), g.adhesion || 0, 0, 1, tr('spec.body.adhesion-value', '{p}%{bonds, select, yes { · bonds} other {}}', { p: Math.round((g.adhesion || 0) * 100), bonds: (g.adhesion || 0) > K.adhMin ? 'yes' : 'no' }), 'adhesion');
-    if ((g.adhesion || 0) > K.adhMin) b += kv(tr('spec.body.growth', 'Growth'), describeGrowth(growPlan(g, K), g, K), 'growth');
+    if ((g.adhesion || 0) > K.adhMin) {
+      b += kv(tr('spec.body.growth', 'Growth'), describeGrowth(growPlan(g, K), g, K), 'growth');
+      // its bonds' kind, and its tails' where they differ (a tail's cell: branch order 2 in its info word)
+      const main = BOND_KINDS[bondKindLike(g, g, 0, 0, K)];
+      const tails = !growPlan(g, K) && hasTails(g, K) ? BOND_KINDS[bondKindLike(g, g, 2 ** 31, 2 ** 31, K)] : main;
+      // i18n: what a bonded species' bonds are: {kind} its body's (shared walls, bridges, jelly...), {tails} its tails'
+      b += kv(tr('spec.body.bonds', 'Bonds'), tails !== main ? tr('spec.body.bonds-tails', '{kind}, tails of {tails}', { kind: BOND_NAME[main], tails: BOND_NAME[tails] }) : BOND_NAME[main], 'bond');
+    }
     if (g.calcify > 0.005) b += trait(tr('spec.body.calcify', 'Calcifying'), g.calcify, 0, 1, `${Math.round(g.calcify * 100)}%`, 'calcify');
     // a producer's jelly (a wall to strangers' cells) or an eater's piercing of one (docs/ecosystem.md, Jelly)
     if (sheathOf(g)) b += kv(tr('spec.body.jelly', 'Jelly'), (g.adhesion || 0) > K.adhMin && !growPlan(g, K) && ((g.adhesion || 0) - K.tightFrom) / K.tightSpan <= 0.9 ? tr('spec.body.jelly-value', 'lives in jelly that keeps strangers out') : tr('spec.body.jelly-latent', 'makes jelly, but no body to fill'), 'jelly');
-    else if (pierceOf(g)) b += kv(tr('spec.body.pierce', 'Pierces jelly'), tr('spec.body.pierce-value', 'bursts into jelly bodies when hungry'), 'jelly');
+    else if (g.photo <= 0.4) b += kv(tr('spec.body.pierce', 'Pierces jelly'), pierceOf(g) ? tr('spec.body.pierce-value', 'yes: bursts in when hungry, tearing it open') : tr('spec.body.pierce-no', 'no'), 'jelly');
     b += trait(tr('spec.body.size', 'Size'), g.size, 0.45, 2.6, fmtLen(0.17 * g.size), 'size');
     b += kv(tr('spec.body.shape', 'Shape'), CELL_SHAPES[cellShape(g, role)], 'size');
     h += blk(tr('spec.body', 'Body'), b);

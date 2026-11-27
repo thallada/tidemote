@@ -212,9 +212,9 @@ export const DEFAULT_K = {
   sheathCost: 0.008, // upkeep of a producer making its jelly (× metab)
   pierceCost: 0.008, // upkeep of an eater able to pierce jelly (× metab)
   sheathLeak: 0,    // the chance each step that an eater unable to pierce a jelly may still bite its cells in reach (a sheath slows grazers, it does not stop them; 0 compiled out)
-  tearSpread: 0.6,  // a hungry piercer at a jelly's hull tears it there (the cell's wall and pull gone, drawn a hole), and a fresh tear spreads
+  tearSpread: 0.08, // a hungry piercer at a jelly's hull tears it there (the cell's wall and pull gone, drawn a hole), and a fresh tear spreads
                     // to the jelly of its kind within a bond's reach at this rate a second each (0: a piercer passes without tearing)...
-  tearFade: 0.5,    // ...till the torn cell's jelly dissolves into the water at this rate a second (spreading no further; drawn: none)
+  tearFade: 0.15,   // ...till the torn cell's jelly dissolves into the water at this rate a second (spreading no further; drawn: none)
   sheathPlants: 1,  // a jelly holds off other producers' cells too (0: only animals', the producers of two species pass as plain cells)
   foundJelly: 1,    // the share of founders and sparks with the jelly gene, × theirs (0: none, so it must arise by mutation)
   searchImage: 0.7, // chance a hunter or grazer misses living prey unlike its last catch
