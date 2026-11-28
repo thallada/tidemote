@@ -135,9 +135,13 @@ only eaters able to pierce it get in.
     field (`JELLY_FX`, into a second target the rim reads, `jellyFx`) draws the gel welling out of each opening (about
     each pierced cell) for `FLUID_T` (3 s), spreading and thinning (once a plume after every torn cell too, which
     trailed the cells thrown off and looked wrong); the rim
-    draws it as a haze brightest where it thins (`FLUID_FILL`, `FLUID_EDGE`). A torn cell with no partner (its body
-    come apart) draws its own gel about it. The jelly keeps its outline but withers: drawn at `jellyAmp`, whole for
-    1.5 s, then fading over `tearFade` (30 s).
+    draws it as a haze brightest where it thins (`FLUID_FILL`, `FLUID_EDGE`). Once torn, a jelly is no membrane but a
+    remnant: it holds nothing out, and it is drawn where it burst, not after its cells: each torn cell's gel a disc
+    (`REMNANT` times its kernel's reach, so a body's run together as its hull did) at its anchor, the place its record
+    (`contactGather`, by id, `Sway.anchor`) first saw it torn, held through the surge and then carried as its cell goes,
+    with the water, wavering a little (`jellyAnchor`); the hole and the fluid there too. (Drawn after its cells and
+    partners, a remnant wrapped each cell thrown out alone, then all of them again as they bonded.) It withers at once:
+    drawn at `jellyAmp`, whole for 0.3 s (the flash), then fading over `tearFade` (20 s).
   - **Regrowth.** After `tearHeal` (60 s) a torn cell bonded to its kind grows jelly again, drawn fading in over
     10 s, and is then a wall (its clock held at `tearHeal` while it has no kin bonded).
   - (First each torn cell's jelly vanished on its own at a rate, and the tear spread cell by cell: a body went in

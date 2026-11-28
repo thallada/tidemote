@@ -3110,7 +3110,8 @@ class Engine {
     }
     if (s.jelly.j !== j) {
       s.jelly.j = j;
-      const entries = [[0, viewBuf], [1, b.parts], [2, b.genomes], [3, b.intent], [4, b.livingList], [5, b.focus], [6, b.bondsIn], [11, b.thermal],
+      // (9: the records, where a torn jelly's remnant is drawn, jellyAnchor)
+      const entries = [[0, viewBuf], [1, b.parts], [2, b.genomes], [3, b.intent], [4, b.livingList], [5, b.focus], [6, b.bondsIn], [9, b.sway], [11, b.thermal],
         [12, this.cull[k].segs], [31, j.tiles]].map(([binding, buffer]) => ({ binding, resource: { buffer } }));
       s.jelly.bg = d.createBindGroup({ layout: this.pJellyField.getBindGroupLayout(0), entries });
       s.jelly.bgFx = d.createBindGroup({ layout: this.pJellyFluid.getBindGroupLayout(0), entries });
