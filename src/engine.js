@@ -16,7 +16,7 @@ const POST_LAMP = 104 + 4 * SEA_CASCADES;
 // the look's words (Post.look, src/look.js) after the hand's
 export const POST_LOOK = POST_LAMP + 16;
 // the draw's view uniforms (struct View in DRAW_WGSL), the world's light at their end
-export const VIEW_BYTES = 320;
+export const VIEW_BYTES = 336;
 // then the murk's cameras (Post.murk, murkB: _murkCam)
 const POST_MURK = POST_LOOK + LOOK_WORDS;
 // then the water's edge's phases (Post.edgePh)
@@ -155,6 +155,9 @@ export function viewWords(data, K, { cam, W, H, dpr, time, selId, detail = true,
   // the needle pressed into the water: its point, and its shaft's way and length in the water (zero when not pressed:
   // the hand's words, Hand.needle), where a jelly opens about it (vsJellyField's NEEDLE_II)
   v.set(w.hand.subarray(28, 32), 76);
+  // the simulation's clock at the last step's end (sim.time), and the moment drawn against it (a jelly's burst drawn
+  // smoothly between its clock's counts: tearDrawn)
+  v[80] = w.simT ?? 0; v[81] = w.shownLag ?? 0;
 }
 
 class Engine {
@@ -671,7 +674,12 @@ class Engine {
     };
     // a jelly envelope's field: its cells' kernels added at a quarter of a view's size each way (_jellyField), each view's
     // with the frames its tiles were reached (JELLY_TILE in DRAW_WGSL) and the stamp of the last
-    this.pJellyField = defer(rpDesc(this.drawModule, 'vsJellyField', 'fsJellyField', 'triangle-strip', additive, 'rgba16float'), false, (p) => { this.pJellyField = p; }, true);
+    // (two targets: the field, and a burst's fluid and flash, JFOut; drawn again with JELLY_FX for the fluid)
+    const fieldDesc = (fx) => ({ ...rpDesc(this.drawModule, 'vsJellyField', 'fsJellyField', 'triangle-strip', additive, 'rgba16float', fx ? { JELLY_FX: 1 } : {}),
+      fragment: { module: this.drawModule, entryPoint: 'fsJellyField', targets: [{ format: 'rgba16float', blend: additive }, { format: 'rgba16float', blend: additive }], constants: fx ? { JELLY_FX: 1 } : {} },
+      vertex: { module: this.drawModule, entryPoint: 'vsJellyField', constants: fx ? { JELLY_FX: 1 } : {} }, label: fx ? 'jellyFluid' : 'fsJellyField' });
+    this.pJellyField = defer(fieldDesc(false), false, (p) => { this.pJellyField = p; }, true);
+    this.pJellyFluid = defer(fieldDesc(true), false, (p) => { this.pJellyFluid = p; }, true);
     this.jelly = [null, null, null];
     this._jellyStamp = 0;
     // the studio's cells alone (a portrait), in the close-up's pass, leaving its living target clear
@@ -2494,6 +2502,7 @@ class Engine {
       this._lerpN = lerpN;
     }
     const shownTime = this.simTime - (lerpN ? (1 - Math.min(1, Math.max(0, this.lerp))) * this.dt : 0);
+    this._shownLag = shownTime - this.simTime;
 
     // ---- picking
     let pickJob = null;
@@ -3001,7 +3010,7 @@ class Engine {
     viewWords(data, this.K, { cam, W, H, dpr, time, selId, detail, culled, splat, lit, split, crumble, trails }, {
       grid: this.grid, exposure: this.settings.exposure, focus: this.focus, level: this.K.pond ? this.level : 1,
       interiors: this.fx.interiors, tide: this.tide, tidePh: clk.tidePh, season: this.season, ambient: this.ambient,
-      sky: this.K.pond ? this.sky : 1, t: clk.t, hand: this.hand, wraps: Math.floor(this.simTime / SIM_CLOCK) });
+      sky: this.K.pond ? this.sky : 1, t: clk.t, hand: this.hand, wraps: Math.floor(this.simTime / SIM_CLOCK), simT: clk.t, shownLag: this._shownLag ?? 0 });
     this.device.queue.writeBuffer(buf, 0, data);
   }
 
@@ -3080,35 +3089,45 @@ class Engine {
     const d = this.device, v = new Float32Array(data), u = new Uint32Array(data), s = this.sceneBG[k], b = this.b;
     s.jelly ??= { on: false, bg: null };
     s.jelly.on = false;
-    if (!this.settings.links || u[20] !== 1 || v[6] < JELLY_FROM || !this.pJellyField || !this.main.jelly) return;
+    if (!this.settings.links || u[20] !== 1 || v[6] < JELLY_FROM || !this.pJellyField || !this.pJellyFluid || !this.main.jelly) return;
     // (an eighth from close up, where a kernel spans hundreds of pixels and the field is smooth over many texels)
     const step = v[6] >= 400 ? 8 : 4, w = Math.ceil(v[4] / step), h = Math.ceil(v[5] / step);
     let j = this.jelly[k];
     const viewBuf = [b.view, b.viewL, b.viewS][k];
     if (!j || j.w !== w || j.h !== h) {
-      j?.tex.destroy(); j?.tiles.destroy();
+      j?.tex.destroy(); j?.fx.destroy(); j?.tiles.destroy();
       const tex = d.createTexture({ size: [w, h], format: 'rgba16float', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING, label: 'jelly' });
       const view = tex.createView();
+      // (a burst's fluid and flash: JFOut's second target, the rim's jellyFx)
+      const fx = d.createTexture({ size: [w, h], format: 'rgba16float', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING, label: 'jellyFx' });
+      const fxView = fx.createView();
       // (JELLY_TILE in DRAW_WGSL)
       const cols = Math.ceil(w / 8), rows = Math.ceil(h / 8);
       const tiles = d.createBuffer({ size: cols * rows * 4, usage: U.STORAGE, label: 'jellyTiles' });
-      j = this.jelly[k] = { w, h, tex, view, cols, rows, tiles, rim: d.createBindGroup({ layout: this.main.jelly.getBindGroupLayout(0), entries: [
-        { binding: 0, resource: { buffer: viewBuf } }, { binding: 29, resource: view }, { binding: 30, resource: this.sampler }, { binding: 32, resource: { buffer: tiles } }] }) };
+      j = this.jelly[k] = { w, h, tex, view, fx, fxView, cols, rows, tiles, rim: d.createBindGroup({ layout: this.main.jelly.getBindGroupLayout(0), entries: [
+        { binding: 0, resource: { buffer: viewBuf } }, { binding: 29, resource: view }, { binding: 30, resource: this.sampler }, { binding: 32, resource: { buffer: tiles } },
+        { binding: 33, resource: fxView }] }) };
     }
     if (s.jelly.j !== j) {
       s.jelly.j = j;
-      s.jelly.bg = d.createBindGroup({ layout: this.pJellyField.getBindGroupLayout(0), entries: [[0, viewBuf], [1, b.parts], [2, b.genomes],
-        [3, b.intent], [4, b.livingList], [5, b.focus], [6, b.bondsIn], [11, b.thermal], [12, this.cull[k].segs], [31, j.tiles]]
-        .map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
+      const entries = [[0, viewBuf], [1, b.parts], [2, b.genomes], [3, b.intent], [4, b.livingList], [5, b.focus], [6, b.bondsIn], [11, b.thermal],
+        [12, this.cull[k].segs], [31, j.tiles]].map(([binding, buffer]) => ({ binding, resource: { buffer } }));
+      s.jelly.bg = d.createBindGroup({ layout: this.pJellyField.getBindGroupLayout(0), entries });
+      s.jelly.bgFx = d.createBindGroup({ layout: this.pJellyFluid.getBindGroupLayout(0), entries });
     }
     // (a stamp of this frame's, never 0, which a new tile holds; View's jellyStamp and jellyCols)
     this._jellyStamp = (this._jellyStamp % 0xfffffffe) + 1;
     d.queue.writeBuffer(viewBuf, 73 * 4, new Uint32Array([this._jellyStamp, j.cols]));
-    const pass = enc.beginRenderPass({ colorAttachments: [{ view: j.view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
+    const pass = enc.beginRenderPass({ colorAttachments: [{ view: j.view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' },
+      { view: j.fxView, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
+    const all = () => { if (u[21] === 1) pass.drawIndirect(this.cull[k].args, 16); else pass.drawIndirect(b.frameCtr, 16); };
     pass.setPipeline(this.pJellyField); pass.setBindGroup(0, s.jelly.bg);
-    if (u[21] === 1) pass.drawIndirect(this.cull[k].args, 16); else pass.drawIndirect(b.frameCtr, 16);
+    all();
     // (and the needle pressed in, a hole about its point: one more instance, NEEDLE_II in DRAW_WGSL)
     if (this.hand[30] !== 0 || this.hand[31] !== 0) pass.draw(4, 1, 0, 0x7fffffff);
+    // (a burst's fluid: each torn cell's, the same cells again, JELLY_FX)
+    pass.setPipeline(this.pJellyFluid); pass.setBindGroup(0, s.jelly.bgFx);
+    all();
     pass.end();
     s.jelly.on = true;
   }

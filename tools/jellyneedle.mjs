@@ -67,7 +67,7 @@ if (v.poke) {
   const bodies = new Map(); for (const i of jl) { const r = find(i); (bodies.get(r) || bodies.set(r, []).get(r)).push(i); }
   const dir = [0.86, 0.51];
   for (const b of bodies.values()) {
-    if (b.length < 40 || b.length > 160) continue;
+    if (b.length < +(v.minCells || 40) || b.length > +(v.maxCells || 160)) continue;
     const x0 = pf[b[0] * PW], y0 = pf[b[0] * PW + 1];
     let cx = 0, cy = 0; for (const i of b) { cx += wrap(pf[i * PW] - x0, W); cy += wrap(pf[i * PW + 1] - y0, H); }
     cx = x0 + cx / b.length; cy = y0 + cy / b.length;
@@ -167,7 +167,23 @@ if (v.video) {
       globalThis.lastPos = pos;
     }
     // (after the prick the camera follows the body, by the cell nearest its middle, as the water carries it)
-    if (poke && !v.edge && !v.hold && k > strokeN) {
+    // (--fixed 1: the torn and pierced cells near, and how fast the torn ones go, against the cells about them, each second)
+    if (poke && v.fixed && k > strokeN && k % Math.round(fps / 2) === 0) {
+      const st = await page.evaluate(async (at) => {
+        const res = await globalThis.__tidemote.eng.requestPick(at, 3, 0xffffffff, { maxOut: 20000, raw: true });
+        const { u32, f32, count } = res.raw;
+        let torn = 0, pierced = 0, vT = 0, vO = 0, nO = 0, gen = 0;
+        for (let i = 0; i < count; i++) {
+          if (u32[i * 12 + 4] < 5) continue;
+          const info = u32[i * 12 + 9], sp = Math.hypot(f32[i * 12 + 2], f32[i * 12 + 3]);
+          if (info & (1 << 30)) { torn++; vT += sp; gen += (info >>> 16) & 255; if (info >>> 31) pierced++; } else { vO += sp; nO++; }
+        }
+        return { torn, pierced, vT: torn ? vT / torn : 0, vO: nO ? vO / nO : 0, gen: torn ? gen / torn : 0 };
+      }, [poke.ex, poke.ey]);
+      console.log(`t=${(k / fps).toFixed(1)} s: ${st.torn} torn (clock ${st.gen.toFixed(1)}), ${st.pierced} pierced; torn moving ${st.vT.toFixed(3)} u/s, others ${st.vO.toFixed(3)}`);
+    }
+    // (--fixed 1: the camera held where it was)
+    if (poke && !v.edge && !v.hold && !v.fixed && k > strokeN) {
       const now = await page.evaluate(async ([id, at]) => {
         const res = await globalThis.__tidemote.eng.requestPick(at, 3, 0xffffffff, { maxOut: 20000, raw: true });
         const { u32, f32, count } = res.raw;
