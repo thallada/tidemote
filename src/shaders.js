@@ -219,13 +219,12 @@ export const DEFAULT_K = {
                     // cell tears each of its kind's walls within a bond's reach at this rate a second (0: a piercer passes without tearing;
                     // 15: a body of 40 bursts in about half a second, an event, where 2 crept through it).
                     // A torn cell is no wall (any cell passes), its pull gone...
-  tearSpill: 0.25,  // ...for its first 10 s spilling (this of a full overlap's push): where it was pierced on its body's edge, out from its
-                    // kind's middle (a hole within, none); an inner cell after a moving hole of its kind within tearSpillReach, out
-                    // through it; the body's edge kept (its hull's shape)...
+  tearSpill: 0.25,  // ...for its first 10 s spilling (this of a full overlap's push): a cell near a hole of its kind within tearSpillReach
+                    // (where it was pierced: the opening, which stays) after it as it moves, and in the burst to it and out through it...
   tearSpillReach: 0.8,
   tearSpillSpeed: 0.4, // ...pushed only while slower than this (world units a second): an ooze, not cells thrown out...
-  tearSurge: 6,     // ...but in the burst's first moments pushed 1 + this times as hard and to 1 + this times as fast, easing to the ooze
-                    // over 2.5 s: the contents surge out
+  tearSurge: 4,     // ...but in the burst's first moments pushed 1 + this times as hard (6, to 2.8 a second, threw cells off, ricocheting far)...
+  tearSurgeSpeed: 1.0, // ...and up to this fast (world units a second), easing to the ooze over 2.5 s: the contents surge out
   tearFade: 30,     // ...its jelly withering away over this many seconds (drawn: the hull thinning to nothing; DEFAULT_K's)...
   tearHeal: 60,     // ...till, this many seconds torn and bonded to its kind, it grows jelly again (over 10 s, then a wall; at most 117)
   sheathPlants: 1,  // a jelly holds off other producers' cells too (0: only animals', the producers of two species pass as plain cells)
@@ -562,7 +561,7 @@ export const SIM_CLOCK = 32768;
 // A jelly's tear's clock (COMMON's JELLY_FAST...): fastN counts at fast a second, then slow a second; the marks, in seconds
 // since the tear: spilling till, drawn whole till (then withering over K.tearFade), surging till (K.tearSurge: bonds let go,
 // pushed out harder)
-export const TEAR_CLOCK = { fast: 8, fastN: 24, slow: 2, spill: 10, whole: 1.5, surge: 2.5, out: 0.3 };
+export const TEAR_CLOCK = { fast: 8, fastN: 24, slow: 2, spill: 10, whole: 1.5, surge: 2.5, out: 0.4 };
 // the clock's count s seconds after a tear
 export const tearCount = (s) => Math.round(s <= TEAR_CLOCK.fastN / TEAR_CLOCK.fast ? s * TEAR_CLOCK.fast : TEAR_CLOCK.fastN + (s - TEAR_CLOCK.fastN / TEAR_CLOCK.fast) * TEAR_CLOCK.slow);
 // the water's edge's wavering (edgeSway): its three waves' angular frequencies (radians a second), whose phases the
@@ -3648,10 +3647,11 @@ ${K.tearSpread > 0 ? `      if (spill && (q.kr & JELLY_HOLE) != 0u && (q.kr & 10
     // the hole moving or not)
     let sk = ${f(K.tearSurge > 0 ? 1 : 0)} * (1.0 - smoothstep(0.3, ${f(TEAR_CLOCK.surge)}, tearSecs(genOf(p.info), 0.0)));
     let surge = 1.0 + ${f(K.tearSurge)} * sk;
-    let ease = clamp(1.0 - length(p.vel) * ${f(1 / K.tearSpillSpeed)} / surge, 0.0, 1.0);
+    let ease = clamp(1.0 - length(p.vel) / (${f(K.tearSpillSpeed)} + ${f(K.tearSurgeSpeed - K.tearSpillSpeed)} * sk), 0.0, 1.0);
     let edge = clamp(length(mid) * ${f(1 / (0.35 * K.tearSpillReach))} - 0.25, 0.0, 1.0);
-${K.tearSpread > 0 ? `    if ((sortedLite[i].kr & JELLY_HOLE) != 0u) { push -= dirz(mid) * (${f(K.tearSpill)} * surge * max(edge, sk) * ease); }
-    else if (holeN > 0.0) {
+    // (a pierced cell is the opening: it stays, the rest pour out past it, and the fluid pours from it, not after
+    // cells thrown off)
+${K.tearSpread > 0 ? `    if ((sortedLite[i].kr & JELLY_HOLE) == 0u && holeN > 0.0) {
       let h = holeAt.xy / holeN;
       let hv = holeAt.zw / holeN;
       // (at the opening, out through it, away from its kind's middle; else after it)
@@ -8634,8 +8634,8 @@ fn jellyPartners(i: u32) -> vec2u {
   o.amp = amp;
   return o;
 }
-// A torn cell's fluid (JELLY_FX's pass): a soft disc about it, from twice its radius growing to three times that over
-// FLUID_T s as it thins; a pierced cell's (the opening's) stronger and carried out the way it goes
+// The opening's fluid (JELLY_FX's pass): about each pierced cell a soft disc, from 1.8 times its radius growing to 3.5
+// times that over FLUID_T s as it thins
 fn jellyFluid(vi: u32, ii: u32) -> JF {
   var o: JF;
   o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
@@ -8649,14 +8649,12 @@ fn jellyFluid(vi: u32, ii: u32) -> JF {
   let secs = tearDrawn(p.info);
   let k = 1.0 - smoothstep(0.15, FLUID_T, secs);
   if (k <= 0.0) { return o; }
-  let pierced = (p.info & JELLY_PIERCED) != 0u;
-  // (a pierced cell's a plume from the opening, growing as it is carried out the way the cell goes; any other torn
-  // cell's a faint trace about it, its gel loosening)
-  let r0 = 0.085 * (*g).size * select(1.4, 1.8, pierced);
-  let r = r0 * (1.0 + select(0.4, 2.5, pierced) * smoothstep(0.0, FLUID_T, secs));
+  // (the opening's alone: a pierced cell, which stays where it was pierced, the gel welling out about it and thinning)
+  if ((p.info & JELLY_PIERCED) == 0u) { return o; }
+  let r = 0.085 * (*g).size * 1.8 * (1.0 + 2.5 * smoothstep(0.0, FLUID_T, secs));
   // (rising from nothing over its first tenth of a second, so the burst comes on rather than appears)
-  let s = k * smoothstep(0.0, 0.12, secs) * select(0.12, 1.6, pierced);
-  let base = wrapd(p.pos + select(vec2f(0.0), dirz(p.vel) * min(length(p.vel), 1.0) * 0.35 * secs, pierced) - view.cam);
+  let s = k * smoothstep(0.0, 0.12, secs) * 1.6;
+  let base = wrapd(p.pos - view.cam);
   if (any(abs(base) - r > view.res * 0.5 / view.ppu)) { return o; }
   o.off = select(vec2f(-r), vec2f(r), vec2u(vi & 1u, vi >> 1u) == vec2u(1u));
   o.pos = toClip((base + o.off) * view.ppu);

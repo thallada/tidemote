@@ -106,25 +106,45 @@ only eaters able to pierce it get in.
   radius, weight `JELLY_HOLE_W` 1.6), so the hull tears open where it presses in, and inside the jelly a cavity with a
   rim of its own closes round it as it moves and feeds. In open water the field is below the level already, so
   nothing shows there (and the hole stamps no tile, so it costs no rim).
-- **The tear** (`K.tearSpread`, 2026-11-27): a hungry piercer at a wall cell's hull, or the needle (its point or its stroke
-  within `NEEDLE.tear`, 0.18, of the cell, just past the 0.12 it kills: `needleAt`; and while it is pressed in, the jelly
-  is opened about its point, `NEEDLE_HOLE`, so it is cut exactly where the finger or the cursor is), tears the jelly there, and the tear runs through the body:
-  each wall cell tears at `tearSpread` (2) a second for each fresh tear of its kind within a bond's reach (`senseMain`),
-  so a body is open in a few seconds. A torn cell is no wall: any cell passes it, and any grazer may eat it. While torn,
-  its generation's bits (`genOf`, read only by trees and tails, which are never jelly) are its clock, two counts a
-  second (`JELLY_CLOCK`, drawn at random each step so coarse steps keep time), and a daughter is born torn with her
-  mother, her clock going on (branch order 1, `JELLY_TORN`, bit 30 of the info word; bit 31, `JELLY_PIERCED`, the cell
-  a piercer or the needle tore). For its first 10 s (`TEAR_SPILL`; then `JELLY_PAD` 3, so `contactMain` reads it with
-  no load more) a torn cell spills: the pull that drew it toward its kind's middle pushes it out from there, `tearSpill`
-  (1.5) times as hard, so the colony pours out of its jelly. The jelly keeps its outline but withers: its kernels are
-  drawn at `jellyAmp`, whole for 2 s, then fading to nothing over `tearFade` (30 s), so the hull thins and shrinks
-  away; where it was pierced a hole (`TEAR_HOLE` 2.4 radii, at least `TEAR_HOLE_MIN` 0.2, whole at once: opened in steps
-  over the clock's counts, its edge jumped) stays while it withers. After `tearHeal`
-  (60 s) a torn cell bonded to its kind grows jelly again, drawn fading in over 10 s, and is then a wall (its clock
-  held at `tearHeal` while it has no kin bonded). (First each torn cell's jelly vanished on its own at a rate, and the
-  tear spread cell by cell: at 0.6 and 0.5 a second a body went in seconds, drawn as if it never were; slowed, holes
-  widened slowly but the jelly still disappeared in pieces.) `tools/jellylab.mjs` counts torn, pierced and regrowing
-  cells; `tools/jellyneedle.mjs` strokes the needle across a saved world's biggest jelly body and photographs it.
+- **The tear** (`K.tearSpread`, 2026-11-27; a burst since 2026-11-28): a hungry piercer at a wall cell's hull, or the
+  needle (its point or its stroke within `NEEDLE.tear`, 0.18, of the cell: `needleAt`; the needle tears a jelly body's
+  cells rather than killing them, `jellyBody` in `resolveCount`, so the contents survive to spill; and while it is
+  pressed in the jelly is opened about its point, `NEEDLE_HOLE`, so it is cut exactly where the finger or cursor is),
+  tears the jelly there, and the tear sweeps the body: each wall cell tears at `tearSpread` (15) a second for each fresh
+  tear of its kind within a bond's reach (`senseMain`), so a body of 40 bursts in about half a second (at 2 it crept
+  through, and nothing marked the moment). A torn cell is no wall: any cell passes it, any grazer may eat it.
+  - **The clock.** While torn, a cell's generation bits (`genOf`, read only by trees and tails, never jelly) are its
+    clock, and a daughter is born torn with her mother, her clock going on (branch order 1, `JELLY_TORN`, bit 30 of
+    the info word; bit 31, `JELLY_PIERCED`, the cell a piercer or the needle tore). It counts the simulation's own
+    ticks of it (`tearRate`: 8 a second for its first 24 counts, then 2; `TEAR_CLOCK`, `tearCount`), the same for every
+    cell, so the drawing knows the time since the tear between counts (`tearDrawn`, from the view's `simT`, the
+    simulation's clock at the last step, and `shownLag`) and draws the burst smoothly. (It was drawn at random each
+    step, a count's moment unknown.)
+  - **The surge.** For its first 2.5 s (`TEAR_CLOCK.surge`) a torn cell keeps and takes no bond, so the body comes
+    apart, and its spill (below) is `1 + tearSurge` (4) times as hard and up to `tearSurgeSpeed` (1 a second) fast,
+    easing off: the contents surge out. (At 6 and up to 2.8 a second cells were thrown off and ricocheted far.)
+  - **The spill.** For its first 10 s (`TEAR_SPILL`; `JELLY_PAD` 3, so `contactMain` reads it with no load more; a
+    torn cell spills bonded or not) a torn cell near a hole of its kind (within `tearSpillReach`) is pushed after it as
+    it moves, and in the surge to it and at the opening (within 0.4) out through it, at `tearSpill` (0.25 of a full
+    overlap's push), eased off near `tearSpillSpeed` (0.4 a second). A pierced cell is the opening: it is not pushed,
+    so the gap and its fluid stay where it was pierced while the rest pour out past it.
+  - **What is drawn.** As the tear reaches each cell its jelly flashes (`TEAR_FLASH`, 0.6 s: the rim and glow up to 4
+    times as bright, `TEAR_FLASH_GAIN`), so a ripple of light runs through the body from where it was pierced. Where it
+    was pierced the gap opens (the hole, `TEAR_HOLE` 2.4 radii, at least `TEAR_HOLE_MIN` 0.2, from 0.6 to 1.5 times
+    that over `TEAR_OPEN` 1.2 s, `TEAR_HOLE_W` deep). The gel pours out as a translucent fluid: a second pass of the
+    field (`JELLY_FX`, into a second target the rim reads, `jellyFx`) draws the gel welling out of each opening (about
+    each pierced cell) for `FLUID_T` (3 s), spreading and thinning (once a plume after every torn cell too, which
+    trailed the cells thrown off and looked wrong); the rim
+    draws it as a haze brightest where it thins (`FLUID_FILL`, `FLUID_EDGE`). A torn cell with no partner (its body
+    come apart) draws its own gel about it. The jelly keeps its outline but withers: drawn at `jellyAmp`, whole for
+    1.5 s, then fading over `tearFade` (30 s).
+  - **Regrowth.** After `tearHeal` (60 s) a torn cell bonded to its kind grows jelly again, drawn fading in over
+    10 s, and is then a wall (its clock held at `tearHeal` while it has no kin bonded).
+  - (First each torn cell's jelly vanished on its own at a rate, and the tear spread cell by cell: a body went in
+    seconds, drawn as if it never were; then the tear crept, the spill was an ooze, and nothing showed the moment.)
+    `tools/jellylab.mjs` counts torn, pierced and regrowing cells; `tools/jellyneedle.mjs --poke 1 --fixed 1` pricks a
+    body and films it, logging how fast its torn cells go; `tools/jellyhold.mjs` measures how steady the hull stays
+    with the needle held or drawn near it, from the hull's field read back each frame.
 - **Measured** with `tools/jellylab.mjs`, which reads a growing world every so often. It counts jelly cells and
   bodies, piercers (hungry or fed) and strangers' cells inside a hull, and with `{"sheath":0}` the same with no wall.
   The headless samples carry the jelly gene's share by guild (`jelly` in each sample).
