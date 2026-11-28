@@ -192,12 +192,6 @@ await page.evaluate(([win, linkR, at, v]) => {
   }
 }, [+v.win, K.linkR, tip, { every: +(v.every || 1), stripFrom: v.stripFrom || 'press', frames: !!+(v.frames || 0) }]);
 
-// --ablate cut|push: the needle's stroke cuts no bonds (and tears nothing it crossed), or its point and shaft push
-// nothing aside (and prick nothing), to tell which shakes the hull
-if (v.ablate) await page.evaluate((ab) => {
-  const T = globalThis.__tidemote, up = T.hand.update.bind(T.hand);
-  T.hand.update = (...a) => { up(...a); if (ab === 'cut') T.eng.hand[17] = 0; if (ab === 'push') T.eng.hand.fill(0, 28, 32); };
-}, v.ablate);
 // --still 1: the water's currents stilled (the tide's waves' strength held at 0 each frame), so a body stays where it
 // is and where the jelly opened can be told against where the needle was pressed
 if (v.still) await page.evaluate(() => {

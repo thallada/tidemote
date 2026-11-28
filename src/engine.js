@@ -675,9 +675,12 @@ class Engine {
     // a jelly envelope's field: its cells' kernels added at a quarter of a view's size each way (_jellyField), each view's
     // with the frames its tiles were reached (JELLY_TILE in DRAW_WGSL) and the stamp of the last
     // (two targets: the field, and a burst's fluid and flash, JFOut; drawn again with JELLY_FX for the fluid)
-    const fieldDesc = (fx) => ({ ...rpDesc(this.drawModule, 'vsJellyField', 'fsJellyField', 'triangle-strip', additive, 'rgba16float', fx ? { JELLY_FX: 1 } : {}),
-      fragment: { module: this.drawModule, entryPoint: 'fsJellyField', targets: [{ format: 'rgba16float', blend: additive }, { format: 'rgba16float', blend: additive }], constants: fx ? { JELLY_FX: 1 } : {} },
-      vertex: { module: this.drawModule, entryPoint: 'vsJellyField', constants: fx ? { JELLY_FX: 1 } : {} }, label: fx ? 'jellyFluid' : 'fsJellyField' });
+    const fieldDesc = (fx) => {
+      const d = rpDesc(this.drawModule, 'vsJellyField', 'fsJellyField', 'triangle-strip', additive, 'rgba16float', { JELLY_FX: +fx });
+      d.fragment.targets.push(d.fragment.targets[0]);
+      d.vertex.constants = d.fragment.constants;
+      return d;
+    };
     this.pJellyField = defer(fieldDesc(false), false, (p) => { this.pJellyField = p; }, true);
     this.pJellyFluid = defer(fieldDesc(true), false, (p) => { this.pJellyFluid = p; }, true);
     this.jelly = [null, null, null];
