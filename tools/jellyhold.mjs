@@ -48,7 +48,9 @@ for (let i = 0; i < cnt; i++) { const o = i * PW; if (pu[o + 4] < FIRST_LIFE) co
 const bodies = new Map(); for (const i of jl) { const r = find(i); (bodies.get(r) || bodies.set(r, []).get(r)).push(i); }
 const cands = [];
 for (const b of bodies.values()) {
-  if (b.length < 40 || b.length > 160) continue;
+  if (b.length < +(v.minCells || 40) || b.length > +(v.maxCells || 160)) continue;
+  // (--minSize: of species this big or more, genome size, as a young world's founders are)
+  if (v.minSize && gen(pu[b[0] * PW + 4]).size < +v.minSize) continue;
   const x0 = pf[b[0] * PW], y0 = pf[b[0] * PW + 1];
   let cx = 0, cy = 0; for (const i of b) { cx += wrap(pf[i * PW] - x0, W); cy += wrap(pf[i * PW + 1] - y0, H); }
   cx = x0 + cx / b.length; cy = y0 + cy / b.length;
@@ -137,7 +139,8 @@ await page.evaluate(([win, linkR, at, v]) => {
   // the inside (fsJellyRim's: the field above its level, raised where the field is flat) in a disc about the point
   function read(p) {
     // (a frame drawn again with the world not stepped since shows the same field: only steps are compared)
-    if (p.t === C.lastT) return;
+    // (--frames 1: every frame drawn, a step drawn twice in between its ends too, eng.lerp)
+    if (p.t === C.lastT && !v.frames) return;
     C.lastT = p.t;
     const u16 = new Uint16Array(p.buf.getMappedRange(0, p.bpr * p.hh)), row = p.bpr / 2, n = p.ww * p.hh, m = new Uint8Array(n);
     for (let y = 0; y < p.hh; y++) for (let x = 0; x < p.ww; x++) {
@@ -187,7 +190,7 @@ await page.evaluate(([win, linkR, at, v]) => {
     if (C.keep > 0 && (v.stripFrom !== 'pierce' || C.pierceT != null) && C.n++ % C.every === 0) { C.keep--; C.masks.push({ w: p.ww, h: p.hh, m: Array.from(m) }); }
     C.prev2 = same ? a : null; C.prev = m;
   }
-}, [+v.win, K.linkR, tip, { every: +(v.every || 1), stripFrom: v.stripFrom || 'press' }]);
+}, [+v.win, K.linkR, tip, { every: +(v.every || 1), stripFrom: v.stripFrom || 'press', frames: !!+(v.frames || 0) }]);
 
 // --ablate cut|push: the needle's stroke cuts no bonds (and tears nothing it crossed), or its point and shaft push
 // nothing aside (and prick nothing), to tell which shakes the hull
@@ -201,6 +204,11 @@ if (v.still) await page.evaluate(() => {
   const T = globalThis.__tidemote, up = T.hand.update.bind(T.hand);
   T.hand.update = (...a) => { up(...a); for (let k = 0; k < 4; k++) T.eng.waves[k * 4 + 3] = 0; };
 });
+// --split 1: 2-tick steps spread over two frames and drawn in between (perf.split: a phone whose GPU cannot fit a
+// 1/60 s step and the drawing in a frame takes them at real time), held on whatever the page's pacing would choose
+if (v.split) await page.evaluate(() => { const T = globalThis.__tidemote; Object.defineProperty(T.perf, 'split', { get: () => true, set() {}, configurable: true }); });
+// (the bonds the needle's stroke cut, as the page hears them: Engine.onCut)
+await page.evaluate(() => { const T = globalThis.__tidemote, was = T.eng.onCut; globalThis.__cuts = 0; T.eng.onCut = (n) => { globalThis.__cuts += n; was?.(n); }; });
 const phase = (name, keep = 0) => page.evaluate(([name, keep]) => { const C = globalThis.__hold; C.on = true; C.phase = name; C.keep = keep; }, [name, keep]);
 await page.evaluate(() => globalThis.__tidemote.setSpeed(1));
 await page.waitForTimeout(500);
@@ -267,6 +275,7 @@ const torn = await page.evaluate(async ([at, r]) => {
   return { cells, torn, pierced };
 }, [tip, +v.win]);
 if (v.mode === 'hold' && !tapped) await page.mouse.up();
+const cutsN = await page.evaluate(() => globalThis.__cuts);
 await page.waitForTimeout(300);
 const C = await page.evaluate(() => { const C = globalThis.__hold; clearInterval(C.watch); return { frames: C.frames, masks: C.masks, snaps: C.snaps, pierced: C.pierced, pierceT: C.pierceT }; });
 // the inside a frame at a time, drawn in the page into one sheet (white: inside; grey: outside the window)
@@ -329,5 +338,6 @@ for (const ph of ['control', 'held', 'pierced']) {
 const fx = (x) => (x == null ? '-' : x.toFixed(2));
 console.log(`pierced ${pierce.n} cells, from the point: nearest ${fx(pierce.nearest)} median ${fx(pierce.median)} farthest ${fx(pierce.farthest)}`);
 for (const k of ['open05', 'open15']) if (pierce[k]) console.log(`opened ${k === 'open05' ? '0.5' : '1.5'} s after: ${pierce[k].area.toFixed(3)} sq units, from the point median ${fx(pierce[k].p50)} p90 ${fx(pierce[k].p90)}`);
+console.log(`bonds cut by the needle's stroke: ${await (async () => cutsN)()}`);
 console.log(`after: ${torn.torn} of ${torn.cells} cells within ${v.win} torn, ${torn.pierced} pierced (both bits: a tail's cell counts as pierced too)`);
 function gauss() { let u = 0; while (!u) u = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * Math.random()); }

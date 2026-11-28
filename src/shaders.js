@@ -1922,14 +1922,28 @@ fn lampLight(p: vec2f, l: f32) -> f32 {
   let b = lp.w * disc(handD(p, lp.xy), lp.z);
   return select(l * (1.0 + b), l + b, b > 0.0);
 }
-// Whether the needle's stroke this step passes within its half-width of p (a bond there is cut).
-fn cutAt(p: vec2f) -> bool {
+// Whether the needle's stroke this step passes within its half-width of the bond from p to p + d: the bonds it goes
+// through are cut, and no others. (Cutting every bond with a cell within 0.32 of the stroke, a finger drawn past a
+// body cut its edge's bonds on each step the stroke was taken, and they joined again on each step between, a jelly's
+// hull drawn along them jumping between two shapes frame by frame.)
+fn cutAcross(p: vec2f, d: vec2f) -> bool {
   let w = sim.hand.more.y;
   if (IDLE_HAND || w <= 0.0) { return false; }
-  let a = handD(p, sim.hand.cut.xy);
+  let a = handD(sim.hand.cut.xy, p);
   let ab = handD(sim.hand.cut.zw, sim.hand.cut.xy);
-  let t = clamp(dot(a, ab) / max(dot(ab, ab), 1e-8), 0.0, 1.0);
-  return length(a - ab * t) < w;
+  // (crossing: each segment's ends on either side of the other's line)
+  let c0 = a.x * d.y - a.y * d.x;
+  let c1 = (a.x + ab.x) * d.y - (a.y + ab.y) * d.x;
+  let c2 = -a.x * ab.y + a.y * ab.x;
+  let c3 = (d.x - a.x) * ab.y - (d.y - a.y) * ab.x;
+  if (c0 * c1 < 0.0 && c2 * c3 < 0.0) { return true; }
+  // (else the nearest of the four ends to the other segment)
+  let t0 = clamp(dot(-a, ab) / max(dot(ab, ab), 1e-8), 0.0, 1.0);
+  let t1 = clamp(dot(d - a, ab) / max(dot(ab, ab), 1e-8), 0.0, 1.0);
+  let s0 = clamp(dot(a, d) / max(dot(d, d), 1e-8), 0.0, 1.0);
+  let s1 = clamp(dot(a + ab, d) / max(dot(d, d), 1e-8), 0.0, 1.0);
+  let m = min(min(length(a + ab * t0), length(a + ab * t1 - d)), min(length(a - d * s0), length(a + ab - d * s1)));
+  return m < w;
 }
 
 // How far the pipette's draw carries cell id at p toward its tip in h seconds: every cell within its reach while
@@ -3109,7 +3123,7 @@ fn keepBond(i: u32, j: u32, p: Particle) -> u32 {
   var d = q.pos - p.pos;
   d -= sim.world * round(d / sim.world);
   if (dot(d, d) > LINK_R * LINK_R * ${f(K.bondBreak * K.bondBreak)}) { return NONE; }
-  if (cutAt(p.pos) || cutAt(q.pos)) { return NONE; }
+  if (cutAcross(p.pos, d)) { return NONE; }
   return j;
 }
 
@@ -3825,12 +3839,20 @@ fn cystStep(i: u32) {
   parts[i] = p;
 }
 
-// The bonds cell i keeps that the needle's stroke this step crosses (they are cut), counted for the page to hear.
+// The bonds cell i keeps with a cell within HEAR_CUT of the needle's stroke this step, counted for the page to hear
+// (the needle rougher where it goes through a body: more than it cuts, cutAcross, which a drag through a body seldom
+// meets, its point having killed or pushed aside the cells in its way)
+const HEAR_CUT = 0.32;
+fn strokeNear(p: vec2f) -> bool {
+  let a = handD(p, sim.hand.cut.xy);
+  let ab = handD(sim.hand.cut.zw, sim.hand.cut.xy);
+  return length(a - ab * clamp(dot(a, ab) / max(dot(ab, ab), 1e-8), 0.0, 1.0)) < HEAR_CUT;
+}
 fn handCut(i: u32, kept: vec2u, at: vec2f) {
   var n = 0u;
   for (var k = 0u; k < 2u; k++) {
     let j = kept[k];
-    if (j < sim.count && j != i && (k == 0u || j != kept.x) && (cutAt(at) || cutAt(sortedFull[j].pos))) { n++; }
+    if (j < sim.count && j != i && (k == 0u || j != kept.x) && (strokeNear(at) || strokeNear(sortedFull[j].pos))) { n++; }
   }
   if (n > 0u) { atomicAdd(&ledger[handAt() + H_CUTS], n); }
 }
@@ -8490,12 +8512,14 @@ fn jellyPartners(i: u32) -> vec2u {
   // (the cells' own positions, not drawnPos: a newborn's bud offset needs the animation records, which this pass's
   // bind group leaves out; a hull is soft enough not to show it)
   let at = p.pos;
-  let a = wrapd(q.pos - at);
+  // (toward each partner no farther than a bond forms: a bond stretched past that, a cell shoved by the needle's shaft
+  // or pulled away as it spills, about to break, threw the hull out over the water between them for a step or two)
+  let a = jellyReach(wrapd(q.pos - at));
   var b = a;
   // the second partner only if it is a living cell this cell's bond to is jelly too (else the hull would reach for it)
   if (pn.y != NONE && pn.y != n) {
     let w = parts[pn.y];
-    if (w.kind >= FIRST_LIFE && bondKind(p, w) == BOND_JELLY) { b = wrapd(w.pos - at); }
+    if (w.kind >= FIRST_LIFE && bondKind(p, w) == BOND_JELLY) { b = jellyReach(wrapd(w.pos - at)); }
   }
   let r = (0.085 * genomes[p.kind].size * (1.0 - 0.12 * f32(roleOf(p.info))) + ${f(DEFAULT_K.sheathGap)}) / JELLY_FRAC;
   let lo = min(min(a, b), vec2f(0.0)) - r;
@@ -8510,6 +8534,7 @@ fn jellyPartners(i: u32) -> vec2u {
   o.amp = amp;
   return o;
 }
+fn jellyReach(d: vec2f) -> vec2f { return d * min(1.0, view.linkR / max(length(d), 1e-6)); }
 // the nearest point to x on the segment from u to v
 fn jellyNearest(x: vec2f, u: vec2f, v: vec2f) -> vec2f {
   let e = v - u;

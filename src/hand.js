@@ -35,7 +35,7 @@ export const REACH = { min: 0.6, max: 8, def: 2 };
 export const reachStep = (r, d) => Math.min(REACH.max, Math.max(REACH.min, r * 1.25 ** d));
 const LAMP = 0.6; // the light a lamp adds within its reach, at full brightness (the sun at noon gives about 1)
 const HOVER = 0.25; // the lamp, shade, stage and probe over the world, not pressed: this much of their full strength
-const CUT = 0.32; // the needle's half-width: it cuts bonds and parts cells this far to either side (past LINK_R apart)
+const CUT = 0.04; // the needle's half-width: its stroke cuts the bonds it passes within this of (cutAcross)
 // how the lamp and stage come up while held and go when let go, and the rod dips in and lifts out (time constants,
 // real seconds)
 const EASE = { lamp: [0.35, 0.3], stage: [0.25, 0.25], dip: [0.3, 0.08] };
