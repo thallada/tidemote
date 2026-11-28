@@ -88,7 +88,9 @@ export const SHADE = 0.9;
 // water; zoomed out, more of it is let down, so it stays wetPx css pixels long on the screen and sweeps more cells,
 // up to wetMax (hand.wet, the page's).
 // (slopPx: how far the pointer goes on the screen, CSS px, before a held needle cuts again: a finger's tremor never does)
-export const NEEDLE = { w: 0.45, taper: 3, wet: 1.2, wetPx: 110, wetMax: 10, kill: 0.12, slopPx: 12 };
+// (tear: how near its point or stroke passes a jelly's cell to pierce it, just past the cells it kills, so the jelly opens
+// where it is pressed and no wider)
+export const NEEDLE = { w: 0.45, taper: 3, wet: 1.2, wetPx: 110, wetMax: 10, kill: 0.12, slopPx: 12, tear: 0.18 };
 // The pipette comes into the water aslant: how much of it is in the water (sharp), how fast it goes out of focus up
 // from there (world units of blur a world unit along it), and how out of focus an instrument is raised over the
 // water (world units), the cells in its bore as much as its glass
@@ -1263,8 +1265,8 @@ ${K.tearSpread > 0 ? `      if ((q.kr & JELLY_PIERCE) != 0u && qk != p.kind && r
   // a cell answers its neighbors as a whole, not each one in full: past socialN within reach the pair
   // forces are averaged, so a crowd drives a cell no harder than a neighborhood does
 ${K.tearSpread > 0 ? `  // (a wall's cell only: a jelly torn is no wall)
-  // (or the needle's prick: its point within a fifth of a unit, or its stroke across the cell: needleAt)
-  pierced = (sortedLite[i].kr & JELLY_WALL) != 0u && (tear >= 1e4 || needleAt(p.pos, max(myR + ${f(K.sheathGap)}, 0.2)));
+  // (or the needle's prick: its point or its stroke within NEEDLE.tear of the cell, needleAt)
+  pierced = (sortedLite[i].kr & JELLY_WALL) != 0u && (tear >= 1e4 || needleAt(p.pos, ${f(NEEDLE.tear)}));
   rend = pierced || ((sortedLite[i].kr & JELLY_WALL) != 0u && tear > 0.0 && rnd(&s) < tear * ${f(K.tearSpread)} * sim.dt);
 ` : ''}  let social = ${f(K.socialN)} / max(${f(K.socialN)}, nIn * stride);
   force *= social; jF *= social;
@@ -1961,12 +1963,17 @@ fn wakeFlow(p: vec2f) -> vec2f {
 // How far the needle and Touch's rod in the water push a cell or a grain at p aside, out of their way: each moved
 // from where it was when the world last stepped to where it is, it sweeps what lies between, so a fast stroke
 // carries along what it passes rather than leaping over it. Nothing in a headless run, where both are out.
-// Whether the needle's point is within margin of p, or its stroke since the world last stepped crossed p: a jelly it
-// pricks tears there, as a piercer's does (K.tearSpread). (Its shaft lies over the water, not through it: tearing all
-// it lay over, every step the needle moved tore cells along it anew, holes popping all along the edge.)
+// Whether the needle's point is within margin of p, or its stroke since the world last stepped passed within margin of
+// p: a jelly it pricks tears there, as a piercer's does (K.tearSpread). (Its shaft lies over the water, not through it:
+// tearing all it lay over, every step the needle moved tore cells along it anew, holes popping all along the edge; and
+// the stroke tears no wider than the point, not as wide as it cuts bonds, so the jelly opens where it was drawn.)
 fn needleAt(p: vec2f, margin: f32) -> bool {
   if (IDLE_HAND) { return false; }
-  if (cutAt(p)) { return true; }
+  if (sim.hand.more.y > 0.0) {
+    let a = handD(p, sim.hand.cut.xy);
+    let ab = handD(sim.hand.cut.zw, sim.hand.cut.xy);
+    if (length(a - ab * clamp(dot(a, ab) / max(dot(ab, ab), 1e-8), 0.0, 1.0)) < margin) { return true; }
+  }
   return any(sim.hand.needle.zw != vec2f(0.0)) && length(handD(p, sim.hand.needle.xy)) < margin;
 }
 fn handPush(p: vec2f) -> vec2f { if (IDLE_HAND) { return vec2f(0.0); } return needlePush(p) + rodPush(p); }
@@ -5448,6 +5455,9 @@ struct View {
   jellyCols: u32,
   // the simulation clock's wraps (SIM_CLOCK) so far, as the simulation's sim.wraps.x (stalkFold)
   wraps: u32,
+  // the needle pressed into the water (the hand's Hand.needle: its point, its shaft in the water; zero when not pressed),
+  // where a jelly opens about it (vsJellyField)
+  needle: vec4f,
 };
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> parts: array<Particle>;
@@ -8387,6 +8397,12 @@ struct JF { @builtin(position) pos: vec4f, @location(0) off: vec2f, @location(1)
 // the level there already, and the hole stamps no tile)
 const JELLY_HOLE = 3.0;
 const JELLY_HOLE_W = 2.0;
+// The needle pressed into a jelly opens it about its point, NEEDLE_HOLE across, as long as it is in: drawn as one more
+// instance of the field's pass (Engine._jellyField), so the jelly is cut exactly where the finger or the cursor is,
+// and the cells it pierced (JELLY_PIERCED) keep their holes after it is lifted
+const NEEDLE_II = 0x7fffffffu;
+const NEEDLE_HOLE = ${f(NEEDLE.kill + 0.04)};
+const NEEDLE_HOLE_W = 4.0; // times JELLY_HOLE_W
 fn jellyHole(i: u32, vi: u32) -> JF {
   var o: JF;
   o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
@@ -8410,11 +8426,13 @@ fn jellyHoleQuad(p: Particle, i: u32, vi: u32, r: f32) -> JF {
   o.hole = r;
   return o;
 }
-// where a jelly was pierced (K.tearSpread, JELLY_PIERCED) a hole of TEAR_HOLE times the cell's radius, opening over
-// its first TEAR_WHOLE counts and kept while its jelly withers
+// where a jelly was pierced (K.tearSpread, JELLY_PIERCED) a hole of TEAR_HOLE times the cell's radius, whole at once
+// (opened over the clock's first counts, it grew in steps a quarter of it apart, the edge jumping) and kept while its
+// jelly withers
 const TEAR_HOLE = 2.4;
-// (and at least this, world units: a small cell's jelly reaches far past it, and a hole its size did not show)
-const TEAR_HOLE_MIN = 0.3;
+// (and at least this, world units: a small cell's jelly reaches far past it, and a hole its size did not show; more,
+// and the jelly opened wide of where the needle pressed)
+const TEAR_HOLE_MIN = 0.2;
 // A cell's partners for its kernel: the two it keeps (intent.zw), or for a cell that keeps none, the two of lowest
 // index among those keeping it (bondsIn). The keepers are listed by atomics in whatever order the GPU runs them,
 // different each frame even with the world paused, so taking the first listed made the hull jump between shapes.
@@ -8434,6 +8452,17 @@ fn jellyPartners(i: u32) -> vec2u {
 @vertex fn vsJellyField(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> JF {
   var o: JF;
   o.pos = vec4f(2.0, 2.0, 0.0, 1.0);
+  if (ii == NEEDLE_II) {
+    if (all(view.needle.zw == vec2f(0.0))) { return o; }
+    let base = wrapd(view.needle.xy - view.cam);
+    o.off = select(vec2f(-NEEDLE_HOLE), vec2f(NEEDLE_HOLE), vec2u(vi & 1u, vi >> 1u) == vec2u(1u));
+    o.pos = toClip((base + o.off) * view.ppu);
+    o.fade = 1.0;
+    o.hole = NEEDLE_HOLE;
+    // (deeper than a cell's hole: where a crowd's kernels pile up, the jelly closed over the point again)
+    o.amp = NEEDLE_HOLE_W;
+    return o;
+  }
   let i = livingAt(ii);
   if (i == NONE) { return o; }
   // (a cell that keeps no bond and is kept by none first, as most are, read from its bonds alone)
@@ -8446,7 +8475,7 @@ fn jellyPartners(i: u32) -> vec2u {
   if (view.bond < 0.0 && (pi & (JELLY_TORN | JELLY_PIERCED)) == (JELLY_TORN | JELLY_PIERCED) && genOf(pi) < TEAR_GONE && parts[i].kind >= FIRST_LIFE && parts[i].kind < MAXK
       && genomes[parts[i].kind].dev.x < 0x80000000u) {
     let pp = parts[i];
-    return jellyHoleQuad(pp, i, vi, max(TEAR_HOLE * 0.085 * genomes[pp.kind].size, TEAR_HOLE_MIN) * min(1.0, f32(genOf(pi) + 1u) / f32(TEAR_WHOLE)));
+    return jellyHoleQuad(pp, i, vi, max(TEAR_HOLE * 0.085 * genomes[pp.kind].size, TEAR_HOLE_MIN));
   }
   if (n == NONE) { return jellyHole(i, vi); }
   let p = parts[i];
@@ -8492,7 +8521,8 @@ fn jellyNearest(x: vec2f, u: vec2f, v: vec2f) -> vec2f {
   if (i.hole > 0.0) {
     let kh = 1.0 - dot(x, x) / (i.hole * i.hole);
     if (kh <= 0.0) { discard; }
-    return vec4f(kh * kh, x * (-4.0 * kh / (i.hole * i.hole)), kh * kh * i.fade) * -JELLY_HOLE_W;
+    // (amp: the needle's, deeper; a cell's hole leaves it 0)
+    return vec4f(kh * kh, x * (-4.0 * kh / (i.hole * i.hole)), kh * kh * i.fade) * (-JELLY_HOLE_W * max(i.amp, 1.0));
   }
   let a = i.tri.xy;
   let b = i.tri.zw;

@@ -16,7 +16,7 @@ const POST_LAMP = 104 + 4 * SEA_CASCADES;
 // the look's words (Post.look, src/look.js) after the hand's
 export const POST_LOOK = POST_LAMP + 16;
 // the draw's view uniforms (struct View in DRAW_WGSL), the world's light at their end
-export const VIEW_BYTES = 304;
+export const VIEW_BYTES = 320;
 // then the murk's cameras (Post.murk, murkB: _murkCam)
 const POST_MURK = POST_LOOK + LOOK_WORDS;
 // then the water's edge's phases (Post.edgePh)
@@ -152,6 +152,9 @@ export function viewWords(data, K, { cam, W, H, dpr, time, selId, detail = true,
   // (73, 74: a jelly envelope's field's stamp and tiles across, written apart by Engine._jellyField; w: the times the
   // simulation's clock has wrapped, a u32, for a stalk's beat across a wrap: stalkFold in DRAW_WGSL)
   v[72] = K.bondLook ?? -1; vu[73] = 0; vu[74] = 0; vu[75] = (w.wraps ?? 0) >>> 0;
+  // the needle pressed into the water: its point, and its shaft's way and length in the water (zero when not pressed:
+  // the hand's words, Hand.needle), where a jelly opens about it (vsJellyField's NEEDLE_II)
+  v.set(w.hand.subarray(28, 32), 76);
 }
 
 class Engine {
@@ -3104,6 +3107,8 @@ class Engine {
     const pass = enc.beginRenderPass({ colorAttachments: [{ view: j.view, loadOp: 'clear', clearValue: [0, 0, 0, 0], storeOp: 'store' }] });
     pass.setPipeline(this.pJellyField); pass.setBindGroup(0, s.jelly.bg);
     if (u[21] === 1) pass.drawIndirect(this.cull[k].args, 16); else pass.drawIndirect(b.frameCtr, 16);
+    // (and the needle pressed in, a hole about its point: one more instance, NEEDLE_II in DRAW_WGSL)
+    if (this.hand[30] !== 0 || this.hand[31] !== 0) pass.draw(4, 1, 0, 0x7fffffff);
     pass.end();
     s.jelly.on = true;
   }

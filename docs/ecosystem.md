@@ -106,8 +106,9 @@ only eaters able to pierce it get in.
   radius, weight `JELLY_HOLE_W` 1.6), so the hull tears open where it presses in, and inside the jelly a cavity with a
   rim of its own closes round it as it moves and feeds. In open water the field is below the level already, so
   nothing shows there (and the hole stamps no tile, so it costs no rim).
-- **The tear** (`K.tearSpread`, 2026-11-27): a hungry piercer at a wall cell's hull, or the needle (its shaft over or
-  pressing on the cell, or its stroke across it: `needleAt`), tears the jelly there, and the tear runs through the body:
+- **The tear** (`K.tearSpread`, 2026-11-27): a hungry piercer at a wall cell's hull, or the needle (its point or its stroke
+  within `NEEDLE.tear`, 0.18, of the cell, just past the 0.12 it kills: `needleAt`; and while it is pressed in, the jelly
+  is opened about its point, `NEEDLE_HOLE`, so it is cut exactly where the finger or the cursor is), tears the jelly there, and the tear runs through the body:
   each wall cell tears at `tearSpread` (2) a second for each fresh tear of its kind within a bond's reach (`senseMain`),
   so a body is open in a few seconds. A torn cell is no wall: any cell passes it, and any grazer may eat it. While torn,
   its generation's bits (`genOf`, read only by trees and tails, which are never jelly) are its clock, two counts a
@@ -117,7 +118,8 @@ only eaters able to pierce it get in.
   no load more) a torn cell spills: the pull that drew it toward its kind's middle pushes it out from there, `tearSpill`
   (1.5) times as hard, so the colony pours out of its jelly. The jelly keeps its outline but withers: its kernels are
   drawn at `jellyAmp`, whole for 2 s, then fading to nothing over `tearFade` (30 s), so the hull thins and shrinks
-  away; where it was pierced a hole (`TEAR_HOLE` 2.4 radii, opening over 2 s) stays while it withers. After `tearHeal`
+  away; where it was pierced a hole (`TEAR_HOLE` 2.4 radii, at least `TEAR_HOLE_MIN` 0.2, whole at once: opened in steps
+  over the clock's counts, its edge jumped) stays while it withers. After `tearHeal`
   (60 s) a torn cell bonded to its kind grows jelly again, drawn fading in over 10 s, and is then a wall (its clock
   held at `tearHeal` while it has no kin bonded). (First each torn cell's jelly vanished on its own at a rate, and the
   tear spread cell by cell: at 0.6 and 0.5 a second a body went in seconds, drawn as if it never were; slowed, holes
