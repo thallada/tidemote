@@ -61,7 +61,10 @@ export function createHand(words, ids, { reach = REACH.def, drops }) {
     // { x, y, vx, vy, t }; wake: where it was when it last left one)
     // (stroke: the rod's last move, frame to frame, and when; rung: how many ring waves its strokes have sent out)
     // (wet: how much of the needle is in the water, world units: NEEDLE.wet, more zoomed out; the page's)
+    // (cutFrom: where the needle last cut from, or was pressed; slop: how far past it the pointer must go before it cuts
+    // again, world units, NEEDLE.slopPx on the screen, the page's)
     tool: 'loupe', reach, wet: NEEDLE.wet, held: false, rung: 0, last: null, at: null, from: null, dip: 0, eddies: [], wake: null, stroke: null,
+    cutFrom: null, cutting: false, slop: 0,
     lamp: { x: 0, y: 0, r: reach, v: 0 }, stage: { x: 0, y: 0, r: reach, v: 0 },
     // the ridden cell and where it is steered: [x, y, strength]; the pipette's draw: [x, y, reach, speed] (the page's)
     rider: NONE, will: null, suck: null,
@@ -95,7 +98,7 @@ export function createHand(words, ids, { reach = REACH.def, drops }) {
     hover(x, y) { h.at = x == null ? null : [x, y]; },
     /** The pointer pressed at world point (x, y), simulated time t. */
     down(x, y, t) {
-      h.held = true; h.last = h.at = h.from = [x, y];
+      h.held = true; h.last = h.at = h.from = h.cutFrom = [x, y];
       if (works(h.tool) && h.tool !== 'pipette') act(t, x, y);
     },
     /** The pointer moved to (x, y). */
@@ -103,12 +106,16 @@ export function createHand(words, ids, { reach = REACH.def, drops }) {
       if (h.held) h.last = h.at = [x, y];
     },
     /** The world stepped with the words last written: what the needle and the rod passed is behind them. */
-    stepped() { h.from = h.held ? h.last : null; },
+    stepped() {
+      h.from = h.held ? h.last : null;
+      // (the needle's cut goes on from where it ended; uncut, it is still measured from where it last cut)
+      if (h.cutting || !h.held) h.cutFrom = h.held ? h.last : null;
+    },
     /** The pointer let go at simulated time t: a held act ends. */
     up(t) {
       const a = h.acts[h.acts.length - 1];
       if (h.held && t != null && a && a.tool === h.tool) a.end = Math.max(a.end, t);
-      h.held = false; h.from = null;
+      h.held = false; h.from = h.cutFrom = null;
     },
     /** A tap with Touch: a drop's ring from (x, y). */
     tap(x, y, t) { ring(x, y, t, 2.5); act(t, x, y, 1); },
@@ -138,10 +145,15 @@ export function createHand(words, ids, { reach = REACH.def, drops }) {
       if (p) for (const o of [h.lamp, h.stage]) Object.assign(o, { x: p[0], y: p[1], r: h.reach });
       h.lamp.v = settle(ease(h.lamp.v, lampTo, EASE.lamp, dt), lampTo);
       h.stage.v = settle(ease(h.stage.v, stageTo, EASE.stage, dt), stageTo);
-      // the needle or the rod let down into the water, and where it was when the world last stepped (the needle's
-      // stroke since then cuts the bonds it crosses); the rod dips in a moment, pushing out wider as it goes deeper
+      // the needle or the rod let down into the water, and where it was when the world last stepped; the rod dips in a
+      // moment, pushing out wider as it goes deeper. The needle's stroke cuts the bonds it crosses, from where it last
+      // cut once the pointer is more than the slop past it: a finger held still trembles a few pixels, and cutting at
+      // every tremor cut the bonds about the point one step and they joined again the next, a jelly's hull drawn along
+      // them jumping between two shapes (tools/jellyhold.mjs)
       const f = h.held && p ? h.from || p : null, needle = f && tl === 'needle';
-      const cut = needle && Math.hypot(p[0] - f[0], p[1] - f[1]) > 1e-4;
+      const cf = needle ? h.cutFrom || p : null;
+      const cut = needle && Math.hypot(p[0] - cf[0], p[1] - cf[1]) > Math.max(h.slop, 1e-4);
+      h.cutting = !!cut;
       h.dip = settle(ease(h.dip, h.held && tl === 'touch' ? 1 : 0, EASE.dip, dt), h.held && tl === 'touch');
       // (the rod pushes and stirs only while pressed: let go, it is out of the world's water at once, however fast
       // the world runs or wherever the pointer goes; only the rod drawn lifts out, under the pointer, as dip falls)
@@ -149,7 +161,7 @@ export function createHand(words, ids, { reach = REACH.def, drops }) {
       wake(rod, t);
       const w = h.will || [0, 0, 0];
       words.set([h.lamp.x, h.lamp.y, h.lamp.r, h.lamp.v, h.stage.x, h.stage.y, h.stage.r, h.stage.v,
-        ...(rod ? [...rod, ...f] : [0, 0, 0, 0]), ...(cut ? [...f, ...p] : [0, 0, 0, 0]), rod ? h.reach * Math.sqrt(h.dip) : 0, cut ? CUT : 0, w[0], w[1]]);
+        ...(rod ? [...rod, ...f] : [0, 0, 0, 0]), ...(cut ? [...cf, ...p] : [0, 0, 0, 0]), rod ? h.reach * Math.sqrt(h.dip) : 0, cut ? CUT : 0, w[0], w[1]]);
       ids[21] = h.rider;
       words[22] = w[2];
       words.set(h.suck || [0, 0, 0, 0], 24);

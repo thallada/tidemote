@@ -135,6 +135,25 @@ test('the needle cuts along its stroke since the world last stepped', () => {
   assert.equal(words[17], 0);
 });
 
+test('a held needle cuts only once the pointer goes past the slop from where it last cut', () => {
+  const { hand, words } = make();
+  hand.set('needle'); hand.slop = 0.5; hand.down(1, 1, 0);
+  // (a tremor about the point: never past the slop, never a cut, step after step)
+  for (const [x, y] of [[1.2, 1], [0.9, 1.1], [1.1, 0.8], [1, 1.3]]) {
+    hand.move(x, y); hand.update(1 / 60);
+    assert.equal(words[17], 0, `trembling at ${x}, ${y}: nothing cut`);
+    hand.stepped();
+  }
+  // (drawn on: cut from where it was pressed, then on from where that cut ended)
+  hand.move(1.5625, 1); hand.update(1 / 60);
+  assert.deepEqual([...words.subarray(12, 16)], [1, 1, 1.5625, 1]);
+  assert.ok(words[17] > 0);
+  hand.stepped(); hand.move(1.75, 1); hand.update(1 / 60);
+  assert.equal(words[17], 0, 'a little on: not yet');
+  hand.stepped(); hand.move(2.25, 1); hand.update(1 / 60);
+  assert.deepEqual([...words.subarray(12, 16)], [1.5625, 1, 2.25, 1]);
+});
+
 test('acts in one place run together; elsewhere or later they are new', () => {
   const { hand } = make();
   hand.set('touch');

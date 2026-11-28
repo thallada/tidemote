@@ -6902,6 +6902,8 @@ function run(eng, device, ctx, specCtx, hasTS, { caps, preferred }) {
       if (R) hand.hover(...toWorld(R.sx, R.sy)); else hand.hover(null);
       // (the needle let down farther the farther out the view: NEEDLE.wetPx on the screen, from NEEDLE.wet to wetMax)
       hand.wet = clamp(NEEDLE.wetPx / cssPPU(), NEEDLE.wet, NEEDLE.wetMax);
+      // (and how far a held needle goes before it cuts again: NEEDLE.slopPx on the screen)
+      hand.slop = NEEDLE.slopPx / cssPPU();
       hand.update(dt / 1000, eng.simTime);
       hearHand(R, dt / 1000);
       showInstrument(R, dt / 1000);

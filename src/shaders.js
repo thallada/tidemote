@@ -87,7 +87,8 @@ export const SHADE = 0.9;
 // touches nothing), and how near its point a cell must come to be pricked (world units). Close up wet is in the
 // water; zoomed out, more of it is let down, so it stays wetPx css pixels long on the screen and sweeps more cells,
 // up to wetMax (hand.wet, the page's).
-export const NEEDLE = { w: 0.45, taper: 3, wet: 1.2, wetPx: 110, wetMax: 10, kill: 0.12 };
+// (slopPx: how far the pointer goes on the screen, CSS px, before a held needle cuts again: a finger's tremor never does)
+export const NEEDLE = { w: 0.45, taper: 3, wet: 1.2, wetPx: 110, wetMax: 10, kill: 0.12, slopPx: 12 };
 // The pipette comes into the water aslant: how much of it is in the water (sharp), how fast it goes out of focus up
 // from there (world units of blur a world unit along it), and how out of focus an instrument is raised over the
 // water (world units), the cells in its bore as much as its glass
